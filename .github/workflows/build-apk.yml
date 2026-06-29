@@ -34,14 +34,19 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.7"
 
       - name: Configure Android SDK path
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
+      - name: Print build environment
+        run: |
+          java -version
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls -la "$ANDROID_HOME/platforms" | tail -20
+          ./gradlew --version
+
       - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
+        run: ./gradlew assembleDebug --stacktrace --no-daemon
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
