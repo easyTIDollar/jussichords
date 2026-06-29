@@ -16,6 +16,8 @@ jobs:
   build-debug-apk:
     name: Build Debug APK
     runs-on: ubuntu-latest
+    env:
+      JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
 
     steps:
       - name: Checkout repository
@@ -29,16 +31,11 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Use Gradle distribution mirror
-        run: |
-          sed -i 's#https\\://services.gradle.org/distributions/gradle-8.7-bin.zip#https\\://mirrors.cloud.tencent.com/gradle/gradle-8.7-bin.zip#g' gradle/wrapper/gradle-wrapper.properties
-
-      - name: Grant execute permission for Gradle wrapper
-        run: chmod +x ./gradlew
+        with:
+          gradle-version: "8.7"
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: gradle assembleDebug --stacktrace
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
