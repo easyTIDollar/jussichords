@@ -92,20 +92,6 @@ RELEASE_KEY_PASSWORD=your-key-password
 
 `local.properties` 已被 `.gitignore` 忽略，请不要将签名文件或敏感信息提交到仓库。
 
-## 截图
-
-<table>
-  <tr>
-    <td><img src="screenshot/01.jpg" width="200" alt="Screenshot 01" /></td>
-    <td><img src="screenshot/02.jpg" width="200" alt="Screenshot 02" /></td>
-    <td><img src="screenshot/03.jpg" width="200" alt="Screenshot 03" /></td>
-  </tr>
-  <tr>
-    <td><img src="screenshot/04.jpg" width="200" alt="Screenshot 04" /></td>
-    <td><img src="screenshot/05.jpg" width="200" alt="Screenshot 05" /></td>
-    <td><img src="screenshot/06.jpg" width="200" alt="Screenshot 06" /></td>
-  </tr>
-</table>
 
 ## 开发说明
 
