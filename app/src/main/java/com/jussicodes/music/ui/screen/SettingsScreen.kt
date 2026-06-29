@@ -1,6 +1,7 @@
 package com.jussicodes.music.ui.screen
 
 import android.os.Build
+import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
@@ -30,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -37,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,6 +53,7 @@ import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.autoSkipNextOnErrorKey
 import com.jussicodes.music.constants.dynamicThemeColorKey
+import com.jussicodes.music.constants.githubDownloadProxyKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.themeSeedColorKey
 import com.jussicodes.music.constants.unblockBaseUrlKey
@@ -59,6 +63,7 @@ import com.jussicodes.music.ui.components.SongQualityDialog
 import com.jussicodes.music.ui.components.ThemeSeedDialog
 import com.jussicodes.music.ui.components.UrlEditDialog
 import com.jussicodes.music.ui.icons.Dns
+import com.jussicodes.music.ui.icons.Github
 import com.jussicodes.music.ui.icons.GraphicEq
 import com.jussicodes.music.ui.icons.Login
 import com.jussicodes.music.ui.icons.Logout
@@ -68,14 +73,18 @@ import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.theme.AppThemeSeed
 import com.jussicodes.music.utils.getItemShape
+import com.jussicodes.music.utils.AppUpdateManager
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.api.player.SongLevel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(navController: NavHostController) {
+    val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val coroutineScope = rememberCoroutineScope()
 
     var use40DpIcon by rememberPreference(use40DpIconKey, false)
     var audioQuality by rememberEnumPreference(audioQualityKey, defaultValue = SongLevel.STANDARD)
@@ -85,11 +94,15 @@ fun SettingsScreen(navController: NavHostController) {
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "https://ncm-api.prod.gbclstudio.cn")
     var unblockBaseUrl by rememberPreference(unblockBaseUrlKey, "https://unlock.depresskid.top")
+    var githubDownloadProxy by rememberPreference(githubDownloadProxyKey, "https://gh-proxy.net/")
 
     var showQualityDialog by remember { mutableStateOf(false) }
     var showThemeSeedDialog by remember { mutableStateOf(false) }
     var showApiUrlDialog by remember { mutableStateOf(false) }
     var showUnblockUrlDialog by remember { mutableStateOf(false) }
+    var showGithubProxyDialog by remember { mutableStateOf(false) }
+    var updating by rememberSaveable { mutableStateOf(false) }
+    var updateProgress by rememberSaveable { mutableStateOf<Int?>(null) }
     var logout by rememberSaveable { mutableStateOf(false) }
 
     val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -166,6 +179,71 @@ fun SettingsScreen(navController: NavHostController) {
             subtitle = unblockBaseUrl,
             imageVector = Dns,
             onClick = { showUnblockUrlDialog = true }
+        ),
+        SettingItemData(
+            title = "GitHub 下载加速",
+            subtitle = githubDownloadProxy.ifBlank { "不使用加速链接" },
+            imageVector = Github,
+            onClick = { showGithubProxyDialog = true }
+        ),
+        SettingItemData(
+            title = if (updating) "正在更新" else "检查版本更新",
+            subtitle = when {
+                updateProgress != null -> "正在下载安装包: ${updateProgress}%"
+                updating -> "正在检查 GitHub Release"
+                else -> "从项目 Release 检查最新版并下载安装"
+            },
+            imageVector = Github,
+            onClick = {
+                if (!updating) {
+                    updating = true
+                    updateProgress = null
+                    coroutineScope.launch {
+                        val updateResult = AppUpdateManager.checkLatestRelease()
+                        val updateInfo = updateResult.getOrElse {
+                            Toast.makeText(
+                                context,
+                                it.message ?: "检查更新失败",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            updating = false
+                            return@launch
+                        }
+
+                        if (updateInfo == null) {
+                            Toast.makeText(context, "当前已是最新版本", Toast.LENGTH_SHORT).show()
+                            updating = false
+                            return@launch
+                        }
+
+                        Toast.makeText(
+                            context,
+                            "发现新版本 ${updateInfo.versionName}，开始下载",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        val downloadResult = AppUpdateManager.downloadApk(
+                            context = context,
+                            updateInfo = updateInfo,
+                            downloadProxy = githubDownloadProxy,
+                            onProgress = { updateProgress = it }
+                        )
+                        downloadResult
+                            .onSuccess {
+                                Toast.makeText(context, "下载完成，准备安装", Toast.LENGTH_SHORT).show()
+                                AppUpdateManager.installApk(context, it)
+                            }
+                            .onFailure {
+                                Toast.makeText(
+                                    context,
+                                    it.message ?: "下载安装包失败",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        updating = false
+                        updateProgress = null
+                    }
+                }
+            }
         )
     )
 
@@ -299,6 +377,16 @@ fun SettingsScreen(navController: NavHostController) {
             defaultUrl = "https://unlock.depresskid.top",
             onDismiss = { showUnblockUrlDialog = false },
             onConfirm = { unblockBaseUrl = it }
+        )
+    }
+
+    if (showGithubProxyDialog) {
+        UrlEditDialog(
+            title = "GitHub 下载加速",
+            currentUrl = githubDownloadProxy,
+            defaultUrl = "https://gh-proxy.net/",
+            onDismiss = { showGithubProxyDialog = false },
+            onConfirm = { githubDownloadProxy = it }
         )
     }
 }

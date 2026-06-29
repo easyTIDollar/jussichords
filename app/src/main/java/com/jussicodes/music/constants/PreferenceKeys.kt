@@ -20,3 +20,4 @@ val libraryFavoriteSongCacheKey = stringPreferencesKey("libraryFavoriteSongCache
 val libraryUserPlaylistsCacheKey = stringPreferencesKey("libraryUserPlaylistsCache")
 val apiBaseUrlKey = stringPreferencesKey("apiBaseUrl")
 val unblockBaseUrlKey = stringPreferencesKey("unblockBaseUrl")
+val githubDownloadProxyKey = stringPreferencesKey("githubDownloadProxy")
