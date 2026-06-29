@@ -32,8 +32,13 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
 
       - name: Configure Android SDK path
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
@@ -41,12 +46,12 @@ jobs:
       - name: Print build environment
         run: |
           java -version
+          gradle --version
           echo "ANDROID_HOME=$ANDROID_HOME"
-          ls -la "$ANDROID_HOME/platforms" | tail -20
-          ./gradlew --version
+          ls -la "$ANDROID_HOME/platforms" || true
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace --no-daemon
+        run: gradle assembleDebug --stacktrace --no-daemon
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
