@@ -23,6 +23,17 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Configure Android SDK path
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
       - name: Validate tag matches app version
         shell: bash
         run: |
@@ -39,11 +50,8 @@ jobs:
             exit 1
           fi
 
-      - name: Grant Gradle execute permission
-        run: chmod +x ./gradlew
-
       - name: Build release APK
-        run: ./gradlew assembleRelease
+        run: gradle assembleRelease --stacktrace --no-daemon
 
       - name: Normalize APK filename
         run: mv app/build/outputs/apk/release/app-release-unsigned.apk app/build/outputs/apk/release/jussichords-${{ github.ref_name }}.apk
