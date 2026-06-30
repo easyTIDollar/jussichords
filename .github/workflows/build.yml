@@ -72,12 +72,9 @@ jobs:
             exit 1          
           fi      
 
-      # 构建 APK      
+      ## 构建 APK      
       - name: Build release APK        
-        run: |          
-          ./gradlew assembleRelease \          
-          --stacktrace \          
-          --no-daemon      
+        run: ./gradlew assembleRelease --stacktrace --no-daemon     
 
       # 重命名 APK      
       - name: Rename APK        
