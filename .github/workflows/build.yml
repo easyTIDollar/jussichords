@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
   build-and-release:
@@ -26,10 +27,11 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
 
       - name: Configure Android SDK path
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
@@ -37,6 +39,10 @@ jobs:
       - name: Validate tag matches app version
         shell: bash
         run: |
+          if [ "${GITHUB_EVENT_NAME}" != "push" ]; then
+            echo "Skip version check for ${GITHUB_EVENT_NAME}"
+            exit 0
+          fi
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           APP_VERSION=$(grep 'versionName = ' app/build.gradle.kts | head -n 1 | sed -E 's/.*versionName = "([^"]+)".*/\1/')
           echo "Tag version: ${TAG_VERSION}"
@@ -51,10 +57,17 @@ jobs:
           fi
 
       - name: Build release APK
-        run: gradle assembleRelease --stacktrace --no-daemon
+        run: ./gradlew assembleRelease --stacktrace --no-daemon
 
       - name: Normalize APK filename
-        run: mv app/build/outputs/apk/release/app-release-unsigned.apk app/build/outputs/apk/release/jussichords-${{ github.ref_name }}.apk
+        shell: bash
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/release -maxdepth 1 -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "No APK found in app/build/outputs/apk/release"
+            exit 1
+          fi
+          mv "$APK_PATH" "app/build/outputs/apk/release/jussichords-${{ github.ref_name }}.apk"
 
       - name: Create GitHub Release and upload APK
         uses: softprops/action-gh-release@v2
