@@ -23,6 +23,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -47,6 +48,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
+import com.jussicodes.music.BuildConfig
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.SettingItemCorner
 import com.jussicodes.music.constants.SettingItemHeight
@@ -191,9 +193,9 @@ fun SettingsScreen(navController: NavHostController) {
             subtitle = when {
                 updateProgress != null -> "正在下载安装包: ${updateProgress}%"
                 updating -> "正在检查 GitHub Release"
-                githubDownloadProxy.isBlank() -> "点按检查更新，长按编辑下载加速"
-                else -> "点按检查更新，长按编辑下载加速: $githubDownloadProxy"
+                else -> "点按检查更新，长按配置GitHub加速链接"
             },
+            progress = updateProgress?.let { it / 100f },
             imageVector = Github,
             onClick = {
                 if (!updating && updateProgress == null) {
@@ -225,7 +227,18 @@ fun SettingsScreen(navController: NavHostController) {
 
     val settingsItems = listOf(
         SettingItemData(
+            title = stringResource(R.string.app_name),
+            subtitle = "一款简洁的第三方网易云音乐客户端，支持登录、播放、收藏、云盘与歌单浏览。",
+            imageVector = PlayPause
+        ),
+        SettingItemData(
+            title = "版本号",
+            subtitle = BuildConfig.VERSION_NAME,
+            imageVector = Github
+        ),
+        SettingItemData(
             title = "jussicodes",
+            subtitle = "项目作者",
             imageVector = UserRound,
             onClick = { uriHandler.openUri("https://github.com/easyTIDollar") }
         )
@@ -274,7 +287,8 @@ fun SettingsScreen(navController: NavHostController) {
                     imageVector = item.imageVector,
                     onClick = item.onClick,
                     onLongClick = item.onLongClick,
-                    trailingContent = item.trailingContent
+                    trailingContent = item.trailingContent,
+                    progress = item.progress,
                 )
             }
 
@@ -301,6 +315,7 @@ fun SettingsScreen(navController: NavHostController) {
                     onClick = item.onClick,
                     onLongClick = item.onLongClick,
                     trailingContent = item.trailingContent,
+                    progress = item.progress,
                 )
             }
         }
@@ -399,7 +414,7 @@ fun SettingsScreen(navController: NavHostController) {
                             )
                             downloadResult
                                 .onSuccess {
-                                    Toast.makeText(context, "下载完成，准备安装", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "下载完成，准备打开安装器", Toast.LENGTH_SHORT).show()
                                     AppUpdateManager.installApk(context, it)
                                 }
                                 .onFailure {
@@ -413,7 +428,7 @@ fun SettingsScreen(navController: NavHostController) {
                         }
                     }
                 ) {
-                    Text("下载并安装")
+                    Text("下载并打开安装器")
                 }
             },
             dismissButton = {
@@ -446,6 +461,7 @@ fun SettingCard(
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     trailingContent: @Composable (() -> Unit)? = null,
+    progress: Float? = null,
 ) {
     Card(
         shape = shape,
@@ -457,7 +473,8 @@ fun SettingCard(
             description = description,
             onClick = onClick,
             onLongClick = onLongClick,
-            trailingContent = trailingContent
+            trailingContent = trailingContent,
+            progress = progress,
         )
     }
 }
@@ -470,7 +487,8 @@ fun SettingItem(
     description: String? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
-    trailingContent: @Composable (() -> Unit)? = null
+    trailingContent: @Composable (() -> Unit)? = null,
+    progress: Float? = null,
 ) {
     Row(
         modifier = Modifier
@@ -506,6 +524,14 @@ fun SettingItem(
                     color = MaterialTheme.colorScheme.secondary
                 )
             }
+            if (progress != null) {
+                LinearProgressIndicator(
+                    progress = { progress.coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                )
+            }
         }
         trailingContent?.invoke()
     }
@@ -517,5 +543,6 @@ data class SettingItemData(
     val imageVector: ImageVector,
     val onClick: (() -> Unit)? = null,
     val onLongClick: (() -> Unit)? = null,
-    val trailingContent: @Composable (() -> Unit)? = null
+    val trailingContent: @Composable (() -> Unit)? = null,
+    val progress: Float? = null,
 )
