@@ -28,11 +28,7 @@ jobs:
 
       # 安装 Android 平台工具      
       - name: Install Android SDK packages        
-        run: |          
-          sdkmanager \          
-          "platforms;android-34" \          
-          "build-tools;34.0.0" \          
-          "platform-tools"      
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"    
 
       # 配置 local.properties      
       - name: Configure Android SDK path        
