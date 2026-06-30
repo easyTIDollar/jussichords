@@ -108,7 +108,7 @@ object AppUpdateManager {
                 Uri.parse("package:${context.packageName}")
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(permissionIntent)
-            Toast.makeText(context, "请允许安装未知应用后再次安装更新", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "请先允许安装未知应用，再重新安装更新", Toast.LENGTH_LONG).show()
             return
         }
 

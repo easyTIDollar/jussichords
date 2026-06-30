@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -72,12 +74,15 @@ import com.jussicodes.music.ui.icons.SkipNext
 import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.theme.AppThemeSeed
-import com.jussicodes.music.utils.getItemShape
 import com.jussicodes.music.utils.AppUpdateManager
+import com.jussicodes.music.utils.UpdateInfo
+import com.jussicodes.music.utils.getItemShape
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.api.player.SongLevel
 import kotlinx.coroutines.launch
+import kotlin.math.ln
+import kotlin.math.pow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -103,14 +108,15 @@ fun SettingsScreen(navController: NavHostController) {
     var showGithubProxyDialog by remember { mutableStateOf(false) }
     var updating by rememberSaveable { mutableStateOf(false) }
     var updateProgress by rememberSaveable { mutableStateOf<Int?>(null) }
+    var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var logout by rememberSaveable { mutableStateOf(false) }
 
     val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val appearanceTitle = "\u5916\u89c2\u8bbe\u7f6e"
+    val appearanceTitle = "外观设置"
     val appearanceSubtitle = when {
-        useDynamicThemeColor && dynamicColorAvailable -> "\u58c1\u7eb8\u52a8\u6001\u53d6\u8272"
-        useDynamicThemeColor -> "\u58c1\u7eb8\u52a8\u6001\u53d6\u8272 (\u5f53\u524d\u4e0d\u53ef\u7528)"
-        else -> "\u4e3b\u9898\u8272: ${themeSeed.label}"
+        useDynamicThemeColor && dynamicColorAvailable -> "壁纸动态取色"
+        useDynamicThemeColor -> "壁纸动态取色 (当前不可用)"
+        else -> "主题色: ${themeSeed.label}"
     }
 
     val baseSettingItems = listOf(
@@ -181,23 +187,17 @@ fun SettingsScreen(navController: NavHostController) {
             onClick = { showUnblockUrlDialog = true }
         ),
         SettingItemData(
-            title = "GitHub 下载加速",
-            subtitle = githubDownloadProxy.ifBlank { "不使用加速链接" },
-            imageVector = Github,
-            onClick = { showGithubProxyDialog = true }
-        ),
-        SettingItemData(
-            title = if (updating) "正在更新" else "检查版本更新",
+            title = if (updating || updateProgress != null) "正在更新" else "检查版本更新",
             subtitle = when {
                 updateProgress != null -> "正在下载安装包: ${updateProgress}%"
                 updating -> "正在检查 GitHub Release"
-                else -> "从项目 Release 检查最新版并下载安装"
+                githubDownloadProxy.isBlank() -> "点按检查更新，长按编辑下载加速"
+                else -> "点按检查更新，长按编辑下载加速: $githubDownloadProxy"
             },
             imageVector = Github,
             onClick = {
-                if (!updating) {
+                if (!updating && updateProgress == null) {
                     updating = true
-                    updateProgress = null
                     coroutineScope.launch {
                         val updateResult = AppUpdateManager.checkLatestRelease()
                         val updateInfo = updateResult.getOrElse {
@@ -210,40 +210,16 @@ fun SettingsScreen(navController: NavHostController) {
                             return@launch
                         }
 
+                        updating = false
                         if (updateInfo == null) {
                             Toast.makeText(context, "当前已是最新版本", Toast.LENGTH_SHORT).show()
-                            updating = false
-                            return@launch
+                        } else {
+                            pendingUpdateInfo = updateInfo
                         }
-
-                        Toast.makeText(
-                            context,
-                            "发现新版本 ${updateInfo.versionName}，开始下载",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        val downloadResult = AppUpdateManager.downloadApk(
-                            context = context,
-                            updateInfo = updateInfo,
-                            downloadProxy = githubDownloadProxy,
-                            onProgress = { updateProgress = it }
-                        )
-                        downloadResult
-                            .onSuccess {
-                                Toast.makeText(context, "下载完成，准备安装", Toast.LENGTH_SHORT).show()
-                                AppUpdateManager.installApk(context, it)
-                            }
-                            .onFailure {
-                                Toast.makeText(
-                                    context,
-                                    it.message ?: "下载安装包失败",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
-                        updating = false
-                        updateProgress = null
                     }
                 }
-            }
+            },
+            onLongClick = { showGithubProxyDialog = true }
         )
     )
 
@@ -297,6 +273,7 @@ fun SettingsScreen(navController: NavHostController) {
                     shape = shape,
                     imageVector = item.imageVector,
                     onClick = item.onClick,
+                    onLongClick = item.onLongClick,
                     trailingContent = item.trailingContent
                 )
             }
@@ -322,6 +299,7 @@ fun SettingsScreen(navController: NavHostController) {
                     imageVector = item.imageVector,
                     shape = shape,
                     onClick = item.onClick,
+                    onLongClick = item.onLongClick,
                     trailingContent = item.trailingContent,
                 )
             }
@@ -389,6 +367,74 @@ fun SettingsScreen(navController: NavHostController) {
             onConfirm = { githubDownloadProxy = it }
         )
     }
+
+    pendingUpdateInfo?.let { updateInfo ->
+        AlertDialog(
+            onDismissRequest = { pendingUpdateInfo = null },
+            title = { Text(text = "发现新版本 ${updateInfo.versionName}") },
+            text = {
+                Text(
+                    text = buildString {
+                        appendLine(updateInfo.releaseName)
+                        appendLine("安装包大小: ${formatFileSize(updateInfo.apkSize)}")
+                        val notes = updateInfo.body.trim()
+                        if (notes.isNotEmpty()) {
+                            appendLine()
+                            append(notes)
+                        }
+                    }.trim()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingUpdateInfo = null
+                        updateProgress = 0
+                        coroutineScope.launch {
+                            val downloadResult = AppUpdateManager.downloadApk(
+                                context = context,
+                                updateInfo = updateInfo,
+                                downloadProxy = githubDownloadProxy,
+                                onProgress = { updateProgress = it }
+                            )
+                            downloadResult
+                                .onSuccess {
+                                    Toast.makeText(context, "下载完成，准备安装", Toast.LENGTH_SHORT).show()
+                                    AppUpdateManager.installApk(context, it)
+                                }
+                                .onFailure {
+                                    Toast.makeText(
+                                        context,
+                                        it.message ?: "下载安装包失败",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            updateProgress = null
+                        }
+                    }
+                ) {
+                    Text("下载并安装")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingUpdateInfo = null }) {
+                    Text("稍后再说")
+                }
+            }
+        )
+    }
+}
+
+private fun formatFileSize(size: Long): String {
+    if (size <= 0) return "0 B"
+    val units = listOf("B", "KB", "MB", "GB")
+    val digitGroup = (ln(size.toDouble()) / ln(1024.0)).toInt().coerceIn(0, units.lastIndex)
+    val scaled = size / 1024.0.pow(digitGroup.toDouble())
+    return if (digitGroup == 0) {
+        "${scaled.toInt()} ${units[digitGroup]}"
+    } else {
+        String.format("%.1f %s", scaled, units[digitGroup])
+    }
 }
 
 @Composable
@@ -398,6 +444,7 @@ fun SettingCard(
     imageVector: ImageVector,
     shape: Shape,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     trailingContent: @Composable (() -> Unit)? = null,
 ) {
     Card(
@@ -409,6 +456,7 @@ fun SettingCard(
             title = title,
             description = description,
             onClick = onClick,
+            onLongClick = onLongClick,
             trailingContent = trailingContent
         )
     }
@@ -421,13 +469,17 @@ fun SettingItem(
     title: String,
     description: String? = null,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     trailingContent: @Composable (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = SettingItemHeight)
-            .combinedClickable(onClick = { onClick?.invoke() }),
+            .combinedClickable(
+                onClick = { onClick?.invoke() },
+                onLongClick = { onLongClick?.invoke() }
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Image(
@@ -464,5 +516,6 @@ data class SettingItemData(
     val subtitle: String? = null,
     val imageVector: ImageVector,
     val onClick: (() -> Unit)? = null,
+    val onLongClick: (() -> Unit)? = null,
     val trailingContent: @Composable (() -> Unit)? = null
 )

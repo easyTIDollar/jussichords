@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -75,12 +76,13 @@ fun LibraryScreen(
     val favoriteSongState by libraryScreenViewModel.favoriteSong.collectAsState()
     val userPlaylists by libraryScreenViewModel.userPlaylists.collectAsState()
     val pinnedAlbums by libraryScreenViewModel.pinnedAlbums.collectAsState()
+    val pinnedAlbumsCacheLoaded by libraryScreenViewModel.pinnedAlbumsCacheLoaded.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val pinnedAlbumIdsText by remember {
-        context.dataStore.data.map { it[pinnedAlbumIdsKey].orEmpty() }
-    }.collectAsState(initial = "")
+        context.dataStore.data.map { it[pinnedAlbumIdsKey] }
+    }.collectAsState(initial = null)
     val pinnedAlbumIds = remember(pinnedAlbumIdsText) {
-        pinnedAlbumIdsText.split(",").mapNotNull { it.toLongOrNull() }
+        pinnedAlbumIdsText?.split(",")?.mapNotNull { it.toLongOrNull() }
     }
 
     LaunchedEffect(ncmCookie) {
@@ -94,8 +96,10 @@ fun LibraryScreen(
         }
     }
 
-    LaunchedEffect(pinnedAlbumIds) {
-        libraryScreenViewModel.fetchPinnedAlbums(pinnedAlbumIds)
+    LaunchedEffect(pinnedAlbumIds, pinnedAlbumsCacheLoaded) {
+        if (pinnedAlbumsCacheLoaded && pinnedAlbumIds != null) {
+            libraryScreenViewModel.fetchPinnedAlbums(pinnedAlbumIds)
+        }
     }
 
     val userId = userInfoBatchState?.account?.profile?.userId ?: 0L
@@ -218,11 +222,13 @@ fun LibraryScreen(
                     }
                 }
 
-                item {
-                    AlbumShowcaseCard(
-                        albums = pinnedAlbums,
-                        onAlbumClick = { album -> navController.navigate(AlbumNav(albumId = album.id)) }
-                    )
+                if (pinnedAlbums.isNotEmpty()) {
+                    item {
+                        AlbumShowcaseCard(
+                            albums = pinnedAlbums,
+                            onAlbumClick = { album -> navController.navigate(AlbumNav(albumId = album.id)) }
+                        )
+                    }
                 }
 
                 item { Spacer(modifier = Modifier.navigationBarsPadding()) }
@@ -262,10 +268,20 @@ private fun LibraryUserCard(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     TextButton(onClick = {
-                        navController.navigate(UserFollowNav(userId = profile.userId, type = "follows"))
+                        navController.navigate(
+                            UserFollowNav(
+                                userId = profile.userId,
+                                type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWS.name
+                            )
+                        )
                     }) { Text(text = "关注") }
                     TextButton(onClick = {
-                        navController.navigate(UserFollowNav(userId = profile.userId, type = "followeds"))
+                        navController.navigate(
+                            UserFollowNav(
+                                userId = profile.userId,
+                                type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWEDS.name
+                            )
+                        )
                     }) { Text(text = "粉丝") }
                 }
                 secondaryText?.let {
@@ -316,40 +332,36 @@ private fun AlbumShowcaseCard(
         shape = MaterialTheme.shapes.extraLarge,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
-        if (albums.isEmpty()) {
-            Text(text = "专辑展示墙", modifier = Modifier.padding(14.dp))
-            Text(text = "还没有固定专辑", modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 14.dp))
-        } else {
-            Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                albums.chunked(3).forEach { rowAlbums ->
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        rowAlbums.forEach { album ->
-                            AsyncImage(
-                                model = album.picUrl.toCoverImageUrl(CoverImageSize.LIST),
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .aspectRatio(1f)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable { onAlbumClick(album) }
-                            )
-                        }
-                        repeat(3 - rowAlbums.size) {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            albums.chunked(3).forEach { rowAlbums ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    rowAlbums.forEach { album ->
+                        AsyncImage(
+                            model = album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            filterQuality = FilterQuality.High,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .aspectRatio(1f)
+                                .clickable { onAlbumClick(album) }
+                        )
+                    }
+                    repeat(3 - rowAlbums.size) {
+                        Spacer(modifier = Modifier.weight(1f))
                     }
                 }
+            }
         }
     }
-}
 }
 
 @Composable

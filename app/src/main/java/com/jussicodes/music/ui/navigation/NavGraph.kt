@@ -147,8 +147,11 @@ fun NavGraph(
                 UserFollowScreen(
                     navController = navController,
                     userId = route.userId,
-                    type = when (route.type) {
-                        UserFollowType.FOLLOWEDS.name -> UserFollowType.FOLLOWEDS
+                    type = when {
+                        route.type.equals(UserFollowType.FOLLOWEDS.name, ignoreCase = true) ->
+                            UserFollowType.FOLLOWEDS
+                        route.type.equals("followeds", ignoreCase = true) ->
+                            UserFollowType.FOLLOWEDS
                         else -> UserFollowType.FOLLOWS
                     }
                 )

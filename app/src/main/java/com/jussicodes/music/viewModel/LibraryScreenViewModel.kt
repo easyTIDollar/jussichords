@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.jussicodes.music.constants.libraryFavoriteSongCacheKey
 import com.jussicodes.music.constants.libraryUserInfoCacheKey
 import com.jussicodes.music.constants.libraryUserPlaylistsCacheKey
+import com.jussicodes.music.constants.pinnedAlbumIdsKey
 import com.jussicodes.music.constants.pinnedAlbumsCacheKey
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.account.AccountApi
@@ -46,6 +47,8 @@ class LibraryScreenViewModel @Inject constructor(
 
     private val _pinnedAlbums = MutableStateFlow<List<Album>>(emptyList())
     val pinnedAlbums: StateFlow<List<Album>> = _pinnedAlbums.asStateFlow()
+    private val _pinnedAlbumsCacheLoaded = MutableStateFlow(false)
+    val pinnedAlbumsCacheLoaded: StateFlow<Boolean> = _pinnedAlbumsCacheLoaded.asStateFlow()
     private var loadedPinnedAlbumIds: List<Long> = emptyList()
 
     init {
@@ -99,6 +102,7 @@ class LibraryScreenViewModel @Inject constructor(
     }
 
     fun fetchPinnedAlbums(albumIds: List<Long>) {
+        if (!_pinnedAlbumsCacheLoaded.value) return
         if (albumIds == loadedPinnedAlbumIds && _pinnedAlbums.value.isNotEmpty()) return
         loadedPinnedAlbumIds = albumIds
         viewModelScope.launch {
@@ -126,7 +130,16 @@ class LibraryScreenViewModel @Inject constructor(
         _userInfo.value = decodeCache(prefs[libraryUserInfoCacheKey])
         _favoriteSong.value = decodeCache(prefs[libraryFavoriteSongCacheKey])
         _userPlaylists.value = decodeCache<List<Playlist>>(prefs[libraryUserPlaylistsCacheKey]).orEmpty()
-        _pinnedAlbums.value = decodeCache<List<Album>>(prefs[pinnedAlbumsCacheKey]).orEmpty()
+        val cachedPinnedAlbums = decodeCache<List<Album>>(prefs[pinnedAlbumsCacheKey]).orEmpty()
+        _pinnedAlbums.value = cachedPinnedAlbums
+        loadedPinnedAlbumIds = when {
+            cachedPinnedAlbums.isNotEmpty() -> cachedPinnedAlbums.map { it.id }
+            else -> prefs[pinnedAlbumIdsKey]
+                .orEmpty()
+                .split(",")
+                .mapNotNull { it.toLongOrNull() }
+        }
+        _pinnedAlbumsCacheLoaded.value = true
     }
 
     private inline fun <reified T> decodeCache(cache: String?): T? {
