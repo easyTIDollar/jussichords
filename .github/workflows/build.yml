@@ -33,21 +33,28 @@ jobs:
                      "build-tools;34.0.0" \
                      "platform-tools"
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
       - name: Configure Android SDK path
         run: |
           echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
       - name: Grant execute permission for gradlew
-        run: chmod +x ./gradlew
+        run: chmod +x gradlew
+
+      # 验证 wrapper 配置
+      - name: Validate Gradle Wrapper
+        uses: gradle/wrapper-validation-action@v2
+
+      # 安装 Gradle，避免 wrapper 网络问题
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
 
       - name: Validate tag matches app version
         shell: bash
         run: |
           if [ "${GITHUB_EVENT_NAME}" != "push" ]; then
-            echo "Skip version check for ${GITHUB_EVENT_NAME}"
+            echo "Skip version check"
             exit 0
           fi
 
@@ -55,45 +62,42 @@ jobs:
 
           APP_VERSION=$(grep 'versionName = ' app/build.gradle.kts | head -n 1 | sed -E 's/.*versionName = "([^"]+)".*/\1/')
 
-          echo "Tag version: ${TAG_VERSION}"
-          echo "App version: ${APP_VERSION}"
+          echo "Tag version: $TAG_VERSION"
+          echo "App version: $APP_VERSION"
 
           if [ -z "$APP_VERSION" ]; then
-            echo "Failed to read versionName from app/build.gradle.kts"
+            echo "versionName not found"
             exit 1
           fi
 
           if [ "$TAG_VERSION" != "$APP_VERSION" ]; then
-            echo "Tag version does not match app versionName"
+            echo "Version mismatch"
             exit 1
           fi
 
       - name: Build release APK
-        run: ./gradlew assembleRelease --stacktrace --no-daemon
-
-      - name: Normalize APK filename
-        shell: bash
         run: |
-          APK_PATH=$(find app/build/outputs/apk/release -maxdepth 1 -name "*.apk" | head -n 1)
+          ./gradlew assembleRelease \
+          --stacktrace \
+          --no-daemon \
+          --offline
 
-          if [ -z "$APK_PATH" ]; then
-            echo "No APK found in app/build/outputs/apk/release"
+      - name: Rename APK
+        run: |
+          APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "APK not found"
             exit 1
           fi
 
-          TARGET_NAME="jussichords-${{ github.ref_name }}.apk"
+          mv "$APK" \
+          "app/build/outputs/apk/release/jussichords-${{ github.ref_name }}.apk"
 
-          mv "$APK_PATH" "app/build/outputs/apk/release/$TARGET_NAME"
-
-          echo "Renamed APK to:"
-          echo "$TARGET_NAME"
-
-      - name: Create GitHub Release and upload APK
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           files: app/build/outputs/apk/release/jussichords-${{ github.ref_name }}.apk
-          name: jussichords ${{ github.ref_name }}
+          name: jussichords-${{ github.ref_name }}
           generate_release_notes: true
-          draft: false
-          prerelease: false
