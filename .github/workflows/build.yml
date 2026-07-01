@@ -102,7 +102,12 @@ jobs:
             echo "APK not found"
             exit 1
           fi
-          apksigner verify --print-certs "$APK"
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner"
+          if [ ! -x "$APKSIGNER" ]; then
+            echo "apksigner not found at $APKSIGNER"
+            exit 1
+          fi
+          "$APKSIGNER" verify --print-certs "$APK"
 
       # 重命名 APK
       - name: Rename APK
