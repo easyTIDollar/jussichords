@@ -44,14 +44,17 @@ import com.jussicodes.music.MainActivity
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.audioQualityKey
+import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.libraryPlaylistRefreshTokenKey
 import com.jussicodes.music.constants.use40DpIconKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.updateMediaItemUri
+import com.jussicodes.music.lyric.DesktopLyricManager
 import com.jussicodes.music.utils.FavoriteSongIdsUtil
 import com.jussicodes.music.utils.FavoriteSongSyncBus
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.enumPreference
+import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.preference
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.player.SongLevel
@@ -79,6 +82,7 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var favoriteSongIds: List<Long> by mutableStateOf(emptyList())
     private val use40DpIcon by preference(this, use40DpIconKey, false)
+    private val desktopLyricEnabled by preference(this, desktopLyricEnabledKey, false)
     private val audioQuality by enumPreference(this, audioQualityKey, SongLevel.STANDARD)
     private var scrobbleJob: Job? = null
     private var scrobbleState: ScrobbleState? = null
@@ -109,6 +113,20 @@ class PlaybackService : MediaSessionService() {
             .setCustomIconResId(if (use40DpIcon) R.drawable.ic_shuffle_on_40_dp else R.drawable.ic_shuffle_on)
             .setDisplayName("shuffle_on")
             .setSessionCommand(MediaSessionConstants.CommandToggleShuffle)
+            .build()
+
+    private val desktopLyricButton: CommandButton
+        get() = CommandButton.Builder(ICON_UNDEFINED)
+            .setCustomIconResId(R.drawable.ic_lyrics)
+            .setDisplayName("desktop_lyric")
+            .setSessionCommand(MediaSessionConstants.CommandToggleDesktopLyric)
+            .build()
+
+    private val desktopLyricButtonOn: CommandButton
+        get() = CommandButton.Builder(ICON_UNDEFINED)
+            .setCustomIconResId(R.drawable.ic_lyrics_on)
+            .setDisplayName("desktop_lyric_on")
+            .setSessionCommand(MediaSessionConstants.CommandToggleDesktopLyric)
             .build()
 
     private val scope = CoroutineScope(Dispatchers.Main) + SupervisorJob()
@@ -194,10 +212,18 @@ class PlaybackService : MediaSessionService() {
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
             ).setCallback(MediaSessionCallback())
-            .setCustomLayout(ImmutableList.of(favoriteButton, shuffleButton)).build()
+            .setCustomLayout(
+                ImmutableList.of(
+                    favoriteButton,
+                    shuffleButton,
+                    if (desktopLyricEnabled) desktopLyricButtonOn else desktopLyricButton
+                )
+            ).build()
         observeIconPreference()
         observeFavoriteSongIds()
+        observeDesktopLyricPreference()
         observeScrobble(player)
+        DesktopLyricManager.syncService(this)
     }
 
     override fun onDestroy() {
@@ -223,7 +249,8 @@ class PlaybackService : MediaSessionService() {
         mediaSession?.setCustomLayout(
             ImmutableList.of(
                 if (favoriteSongIds.contains(mediaSession?.player?.currentMediaItem?.mediaId?.toLong())) favoriteButtonOn else favoriteButton,
-                if (mediaSession?.player?.shuffleModeEnabled != false) shuffleButtonOn else shuffleButton
+                if (mediaSession?.player?.shuffleModeEnabled != false) shuffleButtonOn else shuffleButton,
+                if (desktopLyricEnabled) desktopLyricButtonOn else desktopLyricButton
             )
         )
     }
@@ -434,6 +461,19 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    @kotlin.OptIn(FlowPreview::class)
+    private fun observeDesktopLyricPreference() {
+        scope.launch {
+            applicationContext.dataStore.data.debounce(300)
+                .map { it[desktopLyricEnabledKey] ?: false }
+                .distinctUntilChanged()
+                .collect {
+                    updateCustomLayout()
+                    DesktopLyricManager.syncService(applicationContext)
+                }
+        }
+    }
+
     private inner class MediaSessionCallback : MediaSession.Callback {
 
         override fun onConnect(
@@ -445,6 +485,7 @@ class PlaybackService : MediaSessionService() {
                     MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
                         .add(MediaSessionConstants.CommandToggleLike)
                         .add(MediaSessionConstants.CommandToggleShuffle)
+                        .add(MediaSessionConstants.CommandToggleDesktopLyric)
                         .build()
                 )
                 .build()
@@ -464,6 +505,24 @@ class PlaybackService : MediaSessionService() {
             if (customCommand.customAction == MediaSessionConstants.ACTION_TOGGLE_LIKE) {
                 session.player.currentMediaItem?.mediaId?.toLongOrNull()?.let {
                     toggleLike(it !in favoriteSongIds, it)
+                }
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            }
+            if (customCommand.customAction == MediaSessionConstants.ACTION_TOGGLE_DESKTOP_LYRIC) {
+                scope.launch {
+                    val enabled = applicationContext.dataStore.get(desktopLyricEnabledKey, false)
+                    val result = DesktopLyricManager.setEnabled(
+                        context = applicationContext,
+                        enabled = !enabled,
+                        requestPermissionIfNeeded = !enabled
+                    )
+                    if (!result && !enabled) {
+                        Toast.makeText(
+                            applicationContext,
+                            "Please grant overlay permission",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
             }

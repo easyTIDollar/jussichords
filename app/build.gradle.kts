@@ -20,6 +20,9 @@ val localProperties = Properties().apply {
 
 fun localProperty(name: String): String? = localProperties.getProperty(name)
 
+fun releaseConfig(name: String): String? =
+    System.getenv(name)?.takeIf { it.isNotBlank() } ?: localProperty(name)?.takeIf { it.isNotBlank() }
+
 android {
     namespace = "com.jussicodes.music"
     compileSdk = 34
@@ -28,19 +31,19 @@ android {
         applicationId = "com.jussicodes.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 6
-        versionName = "2.0.7"
+        versionCode = 7
+        versionName = "2.0.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
-        localProperty("RELEASE_STORE_FILE")?.takeIf { it.isNotBlank() }?.let { releaseStoreFile ->
+        releaseConfig("RELEASE_STORE_FILE")?.let { releaseStoreFile ->
             register("release") {
                 storeFile = rootProject.file(releaseStoreFile)
-                storePassword = localProperty("RELEASE_STORE_PASSWORD")
-                keyAlias = localProperty("RELEASE_KEY_ALIAS")
-                keyPassword = localProperty("RELEASE_KEY_PASSWORD")
+                storePassword = releaseConfig("RELEASE_STORE_PASSWORD")
+                keyAlias = releaseConfig("RELEASE_KEY_ALIAS")
+                keyPassword = releaseConfig("RELEASE_KEY_PASSWORD")
                 enableV1Signing = true
                 enableV2Signing = true
                 enableV3Signing = true

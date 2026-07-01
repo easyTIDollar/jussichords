@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +48,9 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import com.jussicodes.music.BuildConfig
 import com.jussicodes.music.R
@@ -56,12 +60,14 @@ import com.jussicodes.music.constants.SettingItemSubCorner
 import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.autoSkipNextOnErrorKey
+import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.dynamicThemeColorKey
 import com.jussicodes.music.constants.githubDownloadProxyKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.themeSeedColorKey
 import com.jussicodes.music.constants.unblockBaseUrlKey
 import com.jussicodes.music.constants.use40DpIconKey
+import com.jussicodes.music.lyric.DesktopLyricManager
 import com.jussicodes.music.ui.components.Dialog
 import com.jussicodes.music.ui.components.SongQualityDialog
 import com.jussicodes.music.ui.components.ThemeSeedDialog
@@ -92,8 +98,10 @@ fun SettingsScreen(navController: NavHostController) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     var use40DpIcon by rememberPreference(use40DpIconKey, false)
+    var desktopLyricEnabled by rememberPreference(desktopLyricEnabledKey, false)
     var audioQuality by rememberEnumPreference(audioQualityKey, defaultValue = SongLevel.STANDARD)
     var useDynamicThemeColor by rememberPreference(dynamicThemeColorKey, false)
     var themeSeed by rememberEnumPreference(themeSeedColorKey, defaultValue = AppThemeSeed.PURPLE)
@@ -112,6 +120,21 @@ fun SettingsScreen(navController: NavHostController) {
     var updateProgress by rememberSaveable { mutableStateOf<Int?>(null) }
     var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var logout by rememberSaveable { mutableStateOf(false) }
+    var overlayPermissionGranted by remember {
+        mutableStateOf(DesktopLyricManager.canDrawOverlays(context))
+    }
+
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                overlayPermissionGranted = DesktopLyricManager.canDrawOverlays(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val appearanceTitle = "外观设置"
@@ -136,6 +159,56 @@ fun SettingsScreen(navController: NavHostController) {
                     logout = true
                 } else {
                     navController.navigate(Screen.Login.route)
+                }
+            }
+        ),
+        SettingItemData(
+            title = "桌面歌词",
+            subtitle = when {
+                desktopLyricEnabled && overlayPermissionGranted -> "已开启悬浮歌词，功能还在完善中"
+                !overlayPermissionGranted -> "需要悬浮窗权限，功能还在完善中"
+                else -> "已关闭，功能还在完善中"
+            },
+            imageVector = GraphicEq,
+            trailingContent = {
+                Switch(
+                    checked = desktopLyricEnabled && overlayPermissionGranted,
+                    onCheckedChange = {
+                        coroutineScope.launch {
+                            val result = DesktopLyricManager.setEnabled(
+                                context = context,
+                                enabled = it,
+                                requestPermissionIfNeeded = it
+                            )
+                            overlayPermissionGranted = DesktopLyricManager.canDrawOverlays(context)
+                            if (it && !result) {
+                                Toast.makeText(
+                                    context,
+                                    "请先授予悬浮窗权限",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    }
+                )
+                Spacer(Modifier.width(12.dp))
+            },
+            onClick = {
+                coroutineScope.launch {
+                    val target = !(desktopLyricEnabled && overlayPermissionGranted)
+                    val result = DesktopLyricManager.setEnabled(
+                        context = context,
+                        enabled = target,
+                        requestPermissionIfNeeded = target
+                    )
+                    overlayPermissionGranted = DesktopLyricManager.canDrawOverlays(context)
+                    if (target && !result) {
+                        Toast.makeText(
+                            context,
+                            "请先授予悬浮窗权限",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
             }
         ),
