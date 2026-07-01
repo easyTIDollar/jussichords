@@ -77,8 +77,11 @@ fun PlayerTransform(
     }
 
     SharedTransitionLayout(
-        modifier = Modifier
-            .background(MaterialTheme.colorScheme.surfaceContainer)
+        modifier = if (show == MINI_PLAYER) {
+            Modifier
+        } else {
+            Modifier.background(MaterialTheme.colorScheme.surfaceContainer)
+        }
     ) {
         AnimatedContent(targetState = show, transitionSpec = {
             fadeIn(

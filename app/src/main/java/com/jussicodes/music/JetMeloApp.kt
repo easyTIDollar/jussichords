@@ -25,7 +25,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -40,18 +39,22 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         UserAgentProvider.init(UserAgentUtil.DEFAULT_USER_AGENT)
         applicationScope.launch {
-            delay(300)
             UserAgentProvider.init(UserAgentUtil.DEFAULT_USER_AGENT)
             dataStore.data
                 .map { it[ncmCookieKey] }
                 .distinctUntilChanged()
                 .collect { ncmCookie ->
-                    if (ncmCookie?.isNotEmpty() == true)
-                        CookieProvider.init(json.decodeFromString(ncmCookie))
+                    val cookieMap = ncmCookie
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull() }
+                    if (cookieMap?.containsKey("MUSIC_U") == true) {
+                        CookieProvider.init(cookieMap)
+                    } else {
+                        CookieProvider.clear()
+                    }
                 }
         }
         applicationScope.launch {
-            delay(300)
             dataStore.data
                 .map { prefs ->
                     prefs[apiBaseUrlKey] to prefs[unblockBaseUrlKey]

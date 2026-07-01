@@ -148,6 +148,7 @@ fun Player(
     val dismissThresholdPx = with(density) { 96.dp.toPx() }
     val coverDismissLimitPx = dismissThresholdPx * 1.1f
     val dragDirectionSlopPx = with(density) { 3.dp.toPx() }
+    val queueOpenThresholdPx = with(density) { 40.dp.toPx() }
     val coverDragProgress = maxOf(
         abs(coverOffsetX) / swipeThresholdPx,
         coverOffsetY / dismissThresholdPx
@@ -187,9 +188,6 @@ fun Player(
 
     Surface(
         modifier = modifier
-            .clickable {
-                onContainerClick()
-            }
             .fillMaxSize(),
         color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
@@ -492,6 +490,72 @@ fun Player(
                         )
                     }
                 }
+
+                Spacer(Modifier.height(8.dp))
+
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp)
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .pointerInput(
+                            openBottomSheet,
+                            openPlayerBottomSheet,
+                            queueOpenThresholdPx
+                        ) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                var totalDragX = 0f
+                                var totalDragY = 0f
+                                var isVerticalDrag: Boolean? = null
+                                var openedQueue = false
+
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!change.pressed) break
+
+                                    val positionChange = change.positionChange()
+                                    totalDragX += positionChange.x
+                                    totalDragY += positionChange.y
+
+                                    if (isVerticalDrag == null &&
+                                        (abs(totalDragX) > dragDirectionSlopPx || abs(totalDragY) > dragDirectionSlopPx)
+                                    ) {
+                                        isVerticalDrag = abs(totalDragY) > abs(totalDragX)
+                                    }
+
+                                    if (isVerticalDrag == false) {
+                                        break
+                                    }
+
+                                    if (isVerticalDrag == true && totalDragY < 0f) {
+                                        change.consume()
+                                    }
+
+                                    if (isVerticalDrag == true &&
+                                        totalDragY <= -queueOpenThresholdPx &&
+                                        !openBottomSheet &&
+                                        !openPlayerBottomSheet
+                                    ) {
+                                        openedQueue = true
+                                        onContainerClick()
+                                        change.consume()
+                                        break
+                                    }
+                                }
+
+                                if (openedQueue) {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                        if (!change.pressed) break
+                                        change.consume()
+                                    }
+                                }
+                            }
+                        }
+                )
             }
         }
 

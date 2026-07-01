@@ -75,7 +75,9 @@ data class Playlist(
     @SerialName("trackCount") val trackCount: Int = 0,
     val creator: PlaylistCreator? = null,
     val description: String = "",
-    @SerialName("createTime") val createTime: Long = 0
+    @SerialName("createTime") val createTime: Long = 0,
+    val subscribed: Boolean = false,
+    @SerialName("specialType") val specialType: Int = 0
 ) {
     val picUrl: String get() = coverImgUrl.ifBlank { rawPicUrl }
 }
@@ -267,7 +269,8 @@ data class LyricResponse(
     val lrc: LyricContent? = null,
     val tlyric: LyricContent? = null,
     val klyric: LyricContent? = null,
-    val romalrc: LyricContent? = null
+    val romalrc: LyricContent? = null,
+    val yrc: LyricContent? = null
 )
 
 @Serializable

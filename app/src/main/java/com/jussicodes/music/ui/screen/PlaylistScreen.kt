@@ -87,6 +87,7 @@ fun PlaylistScreen(
     val context = LocalContext.current
     val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
         .collectAsState(emptyList())
+    val subscribed = playlistInfoState?.subscribed ?: false
 
     with(sharedTransitionScope) {
         Scaffold(
@@ -113,6 +114,7 @@ fun PlaylistScreen(
             }
         ) { padding ->
             playlistDetailState?.let {
+                val tracks = it.playlist.getAllTracks()
                 LazyColumn(
                     contentPadding = padding, state = listState,
                 ) {
@@ -172,21 +174,21 @@ fun PlaylistScreen(
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 OutlinedButton(
                                     onClick = {
-                                        playlistInfoState?.subscribed?.let {
-                                            playlistScreenViewModel.playlistSub(isSub = it)
-                                        }
+                                        playlistScreenViewModel.playlistSub(
+                                            shouldSubscribe = !subscribed
+                                        )
                                     },
                                     contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Icon(
-                                        imageVector = if (playlistInfoState?.subscribed == true) LibraryAddCheck else LibraryAdd,
+                                        imageVector = if (subscribed) LibraryAddCheck else LibraryAdd,
                                         contentDescription = null,
                                         modifier = Modifier.size(ButtonDefaults.IconSize)
                                     )
                                     Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                                     Text(
-                                        text = if (playlistInfoState?.subscribed == true) stringResource(
+                                        text = if (subscribed) stringResource(
                                             R.string.library_add_check
                                         ) else stringResource(R.string.library_add)
                                     )
@@ -194,7 +196,7 @@ fun PlaylistScreen(
                                 Button(
                                     onClick = {
                                         mediaController?.setPlaylist(
-                                            it.playlist.tracks,
+                                            tracks,
                                             sourceId = it.playlist.id
                                         )
                                         mediaController?.playMediaAt()
@@ -217,7 +219,7 @@ fun PlaylistScreen(
 
                     }
 
-                    itemsIndexed(it.playlist.tracks) { index, song ->
+                    itemsIndexed(tracks) { index, song ->
                         SongListItem(
                             song = song,
                             isPlaying = isPlaying,
@@ -226,7 +228,7 @@ fun PlaylistScreen(
                             songIndex = index + 1,
                             modifier = Modifier.clickable {
                                 mediaController?.setPlaylist(
-                                    it.playlist.tracks,
+                                    tracks,
                                     sourceId = it.playlist.id
                                 )
                                 mediaController?.playMediaAtId(song.id)

@@ -5,10 +5,13 @@ import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jussicodes.music.constants.libraryFavoriteSongCacheKey
+import com.jussicodes.music.constants.libraryPlaylistRefreshTokenKey
 import com.jussicodes.music.constants.libraryUserInfoCacheKey
 import com.jussicodes.music.constants.libraryUserPlaylistsCacheKey
 import com.jussicodes.music.constants.pinnedAlbumIdsKey
 import com.jussicodes.music.constants.pinnedAlbumsCacheKey
+import com.jussicodes.music.constants.userIdKye
+import com.jussicodes.music.utils.PlaylistCollectionSyncBus
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.account.UserPlaylistType
@@ -27,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
@@ -56,6 +60,8 @@ class LibraryScreenViewModel @Inject constructor(
             loadCachedLibrary()
         }
         observeUserIdChanges()
+        observePlaylistRefreshToken()
+        observePlaylistCollectionEvents()
     }
 
     fun fetchUserInfo() {
@@ -64,6 +70,7 @@ class LibraryScreenViewModel @Inject constructor(
                 _userInfo.value = it
                 context.dataStore.edit { prefs ->
                     prefs[libraryUserInfoCacheKey] = json.encodeToString(it)
+                    prefs[userIdKye] = it.account.profile.userId
                 }
             }
         }
@@ -82,10 +89,11 @@ class LibraryScreenViewModel @Inject constructor(
 
     private fun fetchUserPlaylists(userId: Long) {
         viewModelScope.launch {
-            val playlists = AccountApi.userPlaylist(
-                userId = userId,
-                userPlaylistType = UserPlaylistType.CREATE
-            ).getOrNull()?.data?.playlist
+            val playlists = AccountApi.userPlaylists(userId)
+                .getOrNull()
+                ?.data
+                ?.playlist
+                ?.let(PlaylistCollectionSyncBus::mergeInto)
             if (playlists != null) {
                 _userPlaylists.value = playlists
                 context.dataStore.edit { prefs ->
@@ -95,10 +103,30 @@ class LibraryScreenViewModel @Inject constructor(
         }
     }
 
+    private fun applyPlaylistCollectionEvent(event: PlaylistCollectionSyncBus.Event) {
+        val current = _userPlaylists.value
+        val updated = if (event.collected) {
+            if (current.any { it.id == event.playlist.id }) current else current + event.playlist
+        } else {
+            current.filterNot { it.id == event.playlist.id }
+        }
+        _userPlaylists.value = updated
+        viewModelScope.launch {
+            context.dataStore.edit { prefs ->
+                prefs[libraryUserPlaylistsCacheKey] = json.encodeToString(updated)
+            }
+        }
+    }
+
     fun clear() {
         _userInfo.value = null
         _favoriteSong.value = null
         _userPlaylists.value = emptyList()
+        viewModelScope.launch {
+            context.dataStore.edit { prefs ->
+                prefs[userIdKye] = 0L
+            }
+        }
     }
 
     fun fetchPinnedAlbums(albumIds: List<Long>) {
@@ -163,6 +191,26 @@ class LibraryScreenViewModel @Inject constructor(
                         fetchUserPlaylists(userId)
                     }
                 }
+        }
+    }
+
+    private fun observePlaylistRefreshToken() {
+        viewModelScope.launch {
+            context.dataStore.data
+                .map { it[libraryPlaylistRefreshTokenKey] }
+                .distinctUntilChanged()
+                .collectLatest {
+                    val userId = _userInfo.value?.account?.profile?.userId ?: return@collectLatest
+                    fetchUserPlaylists(userId)
+                }
+        }
+    }
+
+    private fun observePlaylistCollectionEvents() {
+        viewModelScope.launch {
+            PlaylistCollectionSyncBus.events.collectLatest { event ->
+                applyPlaylistCollectionEvent(event)
+            }
         }
     }
 }

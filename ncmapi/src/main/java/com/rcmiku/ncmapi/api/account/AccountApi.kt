@@ -5,6 +5,7 @@ import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.*
 
 object AccountApi {
+    private const val LIKED_PLAYLIST_NAME_FRAGMENT = "\u559c\u6b22"
 
     suspend fun account(): Result<UserInfoBatch> {
         val result = apiGet<UserInfoBatch>("/user/account")
@@ -27,13 +28,46 @@ object AccountApi {
         apiGet("/likelist")
 
     suspend fun favoriteSongLikeChange(): Result<ApiCodeResponse> =
-        Result.success(ApiCodeResponse(code = 200))
+        favoriteSongIds().map { ApiCodeResponse(code = 200) }
 
-    suspend fun songLike(like: Boolean, songId: Long): Result<ApiCodeResponse> =
-        apiGet("/like", mapOf("id" to songId, "like" to like))
+    suspend fun songLike(like: Boolean, songId: Long): Result<ApiCodeResponse> {
+        val uid = accountInfo().getOrNull()?.account?.profile?.userId?.takeIf { it > 0 }
+        val songLikeParams = buildMap<String, Any> {
+            put("id", songId)
+            put("like", like)
+            uid?.let { put("uid", it) }
+        }
+        val songLikeResult = apiGet<ApiCodeResponse>("/song/like", songLikeParams)
+            .mapCatching { it.requireSuccessCode() }
+        if (songLikeResult.isSuccess) return songLikeResult
+
+        return apiGet<ApiCodeResponse>("/like", mapOf("id" to songId, "like" to like))
+            .mapCatching { it.requireSuccessCode() }
+            .recoverCatching {
+                val userId = uid ?: throw it
+                val favoritePlaylistId = userPlaylists(userId).getOrThrow().data.playlist
+                    .firstOrNull { playlist ->
+                        playlist.specialType == 5 ||
+                            (playlist.creator?.userId == userId && playlist.name.contains(LIKED_PLAYLIST_NAME_FRAGMENT))
+                    }
+                    ?.id
+                    ?.takeIf { id -> id > 0 }
+                    ?: throw it
+                playlistManipulate(
+                    playlistId = favoritePlaylistId,
+                    songIds = listOf(songId),
+                    manipulateType = if (like) PlayManipulateType.ADD else PlayManipulateType.DEL
+                ).getOrThrow().requireSuccessCode()
+            }
+    }
 
     suspend fun songDislike(songId: Long): Result<ApiCodeResponse> =
-        apiGet("/like", mapOf("id" to songId, "like" to false))
+        songLike(false, songId)
+
+    private fun ApiCodeResponse.requireSuccessCode(): ApiCodeResponse {
+        if (code == 200) return this
+        throw IllegalStateException(message ?: "API code: $code")
+    }
 
     suspend fun userFollows(
         userId: Long,
@@ -49,13 +83,28 @@ object AccountApi {
     ): Result<UserFollowResponse> =
         apiGet("/user/followeds", mapOf("uid" to userId, "limit" to limit, "offset" to offset))
 
+    suspend fun userPlaylists(userId: Long): Result<UserPlaylistResponse> {
+        val result = apiGet<UserPlaylistRawResponse>(
+            "/user/playlist",
+            mapOf("uid" to userId, "limit" to 1000, "offset" to 0)
+        )
+        return result.map { raw ->
+            UserPlaylistResponse(data = UserPlaylistData(playlist = raw.playlist.map { it.toPlaylist() }))
+        }
+    }
+
     suspend fun userPlaylist(
         userId: Long,
         userPlaylistType: UserPlaylistType
     ): Result<UserPlaylistResponse> {
-        val result = apiGet<UserPlaylistRawResponse>("/user/playlist", mapOf("uid" to userId))
-        return result.map { raw ->
-            UserPlaylistResponse(data = UserPlaylistData(playlist = raw.playlist.map { it.toPlaylist() }))
+        return userPlaylists(userId).map { response ->
+            val playlists = response.data.playlist.filter { playlist ->
+                when (userPlaylistType) {
+                    UserPlaylistType.CREATE -> !playlist.subscribed
+                    UserPlaylistType.COLLECT -> playlist.subscribed
+                }
+            }
+            response.copy(data = UserPlaylistData(playlist = playlists))
         }
     }
 
@@ -65,7 +114,7 @@ object AccountApi {
     ): Result<UserPlaylistV1Response> {
         val raw = apiGet<UserPlaylistRawResponse>(
             "/user/playlist",
-            mapOf("uid" to userId)
+            mapOf("uid" to userId, "limit" to 1000, "offset" to 0)
         ).getOrThrow()
         val playlistsV1 = raw.playlist.map { item ->
             PlaylistV1(
@@ -150,7 +199,9 @@ object AccountApi {
         @kotlinx.serialization.SerialName("trackIds") val trackIds: List<Long> = emptyList(),
         @kotlinx.serialization.SerialName("playCount") val playCount: Double = 0.0,
         val creator: PlaylistCreator? = null,
-        val description: String = ""
+        val description: String = "",
+        val subscribed: Boolean = false,
+        @kotlinx.serialization.SerialName("specialType") val specialType: Int = 0
     ) {
         fun toPlaylist() = Playlist(
             id = id,
@@ -159,7 +210,9 @@ object AccountApi {
             trackCount = trackCount,
             playCount = playCount,
             creator = creator,
-            description = description
+            description = description,
+            subscribed = subscribed,
+            specialType = specialType
         )
     }
 }

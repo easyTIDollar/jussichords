@@ -66,6 +66,8 @@ import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.UserInfoBatch
 import kotlinx.coroutines.flow.map
 
+private const val LIKED_PLAYLIST_NAME_FRAGMENT = "\u559c\u6b22"
+
 @Composable
 fun LibraryScreen(
     navController: NavHostController,
@@ -103,11 +105,14 @@ fun LibraryScreen(
     }
 
     val userId = userInfoBatchState?.account?.profile?.userId ?: 0L
-    val favoritePlaylistId = favoriteSongState?.data?.id
+    val favoritePlaylistId = userPlaylists.firstOrNull { playlist ->
+        playlist.specialType == 5 ||
+            (playlist.creator?.userId == userId && playlist.name.contains(LIKED_PLAYLIST_NAME_FRAGMENT))
+    }?.id
     val favoritePlaylist = userPlaylists.firstOrNull { it.id == favoritePlaylistId }
     val normalPlaylists = userPlaylists.filterNot { it.id == favoritePlaylistId }
-    val createdPlaylists = normalPlaylists.filter { it.creator?.userId == userId }
-    val collectedPlaylists = normalPlaylists.filter { it.creator?.userId != userId }
+    val collectedPlaylists = normalPlaylists.filter { it.subscribed || it.creator?.userId != userId }
+    val createdPlaylists = normalPlaylists.filterNot { it in collectedPlaylists }
 
     Scaffold(
         topBar = { TopBar(navController = navController, titleRes = R.string.mine) }
@@ -455,3 +460,4 @@ private fun RowCardContent(
         }
     }
 }
+

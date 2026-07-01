@@ -10,7 +10,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.snapshotFlow
@@ -49,7 +49,7 @@ fun NavGraph(
     navController: NavHostController,
     bottomPadding: Dp,
     showMiniPlayer: Boolean,
-    homePage: Int,
+    homePagerState: PagerState,
     onHomePageChange: (Int) -> Unit,
     onHomePageScroll: (Float) -> Unit
 ) {
@@ -101,7 +101,7 @@ fun NavGraph(
             composable(Screen.Library.route) {
                 HomePager(
                     navController = navController,
-                    currentPage = homePage,
+                    pagerState = homePagerState,
                     onPageChange = onHomePageChange,
                     onPageScroll = onHomePageScroll,
                     sharedTransitionScope = this@SharedTransitionLayout,
@@ -111,7 +111,7 @@ fun NavGraph(
             composable(Screen.Explore.route) {
                 HomePager(
                     navController = navController,
-                    currentPage = homePage,
+                    pagerState = homePagerState,
                     onPageChange = onHomePageChange,
                     onPageScroll = onHomePageScroll,
                     sharedTransitionScope = this@SharedTransitionLayout,
@@ -183,24 +183,14 @@ fun NavGraph(
 @Composable
 private fun HomePager(
     navController: NavHostController,
-    currentPage: Int,
+    pagerState: PagerState,
     onPageChange: (Int) -> Unit,
     onPageScroll: (Float) -> Unit,
     sharedTransitionScope: androidx.compose.animation.SharedTransitionScope,
     animatedContentScope: androidx.compose.animation.AnimatedContentScope
 ) {
-    val pagerState = rememberPagerState(initialPage = currentPage) { 2 }
-
-    LaunchedEffect(currentPage) {
-        if (pagerState.settledPage != currentPage) {
-            pagerState.animateScrollToPage(currentPage)
-        }
-    }
-
     LaunchedEffect(pagerState.settledPage) {
-        if (pagerState.settledPage != currentPage) {
-            onPageChange(pagerState.settledPage)
-        }
+        onPageChange(pagerState.settledPage)
     }
 
     LaunchedEffect(pagerState) {

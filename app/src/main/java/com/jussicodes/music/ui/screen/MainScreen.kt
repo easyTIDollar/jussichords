@@ -1,8 +1,10 @@
 package com.jussicodes.music.ui.screen
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +36,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -51,20 +55,17 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.BottomNavigationHeight
+import com.jussicodes.music.constants.DURATION_ENTER
+import com.jussicodes.music.constants.EmphasizedDecelerateEasing
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.currentPlayMediaIdKey
-import com.jussicodes.music.constants.ncmCookieKey
-import com.jussicodes.music.constants.userIdKye
 import com.jussicodes.music.ui.components.tabs
 import com.jussicodes.music.ui.navigation.NavGraph
 import com.jussicodes.music.ui.navigation.Screen
-import com.jussicodes.music.utils.rememberNullablePreference
 import com.jussicodes.music.utils.rememberPreference
-import com.rcmiku.ncmapi.api.account.AccountApi
-import com.rcmiku.ncmapi.utils.CookieProvider
-import com.rcmiku.ncmapi.utils.json
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -75,8 +76,6 @@ fun MainScreen() {
     val currentDestination = navBackStackEntry?.destination
     val showNavigationBar =
         currentDestination?.hierarchy?.any { tabs.any { tab -> it.route == tab.route } } == true
-    val ncmCookie by rememberNullablePreference(ncmCookieKey)
-    var userId by rememberPreference(userIdKye, 0)
     val playerState = LocalPlayerState.current
     var position by rememberSaveable(playerState) {
         mutableLongStateOf(playerState?.player?.currentPosition ?: 0)
@@ -92,6 +91,8 @@ fun MainScreen() {
     var showPlayer by remember { mutableStateOf(false) }
     var homePage by rememberSaveable { mutableIntStateOf(0) }
     var homePageScroll by remember { mutableFloatStateOf(homePage.toFloat()) }
+    val homePagerState = rememberPagerState(initialPage = homePage) { tabs.size }
+    val coroutineScope = rememberCoroutineScope()
     val isHomeRoute = currentDestination?.hierarchy?.any {
         it.route == Screen.Library.route || it.route == Screen.Explore.route
     } == true
@@ -119,14 +120,17 @@ fun MainScreen() {
     }
 
     LaunchedEffect(currentDestination?.route) {
-        when (currentDestination?.route) {
-            Screen.Library.route -> {
-                homePage = 0
-                homePageScroll = 0f
-            }
-            Screen.Explore.route -> {
-                homePage = 1
-                homePageScroll = 1f
+        val targetPage = when (currentDestination?.route) {
+            Screen.Library.route -> 0
+            Screen.Explore.route -> 1
+            else -> null
+        }
+
+        if (targetPage != null) {
+            homePage = targetPage
+            homePageScroll = targetPage.toFloat()
+            if (homePagerState.currentPage != targetPage || homePagerState.currentPageOffsetFraction != 0f) {
+                homePagerState.scrollToPage(targetPage)
             }
         }
     }
@@ -138,16 +142,6 @@ fun MainScreen() {
             }
             launchSingleTop = true
             restoreState = true
-        }
-    }
-
-    LaunchedEffect(ncmCookie) {
-        if (ncmCookie?.isNotEmpty() == true) {
-            delay(300)
-            CookieProvider.init(json.decodeFromString(ncmCookie!!))
-            AccountApi.account().getOrNull()?.profile?.userId?.let {
-                userId = it
-            }
         }
     }
 
@@ -207,13 +201,27 @@ fun MainScreen() {
                                         modifier = Modifier
                                             .weight(1f)
                                             .fillMaxSize()
-                                            .clickable {
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) {
                                                 val targetPage = tabs.indexOfFirst { it.route == item.route }
-                                                if (isHomeRoute && targetPage >= 0) {
-                                                    homePage = targetPage
+                                                if (targetPage < 0) return@clickable
+
+                                                if (isHomeRoute) {
+                                                    coroutineScope.launch {
+                                                        if (homePagerState.targetPage != targetPage || homePagerState.currentPageOffsetFraction != 0f) {
+                                                            homePagerState.animateScrollToPage(
+                                                                page = targetPage,
+                                                                animationSpec = tween(
+                                                                    durationMillis = DURATION_ENTER,
+                                                                    easing = EmphasizedDecelerateEasing
+                                                                )
+                                                            )
+                                                        }
+                                                    }
                                                 } else {
-                                                    if (targetPage >= 0) homePage = targetPage
-                                                    navigateRootTab(Screen.Library.route)
+                                                    navigateRootTab(item.route)
                                                 }
                                             },
                                         contentAlignment = Alignment.Center
@@ -284,7 +292,7 @@ fun MainScreen() {
                 navController = navController,
                 bottomPadding = bottomPadding,
                 showMiniPlayer = showMiniPlayer,
-                homePage = homePage,
+                homePagerState = homePagerState,
                 onHomePageChange = { homePage = it },
                 onHomePageScroll = { homePageScroll = it }
             )

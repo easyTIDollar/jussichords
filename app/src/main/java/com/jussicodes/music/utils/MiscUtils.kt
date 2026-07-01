@@ -74,6 +74,8 @@ fun makeTimeString(duration: Long?): String {
 }
 
 data class LrcLine(val time: Long, val text: String)
+data class YrcWord(val time: Long, val duration: Long, val text: String)
+data class YrcLine(val time: Long, val duration: Long, val text: String, val words: List<YrcWord>)
 
 fun String.parseLrc(): List<LrcLine> {
     val regex = """\[(\d+):(\d+)\.(\d{2,3})]\s*(.*)""".toRegex()
@@ -84,5 +86,29 @@ fun String.parseLrc(): List<LrcLine> {
             }
             LrcLine(time, text)
         }
+    }
+}
+
+fun String.parseYrc(): List<YrcLine> {
+    val lineRegex = """\[(\d+),(\d+)](.*)""".toRegex()
+    val wordRegex = """\((\d+),(\d+),\d+\)([^()]*)""".toRegex()
+    return lines().mapNotNull { line ->
+        val match = lineRegex.matchEntire(line) ?: return@mapNotNull null
+        val (time, duration, content) = match.destructured
+        val words = wordRegex.findAll(content).map { wordMatch ->
+            val (wordTime, wordDuration, text) = wordMatch.destructured
+            YrcWord(
+                time = wordTime.toLong(),
+                duration = wordDuration.toLong(),
+                text = text
+            )
+        }.toList()
+        val text = words.joinToString("") { it.text }.trim()
+        if (text.isEmpty()) null else YrcLine(
+            time = time.toLong(),
+            duration = duration.toLong(),
+            text = text,
+            words = words
+        )
     }
 }

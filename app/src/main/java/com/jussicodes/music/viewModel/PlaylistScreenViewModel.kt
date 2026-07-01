@@ -1,12 +1,19 @@
 package com.jussicodes.music.viewModel
 
 import android.content.Context
+import android.widget.Toast
+import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jussicodes.music.data.favoriteSongIdsDatastore
+import com.jussicodes.music.constants.libraryPlaylistRefreshTokenKey
+import com.jussicodes.music.utils.FavoriteSongSyncBus
+import com.jussicodes.music.utils.PlaylistCollectionSyncBus
+import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.playlist.PlaylistApi
+import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.PlaylistDetailResponse
 import com.rcmiku.ncmapi.model.PlaylistInfoResponse
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -53,6 +60,9 @@ class PlaylistScreenViewModel @Inject constructor(
                     fetchPlaylistInfo()
                 }
         }
+        if (noCache) {
+            observeLocalFavoriteSongs()
+        }
     }
 
     private fun fetchWithObserver() {
@@ -62,26 +72,63 @@ class PlaylistScreenViewModel @Inject constructor(
                     AccountApi.favoriteSongLikeChange().onSuccess {
                         _playlistDetail.value = PlaylistApi.playlistV6Detail(
                             id = playlistId,
-                        ).getOrNull()
+                        ).getOrNull()?.let(FavoriteSongSyncBus::mergeInto)
                     }
                 }
             }
         }
     }
 
-    private fun fetchPlaylistInfo() {
+    private fun observeLocalFavoriteSongs() {
         viewModelScope.launch {
-            playlistId?.let {
-                _playlistInfo.value = PlaylistApi.playlistInfo(it).getOrNull()
+            FavoriteSongSyncBus.localSongs.collectLatest {
+                _playlistDetail.value = _playlistDetail.value?.let(FavoriteSongSyncBus::mergeInto)
             }
         }
     }
 
-    fun playlistSub(isSub: Boolean) {
+    private fun fetchPlaylistInfo() {
+        viewModelScope.launch {
+            playlistId?.let { currentPlaylistId ->
+                _playlistInfo.value = PlaylistApi.playlistInfo(currentPlaylistId).getOrNull()?.let { info ->
+                    PlaylistCollectionSyncBus.overrideFor(currentPlaylistId)?.let { subscribed ->
+                        info.copy(subscribed = subscribed)
+                    } ?: info
+                }
+            }
+        }
+    }
+
+    fun playlistSub(shouldSubscribe: Boolean) {
         viewModelScope.launch {
             playlistId?.let {
-                PlaylistApi.playlistSub(id = it, isSub = isSub).onSuccess {
-                    fetchPlaylistInfo()
+                val previousPlaylistInfo = _playlistInfo.value
+                val playlist = previousPlaylistInfo?.playlist?.takeIf { playlist -> playlist.id != 0L }
+                    ?: _playlistDetail.value?.playlist?.let { detail ->
+                        Playlist(
+                            id = detail.id,
+                            name = detail.name,
+                            coverImgUrl = detail.coverImgUrl,
+                            playCount = detail.playCount,
+                            trackCount = detail.trackCount,
+                            creator = detail.creator,
+                            description = detail.description,
+                            subscribed = shouldSubscribe
+                        )
+                    }
+                _playlistInfo.value = previousPlaylistInfo?.copy(
+                    subscribed = shouldSubscribe
+                ) ?: PlaylistInfoResponse(subscribed = shouldSubscribe)
+                playlist?.let { item ->
+                    PlaylistCollectionSyncBus.setCollected(item, shouldSubscribe)
+                }
+
+                context.dataStore.edit { prefs ->
+                    prefs[libraryPlaylistRefreshTokenKey] = System.currentTimeMillis()
+                }
+
+                PlaylistApi.playlistSub(id = it, isSub = shouldSubscribe).onFailure {
+                    Toast.makeText(context, "Local state updated, cloud sync pending", Toast.LENGTH_SHORT).show()
                 }
             }
         }

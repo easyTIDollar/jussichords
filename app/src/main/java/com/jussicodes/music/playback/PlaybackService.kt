@@ -4,7 +4,9 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
+import android.widget.Toast
 import androidx.annotation.OptIn
+import androidx.datastore.preferences.core.edit
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -42,15 +44,18 @@ import com.jussicodes.music.MainActivity
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.audioQualityKey
+import com.jussicodes.music.constants.libraryPlaylistRefreshTokenKey
 import com.jussicodes.music.constants.use40DpIconKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.updateMediaItemUri
 import com.jussicodes.music.utils.FavoriteSongIdsUtil
+import com.jussicodes.music.utils.FavoriteSongSyncBus
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.enumPreference
 import com.jussicodes.music.utils.preference
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.player.SongLevel
+import com.rcmiku.ncmapi.model.Song
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -66,6 +71,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.runBlocking
 import com.rcmiku.ncmapi.utils.CookieProvider
+import com.rcmiku.ncmapi.utils.json
 
 @UnstableApi
 class PlaybackService : MediaSessionService() {
@@ -229,12 +235,24 @@ class PlaybackService : MediaSessionService() {
 
     private fun toggleLike(like: Boolean, songId: Long) {
         scope.launch {
-            AccountApi.songLike(like, songId).onSuccess {
-                if (like) {
-                    FavoriteSongIdsUtil.addSongId(applicationContext, songId)
-                } else {
-                    FavoriteSongIdsUtil.removeSongId(applicationContext, songId)
-                }
+            val song = mediaSession?.player?.currentMediaItem?.mediaMetadata?.extras
+                ?.getString("song")
+                ?.let { runCatching { json.decodeFromString<Song>(it) }.getOrNull() }
+            if (like) {
+                FavoriteSongIdsUtil.addSongId(applicationContext, songId)
+            } else {
+                FavoriteSongIdsUtil.removeSongId(applicationContext, songId)
+            }
+            applicationContext.dataStore.edit { prefs ->
+                prefs[libraryPlaylistRefreshTokenKey] = System.currentTimeMillis()
+            }
+            song?.let { FavoriteSongSyncBus.setLiked(it, like) }
+            AccountApi.songLike(like, songId).onFailure {
+                Toast.makeText(
+                    applicationContext,
+                    "Local state updated, cloud sync pending",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
     }

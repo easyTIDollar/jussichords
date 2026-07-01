@@ -7,6 +7,7 @@ import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,8 +34,10 @@ import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.utils.getDeviceID
 import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.utils.CookieKeys
+import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.json
 import com.rcmiku.ncmapi.utils.parseCookieString
+import kotlinx.serialization.encodeToString
 
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -90,13 +93,29 @@ fun LoginScreen(
                                 url: String?,
                             ) {
                                 if (url?.startsWith("https://y.music.163.com/m") == true) {
-                                    val cookie = CookieManager.getInstance().getCookie(url)
-                                    val cookieMap =
-                                        parseCookieString(cookie.trimIndent()).toMutableMap()
+                                    val cookieManager = CookieManager.getInstance()
+                                    cookieManager.flush()
+                                    val cookieMap = buildMap {
+                                        cookieManager.getCookie("https://music.163.com")
+                                            ?.let { putAll(parseCookieString(it)) }
+                                        cookieManager.getCookie("https://y.music.163.com")
+                                            ?.let { putAll(parseCookieString(it)) }
+                                        cookieManager.getCookie(url)
+                                            ?.let { putAll(parseCookieString(it)) }
+                                    }.toMutableMap()
+                                    if (!cookieMap.containsKey(CookieKeys.MUSIC_U)) {
+                                        Toast.makeText(
+                                            context,
+                                            "登录态还没有生效，请完成登录后稍等",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                        return
+                                    }
                                     cookieMap[CookieKeys.DEVICE_ID] = getDeviceID()
                                     cookieMap[CookieKeys.OS_VER] = Build.VERSION.RELEASE
                                     cookieMap[CookieKeys.MOBILE_NAME] = Build.MODEL
                                     ncmCookie = json.encodeToString(cookieMap)
+                                    CookieProvider.init(cookieMap)
                                     webView?.clearCache(true)
                                     navController.navigate(Screen.Library.route)
                                 }

@@ -93,5 +93,5 @@ object PlayerApi {
     }
 
     suspend fun songLyric(musicId: Long): Result<LyricResponse> =
-        apiGet("/lyric", mapOf("id" to musicId))
+        apiGet("/lyric/new", mapOf("id" to musicId))
 }
