@@ -12,4 +12,6 @@
 - 支持自定义 API 服务地址，便于接入自建或私有化音乐服务。
 - 采用 Hilt、Ktor、Coil、DataStore、Paging、Protocol Buffers 等现代 Android 技术栈。
 
-
+##相关：
+网易 API https://neteasecloudmusicapienhanced.js.org/
+解灰 https://github.com/NeteaseCloudMusicApiEnhanced/UnblockNeteaseMusic-utils
