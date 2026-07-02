@@ -170,8 +170,7 @@ class PlaybackService : MediaSessionService() {
                     runBlocking {
                         dataSpec.withUri(
                             updateMediaItemUri(
-                                dataSpec.uri.path.orEmpty(),
-                                dataSpec.uri.query,
+                                dataSpec.uri,
                                 audioQuality
                             )
                                 ?: throw PlaybackException(
@@ -218,7 +217,8 @@ class PlaybackService : MediaSessionService() {
                     shuffleButton,
                     if (desktopLyricEnabled) desktopLyricButtonOn else desktopLyricButton
                 )
-            ).build()
+            )
+            .build()
         observeIconPreference()
         observeFavoriteSongIds()
         observeDesktopLyricPreference()

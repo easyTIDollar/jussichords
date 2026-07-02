@@ -19,6 +19,7 @@ import kotlinx.serialization.json.Json
 
 var API_BASE_URL = "https://ncm-api.prod.gbclstudio.cn"
 var UNBLOCK_BASE_URL = "https://unlock.depresskid.top"
+var UNBLOCK_SOURCE = "AUTO"
 
 val apiClient = HttpClient(OkHttp) {
     install(ContentNegotiation) {

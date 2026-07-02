@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jussicodes.music.data.searchHistoryDataStore
+import com.rcmiku.ncmapi.api.playlist.PlaylistApi
 import com.rcmiku.ncmapi.api.search.SearchApi
 import com.rcmiku.ncmapi.api.search.SearchType
+import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.SearchResources
 import com.rcmiku.ncmapi.model.SearchSuggestKeywordResponse
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -33,10 +35,17 @@ class SearchViewModel @Inject constructor(
     private val _searchResults = MutableStateFlow<List<SearchResources>>(emptyList())
     val searchResults: StateFlow<List<SearchResources>> = _searchResults.asStateFlow()
 
+    private val _topLists = MutableStateFlow<List<Playlist>>(emptyList())
+    val topLists: StateFlow<List<Playlist>> = _topLists.asStateFlow()
+
     private val _suggestKeywordResponse = MutableStateFlow<SearchSuggestKeywordResponse?>(null)
     val suggestKeywordResponse: StateFlow<SearchSuggestKeywordResponse?> =
         _suggestKeywordResponse.asStateFlow()
     private var suggestJob: Job? = null
+
+    init {
+        fetchTopLists()
+    }
 
     fun updateSearchType(searchType: SearchType) {
         _searchType.value = searchType
@@ -71,6 +80,12 @@ class SearchViewModel @Inject constructor(
                 keyword = keyword,
                 type = _searchType.value
             ).getOrNull()?.data?.resources.orEmpty()
+        }
+    }
+
+    private fun fetchTopLists() {
+        viewModelScope.launch {
+            _topLists.value = PlaylistApi.topList().getOrNull()?.list.orEmpty()
         }
     }
 

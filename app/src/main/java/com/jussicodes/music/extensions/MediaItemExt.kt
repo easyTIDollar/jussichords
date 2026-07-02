@@ -108,7 +108,13 @@ fun List<Radio>.toRadioMediaItemList() =
             .build()
     }
 
-suspend fun updateMediaItemUri(path: String, query: String?, songLevel: SongLevel): Uri? {
+suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel): Uri? {
+    if (uri.scheme == "http" || uri.scheme == "https") {
+        return uri
+    }
+
+    val path = uri.path.orEmpty().removePrefix("/")
+    val query = uri.query
     val songId = if (query != null) "$path?$query" else path
     return PlayerApi.songPlayUrlV1(songId, songLevel = songLevel)
         .getOrNull()?.data?.firstOrNull()?.url?.toUri()

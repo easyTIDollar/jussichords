@@ -1,6 +1,7 @@
 package com.rcmiku.ncmapi.api.player
 
 import com.rcmiku.ncmapi.api.UNBLOCK_BASE_URL
+import com.rcmiku.ncmapi.api.UNBLOCK_SOURCE
 import com.rcmiku.ncmapi.api.apiClient
 import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.model.LyricResponse
@@ -20,9 +21,11 @@ object PlayerApi {
         val parsed = parseSongId(songId)
         val realId = parsed.first
         val fee = parsed.second
+        val privilegeLevel = parsed.third
+        val shouldTryUnblock = fee != 0 || privilegeLevel <= 0
 
-        return if (fee == 1 || fee == 4) {
-            // VIP/paid song: use unblock service first
+        return if (shouldTryUnblock) {
+            // Restricted song: use unblock service first
             val unblockResult = tryUnblockUrl(realId, songLevel)
             if (unblockResult.isSuccess) {
                 val data = unblockResult.getOrNull()
@@ -38,9 +41,9 @@ object PlayerApi {
         }
     }
 
-    private fun parseSongId(raw: String): Pair<String, Int> {
+    private fun parseSongId(raw: String): Triple<String, Int, Int> {
         val queryIndex = raw.indexOf('?')
-        if (queryIndex == -1) return Pair(raw, 0)
+        if (queryIndex == -1) return Triple(raw, 0, 0)
         val id = raw.substring(0, queryIndex)
         val query = raw.substring(queryIndex + 1)
         val params = query.split("&").associate {
@@ -48,7 +51,8 @@ object PlayerApi {
             if (eq > 0) it.substring(0, eq) to it.substring(eq + 1) else it to ""
         }
         val fee = params["fee"]?.toIntOrNull() ?: 0
-        return Pair(id, fee)
+        val pl = params["pl"]?.toIntOrNull() ?: 0
+        return Triple(id, fee, pl)
     }
 
     private suspend fun tryUnblockUrl(songId: String, songLevel: SongLevel): Result<SongUrlResponse> {
@@ -56,6 +60,9 @@ object PlayerApi {
             val response = apiClient.request("$UNBLOCK_BASE_URL/match") {
                 method = HttpMethod.Get
                 parameter("id", songId)
+                if (UNBLOCK_SOURCE != "AUTO") {
+                    parameter("source", UNBLOCK_SOURCE)
+                }
             }
             if (response.status.isSuccess()) {
                 val body = response.bodyAsText()

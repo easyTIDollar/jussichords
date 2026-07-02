@@ -19,6 +19,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,6 +59,7 @@ import androidx.navigation.NavHostController
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.R
+import com.jussicodes.music.constants.searchTopListFilterIdsKey
 import com.jussicodes.music.extensions.addSong
 import com.jussicodes.music.ui.components.AlbumListItem
 import com.jussicodes.music.ui.components.ArtistListItem
@@ -64,6 +68,7 @@ import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
 import com.jussicodes.music.ui.components.VoiceListItem
 import com.jussicodes.music.ui.icons.ArrowInsert
+import com.jussicodes.music.ui.icons.FilterList
 import com.jussicodes.music.ui.icons.History
 import com.jussicodes.music.ui.icons.Remove
 import com.jussicodes.music.ui.icons.Search
@@ -73,8 +78,10 @@ import com.jussicodes.music.ui.navigation.PlaylistNav
 import com.jussicodes.music.ui.navigation.RadioNav
 import com.jussicodes.music.ui.navigation.UserFollowNav
 import com.jussicodes.music.ui.navigation.UserNav
+import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.viewModel.SearchViewModel
 import com.rcmiku.ncmapi.api.search.SearchType
+import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.toAlbumList
 import com.rcmiku.ncmapi.model.toPlaylist
@@ -92,6 +99,7 @@ fun SearchScreen(
     var expanded by rememberSaveable { mutableStateOf(false) }
     val searchType by searchViewModel.searchType.collectAsState()
     val searchResults by searchViewModel.searchResults.collectAsState()
+    val topLists by searchViewModel.topLists.collectAsState()
     val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
     val isPlaying = playerState?.isPlaying == true
@@ -112,6 +120,17 @@ fun SearchScreen(
     )
     var openBottomSheet by rememberSaveable { mutableStateOf(false) }
     var selectSong by remember { mutableStateOf<Song?>(null) }
+    val showTopLists = searchValue.isBlank()
+    var topListMenuExpanded by rememberSaveable { mutableStateOf(false) }
+    var selectedTopListIdsText by rememberPreference(searchTopListFilterIdsKey, "")
+    val selectedTopListIds = remember(selectedTopListIdsText) {
+        selectedTopListIdsText.toTopListIdSet()
+    }
+    val defaultTopLists = remember(topLists) { topLists.filter(::isDefaultTopList) }
+    val visibleTopLists = remember(topLists, selectedTopListIds) {
+        val selectedIds = selectedTopListIds.ifEmpty { defaultTopLists.map { it.id }.toSet() }
+        topLists.filter { it.id in selectedIds }
+    }
 
     Box(
         Modifier
@@ -227,152 +246,236 @@ fun SearchScreen(
         )
 
         Column(Modifier.padding(top = 100.dp)) {
-            SecondaryTabRow(
-                selectedTabIndex = state,
-                indicator = {
-                    FancyIndicator(
-                        MaterialTheme.colorScheme.primary,
-                        Modifier.tabIndicatorOffset(state)
-                    )
-                }
-            ) {
-                tab.forEachIndexed { index, item ->
-                    Tab(
-                        modifier = Modifier.clip(MaterialTheme.shapes.small),
-                        selected = state == index,
-                        onClick = {
-                            state = index
-                            searchViewModel.updateSearchType(item.first)
-                        },
-                        text = { Text(item.second) })
-                }
-            }
+            if (showTopLists) {
+                LazyColumn(
+                    modifier = Modifier.semantics { traversalIndex = 1f }
+                ) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "排行榜",
+                                style = MaterialTheme.typography.titleMedium
+                            )
 
-            LazyColumn(
-                modifier = Modifier.semantics { traversalIndex = 1f }
-            ) {
-
-                when (searchType) {
-                    SearchType.Album -> {
-                        items(searchResults.size) { index ->
-                            searchResults.getOrNull(index)?.let { resource ->
-                                resource.toAlbumList()?.let {
-                                    AlbumListItem(album = it, modifier = Modifier.clickable {
-                                        navController.navigate(AlbumNav(albumId = it.id))
-                                    })
+                            Box {
+                                IconButton(onClick = { topListMenuExpanded = true }) {
+                                    Icon(
+                                        imageVector = FilterList,
+                                        contentDescription = "筛选榜单"
+                                    )
                                 }
-                            }
-                        }
-                    }
 
-                    SearchType.Artist -> {
-                        items(searchResults.size) { index ->
-                            searchResults.getOrNull(index)?.let { resource ->
-                                resource.toSearchArtist()?.let {
-                                    ArtistListItem(artist = it, modifier = Modifier.clickable {
-                                        navController.navigate(ArtistNav(artistId = it.id))
-                                    })
-                                }
-                            }
-                        }
-                    }
-
-                    SearchType.Playlist -> {
-                        items(searchResults.size) { index ->
-                            searchResults.getOrNull(index)?.let { resource ->
-                                resource.toPlaylist()?.let {
-                                    PlaylistListItem(playlist = it, Modifier.clickable {
-                                        navController.navigate(
-                                            PlaylistNav(
-                                                playlistId = it.id,
-                                                limit = it.trackCount
-                                            )
-                                        )
-                                    })
-                                }
-                            }
-                        }
-                    }
-
-                    SearchType.Song -> {
-                        items(searchResults.size) { index ->
-                            searchResults.getOrNull(index)?.let { resource ->
-                                resource.song?.let { song ->
-                                    SongListItem(
-                                        isPlaying = isPlaying,
-                                        isActive = currentMediaId == song.id,
-                                        song = song,
-                                        songIndex = index + 1,
-                                        modifier = Modifier.clickable {
-                                            mediaController?.addSong(song)
-                                        },
-                                        trailingContent = {
-                                            IconButton(onClick = {
-                                                selectSong = song
-                                                openBottomSheet = true
-                                            }) {
-                                                Icon(
-                                                    imageVector = Icons.Default.MoreVert,
-                                                    contentDescription = stringResource(R.string.more)
+                                DropdownMenu(
+                                    expanded = topListMenuExpanded,
+                                    onDismissRequest = { topListMenuExpanded = false }
+                                ) {
+                                    topLists.forEach { playlist ->
+                                        val selectedIds = selectedTopListIds.ifEmpty {
+                                            defaultTopLists.map { it.id }.toSet()
+                                        }
+                                        val checked = playlist.id in selectedIds
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = playlist.name,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
+                                            },
+                                            leadingIcon = {
+                                                Checkbox(
+                                                    checked = checked,
+                                                    onCheckedChange = null
+                                                )
+                                            },
+                                            onClick = {
+                                                val nextSelectedIds = if (checked) {
+                                                    selectedIds - playlist.id
+                                                } else {
+                                                    selectedIds + playlist.id
+                                                }
+                                                selectedTopListIdsText = nextSelectedIds.toTopListIdsText()
                                             }
-                                        })
-                                }
-                            }
-                        }
-
-                    }
-
-                    SearchType.VoiceList -> {
-                        items(searchResults.size) { index ->
-                            searchResults.getOrNull(index)?.let { resource ->
-                                resource.baseInfo?.let { voice ->
-                                    VoiceListItem(voice = voice, modifier = Modifier.clickable {
-                                        navController.navigate(
-                                            RadioNav(radioId = voice.id)
                                         )
                                     }
-                                    )
                                 }
                             }
                         }
                     }
 
-                    SearchType.User -> {
-                        items(searchResults.size) { index ->
-                            searchResults.getOrNull(index)?.let { resource ->
-                                resource.toSearchUser()?.let { user ->
-                                    ArtistListItem(
-                                        artist = com.rcmiku.ncmapi.model.SearchArtist(
-                                            id = user.id,
-                                            name = user.nickname,
-                                            picUrl = user.avatarUrl,
-                                            briefDesc = user.signature
-                                        ),
-                                        modifier = Modifier.clickable {
-                                            navController.navigate(UserNav(userId = user.id))
-                                        }
+                    items(visibleTopLists, key = { it.id }) { playlist ->
+                        PlaylistListItem(
+                            playlist = playlist,
+                            modifier = Modifier.clickable {
+                                navController.navigate(
+                                    PlaylistNav(
+                                        playlistId = playlist.id,
+                                        limit = playlist.trackCount
                                     )
-                                }
+                                )
                             }
-                        }
+                        )
                     }
 
-                    SearchType.Radio -> {
-                        items(searchResults.size) { index ->
-                            searchResults.getOrNull(index)?.let { resource ->
-                                resource.baseInfo?.let { voice ->
-                                    VoiceListItem(voice = voice, modifier = Modifier.clickable {
-                                        navController.navigate(RadioNav(radioId = voice.id))
-                                    })
-                                }
-                            }
-                        }
+                    item {
+                        Spacer(Modifier.navigationBarsPadding())
+                    }
+                }
+            } else {
+                SecondaryTabRow(
+                    selectedTabIndex = state,
+                    indicator = {
+                        FancyIndicator(
+                            MaterialTheme.colorScheme.primary,
+                            Modifier.tabIndicatorOffset(state)
+                        )
+                    }
+                ) {
+                    tab.forEachIndexed { index, item ->
+                        Tab(
+                            modifier = Modifier.clip(MaterialTheme.shapes.small),
+                            selected = state == index,
+                            onClick = {
+                                state = index
+                                searchViewModel.updateSearchType(item.first)
+                            },
+                            text = { Text(item.second) })
                     }
                 }
 
-                item {
-                    Spacer(Modifier.navigationBarsPadding())
+                LazyColumn(
+                    modifier = Modifier.semantics { traversalIndex = 1f }
+                ) {
+
+                    when (searchType) {
+                        SearchType.Album -> {
+                            items(searchResults.size) { index ->
+                                searchResults.getOrNull(index)?.let { resource ->
+                                    resource.toAlbumList()?.let {
+                                        AlbumListItem(album = it, modifier = Modifier.clickable {
+                                            navController.navigate(AlbumNav(albumId = it.id))
+                                        })
+                                    }
+                                }
+                            }
+                        }
+
+                        SearchType.Artist -> {
+                            items(searchResults.size) { index ->
+                                searchResults.getOrNull(index)?.let { resource ->
+                                    resource.toSearchArtist()?.let {
+                                        ArtistListItem(artist = it, modifier = Modifier.clickable {
+                                            navController.navigate(ArtistNav(artistId = it.id))
+                                        })
+                                    }
+                                }
+                            }
+                        }
+
+                        SearchType.Playlist -> {
+                            items(searchResults.size) { index ->
+                                searchResults.getOrNull(index)?.let { resource ->
+                                    resource.toPlaylist()?.let {
+                                        PlaylistListItem(playlist = it, Modifier.clickable {
+                                            navController.navigate(
+                                                PlaylistNav(
+                                                    playlistId = it.id,
+                                                    limit = it.trackCount
+                                                )
+                                            )
+                                        })
+                                    }
+                                }
+                            }
+                        }
+
+                        SearchType.Song -> {
+                            items(searchResults.size) { index ->
+                                searchResults.getOrNull(index)?.let { resource ->
+                                    resource.song?.let { song ->
+                                        SongListItem(
+                                            isPlaying = isPlaying,
+                                            isActive = currentMediaId == song.id,
+                                            song = song,
+                                            songIndex = index + 1,
+                                            modifier = Modifier.clickable {
+                                                mediaController?.addSong(song)
+                                            },
+                                            trailingContent = {
+                                                IconButton(onClick = {
+                                                    selectSong = song
+                                                    openBottomSheet = true
+                                                }) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.MoreVert,
+                                                        contentDescription = stringResource(R.string.more)
+                                                    )
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                        }
+
+                        SearchType.VoiceList -> {
+                            items(searchResults.size) { index ->
+                                searchResults.getOrNull(index)?.let { resource ->
+                                    resource.baseInfo?.let { voice ->
+                                        VoiceListItem(voice = voice, modifier = Modifier.clickable {
+                                            navController.navigate(
+                                                RadioNav(radioId = voice.id)
+                                            )
+                                        }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        SearchType.User -> {
+                            items(searchResults.size) { index ->
+                                searchResults.getOrNull(index)?.let { resource ->
+                                    resource.toSearchUser()?.let { user ->
+                                        ArtistListItem(
+                                            artist = com.rcmiku.ncmapi.model.SearchArtist(
+                                                id = user.id,
+                                                name = user.nickname,
+                                                picUrl = user.avatarUrl,
+                                                briefDesc = user.signature
+                                            ),
+                                            modifier = Modifier.clickable {
+                                                navController.navigate(UserNav(userId = user.id))
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        SearchType.Radio -> {
+                            items(searchResults.size) { index ->
+                                searchResults.getOrNull(index)?.let { resource ->
+                                    resource.baseInfo?.let { voice ->
+                                        VoiceListItem(voice = voice, modifier = Modifier.clickable {
+                                            navController.navigate(RadioNav(radioId = voice.id))
+                                        })
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        Spacer(Modifier.navigationBarsPadding())
+                    }
                 }
             }
         }
@@ -385,6 +488,16 @@ fun SearchScreen(
         openBottomSheet = openBottomSheet
     )
 }
+
+private fun isDefaultTopList(playlist: Playlist): Boolean {
+    val defaultNames = listOf("飙升榜", "新歌榜", "原创榜", "热歌榜")
+    return defaultNames.any { playlist.name.contains(it) }
+}
+
+private fun String.toTopListIdSet(): Set<Long> =
+    split(",").mapNotNull { it.toLongOrNull() }.toSet()
+
+private fun Set<Long>.toTopListIdsText(): String = joinToString(",")
 
 
 @OptIn(ExperimentalFoundationApi::class)

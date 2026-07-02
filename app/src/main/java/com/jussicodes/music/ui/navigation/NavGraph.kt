@@ -10,6 +10,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
@@ -191,15 +192,28 @@ private fun HomePager(
 ) {
     LaunchedEffect(pagerState.settledPage) {
         onPageChange(pagerState.settledPage)
+        onPageScroll(pagerState.settledPage.toFloat())
     }
 
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage + pagerState.currentPageOffsetFraction }
+        snapshotFlow {
+            if (pagerState.isScrollInProgress) {
+                (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
+            } else {
+                pagerState.settledPage.toFloat()
+            }
+        }
             .distinctUntilChanged()
-            .collect { onPageScroll(it.coerceIn(0f, 1f)) }
+            .collect(onPageScroll)
     }
 
-    HorizontalPager(state = pagerState) { page ->
+    HorizontalPager(
+        state = pagerState,
+        flingBehavior = PagerDefaults.flingBehavior(
+            state = pagerState,
+            snapPositionalThreshold = 0.5f
+        )
+    ) { page ->
         when (page) {
             0 -> LibraryScreen(navController = navController)
             1 -> ExploreScreen(

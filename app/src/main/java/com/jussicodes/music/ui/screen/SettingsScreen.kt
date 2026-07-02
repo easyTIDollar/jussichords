@@ -66,12 +66,15 @@ import com.jussicodes.music.constants.githubDownloadProxyKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.themeSeedColorKey
 import com.jussicodes.music.constants.unblockBaseUrlKey
+import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.constants.use40DpIconKey
 import com.jussicodes.music.lyric.DesktopLyricManager
 import com.jussicodes.music.ui.components.Dialog
 import com.jussicodes.music.ui.components.SongQualityDialog
 import com.jussicodes.music.ui.components.ThemeSeedDialog
+import com.jussicodes.music.ui.components.UnblockSourceDialog
 import com.jussicodes.music.ui.components.UrlEditDialog
+import com.jussicodes.music.ui.components.unblockSourceOptions
 import com.jussicodes.music.ui.icons.Dns
 import com.jussicodes.music.ui.icons.Github
 import com.jussicodes.music.ui.icons.GraphicEq
@@ -109,12 +112,14 @@ fun SettingsScreen(navController: NavHostController) {
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "https://ncm-api.prod.gbclstudio.cn")
     var unblockBaseUrl by rememberPreference(unblockBaseUrlKey, "https://unlock.depresskid.top")
+    var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
     var githubDownloadProxy by rememberPreference(githubDownloadProxyKey, "https://gh-proxy.net/")
 
     var showQualityDialog by remember { mutableStateOf(false) }
     var showThemeSeedDialog by remember { mutableStateOf(false) }
     var showApiUrlDialog by remember { mutableStateOf(false) }
     var showUnblockUrlDialog by remember { mutableStateOf(false) }
+    var showUnblockSourceDialog by remember { mutableStateOf(false) }
     var showGithubProxyDialog by remember { mutableStateOf(false) }
     var updating by rememberSaveable { mutableStateOf(false) }
     var updateProgress by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -165,9 +170,9 @@ fun SettingsScreen(navController: NavHostController) {
         SettingItemData(
             title = "桌面歌词",
             subtitle = when {
-                desktopLyricEnabled && overlayPermissionGranted -> "已开启悬浮歌词，功能还在完善中"
-                !overlayPermissionGranted -> "需要悬浮窗权限，功能还在完善中"
-                else -> "已关闭，功能还在完善中"
+                desktopLyricEnabled && overlayPermissionGranted -> "已开启悬浮歌词"
+                !overlayPermissionGranted -> "需要悬浮窗权限"
+                else -> "已关闭"
             },
             imageVector = GraphicEq,
             trailingContent = {
@@ -257,9 +262,17 @@ fun SettingsScreen(navController: NavHostController) {
         ),
         SettingItemData(
             title = stringResource(R.string.unblock_server),
-            subtitle = unblockBaseUrl,
+            subtitle = buildString {
+                append(unblockBaseUrl)
+                append(" · ")
+                append(
+                    unblockSourceOptions.firstOrNull { it.value == unblockSource }?.label
+                        ?: "自动选择音源"
+                )
+            },
             imageVector = Dns,
-            onClick = { showUnblockUrlDialog = true }
+            onClick = { showUnblockUrlDialog = true },
+            onLongClick = { showUnblockSourceDialog = true }
         ),
         SettingItemData(
             title = if (updating || updateProgress != null) "正在更新" else "检查版本更新",
@@ -301,7 +314,7 @@ fun SettingsScreen(navController: NavHostController) {
     val settingsItems = listOf(
         SettingItemData(
             title = stringResource(R.string.app_name),
-            subtitle = "一款简洁的第三方网易云音乐客户端，支持登录、播放、收藏、云盘与歌单浏览。",
+            subtitle = "简洁的第三方网易云音乐客户端",
             imageVector = PlayPause
         ),
         SettingItemData(
@@ -443,6 +456,14 @@ fun SettingsScreen(navController: NavHostController) {
             defaultUrl = "https://unlock.depresskid.top",
             onDismiss = { showUnblockUrlDialog = false },
             onConfirm = { unblockBaseUrl = it }
+        )
+    }
+
+    if (showUnblockSourceDialog) {
+        UnblockSourceDialog(
+            currentSource = unblockSource,
+            onDismiss = { showUnblockSourceDialog = false },
+            onSourceSelected = { unblockSource = it }
         )
     }
 
