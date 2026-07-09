@@ -6,8 +6,8 @@ object CookieProvider {
         private set
 
     fun init(cookieMap: Map<String, String>) {
-        this.cookieMap = cookieMap
-        this.cookie = cookieMap.entries.joinToString("; ") { (k, v) -> "$k=$v" }
+        this.cookieMap = cookieMap + (CookieKeys.OS to "pc")
+        this.cookie = this.cookieMap.entries.joinToString("; ") { (k, v) -> "$k=$v" }
     }
 
     fun clear() {
@@ -18,4 +18,6 @@ object CookieProvider {
     fun getCookieMap(): Map<String, String> = cookieMap
 
     fun isLoggedIn(): Boolean = cookieMap.isNotEmpty() && cookieMap.containsKey("MUSIC_U")
+
+    fun hasCsrf(): Boolean = cookieMap.containsKey("__csrf")
 }

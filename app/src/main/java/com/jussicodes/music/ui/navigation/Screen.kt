@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 sealed class Screen(val route: String) {
     data object Explore : Screen("explore")
     data object Library : Screen("library")
+    data object Roam : Screen("roam")
     data object Settings : Screen("settings")
     data object AlbumSublist : Screen("albumSublist")
     data object Login : Screen("login")

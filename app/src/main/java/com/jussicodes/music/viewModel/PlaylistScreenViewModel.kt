@@ -128,7 +128,7 @@ class PlaylistScreenViewModel @Inject constructor(
                 }
 
                 PlaylistApi.playlistSub(id = it, isSub = shouldSubscribe).onFailure {
-                    Toast.makeText(context, "Local state updated, cloud sync pending", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "歌单收藏同步失败", Toast.LENGTH_SHORT).show()
                 }
             }
         }

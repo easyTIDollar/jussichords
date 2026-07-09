@@ -66,9 +66,10 @@ fun SongQualityDialog(
                                 SongLevel.EXHIGH -> stringResource(R.string.exhigh)
                                 SongLevel.LOSSLESS -> stringResource(R.string.lossless)
                                 SongLevel.HIRES -> stringResource(R.string.hi_res)
-//                                SongLevel.JYEFFECT -> stringResource(R.string.jyeffect)
-//                                SongLevel.SKY -> stringResource(R.string.sky)
-//                                SongLevel.JYMASTER -> stringResource(R.string.jymaster)
+                                SongLevel.JYEFFECT -> stringResource(R.string.jyeffect)
+                                SongLevel.SKY -> stringResource(R.string.sky)
+                                SongLevel.DOLBY -> stringResource(R.string.dolby)
+                                SongLevel.JYMASTER -> stringResource(R.string.jymaster)
                             }
                         )
                     }

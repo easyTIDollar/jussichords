@@ -1,7 +1,6 @@
 package com.jussicodes.music.ui.components
 
 import android.content.Intent
-import android.widget.Toast
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -44,12 +43,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.datastore.preferences.core.edit
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.R
-import com.jussicodes.music.constants.libraryPlaylistRefreshTokenKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.addToPlaylist
 import com.jussicodes.music.extensions.insertToPlaylist
@@ -62,10 +59,8 @@ import com.jussicodes.music.ui.icons.PlaylistInsert
 import com.jussicodes.music.ui.icons.SongListAdd
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.ArtistNav
-import com.jussicodes.music.utils.FavoriteSongIdsUtil
-import com.jussicodes.music.utils.FavoriteSongSyncBus
 import com.jussicodes.music.utils.CoverImageSize
-import com.jussicodes.music.utils.dataStore
+import com.jussicodes.music.utils.FavoriteSongAction
 import com.jussicodes.music.utils.makeTimeString
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.rcmiku.ncmapi.api.account.AccountApi
@@ -321,25 +316,12 @@ fun SongMenuBottomSheet(
                                 .clickable {
                                     song?.id?.let { songId ->
                                         scope.launch {
-                                            val like = songId !in songIds
-                                            if (like)
-                                                FavoriteSongIdsUtil.addSongId(context, songId)
-                                            else
-                                                FavoriteSongIdsUtil.removeSongId(
-                                                    context,
-                                                    songId
-                                                )
-                                            context.dataStore.edit { prefs ->
-                                                prefs[libraryPlaylistRefreshTokenKey] = System.currentTimeMillis()
-                                            }
-                                            FavoriteSongSyncBus.setLiked(song, like)
-                                            AccountApi.songLike(like, songId).onFailure {
-                                                Toast.makeText(
-                                                    context,
-                                                    "Local state updated, cloud sync pending",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
+                                            FavoriteSongAction.toggle(
+                                                context = context,
+                                                songId = songId,
+                                                likedSongIds = songIds,
+                                                song = song
+                                            )
                                         }
                                     }
                                 }, verticalAlignment = Alignment.CenterVertically

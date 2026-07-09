@@ -74,7 +74,7 @@ fun MainScreen() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
-    val showNavigationBar =
+    val isTabRoute =
         currentDestination?.hierarchy?.any { tabs.any { tab -> it.route == tab.route } } == true
     val playerState = LocalPlayerState.current
     var position by rememberSaveable(playerState) {
@@ -93,9 +93,10 @@ fun MainScreen() {
     var homePageScroll by remember { mutableFloatStateOf(homePage.toFloat()) }
     val homePagerState = rememberPagerState(initialPage = homePage) { tabs.size }
     val coroutineScope = rememberCoroutineScope()
-    val isHomeRoute = currentDestination?.hierarchy?.any {
-        it.route == Screen.Library.route || it.route == Screen.Explore.route
-    } == true
+    val isHomeRoute = isTabRoute
+    val isRoamRoute = currentDestination?.route == Screen.Roam.route
+    val showNavigationBar = isTabRoute
+    val showMiniPlayerChrome = showMiniPlayer && !isRoamRoute
 
     LaunchedEffect(playerState, isPlaying, lifecycleOwner) {
         val player = playerState?.player ?: return@LaunchedEffect
@@ -120,11 +121,8 @@ fun MainScreen() {
     }
 
     LaunchedEffect(currentDestination?.route) {
-        val targetPage = when (currentDestination?.route) {
-            Screen.Library.route -> 0
-            Screen.Explore.route -> 1
-            else -> null
-        }
+        val targetPage = tabs.indexOfFirst { it.route == currentDestination?.route }
+            .takeIf { it >= 0 }
 
         if (targetPage != null) {
             homePage = targetPage
@@ -257,7 +255,7 @@ fun MainScreen() {
                 0.dp
             }
 
-            if (!showPlayer && !showNavigationBar && showMiniPlayer) {
+            if (!showPlayer && !showNavigationBar && showMiniPlayerChrome) {
                 bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             }
 
@@ -272,7 +270,7 @@ fun MainScreen() {
                         .defaultMinSize(minHeight = MiniPlayerHeight)
                         .windowInsetsPadding(WindowInsets(bottom = bottomPadding)),
                 ) {
-                    playerState?.mediaMetadata?.let {
+                    if (showMiniPlayerChrome) playerState?.mediaMetadata?.let {
                         PlayerTransform(
                             mediaMetadata = it,
                             position = position,
@@ -291,7 +289,7 @@ fun MainScreen() {
             NavGraph(
                 navController = navController,
                 bottomPadding = bottomPadding,
-                showMiniPlayer = showMiniPlayer,
+                showMiniPlayer = showMiniPlayerChrome,
                 homePagerState = homePagerState,
                 onHomePageChange = { homePage = it },
                 onHomePageScroll = { homePageScroll = it }

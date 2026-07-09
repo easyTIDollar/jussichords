@@ -7,6 +7,20 @@ object RecommendApi {
     suspend fun recommendSongs(): Result<DailySongsResponse> =
         apiGet("/recommend/songs")
 
+    suspend fun personalFm(mode: String? = null, submode: String? = null): Result<PersonalFmResponse> =
+        if (mode == null) {
+            apiGet("/personal_fm", mapOf("timestamp" to System.currentTimeMillis()))
+        } else {
+            apiGet(
+                "/personal/fm/mode",
+                buildMap {
+                    put("mode", mode)
+                    submode?.let { put("submode", it) }
+                    put("timestamp", System.currentTimeMillis())
+                }
+            )
+        }
+
     suspend fun recommendPlaylist(): Result<RecommendPlaylistResponse> {
         val raw = apiGet<RecommendRawResponse>(
             "/personalized",

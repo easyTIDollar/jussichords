@@ -1,0 +1,1213 @@
+{
+  "generatedAt": "2026-07-04",
+  "source": "Chrome 超星 信息论基础 作业详情页",
+  "chapters": [
+    {
+      "chapter": "第1章作业",
+      "url": "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/view?courseId=261763243&classId=142622339&cpi=362635664&workId=52182852&answerId=56056693&enc=7b5a266c1eca54d71dc41947a19e49cf",
+      "questions": [
+        {
+          "answer": "(1) 信息",
+          "images": [],
+          "num": "10",
+          "options": [],
+          "stem": "信道是传递消息的通道，又是传送物理信号的设施。信道的主要问题是能够传送多少____",
+          "stemParts": [
+            {
+              "text": "信道是传递消息的通道，又是传送物理信号的设施。信道的主要问题是能够传送多少____",
+              "type": "text"
+            }
+          ],
+          "text": "10. (填空题)信道是传递消息的通道，又是传送物理信号的设施。信道的主要问题是能够传送多少____\n我的答案：\n5.9分\n(1)\n\n信息\n\n \n正确答案：\n(1) 信息\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1) 现代信息论",
+          "images": [],
+          "num": "11",
+          "options": [],
+          "stem": "信息论是应用近代数理统计方法研究信息的传输、存储和处理的科学，故称____",
+          "stemParts": [
+            {
+              "text": "信息论是应用近代数理统计方法研究信息的传输、存储和处理的科学，故称____",
+              "type": "text"
+            }
+          ],
+          "text": "11. (填空题)信息论是应用近代数理统计方法研究信息的传输、存储和处理的科学，故称____\n我的答案：\n5.9分\n(1)\n\n现代信息论\n\n \n正确答案：\n(1) 现代信息论\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1) 载体",
+          "images": [],
+          "num": "12",
+          "options": [],
+          "stem": "信号是消息的____，是表示消息的物理量。",
+          "stemParts": [
+            {
+              "text": "信号是消息的____，是表示消息的物理量。",
+              "type": "text"
+            }
+          ],
+          "text": "12. (填空题)信号是消息的____，是表示消息的物理量。\n我的答案：\n5.9分\n(1)\n\n载体\n\n \n正确答案：\n(1) 载体\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1)\n\n运动的状态及状态变化;运动状态及状态变化;运动的状态和状态变化;运动状态和状态变化",
+          "images": [],
+          "num": "13",
+          "options": [],
+          "stem": "信息是指事物____的方式。",
+          "stemParts": [
+            {
+              "text": "信息是指事物____的方式。",
+              "type": "text"
+            }
+          ],
+          "text": "13. (填空题)\n\n信息是指事物____的方式。\n\n我的答案：\n5.9分\n(1)\n\n运动的状态及状态变化\n\n \n正确答案：\n(1)\n\n运动的状态及状态变化;运动状态及状态变化;运动的状态和状态变化;运动状态和状态变化\n\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1) 可靠性",
+          "images": [],
+          "num": "14",
+          "options": [],
+          "stem": "信道编码的主要目标是提高信息传输的____。",
+          "stemParts": [
+            {
+              "text": "信道编码的主要目标是提高信息传输的____。",
+              "type": "text"
+            }
+          ],
+          "text": "14. (填空题)信道编码的主要目标是提高信息传输的____。\n我的答案：\n5.9分\n(1)\n\n可靠性\n\n \n正确答案：\n(1) 可靠性\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1) 信源",
+          "images": [],
+          "num": "15",
+          "options": [],
+          "stem": "要使通信系统做到传输信息有效、可靠和保密，须先____编码，然后____编码，再____编码，最后送入信道。",
+          "stemParts": [
+            {
+              "text": "要使通信系统做到传输信息有效、可靠和保密，须先____编码，然后____编码，再____编码，最后送入信道。",
+              "type": "text"
+            }
+          ],
+          "text": "15. (填空题)要使通信系统做到传输信息有效、可靠和保密，须先____编码，然后____编码，再____编码，最后送入信道。\n我的答案：\n5.9分\n(1)\n\n信源\n\n \n(2)\n\n加密\n\n \n(3)\n\n信道\n\n \n正确答案：\n(1) 信源\n(2) 加密\n(3) 信道\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1) 安全性",
+          "images": [],
+          "num": "16",
+          "options": [],
+          "stem": "加密编码的目的是保证信息传输的____。",
+          "stemParts": [
+            {
+              "text": "加密编码的目的是保证信息传输的____。",
+              "type": "text"
+            }
+          ],
+          "text": "16. (填空题)加密编码的目的是保证信息传输的____。\n我的答案：\n5.9分\n(1)\n\n安全性\n\n \n正确答案：\n(1) 安全性\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1) 有效性",
+          "images": [],
+          "num": "17",
+          "options": [],
+          "stem": "信源编码的主要目的是提高信息传输的____。",
+          "stemParts": [
+            {
+              "text": "信源编码的主要目的是提高信息传输的____。",
+              "type": "text"
+            }
+          ],
+          "text": "17. (填空题)信源编码的主要目的是提高信息传输的____。\n我的答案：\n5.9分\n(1)\n\n有效性\n\n \n正确答案：\n(1) 有效性\nAI讲解",
+          "type": "填空题"
+        }
+      ]
+    },
+    {
+      "chapter": "第2章作业",
+      "url": "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/view?courseId=261763243&classId=142622339&cpi=362635664&workId=52182968&answerId=56260751&enc=7df3a08a936614bfbda677b8522a7fdc",
+      "questions": [
+        {
+          "answer": "C",
+          "images": [],
+          "num": "1",
+          "options": [
+            "A. 5.71bit",
+            "B. 4.71bit",
+            "C. 5.17bit",
+            "D. 4.17bit"
+          ],
+          "stem": "同时掷两个正常的骰子，各面呈现的概率都是1/6,则“两个1同时出现”事件的自信息量是( )",
+          "stemParts": [
+            {
+              "text": "同时掷两个正常的骰子，各面呈现的概率都是1/6,则“两个1同时出现”事件的自信息量是( )",
+              "type": "text"
+            }
+          ],
+          "text": "1. (单选题, 5分)同时掷两个正常的骰子，各面呈现的概率都是1/6,则“两个1同时出现”事件的自信息量是( )\nA. 5.71bit\nB. 4.71bit\nC. 5.17bit\nD. 4.17bit\n我的答案:C\n:5.17bit;\n正确答案:C\n:5.17bit;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "C",
+          "images": [
+            {
+              "alt": "",
+              "height": 52,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/2766511f6ed29e8cdfb380abd3068ccf.png",
+              "width": 690,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            }
+          ],
+          "num": "2",
+          "options": [
+            "A. 4",
+            "B. 2",
+            "C. 1",
+            "D. 3"
+          ],
+          "stem": "[图片:https://p.ananas.chaoxing.com/star3/origin/2766511f6ed29e8cdfb380abd3068ccf.png]",
+          "stemParts": [
+            {
+              "alt": "",
+              "src": "https://p.ananas.chaoxing.com/star3/origin/2766511f6ed29e8cdfb380abd3068ccf.png",
+              "type": "image"
+            }
+          ],
+          "text": "2. (单选题, 5分)\n\nA.\n\n4\n\nB.\n\n2\n\nC.\n\n1\n\nD.\n\n3\n\n我的答案:C\n:1;\n正确答案:C\n:1;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "A",
+          "images": [
+            {
+              "alt": "",
+              "height": 52,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/fd8abb6ed174332b7720316f0c5bbf87.png",
+              "width": 717,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            }
+          ],
+          "num": "3",
+          "options": [
+            "A. X",
+            "B. Z",
+            "C. Y",
+            "D. 一样大"
+          ],
+          "stem": "[图片:https://p.ananas.chaoxing.com/star3/origin/fd8abb6ed174332b7720316f0c5bbf87.png]",
+          "stemParts": [
+            {
+              "alt": "",
+              "src": "https://p.ananas.chaoxing.com/star3/origin/fd8abb6ed174332b7720316f0c5bbf87.png",
+              "type": "image"
+            }
+          ],
+          "text": "3. (单选题, 5分)\n\nA.\n\nX\n\nB.\n\nZ\n\nC.\n\nY\n\nD.\n\n一样大\n\n我的答案:A\n:X;\n正确答案:A\n:X;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "A",
+          "images": [],
+          "num": "4",
+          "options": [
+            "A. 上凸",
+            "B. 下凸",
+            "C. 非凸",
+            "D. 以上都不对"
+          ],
+          "stem": "熵函数H(X)是p(xi)的( )函数。",
+          "stemParts": [
+            {
+              "text": "熵函数H(X)是p(xi)的( )函数。",
+              "type": "text"
+            }
+          ],
+          "text": "4. (单选题, 5分)熵函数H(X)是p(xi)的( )函数。\nA. 上凸\nB. 下凸\nC. 非凸\nD. 以上都不对\n我的答案:D\n:以上都不对;\n正确答案:A\n:上凸;\n0分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "B",
+          "images": [],
+          "num": "5",
+          "options": [
+            "A. m+1",
+            "B. m",
+            "C. m-1",
+            "D. m(m-1)/2"
+          ],
+          "stem": "对于m阶马尔可夫信源来说，在某一时刻出现的符号，取决于前面已出现的( )个符号",
+          "stemParts": [
+            {
+              "text": "对于m阶马尔可夫信源来说，在某一时刻出现的符号，取决于前面已出现的( )个符号",
+              "type": "text"
+            }
+          ],
+          "text": "5. (单选题, 5分)对于m阶马尔可夫信源来说，在某一时刻出现的符号，取决于前面已出现的( )个符号\nA. m+1\nB. m\nC. m-1\nD. m(m-1)/2\n我的答案:B\n:m;\n正确答案:B\n:m;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "(1) 离散",
+          "images": [],
+          "num": "15",
+          "options": [],
+          "stem": "信源可分为两大类，即____信源和连续信源。",
+          "stemParts": [
+            {
+              "text": "信源可分为两大类，即____信源和连续信源。",
+              "type": "text"
+            }
+          ],
+          "text": "15. (填空题, 5分)信源可分为两大类，即____信源和连续信源。\n我的答案：\n5分\n(1)\n\n离散\n\n \n正确答案：\n(1) 离散\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1) 相关性",
+          "images": [],
+          "num": "16",
+          "options": [],
+          "stem": "冗余度来自两个方面:一是信源符号之间的____;二是信源符号分布的____。",
+          "stemParts": [
+            {
+              "text": "冗余度来自两个方面:一是信源符号之间的____;二是信源符号分布的____。",
+              "type": "text"
+            }
+          ],
+          "text": "16. (填空题, 5分)冗余度来自两个方面:一是信源符号之间的____;二是信源符号分布的____。\n我的答案：\n5分\n(1)\n\n相关性\n\n \n(2)\n\n不均匀性\n\n \n正确答案：\n(1) 相关性\n(2) 不均匀性\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1) 减少",
+          "images": [],
+          "num": "17",
+          "options": [],
+          "stem": "信息不增性指的是经过分类或归并性信息处理后，信息只能____，不能____。",
+          "stemParts": [
+            {
+              "text": "信息不增性指的是经过分类或归并性信息处理后，信息只能____，不能____。",
+              "type": "text"
+            }
+          ],
+          "text": "17. (填空题, 5分)信息不增性指的是经过分类或归并性信息处理后，信息只能____，不能____。\n我的答案：\n5分\n(1)\n\n减少\n\n \n(2)\n\n增加\n\n \n正确答案：\n(1) 减少\n(2) 增加\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1) 消除",
+          "images": [],
+          "num": "18",
+          "options": [],
+          "stem": "互信息量为两个不确定度之差，是不确定度部分被____的(填 增加/消除)。",
+          "stemParts": [
+            {
+              "text": "互信息量为两个不确定度之差，是不确定度部分被____的(填 增加/消除)。",
+              "type": "text"
+            }
+          ],
+          "text": "18. (填空题, 5分)互信息量为两个不确定度之差，是不确定度部分被____的(填 增加/消除)。\n我的答案：\n5分\n(1)\n\n消除\n\n \n正确答案：\n(1) 消除\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1)\n\n3/8;0.375",
+          "images": [
+            {
+              "alt": "",
+              "height": 41,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/e793f340592e3fe359c2fae9a739d668.png",
+              "width": 772,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            },
+            {
+              "alt": "",
+              "height": 41,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/fbd3803a780d6729ce0542e61839187f.png",
+              "width": 576,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            }
+          ],
+          "num": "19",
+          "options": [],
+          "stem": "[图片:https://p.ananas.chaoxing.com/star3/origin/e793f340592e3fe359c2fae9a739d668.png]\n[图片:https://p.ananas.chaoxing.com/star3/origin/fbd3803a780d6729ce0542e61839187f.png]",
+          "stemParts": [
+            {
+              "alt": "",
+              "src": "https://p.ananas.chaoxing.com/star3/origin/e793f340592e3fe359c2fae9a739d668.png",
+              "type": "image"
+            },
+            {
+              "alt": "",
+              "src": "https://p.ananas.chaoxing.com/star3/origin/fbd3803a780d6729ce0542e61839187f.png",
+              "type": "image"
+            }
+          ],
+          "text": "19. (填空题, 5分)\n\n我的答案：\n5分\n(1)\n\n0.375\n\n \n(2)\n\n0.625\n\n \n正确答案：\n(1)\n\n3/8;0.375\n\n(2)\n\n5/8;0.625\n\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1)\n\n23.77",
+          "images": [],
+          "num": "20",
+          "options": [],
+          "stem": "一个消息来自于符号集{a,b,c},各符号等概率出现。“abbccaabcaabbca”中所包含的信息量为____bit，平均信息量为\n____bit\n/符号。（保留2位有效小数）",
+          "stemParts": [
+            {
+              "text": "一个消息来自于符号集{a,b,c},各符号等概率出现。“abbccaabcaabbca”中所包含的信息量为____bit，平均信息量为",
+              "type": "text"
+            },
+            {
+              "text": "____bit",
+              "type": "text"
+            },
+            {
+              "text": "/符号。（保留2位有效小数）",
+              "type": "text"
+            }
+          ],
+          "text": "20. (填空题, 5分)\n\n一个消息来自于符号集{a,b,c},各符号等概率出现。“abbccaabcaabbca”中所包含的信息量为____bit，平均信息量为____bit/符号。（保留2位有效小数）\n\n我的答案：\n5分\n(1)\n\n23.77\n\n \n(2)\n\n1.58\n\n \n正确答案：\n(1)\n\n23.77\n\n(2)\n\n1.58\n\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1)\n\n1.15",
+          "images": [
+            {
+              "alt": "",
+              "height": 150,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/1edb5d61ef7f7b268318ed09ad3bdd6c.png",
+              "width": 1092,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            }
+          ],
+          "num": "21",
+          "options": [],
+          "stem": "统计数据有：居住在某地区的女孩中有30%是大学生，有50%是近视眼，在女大学生中有75%是近视眼。假如我们得知“近视眼的某女孩是大学生”的消息，问获得多少信息量（保留2位有效小数）？",
+          "stemParts": [
+            {
+              "text": "统计数据有：居住在某地区的女孩中有30%是大学生，有50%是近视眼，在女大学生中有75%是近视眼。假如我们得知“近视眼的某女孩是大学生”的消息，问获得多少信息量（保留2位有效小数）？",
+              "type": "text"
+            }
+          ],
+          "text": "21. (填空题, 5分)\n\n统计数据有：居住在某地区的女孩中有30%是大学生，有50%是近视眼，在女大学生中有75%是近视眼。假如我们得知“近视眼的某女孩是大学生”的消息，问获得多少信息量（保留2位有效小数）？\n\n我的答案：\n0分\n(1)\n\n1.15bit\n\n \n正确答案：\n(1)\n\n1.15\n\n答案解析：\n\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1)\n\n1.42",
+          "images": [
+            {
+              "alt": "",
+              "height": 185,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/24776552b51f2ba203cc77ce5308b24a.bmp",
+              "width": 800,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            },
+            {
+              "alt": "",
+              "height": 321,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/491793ac05d0d6ccf94cc68b42fd5e45.png",
+              "width": 1125,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            }
+          ],
+          "num": "22",
+          "options": [],
+          "stem": "[图片:https://p.ananas.chaoxing.com/star3/origin/24776552b51f2ba203cc77ce5308b24a.bmp]\n以上结果都保留2位有效小数。",
+          "stemParts": [
+            {
+              "alt": "",
+              "src": "https://p.ananas.chaoxing.com/star3/origin/24776552b51f2ba203cc77ce5308b24a.bmp",
+              "type": "image"
+            },
+            {
+              "text": "以上结果都保留2位有效小数。",
+              "type": "text"
+            }
+          ],
+          "text": "22. (填空题, 5分)\n\n以上结果都保留2位有效小数。\n\n我的答案：\n0分\n(1)\n\nI(0)=1.42bit\n\n \n(2)\n\nI(1)=2.00bit\n\n \n(3)\n\nI(2)=2.00bit\n\n \n(4)\n\nI(3)=3.00bit\n\n \n(5)\n\n自信息量=87.81bit、平均每个符号信息量=1.95bit/符号\n\n \n正确答案：\n(1)\n\n1.42\n\n(2)\n\n2\n\n(3)\n\n2\n\n(4)\n\n3\n\n(5)\n\n1.95\n\n答案解析：\n\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1)\n\n2",
+          "images": [
+            {
+              "alt": "",
+              "height": 318,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/dcfad6844a83e0c50bed9c251c3d8e31.png",
+              "width": 1100,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            }
+          ],
+          "num": "23",
+          "options": [],
+          "stem": "设信源A={0，1，2，3}，且每个符号ai等概率出现。B={0，1} 且B的符号bj 满足：bj=0，如果a=0或a=3；bj=1，如果a=1或a=2。求：H（A）、H（B）和\nH(AB）。",
+          "stemParts": [
+            {
+              "text": "设信源A={0，1，2，3}，且每个符号ai等概率出现。B={0，1} 且B的符号bj 满足：bj=0，如果a=0或a=3；bj=1，如果a=1或a=2。求：H（A）、H（B）和",
+              "type": "text"
+            },
+            {
+              "text": "H(AB）。",
+              "type": "text"
+            }
+          ],
+          "text": "23. (填空题, 5分)\n\n设信源A={0，1，2，3}，且每个符号ai等概率出现。B={0，1} 且B的符号bj 满足：bj=0，如果a=0或a=3；bj=1，如果a=1或a=2。求：H（A）、H（B）和\n\nH(AB）。\n\n我的答案：\n5分\n(1)\n\n2\n\n \n(2)\n\n1\n\n \n(3)\n\n2\n\n \n正确答案：\n(1)\n\n2\n\n(2)\n\n1\n\n(3)\n\n2\n\n答案解析：\n\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1)\n\n731",
+          "images": [
+            {
+              "alt": "",
+              "height": 308,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/eb0cd966191bfc33352de3ad6b6ae1e8.png",
+              "width": 360,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            },
+            {
+              "alt": "",
+              "height": 157,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/3539bc259c14aadf4fcabae1325a0f6b.png",
+              "width": 931,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            },
+            {
+              "alt": "",
+              "height": 291,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/757b0f70ed0327a69f7337faa962ae7b.png",
+              "width": 896,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            }
+          ],
+          "num": "24",
+          "options": [],
+          "stem": "一个信源以相等的概率及1000符号/秒的速率把“0”和“1”符号送人有噪声信道，有噪信道如图2.6所示。由于信道中噪声的影响，发送为“0”接收为“1”的概率是1/16，而发送为“1”接收为“0”的概率是1/32，求收信者接收的熵速率（四舍五入为整数）。\n[图片:https://p.ananas.chaoxing.com/star3/origin/eb0cd966191bfc33352de3ad6b6ae1e8.png]",
+          "stemParts": [
+            {
+              "text": "一个信源以相等的概率及1000符号/秒的速率把“0”和“1”符号送人有噪声信道，有噪信道如图2.6所示。由于信道中噪声的影响，发送为“0”接收为“1”的概率是1/16，而发送为“1”接收为“0”的概率是1/32，求收信者接收的熵速率（四舍五入为整数）。",
+              "type": "text"
+            },
+            {
+              "alt": "",
+              "src": "https://p.ananas.chaoxing.com/star3/origin/eb0cd966191bfc33352de3ad6b6ae1e8.png",
+              "type": "image"
+            }
+          ],
+          "text": "24. (填空题, 5分)\n\n一个信源以相等的概率及1000符号/秒的速率把“0”和“1”符号送人有噪声信道，有噪信道如图2.6所示。由于信道中噪声的影响，发送为“0”接收为“1”的概率是1/16，而发送为“1”接收为“0”的概率是1/32，求收信者接收的熵速率（四舍五入为整数）。\n\n我的答案：\n0分\n(1)\n\n732 bit/s\n\n \n正确答案：\n(1)\n\n731\n\n答案解析：\n\n解答：由题意，H（X)=H（1/2)=1bit/符号。\n\n利用贝叶斯公式得\n\nAI讲解",
+          "type": "填空题"
+        }
+      ]
+    },
+    {
+      "chapter": "第3章作业",
+      "url": "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/view?courseId=261763243&classId=142622339&cpi=362635664&workId=53653369&answerId=56260753&enc=fc21330a281755ed5cc0d02024531be8",
+      "questions": [
+        {
+          "answer": "B",
+          "images": [],
+          "num": "1",
+          "options": [
+            "A. H(Y)",
+            "B. H(XIY)",
+            "C. H(Y|X)",
+            "D. H(XY)"
+          ],
+          "stem": "离散无损信道指的是熵( )为0的信道。",
+          "stemParts": [
+            {
+              "text": "离散无损信道指的是熵( )为0的信道。",
+              "type": "text"
+            }
+          ],
+          "text": "1. (单选题, 5分)离散无损信道指的是熵( )为0的信道。\nA. H(Y)\nB. H(XIY)\nC. H(Y|X)\nD. H(XY)\n我的答案:D\n:H(XY);\n正确答案:B\n:H(XIY);\n0分\n答案解析：\nC\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "B",
+          "images": [
+            {
+              "alt": "",
+              "height": 25,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/6b8e44e8665da858530bf6249a250556.png",
+              "width": 114,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            },
+            {
+              "alt": "",
+              "height": 59,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/02977ba09ee45cd3f3af5c4139bb8f2d.png",
+              "width": 108,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            },
+            {
+              "alt": "",
+              "height": 26,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/f5f3283e4f4c6f6e1b837898ae903553.png",
+              "width": 102,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            },
+            {
+              "alt": "",
+              "height": 26,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/f97d630aad33ac737b02c05c2bfc3c92.png",
+              "width": 102,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            },
+            {
+              "alt": "",
+              "height": 26,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/e00a033045eb00530a392c29cc6c5923.png",
+              "width": 102,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            },
+            {
+              "alt": "",
+              "height": 26,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/2e9fc6a16bf51a44b94a8afd63d380dd.png",
+              "width": 102,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            }
+          ],
+          "num": "2",
+          "options": [
+            "A.",
+            "B.",
+            "C.",
+            "D. 我的答案:B"
+          ],
+          "stem": "信道的输入集 X 的概率分布为\n[图片:https://p.ananas.chaoxing.com/star3/origin/6b8e44e8665da858530bf6249a250556.png]\n，\n信道的转移概率矩阵为\n[图片:https://p.ananas.chaoxing.com/star3/origin/02977ba09ee45cd3f3af5c4139bb8f2d.png]\n，\n则输出集 Y 的概率分布为\n( )。",
+          "stemParts": [
+            {
+              "text": "信道的输入集 X 的概率分布为",
+              "type": "text"
+            },
+            {
+              "alt": "",
+              "src": "https://p.ananas.chaoxing.com/star3/origin/6b8e44e8665da858530bf6249a250556.png",
+              "type": "image"
+            },
+            {
+              "text": "，",
+              "type": "text"
+            },
+            {
+              "text": "信道的转移概率矩阵为",
+              "type": "text"
+            },
+            {
+              "alt": "",
+              "src": "https://p.ananas.chaoxing.com/star3/origin/02977ba09ee45cd3f3af5c4139bb8f2d.png",
+              "type": "image"
+            },
+            {
+              "text": "，",
+              "type": "text"
+            },
+            {
+              "text": "则输出集 Y 的概率分布为",
+              "type": "text"
+            },
+            {
+              "text": "( )。",
+              "type": "text"
+            }
+          ],
+          "text": "2. (单选题, 5分)\n\n信道的输入集 X 的概率分布为，信道的转移概率矩阵为，则输出集 Y 的概率分布为( )。\n\nA.\n\nB.\n\nC.\n\nD.\n\n我的答案:B\n:;\n正确答案:B\n:;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "C",
+          "images": [],
+          "num": "3",
+          "options": [
+            "A. 230bit /s",
+            "B. 840bit /s",
+            "C. 920bit /s",
+            "D. 460bit /s"
+          ],
+          "stem": "在有扰离散信道上传输符号1和0，传输过程中每100个符号发生一个错传的符号。\n已知p(0)=0.5,p(1)=0.5,信道每秒内允许传输1000个符号，则该信道的信道容量为( )。",
+          "stemParts": [
+            {
+              "text": "在有扰离散信道上传输符号1和0，传输过程中每100个符号发生一个错传的符号。",
+              "type": "text"
+            },
+            {
+              "text": "已知p(0)=0.5,p(1)=0.5,信道每秒内允许传输1000个符号，则该信道的信道容量为( )。",
+              "type": "text"
+            }
+          ],
+          "text": "3. (单选题, 5分)在有扰离散信道上传输符号1和0，传输过程中每100个符号发生一个错传的符号。\n已知p(0)=0.5,p(1)=0.5,信道每秒内允许传输1000个符号，则该信道的信道容量为( )。\nA. 230bit /s\nB. 840bit /s\nC. 920bit /s\nD. 460bit /s\n我的答案:C\n:920bit /s;\n正确答案:C\n:920bit /s;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "A",
+          "images": [
+            {
+              "alt": "",
+              "height": 101,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/334ac5b01ea016793bd6e87a0dab9523.png",
+              "width": 162,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            }
+          ],
+          "num": "4",
+          "options": [
+            "A. 2bit/符号",
+            "B. 0bit/符号",
+            "C. 1bit/符号",
+            "D. 1.585bit/符号"
+          ],
+          "stem": "某 DMC 信道的转移概率矩阵\n[图片:https://p.ananas.chaoxing.com/star3/origin/334ac5b01ea016793bd6e87a0dab9523.png]\n，该信道的信道容量为( )。",
+          "stemParts": [
+            {
+              "text": "某 DMC 信道的转移概率矩阵",
+              "type": "text"
+            },
+            {
+              "alt": "",
+              "src": "https://p.ananas.chaoxing.com/star3/origin/334ac5b01ea016793bd6e87a0dab9523.png",
+              "type": "image"
+            },
+            {
+              "text": "，该信道的信道容量为( )。",
+              "type": "text"
+            }
+          ],
+          "text": "4. (单选题, 5分)\n\n某 DMC 信道的转移概率矩阵，该信道的信道容量为( )。\n\nA.\n\n2bit/符号\n\nB.\n\n0bit/符号\n\nC.\n\n1bit/符号\n\nD.\n\n1.585bit/符号\n\n我的答案:A\n:2bit/符号;\n正确答案:A\n:2bit/符号;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "D",
+          "images": [
+            {
+              "alt": "",
+              "height": 20,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/0bab8f96597f6e28cfd53303286e4d6d.png",
+              "width": 81,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            }
+          ],
+          "num": "5",
+          "options": [
+            "A. 8.96kHz",
+            "B. 2.48kHz",
+            "C. 2.4kHz",
+            "D. 4.48kHz"
+          ],
+          "stem": "某一待传输的图片约含\n[图片:https://p.ananas.chaoxing.com/star3/origin/0bab8f96597f6e28cfd53303286e4d6d.png]\n个像素，为了很好地描述图片，每个像素有12个亮度电平值。假设所有这些亮度电平等概率出现，设信道中信噪比为30dB，则用3分钟传送一张图片时所需的信道带宽约为( )。",
+          "stemParts": [
+            {
+              "text": "某一待传输的图片约含",
+              "type": "text"
+            },
+            {
+              "alt": "",
+              "src": "https://p.ananas.chaoxing.com/star3/origin/0bab8f96597f6e28cfd53303286e4d6d.png",
+              "type": "image"
+            },
+            {
+              "text": "个像素，为了很好地描述图片，每个像素有12个亮度电平值。假设所有这些亮度电平等概率出现，设信道中信噪比为30dB，则用3分钟传送一张图片时所需的信道带宽约为( )。",
+              "type": "text"
+            }
+          ],
+          "text": "5. (单选题, 5分)\n\n某一待传输的图片约含个像素，为了很好地描述图片，每个像素有12个亮度电平值。假设所有这些亮度电平等概率出现，设信道中信噪比为30dB，则用3分钟传送一张图片时所需的信道带宽约为( )。\n\nA.\n\n8.96kHz\n\nB.\n\n2.48kHz\n\nC.\n\n2.4kHz\n\nD.\n\n4.48kHz\n\n我的答案:D\n:4.48kHz;\n正确答案:D\n:4.48kHz;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "A",
+          "images": [
+            {
+              "alt": "",
+              "height": 48,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/2944fb88adac97cb35586e83d88848d4.png",
+              "width": 133,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            }
+          ],
+          "num": "6",
+          "options": [
+            "A. 0.5bit/符号",
+            "B. 0bit/符号",
+            "C. 1bit/符号",
+            "D. 0.05bit/符号"
+          ],
+          "stem": "二元删除信道的转移概率矩阵为\n[图片:https://p.ananas.chaoxing.com/star3/origin/2944fb88adac97cb35586e83d88848d4.png]\n，则该信道的信道容量为( )。",
+          "stemParts": [
+            {
+              "text": "二元删除信道的转移概率矩阵为",
+              "type": "text"
+            },
+            {
+              "alt": "",
+              "src": "https://p.ananas.chaoxing.com/star3/origin/2944fb88adac97cb35586e83d88848d4.png",
+              "type": "image"
+            },
+            {
+              "text": "，则该信道的信道容量为( )。",
+              "type": "text"
+            }
+          ],
+          "text": "6. (单选题, 5分)\n\n二元删除信道的转移概率矩阵为，则该信道的信道容量为( )。\n\nA.\n\n0.5bit/符号\n\nB.\n\n0bit/符号\n\nC.\n\n1bit/符号\n\nD.\n\n0.05bit/符号\n\n我的答案:A\n:0.5bit/符号;\n正确答案:A\n:0.5bit/符号;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "C",
+          "images": [],
+          "num": "7",
+          "options": [
+            "A. H(Y)",
+            "B. H(X|Y)",
+            "C. H(Y|X)",
+            "D. H(XY)"
+          ],
+          "stem": "离散无噪信道指的是熵( )为0的信道。",
+          "stemParts": [
+            {
+              "text": "离散无噪信道指的是熵( )为0的信道。",
+              "type": "text"
+            }
+          ],
+          "text": "7. (单选题, 5分)离散无噪信道指的是熵( )为0的信道。\nA. H(Y)\nB. H(X|Y)\nC. H(Y|X)\nD. H(XY)\n我的答案:C\n:H(Y|X);\n正确答案:C\n:H(Y|X);\n5分\n答案解析：\nA\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "B",
+          "images": [
+            {
+              "alt": "",
+              "height": 48,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/d1eece4e01ff5001cabc495141c61f5d.png",
+              "width": 133,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            }
+          ],
+          "num": "8",
+          "options": [
+            "A. 0.072bit/符号",
+            "B. 0.036bit/符号",
+            "C. 0.01bit/符号",
+            "D. 0.032bit/符号"
+          ],
+          "stem": "已知一个 DMC 信道的转移概率矩阵为\n[图片:https://p.ananas.chaoxing.com/star3/origin/d1eece4e01ff5001cabc495141c61f5d.png]\n，则该信道的信道容量为( )。",
+          "stemParts": [
+            {
+              "text": "已知一个 DMC 信道的转移概率矩阵为",
+              "type": "text"
+            },
+            {
+              "alt": "",
+              "src": "https://p.ananas.chaoxing.com/star3/origin/d1eece4e01ff5001cabc495141c61f5d.png",
+              "type": "image"
+            },
+            {
+              "text": "，则该信道的信道容量为( )。",
+              "type": "text"
+            }
+          ],
+          "text": "8. (单选题, 5分)\n\n已知一个 DMC 信道的转移概率矩阵为，则该信道的信道容量为( )。\n\nA.\n\n0.072bit/符号\n\nB.\n\n0.036bit/符号\n\nC.\n\n0.01bit/符号\n\nD.\n\n0.032bit/符号\n\n我的答案:B\n:0.036bit/符号;\n正确答案:B\n:0.036bit/符号;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "(1)\n\n6000",
+          "images": [],
+          "num": "15",
+          "options": [],
+          "stem": "已知一个高斯信道，信噪比为3，频带为3kHz，此信道最大信息传输速率为\nbit/s，若信噪比提高到15，则理论上传送同样的信息率所需的频带为\nHZ。",
+          "stemParts": [
+            {
+              "text": "已知一个高斯信道，信噪比为3，频带为3kHz，此信道最大信息传输速率为",
+              "type": "text"
+            },
+            {
+              "text": "bit/s，若信噪比提高到15，则理论上传送同样的信息率所需的频带为",
+              "type": "text"
+            },
+            {
+              "text": "HZ。",
+              "type": "text"
+            }
+          ],
+          "text": "15. (填空题, 5分)\n\n已知一个高斯信道，信噪比为3，频带为3kHz，此信道最大信息传输速率为 bit/s，若信噪比提高到15，则理论上传送同样的信息率所需的频带为 HZ。\n\n我的答案：\n2.5分\n(1)\n\n6000\n\n \n(2)\n\n1.5k\n\n \n正确答案：\n(1)\n\n6000\n\n(2)\n\n1500\n\nAI讲解",
+          "type": "填空题"
+        },
+        {
+          "answer": "(1)\n\n1",
+          "images": [
+            {
+              "alt": "",
+              "height": 48,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/2688c63f5314258c99b69242e0cb7738.png",
+              "width": 134,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            },
+            {
+              "alt": "",
+              "height": 88,
+              "src": "https://p.ananas.chaoxing.com/star3/origin/8d09d76f98dc149c1a5af81966e5038a.png",
+              "width": 156,
+              "dataUrl": "",
+              "error": "TypeError: fetch is not a function\n    at __playwrightEvaluate (<anonymous>:2642:29)\n    at <anonymous>:2652:14\n    at runUserScript (<anonymous>:2653:10)\n    at <anonymous>:2657:10\n    at <anonymous>:2658:3"
+            }
+          ],
+          "num": "16",
+          "options": [],
+          "stem": "设有两个二元信道，它们的信道转移概率矩阵分别为\n[图片:https://p.ananas.chaoxing.com/star3/origin/2688c63f5314258c99b69242e0cb7738.png]\n和\n[图片:https://p.ananas.chaoxing.com/star3/origin/8d09d76f98dc149c1a5af81966e5038a.png]\n则信道1的信道容量 C1=\nbit/符号，信道2的信道容量C2=\nbit/符号",
+          "stemParts": [
+            {
+              "text": "设有两个二元信道，它们的信道转移概率矩阵分别为",
+              "type": "text"
+            },
+            {
+              "alt": "",
+              "src": "https://p.ananas.chaoxing.com/star3/origin/2688c63f5314258c99b69242e0cb7738.png",
+              "type": "image"
+            },
+            {
+              "text": "和",
+              "type": "text"
+            },
+            {
+              "alt": "",
+              "src": "https://p.ananas.chaoxing.com/star3/origin/8d09d76f98dc149c1a5af81966e5038a.png",
+              "type": "image"
+            },
+            {
+              "text": "则信道1的信道容量 C1=",
+              "type": "text"
+            },
+            {
+              "text": "bit/符号，信道2的信道容量C2=",
+              "type": "text"
+            },
+            {
+              "text": "bit/符号",
+              "type": "text"
+            }
+          ],
+          "text": "16. (填空题, 5分)\n\n设有两个二元信道，它们的信道转移概率矩阵分别为和\n\n则信道1的信道容量 C1= bit/符号，信道2的信道容量C2= bit/符号\n\n我的答案：\n5分\n(1)\n\n1\n\n \n(2)\n\n0.126\n\n \n正确答案：\n(1)\n\n1\n\n(2)\n\n0.126\n\nAI讲解",
+          "type": "填空题"
+        }
+      ]
+    },
+    {
+      "chapter": "第4章作业",
+      "url": "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/view?courseId=261763243&classId=142622339&cpi=362635664&workId=53654291&answerId=56260919&enc=6720ba6fd1946f6c686686ae13063d26",
+      "questions": [
+        {
+          "answer": "B",
+          "images": [],
+          "num": "1",
+          "options": [
+            "A. 没有下限",
+            "B. 0",
+            "C. H(X)",
+            "D. I(X;Y)"
+          ],
+          "stem": "离散信源的信息率失真函数的下限为( )。",
+          "stemParts": [
+            {
+              "text": "离散信源的信息率失真函数的下限为( )。",
+              "type": "text"
+            }
+          ],
+          "text": "1. (单选题, 5分)离散信源的信息率失真函数的下限为( )。\nA. 没有下限\nB. 0\nC. H(X)\nD. I(X;Y)\n我的答案:B\n:0;\n正确答案:B\n:0;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "D",
+          "images": [],
+          "num": "2",
+          "options": [
+            "A. 不变",
+            "B. 以上都不对",
+            "C. 越 小",
+            "D. 越 大"
+          ],
+          "stem": "信源编码器编码后所需的信息传输率R 越小，则引起的平均失真就( )。",
+          "stemParts": [
+            {
+              "text": "信源编码器编码后所需的信息传输率R 越小，则引起的平均失真就( )。",
+              "type": "text"
+            }
+          ],
+          "text": "2. (单选题, 5分)信源编码器编码后所需的信息传输率R 越小，则引起的平均失真就( )。\nA. 不变\nB. 以上都不对\nC. 越 小\nD. 越 大\n我的答案:D\n:越 大;\n正确答案:D\n:越 大;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "B",
+          "images": [],
+          "num": "3",
+          "options": [
+            "A. H(X)",
+            "B. 0",
+            "C. H(Y)",
+            "D. H(XY)-H(X)"
+          ],
+          "stem": "信息率失真函数R(D)=0时,平均互信息量 I(X;Y)的值是( )。",
+          "stemParts": [
+            {
+              "text": "信息率失真函数R(D)=0时,平均互信息量 I(X;Y)的值是( )。",
+              "type": "text"
+            }
+          ],
+          "text": "3. (单选题, 5分)信息率失真函数R(D)=0时,平均互信息量 I(X;Y)的值是( )。\nA. H(X)\nB. 0\nC. H(Y)\nD. H(XY)-H(X)\n我的答案:B\n:0;\n正确答案:B\n:0;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "B",
+          "images": [],
+          "num": "4",
+          "options": [
+            "A. 以上都不正确",
+            "B. 等于信源的信息熵",
+            "C. 大于0",
+            "D. 大于信源的信息熵"
+          ],
+          "stem": "若信源要求无失真地传输，则信息传输率至少应( )。",
+          "stemParts": [
+            {
+              "text": "若信源要求无失真地传输，则信息传输率至少应( )。",
+              "type": "text"
+            }
+          ],
+          "text": "4. (单选题, 5分)若信源要求无失真地传输，则信息传输率至少应( )。\nA. 以上都不正确\nB. 等于信源的信息熵\nC. 大于0\nD. 大于信源的信息熵\n我的答案:B\n:等于信源的信息熵;\n正确答案:B\n:等于信源的信息熵;\n5分\nAI讲解",
+          "type": "单选题"
+        }
+      ]
+    },
+    {
+      "chapter": "第5章作业",
+      "url": "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/view?courseId=261763243&classId=142622339&cpi=362635664&workId=53655174&answerId=56260920&enc=07168e814540e07a5d1b8f0560ac80aa",
+      "questions": [
+        {
+          "answer": "C",
+          "images": [],
+          "num": "1",
+          "options": [
+            "A. 克拉夫特不等式是唯一可译码的充要条件",
+            "B. 即时码有时不满足克拉夫特不等式",
+            "C. 定长码一定满足克拉夫特不等式",
+            "D. 如果编出的码字长度满足克拉夫特不等式，则该码字是唯一可译码"
+          ],
+          "stem": "关于克拉夫特不等式，正确的是( )。",
+          "stemParts": [
+            {
+              "text": "关于克拉夫特不等式，正确的是( )。",
+              "type": "text"
+            }
+          ],
+          "text": "1. (单选题, 5分)\n\n关于克拉夫特不等式，正确的是( )。\n\nA.\n\n克拉夫特不等式是唯一可译码的充要条件\n\nB.\n\n即时码有时不满足克拉夫特不等式\n\nC.\n\n定长码一定满足克拉夫特不等式\n\nD.\n\n如果编出的码字长度满足克拉夫特不等式，则该码字是唯一可译码\n\n我的答案:C\n:定长码一定满足克拉夫特不等式;\n正确答案:C\n:定长码一定满足克拉夫特不等式;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "D",
+          "images": [],
+          "num": "2",
+          "options": [
+            "A. {00,10,11}",
+            "B. {1,01,00}",
+            "C. {0,10,110}",
+            "D. {0,01,011}"
+          ],
+          "stem": "下列组合中不属于即时码的是( )。",
+          "stemParts": [
+            {
+              "text": "下列组合中不属于即时码的是( )。",
+              "type": "text"
+            }
+          ],
+          "text": "2. (单选题, 5分)下列组合中不属于即时码的是( )。\nA. {00,10,11}\nB. {1,01,00}\nC. {0,10,110}\nD. {0,01,011}\n我的答案:D\n:{0,01,011};\n正确答案:D\n:{0,01,011};\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "D",
+          "images": [],
+          "num": "3",
+          "options": [
+            "A. 奇异码是唯一可译码",
+            "B. 非奇异码是唯一可译码",
+            "C. 非奇异码不是唯一可译码",
+            "D. 非奇异码不一定是唯一可译码"
+          ],
+          "stem": "下列说法正确的是( )。",
+          "stemParts": [
+            {
+              "text": "下列说法正确的是( )。",
+              "type": "text"
+            }
+          ],
+          "text": "3. (单选题, 5分)下列说法正确的是( )。\nA. 奇异码是唯一可译码\nB. 非奇异码是唯一可译码\nC. 非奇异码不是唯一可译码\nD. 非奇异码不一定是唯一可译码\n我的答案:D\n:非奇异码不一定是唯一可译码;\n正确答案:D\n:非奇异码不一定是唯一可译码;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "A",
+          "images": [],
+          "num": "4",
+          "options": [
+            "A. 在终端节点上安排码字",
+            "B. 在树枝上安排码字",
+            "C. 在中间节点上安排码字",
+            "D. 在树根上安排码字"
+          ],
+          "stem": "根据树图法构成规则，正确的是( )。",
+          "stemParts": [
+            {
+              "text": "根据树图法构成规则，正确的是( )。",
+              "type": "text"
+            }
+          ],
+          "text": "4. (单选题, 5分)根据树图法构成规则，正确的是( )。\nA. 在终端节点上安排码字\nB. 在树枝上安排码字\nC. 在中间节点上安排码字\nD. 在树根上安排码字\n我的答案:A\n:在终端节点上安排码字;\n正确答案:A\n:在终端节点上安排码字;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "C",
+          "images": [],
+          "num": "5",
+          "options": [
+            "A. 信源符号的概率分布",
+            "B. H(X)",
+            "C. 码长的方差",
+            "D. 平均码长"
+          ],
+          "stem": "信源编码中，编码效率与( )无关。",
+          "stemParts": [
+            {
+              "text": "信源编码中，编码效率与( )无关。",
+              "type": "text"
+            }
+          ],
+          "text": "5. (单选题, 5分)信源编码中，编码效率与( )无关。\nA. 信源符号的概率分布\nB. H(X)\nC. 码长的方差\nD. 平均码长\n我的答案:C\n:码长的方差;\n正确答案:C\n:码长的方差;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "A",
+          "images": [],
+          "num": "6",
+          "options": [
+            "A. 压缩信源的冗余度",
+            "B. 在信息比特中适当加入冗余比特",
+            "C. 对多组信息进行交织处理",
+            "D. 设计码的生成矩阵"
+          ],
+          "stem": "为提高通信系统传输消息的有效性，信源编码采用的方法是( )。",
+          "stemParts": [
+            {
+              "text": "为提高通信系统传输消息的有效性，信源编码采用的方法是( )。",
+              "type": "text"
+            }
+          ],
+          "text": "6. (单选题, 5分)为提高通信系统传输消息的有效性，信源编码采用的方法是( )。\nA. 压缩信源的冗余度\nB. 在信息比特中适当加入冗余比特\nC. 对多组信息进行交织处理\nD. 设计码的生成矩阵\n我的答案:A\n:压缩信源的冗余度;\n正确答案:A\n:压缩信源的冗余度;\n5分\nAI讲解",
+          "type": "单选题"
+        }
+      ]
+    },
+    {
+      "chapter": "第6章作业",
+      "url": "https://mooc1.chaoxing.com/mooc-ans/mooc2/work/view?courseId=261763243&classId=142622339&cpi=362635664&workId=53655180&answerId=56260921&enc=4caca3e2528a08340c6c7e78898cbbdb",
+      "questions": [
+        {
+          "answer": "C",
+          "images": [],
+          "num": "1",
+          "options": [
+            "A. 5",
+            "B. 7",
+            "C. 6",
+            "D. 4"
+          ],
+          "stem": "已知某线性分组码的最小距离dmin=7，则该码的检错能力为( )。",
+          "stemParts": [
+            {
+              "text": "已知某线性分组码的最小距离dmin=7，则该码的检错能力为( )。",
+              "type": "text"
+            }
+          ],
+          "text": "1. (单选题, 5分)已知某线性分组码的最小距离dmin=7，则该码的检错能力为( )。\nA. 5\nB. 7\nC. 6\nD. 4\n我的答案:C\n:6;\n正确答案:C\n:6;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "B",
+          "images": [],
+          "num": "2",
+          "options": [
+            "A. 减小码率",
+            "B. 减小带宽",
+            "C. 增大信道容量",
+            "D. 增大码长"
+          ],
+          "stem": "纠错编码中，下列哪种措施不能减小差错概率( )。",
+          "stemParts": [
+            {
+              "text": "纠错编码中，下列哪种措施不能减小差错概率( )。",
+              "type": "text"
+            }
+          ],
+          "text": "2. (单选题, 5分)纠错编码中，下列哪种措施不能减小差错概率( )。\nA. 减小码率\nB. 减小带宽\nC. 增大信道容量\nD. 增大码长\n我的答案:B\n:减小带宽;\n正确答案:B\n:减小带宽;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "D",
+          "images": [],
+          "num": "3",
+          "options": [
+            "A. dmin",
+            "B. int(dmin/2)",
+            "C. dmin+1",
+            "D. dmin-1"
+          ],
+          "stem": "任何最小距离为 d min 的线性分组码，其检错能力为( )。",
+          "stemParts": [
+            {
+              "text": "任何最小距离为 d min 的线性分组码，其检错能力为( )。",
+              "type": "text"
+            }
+          ],
+          "text": "3. (单选题, 5分)任何最小距离为 d min 的线性分组码，其检错能力为( )。\nA. dmin\nB. int(dmin/2)\nC. dmin+1\nD. dmin-1\n我的答案:D\n:dmin-1;\n正确答案:D\n:dmin-1;\n5分\nAI讲解",
+          "type": "单选题"
+        },
+        {
+          "answer": "C",
+          "images": [],
+          "num": "4",
+          "options": [
+            "A. 4",
+            "B. 5",
+            "C. 3",
+            "D. 2"
+          ],
+          "stem": "某(6,3)线性分组码的许用码字为110100,011010,110011,011101,101001,101110,000111,000000,则该码组的最小码距为( )。",
+          "stemParts": [
+            {
+              "text": "某(6,3)线性分组码的许用码字为110100,011010,110011,011101,101001,101110,000111,000000,则该码组的最小码距为( )。",
+              "type": "text"
+            }
+          ],
+          "text": "4. (单选题, 5分)某(6,3)线性分组码的许用码字为110100,011010,110011,011101,101001,101110,000111,000000,则该码组的最小码距为( )。\nA. 4\nB. 5\nC. 3\nD. 2\n我的答案:C\n:3;\n正确答案:C\n:3;\n5分\nAI讲解",
+          "type": "单选题"
+        }
+      ]
+    }
+  ]
+}

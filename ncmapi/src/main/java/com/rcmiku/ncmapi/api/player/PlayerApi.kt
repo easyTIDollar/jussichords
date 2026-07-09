@@ -34,12 +34,15 @@ object PlayerApi {
                 }
             }
             // Fall back to main API if unblock fails
-            apiGet("/song/url/v1", mapOf("id" to realId, "level" to songLevel.value))
+            apiGet("/song/url/v1", songUrlParams(realId, songLevel, unblock = true))
         } else {
             // Free song: use main API directly
-            apiGet("/song/url/v1", mapOf("id" to realId, "level" to songLevel.value))
+            apiGet("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
         }
     }
+
+    private fun songUrlParams(songId: String, songLevel: SongLevel, unblock: Boolean): Map<String, Any> =
+        mapOf("id" to songId, "level" to songLevel.value, "unblock" to unblock)
 
     private fun parseSongId(raw: String): Triple<String, Int, Int> {
         val queryIndex = raw.indexOf('?')

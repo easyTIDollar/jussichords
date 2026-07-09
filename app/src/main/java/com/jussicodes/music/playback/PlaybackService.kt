@@ -6,7 +6,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.widget.Toast
 import androidx.annotation.OptIn
-import androidx.datastore.preferences.core.edit
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -45,13 +44,11 @@ import com.jussicodes.music.R
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
-import com.jussicodes.music.constants.libraryPlaylistRefreshTokenKey
 import com.jussicodes.music.constants.use40DpIconKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.updateMediaItemUri
 import com.jussicodes.music.lyric.DesktopLyricManager
-import com.jussicodes.music.utils.FavoriteSongIdsUtil
-import com.jussicodes.music.utils.FavoriteSongSyncBus
+import com.jussicodes.music.utils.FavoriteSongAction
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.enumPreference
 import com.jussicodes.music.utils.get
@@ -265,22 +262,12 @@ class PlaybackService : MediaSessionService() {
             val song = mediaSession?.player?.currentMediaItem?.mediaMetadata?.extras
                 ?.getString("song")
                 ?.let { runCatching { json.decodeFromString<Song>(it) }.getOrNull() }
-            if (like) {
-                FavoriteSongIdsUtil.addSongId(applicationContext, songId)
-            } else {
-                FavoriteSongIdsUtil.removeSongId(applicationContext, songId)
-            }
-            applicationContext.dataStore.edit { prefs ->
-                prefs[libraryPlaylistRefreshTokenKey] = System.currentTimeMillis()
-            }
-            song?.let { FavoriteSongSyncBus.setLiked(it, like) }
-            AccountApi.songLike(like, songId).onFailure {
-                Toast.makeText(
-                    applicationContext,
-                    "Local state updated, cloud sync pending",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+            FavoriteSongAction.setLiked(
+                context = applicationContext,
+                songId = songId,
+                like = like,
+                song = song
+            )
         }
     }
 

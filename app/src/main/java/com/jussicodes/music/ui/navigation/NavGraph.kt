@@ -37,6 +37,7 @@ import com.jussicodes.music.ui.screen.LoginScreen
 import com.jussicodes.music.ui.screen.PlaylistScreen
 import com.jussicodes.music.ui.screen.ProgramRadioScreen
 import com.jussicodes.music.ui.screen.RecordScreen
+import com.jussicodes.music.ui.screen.RoamScreen
 import com.jussicodes.music.ui.screen.SearchScreen
 import com.jussicodes.music.ui.screen.SettingsScreen
 import com.jussicodes.music.ui.screen.UserScreen
@@ -119,6 +120,9 @@ fun NavGraph(
                     animatedContentScope = this@composable
                 )
             }
+            composable(Screen.Roam.route) {
+                RoamScreen(onBackPressed = { navController.popBackStack() })
+            }
             composable(Screen.Settings.route) { SettingsScreen(navController = navController) }
             composable(Screen.Login.route) { LoginScreen(navController = navController) }
             composable(Screen.Search.route) { SearchScreen(navController = navController) }
@@ -198,7 +202,8 @@ private fun HomePager(
     LaunchedEffect(pagerState) {
         snapshotFlow {
             if (pagerState.isScrollInProgress) {
-                (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, 1f)
+                (pagerState.currentPage + pagerState.currentPageOffsetFraction)
+                    .coerceIn(0f, pagerState.pageCount.minus(1).coerceAtLeast(0).toFloat())
             } else {
                 pagerState.settledPage.toFloat()
             }

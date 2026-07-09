@@ -166,11 +166,12 @@ data class SearchArtist(
     val id: Long = 0,
     val name: String = "",
     @SerialName("picUrl") val picUrl: String = "",
+    @SerialName("cover") val coverUrl: String = "",
     @SerialName("albumSize") val albumSize: Int = 0,
     @SerialName("musicSize") val musicSize: Int = 0,
     val briefDesc: String = ""
 ) {
-    val cover: String get() = picUrl
+    val cover: String get() = picUrl.ifBlank { coverUrl }
 }
 
 @Serializable
@@ -240,8 +241,25 @@ data class ArtistSongsResponse(
 @Serializable
 data class ArtistSublistResponse(
     val data: List<SearchArtist> = emptyList(),
-    val more: Boolean = false
+    @SerialName("hasMore") val hasMore: Boolean = false,
+    val count: Int = 0,
+    @SerialName("more") val more: Boolean = false
 )
+
+@Serializable
+data class ArtistFollowCountResponse(
+    val data: ArtistFollowCountData = ArtistFollowCountData()
+)
+
+@Serializable
+data class ArtistFollowCountData(
+    @SerialName("isFollow") val isFollow: Boolean = false,
+    val follow: Boolean = false,
+    val fansCnt: Long = 0,
+    val followCnt: Long = 0
+) {
+    val followed: Boolean get() = isFollow || follow
+}
 
 @Serializable
 data class SimiArtistResponse(
@@ -365,6 +383,32 @@ data class DailySongsData(
 )
 
 @Serializable
+data class PersonalFmResponse(
+    val data: List<PersonalFmSong> = emptyList()
+)
+
+@Serializable
+data class PersonalFmSong(
+    val id: Long = 0,
+    val name: String = "",
+    val artists: List<Artist> = emptyList(),
+    val album: SongAlbum = SongAlbum(),
+    val duration: Long = 0,
+    val fee: Int = 0,
+    val privilege: SongPrivilege? = null
+) {
+    fun toSong(): Song = Song(
+        id = id,
+        name = name,
+        ar = artists,
+        al = album,
+        dt = duration,
+        fee = fee,
+        privilege = privilege
+    )
+}
+
+@Serializable
 data class PersonalizedPlaylistResponse(
     val result: List<Playlist> = emptyList()
 )
@@ -449,7 +493,8 @@ data class UserProfile(
     val signature: String = "",
     val vipType: Int = 0,
     @SerialName("follows") val followsCount: Int = 0,
-    @SerialName("followeds") val followedsCount: Int = 0
+    @SerialName("followeds") val followedsCount: Int = 0,
+    val followed: Boolean = false
 )
 
 @Serializable
@@ -498,5 +543,6 @@ data class UserPlaylistV1Response(
 @Serializable
 data class ApiCodeResponse(
     val code: Int = 0,
-    val message: String? = null
+    val message: String? = null,
+    val msg: String? = null
 )

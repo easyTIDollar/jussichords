@@ -27,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -83,6 +84,8 @@ fun ArtistScreen(
     val artistTopSongState by artistScreenViewModel.artistTopSong.collectAsState()
     val artistAllSongs by artistScreenViewModel.artistAllSongs.collectAsState()
     val simiArtists by artistScreenViewModel.simiArtists.collectAsState()
+    val isArtistSubscribed by artistScreenViewModel.isArtistSubscribed.collectAsState()
+    val isArtistSubUpdating by artistScreenViewModel.isArtistSubUpdating.collectAsState()
     val artistAlbumList = artistScreenViewModel.artistAlbumList.collectAsLazyPagingItems()
     val listState = rememberLazyListState()
     val showTitle by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
@@ -155,6 +158,15 @@ fun ArtistScreen(
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                     }
+                }
+                OutlinedButton(
+                    onClick = artistScreenViewModel::toggleArtistSub,
+                    enabled = !isArtistSubUpdating && artistHeadInfoState != null,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(12.dp)
+                ) {
+                    Text(text = if (isArtistSubscribed) "取消收藏" else "收藏")
                 }
             }
         }

@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
+import androidx.compose.material3.OutlinedButton
 import com.jussicodes.music.ui.components.PlaylistListItem
 import com.jussicodes.music.ui.navigation.PlaylistNav
 import com.jussicodes.music.ui.navigation.UserFollowNav
@@ -38,6 +39,9 @@ fun UserScreen(
 ) {
     val userDetailState by userScreenViewModel.userDetail.collectAsState()
     val userPlaylists by userScreenViewModel.userPlaylists.collectAsState()
+    val isFollowed by userScreenViewModel.isFollowed.collectAsState()
+    val isFollowUpdating by userScreenViewModel.isFollowUpdating.collectAsState()
+    val isSelf by userScreenViewModel.isSelf.collectAsState()
 
     Scaffold(topBar = { TopAppBar(title = { Text("用户主页") }) }) { padding ->
         androidx.compose.foundation.lazy.LazyColumn(
@@ -61,6 +65,14 @@ fun UserScreen(
                     )
                     Text(text = userDetailState?.profile?.nickname.orEmpty())
                     Text(text = userDetailState?.profile?.signature?.takeIf { it.isNotBlank() } ?: "暂无签名")
+                    if (!isSelf) {
+                        OutlinedButton(
+                            onClick = userScreenViewModel::toggleFollow,
+                            enabled = !isFollowUpdating && userDetailState != null
+                        ) {
+                            Text(text = if (isFollowed) "取消关注" else "关注")
+                        }
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
                             text = "关注：${userDetailState?.profile?.followsCount ?: 0}",

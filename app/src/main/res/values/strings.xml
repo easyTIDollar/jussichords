@@ -2,6 +2,7 @@
     <string name="app_name">jussichords</string>
     <string name="login">登录</string>
     <string name="explore">探索</string>
+    <string name="roam">漫游</string>
     <string name="library">媒体库</string>
     <string name="search">搜索</string>
     <string name="settings">设置</string>
@@ -59,6 +60,7 @@
     <string name="sleep_timer_cancel">取消睡眠定时</string>
     <string name="audio_quality">音质</string>
     <string name="jymaster">超清母带 (SVIP)</string>
+    <string name="dolby">杜比全景声 (SVIP)</string>
     <string name="sky">沉浸环绕声 (SVIP)</string>
     <string name="jyeffect">高清臻音 (VIP)</string>
     <string name="hi_res">高解析无损 (VIP)</string>

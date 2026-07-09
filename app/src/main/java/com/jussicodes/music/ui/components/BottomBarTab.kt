@@ -3,20 +3,20 @@ package com.jussicodes.music.ui.components
 import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.jussicodes.music.R
-import com.jussicodes.music.ui.icons.ExploreMusic
-import com.jussicodes.music.ui.icons.LibraryMusic
+import com.jussicodes.music.ui.icons.AccountCircle
+import com.jussicodes.music.ui.icons.ExploreCompass
 import com.jussicodes.music.ui.navigation.Screen
 
 sealed class BottomBarTab(@StringRes val titleRes: Int, val icon: ImageVector, val route: String) {
     data object Library : BottomBarTab(
         titleRes = R.string.mine,
-        icon = LibraryMusic,
+        icon = AccountCircle,
         route = Screen.Library.route
     )
 
     data object Explore : BottomBarTab(
         titleRes = R.string.explore,
-        icon = ExploreMusic,
+        icon = ExploreCompass,
         route = Screen.Explore.route
     )
 }

@@ -1,6 +1,4 @@
 package com.jussicodes.music.ui.components
-
-import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
@@ -73,7 +71,6 @@ import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
-import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.Artist
@@ -85,6 +82,7 @@ import com.jussicodes.music.ui.icons.SkipNextFill
 import com.jussicodes.music.ui.icons.SkipPreviousFill
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.ArtistNav
+import com.jussicodes.music.utils.FavoriteSongAction
 import com.jussicodes.music.utils.getItemShape
 import com.jussicodes.music.utils.makeTimeString
 import com.rcmiku.ncmapi.model.Artist
@@ -386,10 +384,16 @@ fun Player(
                         }
                         FilledIconButton(
                             onClick = {
-                                mediaController?.sendCustomCommand(
-                                    MediaSessionConstants.CommandToggleLike,
-                                    Bundle.EMPTY
-                                )
+                                mediaId?.toLongOrNull()?.let { songId ->
+                                    scope.launch {
+                                        FavoriteSongAction.toggle(
+                                            context = context,
+                                            songId = songId,
+                                            likedSongIds = songIds,
+                                            song = currentSong
+                                        )
+                                    }
+                                }
                             }
                         ) {
                             Icon(

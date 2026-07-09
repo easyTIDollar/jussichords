@@ -5,5 +5,9 @@ enum class SongLevel(val value: String) {
     HIGHER("higher"),
     EXHIGH("exhigh"),
     LOSSLESS("lossless"),
-    HIRES("hires")
+    HIRES("hires"),
+    JYEFFECT("jyeffect"),
+    SKY("sky"),
+    DOLBY("dolby"),
+    JYMASTER("jymaster")
 }

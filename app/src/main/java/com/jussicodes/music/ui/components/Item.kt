@@ -232,7 +232,7 @@ fun ArtistListItem(
     title = artist.name,
     thumbnailContent = {
         AsyncImage(
-            model = artist.picUrl.toCoverImageUrl(CoverImageSize.LIST),
+            model = artist.cover.toCoverImageUrl(CoverImageSize.LIST),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier

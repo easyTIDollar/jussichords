@@ -24,15 +24,48 @@ class UserScreenViewModel @Inject constructor(savedStateHandle: SavedStateHandle
     private val _userPlaylists = MutableStateFlow<List<Playlist>>(emptyList())
     val userPlaylists: StateFlow<List<Playlist>> = _userPlaylists.asStateFlow()
 
+    private val _isFollowed = MutableStateFlow(false)
+    val isFollowed: StateFlow<Boolean> = _isFollowed.asStateFlow()
+
+    private val _isFollowUpdating = MutableStateFlow(false)
+    val isFollowUpdating: StateFlow<Boolean> = _isFollowUpdating.asStateFlow()
+
+    private val _isSelf = MutableStateFlow(false)
+    val isSelf: StateFlow<Boolean> = _isSelf.asStateFlow()
+
     init {
         viewModelScope.launch {
             if (userId > 0) {
-                _userDetail.value = ArtistApi.userDetail(userId).getOrNull()
+                val currentUserId = AccountApi.accountInfo().getOrNull()?.profile?.userId ?: 0L
+                _isSelf.value = currentUserId == userId
+                val detail = ArtistApi.userDetail(userId).getOrNull()
+                _userDetail.value = detail
+                _isFollowed.value = detail?.profile?.followed == true
                 _userPlaylists.value = AccountApi.userPlaylist(
                     userId = userId,
                     userPlaylistType = com.rcmiku.ncmapi.api.account.UserPlaylistType.CREATE
                 ).getOrNull()?.data?.playlist.orEmpty()
             }
+        }
+    }
+
+    fun toggleFollow() {
+        if (userId <= 0 || _isSelf.value || _isFollowUpdating.value) return
+        val nextFollowed = !_isFollowed.value
+        viewModelScope.launch {
+            _isFollowUpdating.value = true
+            _isFollowed.value = nextFollowed
+            _userDetail.value = _userDetail.value?.let { detail ->
+                val currentCount = detail.profile.followedsCount
+                detail.copy(
+                    profile = detail.profile.copy(
+                        followed = nextFollowed,
+                        followedsCount = (currentCount + if (nextFollowed) 1 else -1).coerceAtLeast(0)
+                    )
+                )
+            }
+            AccountApi.followUser(userId, nextFollowed)
+            _isFollowUpdating.value = false
         }
     }
 }

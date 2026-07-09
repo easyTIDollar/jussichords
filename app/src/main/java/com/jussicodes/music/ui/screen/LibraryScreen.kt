@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -51,6 +52,7 @@ import com.jussicodes.music.constants.pinnedAlbumIdsKey
 import com.jussicodes.music.ui.components.TopBar
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.Login
+import com.jussicodes.music.ui.icons.PersonalRadio
 import com.jussicodes.music.ui.icons.VipFill
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.PlaylistNav
@@ -173,7 +175,11 @@ fun LibraryScreen(
             ) {
                 userInfoBatchState?.let {
                     item {
-                        LibraryUserCard(navController = navController, userInfo = it)
+                        LibraryUserCard(
+                            navController = navController,
+                            userInfo = it,
+                            onRoamClick = { navController.navigate(Screen.Roam.route) }
+                        )
                     }
                 }
 
@@ -245,7 +251,8 @@ fun LibraryScreen(
 @Composable
 private fun LibraryUserCard(
     navController: NavHostController,
-    userInfo: UserInfoBatch
+    userInfo: UserInfoBatch,
+    onRoamClick: () -> Unit
 ) {
     val profile = userInfo.account.profile
     val secondaryText = profile.signature.takeIf { it.isNotBlank() }
@@ -259,46 +266,58 @@ private fun LibraryUserCard(
             shape = MaterialTheme.shapes.extraLarge,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(top = 48.dp, bottom = 16.dp, start = 16.dp, end = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = profile.nickname,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    TextButton(onClick = {
-                        navController.navigate(
-                            UserFollowNav(
-                                userId = profile.userId,
-                                type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWS.name
-                            )
-                        )
-                    }) { Text(text = "关注") }
-                    TextButton(onClick = {
-                        navController.navigate(
-                            UserFollowNav(
-                                userId = profile.userId,
-                                type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWEDS.name
-                            )
-                        )
-                    }) { Text(text = "粉丝") }
+            Box(modifier = Modifier.fillMaxWidth()) {
+                FilledTonalIconButton(
+                    onClick = onRoamClick,
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 14.dp)
+                ) {
+                    androidx.compose.material3.Icon(
+                        imageVector = PersonalRadio,
+                        contentDescription = stringResource(R.string.roam)
+                    )
                 }
-                secondaryText?.let {
-                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
-                        Text(
-                            text = it,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(top = 48.dp, bottom = 16.dp, start = 16.dp, end = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = profile.nickname,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        TextButton(onClick = {
+                            navController.navigate(
+                                UserFollowNav(
+                                    userId = profile.userId,
+                                    type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWS.name
+                                )
+                            )
+                        }) { Text(text = "关注") }
+                        TextButton(onClick = {
+                            navController.navigate(
+                                UserFollowNav(
+                                    userId = profile.userId,
+                                    type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWEDS.name
+                                )
+                            )
+                        }) { Text(text = "粉丝") }
+                    }
+                    secondaryText?.let {
+                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
+                            Text(
+                                text = it,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
             }
