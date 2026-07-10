@@ -84,7 +84,6 @@
     <string name="remove_from_songList">从歌单移除</string>
     <string name="no_brief">暂无简介</string>
     <string name="api_server">API 服务器</string>
-    <string name="unblock_server">解锁服务器</string>
     <string name="server_url">服务器地址</string>
     <string name="reset_default">重置默认</string>
     <string name="server_settings">服务器设置</string>

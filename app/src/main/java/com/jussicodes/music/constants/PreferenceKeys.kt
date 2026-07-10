@@ -24,5 +24,4 @@ val libraryUserPlaylistsCacheKey = stringPreferencesKey("libraryUserPlaylistsCac
 val libraryPlaylistRefreshTokenKey = longPreferencesKey("libraryPlaylistRefreshToken")
 val searchTopListFilterIdsKey = stringPreferencesKey("searchTopListFilterIds")
 val apiBaseUrlKey = stringPreferencesKey("apiBaseUrl")
-val unblockBaseUrlKey = stringPreferencesKey("unblockBaseUrl")
 val unblockSourceKey = stringPreferencesKey("unblockSource")

@@ -115,10 +115,8 @@ fun Lyric(
 
     LaunchedEffect(currentMediaId) {
         currentIndex = 0
-        coroutineScope.launch {
-            currentMediaId?.let {
-                lyricViewModel.fetchLyric(it.toLong())
-            }
+        currentMediaId?.toLongOrNull()?.let {
+            lyricViewModel.fetchLyric(it)
         }
     }
 

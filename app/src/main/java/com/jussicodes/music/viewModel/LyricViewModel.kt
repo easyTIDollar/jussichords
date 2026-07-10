@@ -14,12 +14,30 @@ import javax.inject.Inject
 @HiltViewModel
 class LyricViewModel @Inject constructor() : ViewModel() {
 
+    companion object {
+        private val lyricCache = mutableMapOf<Long, LyricResponse?>()
+    }
+
+    private var currentMusicId: Long? = null
+
     private val _lyric = MutableStateFlow<LyricResponse?>(null)
     val lyric: StateFlow<LyricResponse?> = _lyric.asStateFlow()
 
     fun fetchLyric(musicId: Long) {
+        if (currentMusicId == musicId && _lyric.value != null) return
+
+        currentMusicId = musicId
+        if (lyricCache.containsKey(musicId)) {
+            _lyric.value = lyricCache[musicId]
+            return
+        }
+
         viewModelScope.launch {
-            _lyric.value = PlayerApi.songLyric(musicId).getOrNull()
+            val response = PlayerApi.songLyric(musicId).getOrNull()
+            if (currentMusicId == musicId) {
+                lyricCache[musicId] = response
+                _lyric.value = response
+            }
         }
     }
 }

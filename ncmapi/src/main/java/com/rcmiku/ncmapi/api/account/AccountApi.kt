@@ -7,6 +7,9 @@ import com.rcmiku.ncmapi.model.*
 import com.rcmiku.ncmapi.utils.CookieProvider
 
 object AccountApi {
+    private const val USER_PLAYLIST_CACHE_TTL_MS = 60_000L
+    private val userPlaylistRawCache = mutableMapOf<Long, Pair<Long, UserPlaylistRawResponse>>()
+
     suspend fun account(): Result<UserInfoBatch> {
         val result = apiGet<UserInfoBatch>("/user/account")
         return result.map { fixAccountProfile(it) }
@@ -75,12 +78,22 @@ object AccountApi {
         )
 
     suspend fun userPlaylists(userId: Long): Result<UserPlaylistResponse> {
-        val result = apiGet<UserPlaylistRawResponse>(
-            "/user/playlist",
-            mapOf("uid" to userId, "limit" to 1000, "offset" to 0)
-        )
+        val result = userPlaylistsRaw(userId)
         return result.map { raw ->
             UserPlaylistResponse(data = UserPlaylistData(playlist = raw.playlist.map { it.toPlaylist() }))
+        }
+    }
+
+    private suspend fun userPlaylistsRaw(userId: Long): Result<UserPlaylistRawResponse> {
+        userPlaylistRawCache[userId]
+            ?.takeIf { System.currentTimeMillis() - it.first < USER_PLAYLIST_CACHE_TTL_MS }
+            ?.let { return Result.success(it.second) }
+
+        return apiGet<UserPlaylistRawResponse>(
+            "/user/playlist",
+            mapOf("uid" to userId, "limit" to 1000, "offset" to 0)
+        ).onSuccess { response ->
+            userPlaylistRawCache[userId] = System.currentTimeMillis() to response
         }
     }
 
@@ -103,10 +116,7 @@ object AccountApi {
         userId: Long,
         trackIds: List<Long>
     ): Result<UserPlaylistV1Response> {
-        val raw = apiGet<UserPlaylistRawResponse>(
-            "/user/playlist",
-            mapOf("uid" to userId, "limit" to 1000, "offset" to 0)
-        ).getOrThrow()
+        val raw = userPlaylistsRaw(userId).getOrThrow()
         val playlistsV1 = raw.playlist.map { item ->
             PlaylistV1(
                 id = item.id,

@@ -66,14 +66,13 @@ fun SongListBottomSheet(
         }
     }
 
-    LaunchedEffect(song) {
-        song?.id?.let {
-            if (userId != 0L) {
-                playlist = AccountApi.userPlaylistV1(
-                    userId = userId,
-                    trackIds = listOf(it)
-                ).getOrNull()
-            }
+    LaunchedEffect(openBottomSheet, song?.id, userId) {
+        val songId = song?.id ?: return@LaunchedEffect
+        if (openBottomSheet && userId != 0L) {
+            playlist = AccountApi.userPlaylistV1(
+                userId = userId,
+                trackIds = listOf(songId)
+            ).getOrNull()
         }
     }
 

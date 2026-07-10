@@ -49,6 +49,7 @@ import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.updateMediaItemUri
 import com.jussicodes.music.lyric.DesktopLyricManager
 import com.jussicodes.music.utils.FavoriteSongAction
+import com.jussicodes.music.utils.UserAgentUtil
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.enumPreference
 import com.jussicodes.music.utils.get
@@ -161,31 +162,46 @@ class PlaybackService : MediaSessionService() {
 
         val player = ExoPlayer.Builder(this, audioOnlyRenderersFactory)
             .apply {
-                val resolvingDataSourceFactory: ResolvingDataSource.Factory = ResolvingDataSource.Factory(
-                    DefaultHttpDataSource.Factory()
-                ) { dataSpec ->
-                    runBlocking {
-                        dataSpec.withUri(
-                            updateMediaItemUri(
-                                dataSpec.uri,
-                                audioQuality
-                            )
-                                ?: throw PlaybackException(
-                                    null,
-                                    null,
-                                    PlaybackException.ERROR_CODE_REMOTE_ERROR
-                                )
-                        )
-                    }
-                }
                 val cacheDataSourceFactory = CacheDataSource.Factory()
                     .setCache(AudioCache.get(this@PlaybackService))
-                    .setUpstreamDataSourceFactory(resolvingDataSourceFactory)
+                    .setUpstreamDataSourceFactory(
+                        DefaultHttpDataSource.Factory()
+                            .setUserAgent(UserAgentUtil.DEFAULT_USER_AGENT)
+                            .setDefaultRequestProperties(
+                                buildMap {
+                                    put("Referer", "https://music.163.com/")
+                                    put("Origin", "https://music.163.com")
+                                    val cookie = CookieProvider.cookie
+                                    if (cookie.isNotBlank()) {
+                                        put("Cookie", cookie)
+                                    }
+                                }
+                            )
+                    )
                     .setCacheKeyFactory { dataSpec ->
-                        "${dataSpec.key ?: dataSpec.uri}#${audioQuality.value}"
+                        "v2:${dataSpec.key ?: dataSpec.uri}#${audioQuality.value}"
                     }
                     .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-                setMediaSourceFactory(DefaultMediaSourceFactory(cacheDataSourceFactory))
+                val resolvingDataSourceFactory = ResolvingDataSource.Factory(
+                    cacheDataSourceFactory
+                ) { dataSpec ->
+                    runBlocking {
+                        val resolvedUri = updateMediaItemUri(
+                            dataSpec.uri,
+                            audioQuality
+                        ) ?: throw PlaybackException(
+                            null,
+                            null,
+                            PlaybackException.ERROR_CODE_REMOTE_ERROR
+                        )
+
+                        dataSpec.buildUpon()
+                            .setUri(resolvedUri)
+                            .setKey(resolvedUri.toString())
+                            .build()
+                    }
+                }
+                setMediaSourceFactory(DefaultMediaSourceFactory(resolvingDataSourceFactory))
             }.build()
 
         val audioOffloadPreferences =

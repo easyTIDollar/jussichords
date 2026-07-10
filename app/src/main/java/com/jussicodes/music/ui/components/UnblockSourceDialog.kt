@@ -32,7 +32,7 @@ val unblockSourceOptions = listOf(
     UnblockSourceOption("bytedance", "Byfuns"),
     UnblockSourceOption("kuwo", "Gdmusic"),
     UnblockSourceOption("migu", "Msls"),
-    UnblockSourceOption("pyncmd", "Qijieya"),
+    UnblockSourceOption("pyncmd", "pyncmd"),
     UnblockSourceOption("qq", "Uhm"),
     UnblockSourceOption("youtube", "Whitisnot"),
 )

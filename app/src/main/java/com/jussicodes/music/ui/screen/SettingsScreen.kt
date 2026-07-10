@@ -64,7 +64,6 @@ import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.dynamicThemeColorKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.themeSeedColorKey
-import com.jussicodes.music.constants.unblockBaseUrlKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.constants.use40DpIconKey
 import com.jussicodes.music.lyric.DesktopLyricManager
@@ -110,13 +109,11 @@ fun SettingsScreen(navController: NavHostController) {
     var themeSeed by rememberEnumPreference(themeSeedColorKey, defaultValue = AppThemeSeed.PURPLE)
     var autoSkipNextOnError by rememberPreference(autoSkipNextOnErrorKey, false)
     var ncmCookie by rememberPreference(ncmCookieKey, "")
-    var apiBaseUrl by rememberPreference(apiBaseUrlKey, "https://ncm-api.prod.gbclstudio.cn")
-    var unblockBaseUrl by rememberPreference(unblockBaseUrlKey, "https://unlock.depresskid.top")
+    var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://119.23.64.141:3000")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
     var showQualityDialog by remember { mutableStateOf(false) }
     var showThemeSeedDialog by remember { mutableStateOf(false) }
     var showApiUrlDialog by remember { mutableStateOf(false) }
-    var showUnblockUrlDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
     var updating by rememberSaveable { mutableStateOf(false) }
     var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
@@ -260,17 +257,11 @@ fun SettingsScreen(navController: NavHostController) {
             onClick = { showApiUrlDialog = true }
         ),
         SettingItemData(
-            title = stringResource(R.string.unblock_server),
-            subtitle = buildString {
-                append(unblockBaseUrl)
-                append(" · ")
-                append(
-                    unblockSourceOptions.firstOrNull { it.value == unblockSource }?.label
-                        ?: "自动选择音源"
-                )
-            },
+            title = "解灰音源",
+            subtitle = unblockSourceOptions.firstOrNull { it.value == unblockSource }?.label
+                ?: "AUTO",
             imageVector = Dns,
-            onClick = { showUnblockUrlDialog = true },
+            onClick = { showUnblockSourceDialog = true },
             onLongClick = { showUnblockSourceDialog = true }
         ),
         SettingItemData(
@@ -439,19 +430,9 @@ fun SettingsScreen(navController: NavHostController) {
         UrlEditDialog(
             title = stringResource(R.string.api_server),
             currentUrl = apiBaseUrl,
-            defaultUrl = "https://ncm-api.prod.gbclstudio.cn",
+            defaultUrl = "http://119.23.64.141:3000",
             onDismiss = { showApiUrlDialog = false },
             onConfirm = { apiBaseUrl = it }
-        )
-    }
-
-    if (showUnblockUrlDialog) {
-        UrlEditDialog(
-            title = stringResource(R.string.unblock_server),
-            currentUrl = unblockBaseUrl,
-            defaultUrl = "https://unlock.depresskid.top",
-            onDismiss = { showUnblockUrlDialog = false },
-            onConfirm = { unblockBaseUrl = it }
         )
     }
 

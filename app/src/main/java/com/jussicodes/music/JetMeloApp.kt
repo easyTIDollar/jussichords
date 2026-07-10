@@ -12,12 +12,10 @@ import coil3.request.CachePolicy
 import coil3.request.crossfade
 import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.ncmCookieKey
-import com.jussicodes.music.constants.unblockBaseUrlKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.utils.UserAgentUtil
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.API_BASE_URL
-import com.rcmiku.ncmapi.api.UNBLOCK_BASE_URL
 import com.rcmiku.ncmapi.api.UNBLOCK_SOURCE
 import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.UserAgentProvider
@@ -59,16 +57,14 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         applicationScope.launch {
             dataStore.data
                 .map { prefs ->
-                    Triple(
+                    Pair(
                         prefs[apiBaseUrlKey],
-                        prefs[unblockBaseUrlKey],
                         prefs[unblockSourceKey]
                     )
                 }
                 .distinctUntilChanged()
-                .collect { (apiUrl, unblockUrl, unblockSource) ->
+                .collect { (apiUrl, unblockSource) ->
                     if (!apiUrl.isNullOrEmpty()) API_BASE_URL = apiUrl
-                    if (!unblockUrl.isNullOrEmpty()) UNBLOCK_BASE_URL = unblockUrl
                     UNBLOCK_SOURCE = unblockSource ?: "AUTO"
                 }
         }
