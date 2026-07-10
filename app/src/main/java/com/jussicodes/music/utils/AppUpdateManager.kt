@@ -2,6 +2,7 @@ package com.jussicodes.music.utils
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -60,6 +61,7 @@ object AppUpdateManager {
             val mainHandler = Handler(Looper.getMainLooper())
             val targetDir = File(context.cacheDir, "update_apks").apply { mkdirs() }
             val targetFile = File(targetDir, updateInfo.apkName)
+            val downloadFile = File(targetDir, "${updateInfo.apkName}.download")
             val connection = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 15_000
                 readTimeout = 30_000
@@ -73,8 +75,9 @@ object AppUpdateManager {
                 }
                 val totalBytes = connection.contentLengthLong
                 var downloadedBytes = 0L
+                downloadFile.delete()
                 connection.inputStream.use { input ->
-                    targetFile.outputStream().use { output ->
+                    downloadFile.outputStream().use { output ->
                         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                         while (true) {
                             val read = input.read(buffer)
@@ -91,6 +94,15 @@ object AppUpdateManager {
                         }
                     }
                 }
+                if (updateInfo.apkSize > 0 && downloadFile.length() != updateInfo.apkSize) {
+                    error("下载安装包不完整，请重试")
+                }
+                validateApk(context, downloadFile)
+                targetFile.delete()
+                if (!downloadFile.renameTo(targetFile)) {
+                    downloadFile.copyTo(targetFile, overwrite = true)
+                    downloadFile.delete()
+                }
                 reportProgress(mainHandler, onProgress, 100)
                 targetFile
             } finally {
@@ -100,6 +112,16 @@ object AppUpdateManager {
     }
 
     fun installApk(context: Context, apkFile: File) {
+        val validationError = runCatching { validateApk(context, apkFile) }.exceptionOrNull()
+        if (validationError != null) {
+            Toast.makeText(
+                context,
+                validationError.message ?: "安装包无效，请重新下载",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             !context.packageManager.canRequestPackageInstalls()
         ) {
@@ -117,12 +139,57 @@ object AppUpdateManager {
             "${context.packageName}.fileprovider",
             apkFile
         )
-        val installIntent = Intent(Intent.ACTION_VIEW).apply {
+        val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
             setDataAndType(apkUri, "application/vnd.android.package-archive")
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+            putExtra(Intent.EXTRA_RETURN_RESULT, false)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(installIntent)
+        context.packageManager.queryIntentActivities(
+            installIntent,
+            PackageManager.MATCH_DEFAULT_ONLY
+        ).forEach { resolveInfo ->
+            context.grantUriPermission(
+                resolveInfo.activityInfo.packageName,
+                apkUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+        runCatching {
+            context.startActivity(installIntent)
+        }.onFailure {
+            Toast.makeText(
+                context,
+                it.message ?: "无法打开系统安装器",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun validateApk(context: Context, apkFile: File) {
+        if (!apkFile.isFile || apkFile.length() <= 0) {
+            error("安装包无效，请重新下载")
+        }
+        apkFile.inputStream().use { input ->
+            val header = ByteArray(2)
+            if (input.read(header) != header.size || header[0] != 'P'.code.toByte() || header[1] != 'K'.code.toByte()) {
+                error("下载内容不是有效的 APK，请检查 GitHub 加速链接")
+            }
+        }
+        val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.packageManager.getPackageArchiveInfo(
+                apkFile.absolutePath,
+                PackageManager.PackageInfoFlags.of(0)
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)
+        } ?: error("安装包解析失败，请重新下载")
+
+        if (packageInfo.packageName != context.packageName) {
+            error("安装包包名不匹配，已停止安装")
+        }
     }
 
     private fun requestText(url: String): String {
