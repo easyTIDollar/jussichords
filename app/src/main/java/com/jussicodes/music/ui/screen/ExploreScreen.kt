@@ -6,6 +6,8 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.snapping.SnapPosition
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,7 +44,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -67,6 +74,7 @@ import com.rcmiku.ncmapi.model.Song
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 @OptIn(ExperimentalSharedTransitionApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +87,7 @@ fun ExploreScreen(
     val recommendSongsState by exploreScreenViewModel.recommendSongs.collectAsState()
     val recommendPlaylistState by exploreScreenViewModel.recommendPlaylist.collectAsState()
     val gridState = rememberLazyGridState()
+    val playlistRowState = rememberLazyListState()
     val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
     val isPlaying = playerState?.isPlaying == true
@@ -91,6 +100,9 @@ fun ExploreScreen(
     val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
         .collectAsState(emptyList())
     val coroutineScope = rememberCoroutineScope()
+    val viewConfiguration = LocalViewConfiguration.current
+    var horizontalDragDirection by remember { mutableStateOf(0) }
+    val yieldToHomePager = horizontalDragDirection > 0
 
     val onRefresh: () -> Unit = {
         isRefreshing = true
@@ -111,7 +123,37 @@ fun ExploreScreen(
             PullToRefreshBox(
                 modifier = Modifier
                     .padding(top = padding.calculateTopPadding())
-                    .fillMaxSize(),
+                    .fillMaxSize()
+                    .pointerInput(viewConfiguration.touchSlop) {
+                        awaitEachGesture {
+                            horizontalDragDirection = 0
+                            val down = awaitFirstDown(
+                                requireUnconsumed = false,
+                                pass = PointerEventPass.Initial
+                            )
+                            var totalX = 0f
+                            var totalY = 0f
+
+                            do {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                val change = event.changes.firstOrNull { it.id == down.id }
+                                    ?: break
+                                val delta = change.positionChange()
+                                totalX += delta.x
+                                totalY += delta.y
+
+                                if (
+                                    horizontalDragDirection == 0 &&
+                                    abs(totalX) > viewConfiguration.touchSlop &&
+                                    abs(totalX) > abs(totalY)
+                                ) {
+                                    horizontalDragDirection = if (totalX > 0f) 1 else -1
+                                }
+                            } while (change.pressed)
+
+                            horizontalDragDirection = 0
+                        }
+                    },
                 state = state,
                 isRefreshing = isRefreshing,
                 onRefresh = onRefresh,
@@ -140,7 +182,8 @@ fun ExploreScreen(
                                 flingBehavior = rememberSnapFlingBehavior(
                                     gridState,
                                     snapPosition = SnapPosition.Start
-                                )
+                                ),
+                                userScrollEnabled = !(yieldToHomePager && !gridState.canScrollBackward)
                             ) {
                                 itemsIndexed(it.data.dailySongs) { _, song ->
                                     SongListItem(
@@ -178,7 +221,10 @@ fun ExploreScreen(
                                 title = stringResource(R.string.recommend_playlist),
                                 modifier = Modifier.animateItem()
                             )
-                            LazyRow {
+                            LazyRow(
+                                state = playlistRowState,
+                                userScrollEnabled = !(yieldToHomePager && !playlistRowState.canScrollBackward)
+                            ) {
                                 items(it.result) { playlist ->
 
                                     PlaylistGridItem(

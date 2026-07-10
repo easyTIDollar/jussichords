@@ -43,7 +43,10 @@ val apiClient = HttpClient(OkHttp) {
         level = LogLevel.ALL
     }
     defaultRequest {
-        header("User-Agent", "JetMelo/1.0")
+        header(
+            "User-Agent",
+            "Mozilla/5.0 (Linux; Android 10; Mi A3 Build/QQ3A.200705.002; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/143.0.7499.34 Mobile Safari/537.36 NeteaseMusic/9.4.32.251222163637"
+        )
         header("Accept", "application/json")
         header("Cache-Control", "no-cache, no-store, max-age=0")
         header("Pragma", "no-cache")
@@ -89,6 +92,7 @@ suspend inline fun <reified T> apiPost(path: String, body: Map<String, Any> = em
             contentType(ContentType.Application.FormUrlEncoded)
             parameter("timestamp", System.currentTimeMillis())
             parameter("_", System.nanoTime())
+            parameter("randomCNIP", true)
             val finalBody = body.toMutableMap().apply {
                 val csrf = CookieProvider.getCookieMap()["__csrf"]
                 if (!csrf.isNullOrEmpty()) {

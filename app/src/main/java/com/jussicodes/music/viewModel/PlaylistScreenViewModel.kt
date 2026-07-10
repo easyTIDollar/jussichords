@@ -6,12 +6,11 @@ import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.constants.libraryPlaylistRefreshTokenKey
+import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.utils.FavoriteSongSyncBus
 import com.jussicodes.music.utils.PlaylistCollectionSyncBus
 import com.jussicodes.music.utils.dataStore
-import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.playlist.PlaylistApi
 import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.PlaylistDetailResponse
@@ -69,11 +68,9 @@ class PlaylistScreenViewModel @Inject constructor(
         viewModelScope.launch {
             context.favoriteSongIdsDatastore.data.distinctUntilChanged().collectLatest {
                 playlistId?.let {
-                    AccountApi.favoriteSongLikeChange().onSuccess {
-                        _playlistDetail.value = PlaylistApi.playlistV6Detail(
-                            id = playlistId,
-                        ).getOrNull()?.let(FavoriteSongSyncBus::mergeInto)
-                    }
+                    _playlistDetail.value = PlaylistApi.playlistV6Detail(
+                        id = playlistId,
+                    ).getOrNull()?.let(FavoriteSongSyncBus::mergeInto)
                 }
             }
         }
