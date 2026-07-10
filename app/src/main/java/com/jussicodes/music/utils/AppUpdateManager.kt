@@ -1,22 +1,11 @@
 package com.jussicodes.music.utils
 
-import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.provider.Settings
-import android.widget.Toast
-import androidx.core.content.FileProvider
 import com.jussicodes.music.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -47,148 +36,6 @@ object AppUpdateManager {
                 apkSize = asset.size,
                 downloadUrl = asset.downloadUrl
             )
-        }
-    }
-
-    suspend fun downloadApk(
-        context: Context,
-        updateInfo: UpdateInfo,
-        downloadProxy: String,
-        onProgress: (Int) -> Unit,
-    ): Result<File> = withContext(Dispatchers.IO) {
-        runCatching {
-            val url = proxiedUrl(updateInfo.downloadUrl, downloadProxy)
-            val mainHandler = Handler(Looper.getMainLooper())
-            val targetDir = File(context.cacheDir, "update_apks").apply { mkdirs() }
-            val targetFile = File(targetDir, updateInfo.apkName)
-            val downloadFile = File(targetDir, "${updateInfo.apkName}.download")
-            val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15_000
-                readTimeout = 30_000
-                instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
-            }
-
-            try {
-                if (connection.responseCode !in 200..299) {
-                    error("下载安装包失败: HTTP ${connection.responseCode}")
-                }
-                val totalBytes = connection.contentLengthLong
-                var downloadedBytes = 0L
-                downloadFile.delete()
-                connection.inputStream.use { input ->
-                    downloadFile.outputStream().use { output ->
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read == -1) break
-                            output.write(buffer, 0, read)
-                            downloadedBytes += read
-                            if (totalBytes > 0) {
-                                reportProgress(
-                                    mainHandler,
-                                    onProgress,
-                                    ((downloadedBytes * 100) / totalBytes).toInt()
-                                )
-                            }
-                        }
-                    }
-                }
-                if (updateInfo.apkSize > 0 && downloadFile.length() != updateInfo.apkSize) {
-                    error("下载安装包不完整，请重试")
-                }
-                validateApk(context, downloadFile)
-                targetFile.delete()
-                if (!downloadFile.renameTo(targetFile)) {
-                    downloadFile.copyTo(targetFile, overwrite = true)
-                    downloadFile.delete()
-                }
-                reportProgress(mainHandler, onProgress, 100)
-                targetFile
-            } finally {
-                connection.disconnect()
-            }
-        }
-    }
-
-    fun installApk(context: Context, apkFile: File) {
-        val validationError = runCatching { validateApk(context, apkFile) }.exceptionOrNull()
-        if (validationError != null) {
-            Toast.makeText(
-                context,
-                validationError.message ?: "安装包无效，请重新下载",
-                Toast.LENGTH_LONG
-            ).show()
-            return
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            !context.packageManager.canRequestPackageInstalls()
-        ) {
-            val permissionIntent = Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:${context.packageName}")
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(permissionIntent)
-            Toast.makeText(context, "请先允许安装未知应用，再重新安装更新", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        val apkUri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            apkFile
-        )
-        val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-            setDataAndType(apkUri, "application/vnd.android.package-archive")
-            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-            putExtra(Intent.EXTRA_RETURN_RESULT, false)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        context.packageManager.queryIntentActivities(
-            installIntent,
-            PackageManager.MATCH_DEFAULT_ONLY
-        ).forEach { resolveInfo ->
-            context.grantUriPermission(
-                resolveInfo.activityInfo.packageName,
-                apkUri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-        }
-        runCatching {
-            context.startActivity(installIntent)
-        }.onFailure {
-            Toast.makeText(
-                context,
-                it.message ?: "无法打开系统安装器",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    private fun validateApk(context: Context, apkFile: File) {
-        if (!apkFile.isFile || apkFile.length() <= 0) {
-            error("安装包无效，请重新下载")
-        }
-        apkFile.inputStream().use { input ->
-            val header = ByteArray(2)
-            if (input.read(header) != header.size || header[0] != 'P'.code.toByte() || header[1] != 'K'.code.toByte()) {
-                error("下载内容不是有效的 APK，请检查 GitHub 加速链接")
-            }
-        }
-        val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.packageManager.getPackageArchiveInfo(
-                apkFile.absolutePath,
-                PackageManager.PackageInfoFlags.of(0)
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)
-        } ?: error("安装包解析失败，请重新下载")
-
-        if (packageInfo.packageName != context.packageName) {
-            error("安装包包名不匹配，已停止安装")
         }
     }
 
@@ -227,21 +74,6 @@ object AppUpdateManager {
             ?: error("当前仓库暂无 Release，请先发布包含 APK 安装包的 Release")
     }
 
-    private fun proxiedUrl(downloadUrl: String, downloadProxy: String): String {
-        val proxy = downloadProxy.trim()
-        if (proxy.isBlank()) return downloadUrl
-        val normalizedProxy = if (proxy.endsWith("/")) proxy else "$proxy/"
-        return normalizedProxy + downloadUrl
-    }
-
-    private fun reportProgress(
-        mainHandler: Handler,
-        onProgress: (Int) -> Unit,
-        progress: Int,
-    ) {
-        mainHandler.post { onProgress(progress.coerceIn(0, 100)) }
-    }
-
     private fun isNewerVersion(latest: String, current: String): Boolean {
         val latestParts = versionParts(latest)
         val currentParts = versionParts(current)
@@ -258,6 +90,7 @@ object AppUpdateManager {
         Regex("\\d+").findAll(version).map { it.value.toIntOrNull() ?: 0 }.toList()
 
     private class HttpStatusException(val code: Int) : Exception("检查更新失败: HTTP $code")
+
 }
 
 data class UpdateInfo(

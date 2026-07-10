@@ -87,17 +87,21 @@ class ArtistScreenViewModel @Inject constructor(
             }
 
             ArtistApi.artistSub(id, nextSubscribed)
-                .onSuccess {
-                    if (nextSubscribed) {
-                        ArtistApi.artistSublistAll().getOrNull().orEmpty()
-                            .firstOrNull { it.id == id }
-                            ?.let { ArtistCollectionSyncBus.setCollected(it, true) }
-                    }
-                }
                 .onFailure {
+                    _isArtistSubscribed.value = !nextSubscribed
+                    artist?.let { ArtistCollectionSyncBus.setCollected(it, !nextSubscribed) }
+                    _artistHeadInfo.value = _artistHeadInfo.value?.let { headInfo ->
+                        headInfo.copy(
+                            data = headInfo.data.copy(
+                                user = (headInfo.data.user ?: ArtistUser()).copy(
+                                    followed = !nextSubscribed
+                                )
+                            )
+                        )
+                    }
                     Toast.makeText(
                         context,
-                        "Local state updated, cloud sync pending",
+                        it.message ?: "歌手收藏失败，请稍后重试",
                         Toast.LENGTH_SHORT
                     ).show()
                 }

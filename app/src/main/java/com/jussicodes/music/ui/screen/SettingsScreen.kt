@@ -62,7 +62,6 @@ import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.autoSkipNextOnErrorKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.dynamicThemeColorKey
-import com.jussicodes.music.constants.githubDownloadProxyKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.themeSeedColorKey
 import com.jussicodes.music.constants.unblockBaseUrlKey
@@ -102,27 +101,24 @@ fun SettingsScreen(navController: NavHostController) {
     val uriHandler = LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
     var use40DpIcon by rememberPreference(use40DpIconKey, false)
     var desktopLyricEnabled by rememberPreference(desktopLyricEnabledKey, false)
     var audioQuality by rememberEnumPreference(audioQualityKey, defaultValue = SongLevel.STANDARD)
-    var useDynamicThemeColor by rememberPreference(dynamicThemeColorKey, false)
+    var useDynamicThemeColor by rememberPreference(dynamicThemeColorKey, dynamicColorAvailable)
     var themeSeed by rememberEnumPreference(themeSeedColorKey, defaultValue = AppThemeSeed.PURPLE)
     var autoSkipNextOnError by rememberPreference(autoSkipNextOnErrorKey, false)
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "https://ncm-api.prod.gbclstudio.cn")
     var unblockBaseUrl by rememberPreference(unblockBaseUrlKey, "https://unlock.depresskid.top")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
-    var githubDownloadProxy by rememberPreference(githubDownloadProxyKey, "https://gh-proxy.net/")
-
     var showQualityDialog by remember { mutableStateOf(false) }
     var showThemeSeedDialog by remember { mutableStateOf(false) }
     var showApiUrlDialog by remember { mutableStateOf(false) }
     var showUnblockUrlDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
-    var showGithubProxyDialog by remember { mutableStateOf(false) }
     var updating by rememberSaveable { mutableStateOf(false) }
-    var updateProgress by rememberSaveable { mutableStateOf<Int?>(null) }
     var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var logout by rememberSaveable { mutableStateOf(false) }
     var overlayPermissionGranted by remember {
@@ -141,7 +137,6 @@ fun SettingsScreen(navController: NavHostController) {
         }
     }
 
-    val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val appearanceTitle = "外观设置"
     val appearanceSubtitle = when {
         useDynamicThemeColor && dynamicColorAvailable -> "壁纸动态取色"
@@ -279,16 +274,14 @@ fun SettingsScreen(navController: NavHostController) {
             onLongClick = { showUnblockSourceDialog = true }
         ),
         SettingItemData(
-            title = if (updating || updateProgress != null) "正在更新" else "检查版本更新",
+            title = if (updating) "正在更新" else "检查版本更新",
             subtitle = when {
-                updateProgress != null -> "正在下载安装包: ${updateProgress}%"
                 updating -> "正在检查 GitHub Release"
-                else -> "点按检查更新，长按配置GitHub加速链接"
+                else -> "点按检查更新，在浏览器下载最新 APK"
             },
-            progress = updateProgress?.let { it / 100f },
             imageVector = Github,
             onClick = {
-                if (!updating && updateProgress == null) {
+                if (!updating) {
                     updating = true
                     coroutineScope.launch {
                         val updateResult = AppUpdateManager.checkLatestRelease()
@@ -310,8 +303,7 @@ fun SettingsScreen(navController: NavHostController) {
                         }
                     }
                 }
-            },
-            onLongClick = { showGithubProxyDialog = true }
+            }
         )
     )
 
@@ -471,16 +463,6 @@ fun SettingsScreen(navController: NavHostController) {
         )
     }
 
-    if (showGithubProxyDialog) {
-        UrlEditDialog(
-            title = "GitHub 下载加速",
-            currentUrl = githubDownloadProxy,
-            defaultUrl = "https://gh-proxy.net/",
-            onDismiss = { showGithubProxyDialog = false },
-            onConfirm = { githubDownloadProxy = it }
-        )
-    }
-
     pendingUpdateInfo?.let { updateInfo ->
         AlertDialog(
             onDismissRequest = { pendingUpdateInfo = null },
@@ -502,31 +484,18 @@ fun SettingsScreen(navController: NavHostController) {
                 TextButton(
                     onClick = {
                         pendingUpdateInfo = null
-                        updateProgress = 0
-                        coroutineScope.launch {
-                            val downloadResult = AppUpdateManager.downloadApk(
-                                context = context,
-                                updateInfo = updateInfo,
-                                downloadProxy = githubDownloadProxy,
-                                onProgress = { updateProgress = it }
-                            )
-                            downloadResult
-                                .onSuccess {
-                                    Toast.makeText(context, "下载完成，准备打开安装器", Toast.LENGTH_SHORT).show()
-                                    AppUpdateManager.installApk(context, it)
-                                }
-                                .onFailure {
-                                    Toast.makeText(
-                                        context,
-                                        it.message ?: "下载安装包失败",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                }
-                            updateProgress = null
+                        runCatching {
+                            uriHandler.openUri(updateInfo.downloadUrl)
+                        }.onFailure {
+                            Toast.makeText(
+                                context,
+                                it.message ?: "无法打开浏览器",
+                                Toast.LENGTH_LONG
+                            ).show()
                         }
                     }
                 ) {
-                    Text("下载并打开安装器")
+                    Text("浏览器下载 APK")
                 }
             },
             dismissButton = {

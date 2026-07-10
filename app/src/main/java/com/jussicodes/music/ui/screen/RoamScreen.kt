@@ -9,6 +9,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -57,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -77,6 +79,8 @@ import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.setPlaylist
+import com.jussicodes.music.ui.components.ArtworkGlassBackdrop
+import com.jussicodes.music.ui.components.ArtworkBackdropStyle
 import com.jussicodes.music.ui.components.Lyric
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.FavoriteFill
@@ -396,24 +400,30 @@ private fun RoamPlayerContent(
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.surfaceContainer
+        color = Color.Transparent
     ) {
-        Column(
-            modifier = Modifier
-                .statusBarsPadding()
-                .fillMaxSize()
-                .graphicsLayer {
-                    translationY = coverOffsetY
-                    val scale = 1f - (coverOffsetY / dismissThresholdPx).coerceIn(0f, 1f) * 0.02f
-                    scaleX = scale
-                    scaleY = scale
-                },
-            verticalArrangement = if (screenHeight.dp < 700.dp) {
-                Arrangement.spacedBy(8.dp)
-            } else {
-                Arrangement.spacedBy(24.dp)
-            }
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            ArtworkGlassBackdrop(
+                artwork = metadata?.artworkUri,
+                style = ArtworkBackdropStyle.FullScreen
+            )
+            Column(
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        translationY = coverOffsetY
+                        val scale =
+                            1f - (coverOffsetY / dismissThresholdPx).coerceIn(0f, 1f) * 0.02f
+                        scaleX = scale
+                        scaleY = scale
+                    },
+                verticalArrangement = if (screenHeight.dp < 700.dp) {
+                    Arrangement.spacedBy(8.dp)
+                } else {
+                    Arrangement.spacedBy(24.dp)
+                }
+            ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -458,6 +468,11 @@ private fun RoamPlayerContent(
             Surface(
                 shape = MaterialTheme.shapes.small,
                 tonalElevation = 2.dp,
+                shadowElevation = 18.dp,
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
@@ -716,4 +731,5 @@ private fun RoamPlayerContent(
             }
         }
     }
+}
 }

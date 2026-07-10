@@ -1,6 +1,7 @@
 package com.jussicodes.music.ui.components
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -55,6 +56,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -187,22 +190,28 @@ fun Player(
     Surface(
         modifier = modifier
             .fillMaxSize(),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = Color.Transparent,
     ) {
-        Column(
-            modifier = Modifier
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .graphicsLayer {
-                    translationY = coverOffsetY
-                    val scale = 1f - (coverOffsetY / dismissThresholdPx).coerceIn(0f, 1f) * 0.02f
-                    scaleX = scale
-                    scaleY = scale
-                },
-            verticalArrangement = if (screenHeight.dp < 700.dp) Arrangement.spacedBy(8.dp) else Arrangement.spacedBy(
-                24.dp
+        Box(modifier = Modifier.fillMaxSize()) {
+            ArtworkGlassBackdrop(
+                artwork = mediaMetadata.artworkUri,
+                style = ArtworkBackdropStyle.FullScreen
             )
-        ) {
+            Column(
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .graphicsLayer {
+                        translationY = coverOffsetY
+                        val scale =
+                            1f - (coverOffsetY / dismissThresholdPx).coerceIn(0f, 1f) * 0.02f
+                        scaleX = scale
+                        scaleY = scale
+                    },
+                verticalArrangement = if (screenHeight.dp < 700.dp) Arrangement.spacedBy(8.dp) else Arrangement.spacedBy(
+                    24.dp
+                )
+            ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -239,6 +248,16 @@ fun Player(
                         scaleX = scale
                         scaleY = scale
                     }
+                    .shadow(
+                        elevation = 18.dp,
+                        shape = MaterialTheme.shapes.small,
+                        clip = false
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                        shape = MaterialTheme.shapes.small
+                    )
                     .clip(MaterialTheme.shapes.small)
                     .pointerInput(mediaId, swipeThresholdPx) {
                         detectHorizontalDragGestures(
@@ -585,6 +604,7 @@ fun Player(
             onDismiss = { openPlayerBottomSheet = false },
             openBottomSheet = openPlayerBottomSheet
         )
+        }
     }
 }
 

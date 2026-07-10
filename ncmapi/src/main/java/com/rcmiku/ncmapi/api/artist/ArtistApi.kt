@@ -1,7 +1,6 @@
 package com.rcmiku.ncmapi.api.artist
 
 import com.rcmiku.ncmapi.api.apiGet
-import com.rcmiku.ncmapi.api.apiPost
 import com.rcmiku.ncmapi.model.*
 
 object ArtistApi {
@@ -23,33 +22,12 @@ object ArtistApi {
         )
     }
 
-    suspend fun artistSublistAll(limit: Int = 25): Result<List<SearchArtist>> {
-        return try {
-            val artists = linkedMapOf<Long, SearchArtist>()
-            var offset = 0
-            while (true) {
-                val response = artistSublist(offset = offset, limit = limit).getOrThrow()
-                val previousSize = artists.size
-                response.data.forEach { artist ->
-                    artists[artist.id] = artist
-                }
-                val addedCount = artists.size - previousSize
-                val hasNextPage = response.hasMore || response.more
-                if (!hasNextPage || response.data.isEmpty() || addedCount == 0) break
-                offset += limit
-            }
-            Result.success(artists.values.toList())
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
     suspend fun artistSub(artistId: Long, subscribe: Boolean): Result<ApiCodeResponse> =
-        apiPost<ApiCodeResponse>(
+        apiGet<ApiCodeResponse>(
             "/artist/sub",
             mapOf(
                 "id" to artistId,
-                "t" to if (subscribe) 1 else -1,
+                "t" to if (subscribe) 1 else 0,
                 "timestamp" to System.currentTimeMillis()
             )
         ).mapCatching {

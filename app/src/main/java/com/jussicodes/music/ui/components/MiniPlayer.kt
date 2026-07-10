@@ -228,28 +228,7 @@ fun MiniPlayer(
                     .clickable { onClick() }
                     .clipToBounds()
             ) {
-                AsyncImage(
-                    model = mediaMetadata.artworkUri,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            scaleX = 1.18f
-                            scaleY = 1.18f
-                            alpha = 0.34f
-                        }
-                        .blur(28.dp)
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            MaterialTheme.colorScheme.surfaceContainer.copy(
-                                alpha = 0.78f
-                            )
-                    )
-                )
+                ArtworkGlassBackdrop(artwork = mediaMetadata.artworkUri)
             }
             Icon(
                 imageVector = ChevronDown,

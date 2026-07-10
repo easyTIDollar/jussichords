@@ -27,9 +27,9 @@ fun JetMeloTheme(
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
-    val useDynamicColor by rememberPreference(dynamicThemeColorKey, false)
-    val themeSeed by rememberEnumPreference(themeSeedColorKey, defaultValue = AppThemeSeed.PURPLE)
     val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val useDynamicColor by rememberPreference(dynamicThemeColorKey, dynamicColorAvailable)
+    val themeSeed by rememberEnumPreference(themeSeedColorKey, defaultValue = AppThemeSeed.PURPLE)
     val colorScheme = remember(themeSeed, darkTheme, useDynamicColor, dynamicColorAvailable, context) {
         when {
             useDynamicColor && dynamicColorAvailable -> {
