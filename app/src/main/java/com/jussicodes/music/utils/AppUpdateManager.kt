@@ -11,10 +11,15 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
+import java.util.concurrent.TimeUnit
 
 private const val LATEST_RELEASE_URL =
     "https://api.github.com/repos/easyTIDollar/jussichords/releases/latest"
@@ -22,6 +27,17 @@ private const val LATEST_RELEASE_URL =
 object AppUpdateManager {
     private const val UPDATE_DIR = "updates"
     private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
+    private const val DOWNLOAD_CONNECT_TIMEOUT_SECONDS = 30L
+    private const val DOWNLOAD_READ_TIMEOUT_SECONDS = 120L
+    private const val DOWNLOAD_CALL_TIMEOUT_SECONDS = 300L
+    private const val DOWNLOAD_MAX_RETRIES = 2
+
+    // Mainland users often cannot reach GitHub reliably. Try the official URL first,
+    // then fall back to a mirror-compatible proxy URL.
+    private val githubProxyPrefixes = listOf(
+        "",
+        "https://gh-proxy.com/"
+    )
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -29,11 +45,22 @@ object AppUpdateManager {
         coerceInputValues = true
     }
 
+    private val downloadClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(DOWNLOAD_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(DOWNLOAD_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(DOWNLOAD_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+
     suspend fun checkLatestRelease(): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
         runCatching {
             val release = fetchLatestRelease()
             val asset = release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
-                ?: error("最新 Release 中没有找到 APK 安装包")
+                ?: error("?? Release ????? APK ???")
             val latestVersion = release.tagName.trim().trimStart('v', 'V')
             if (!isNewerVersion(latestVersion, BuildConfig.VERSION_NAME)) {
                 return@runCatching null
@@ -56,8 +83,15 @@ object AppUpdateManager {
     ): File = withContext(Dispatchers.IO) {
         val updateDir = File(context.cacheDir, UPDATE_DIR).apply { mkdirs() }
         updateDir.listFiles()
-            ?.filter { it.extension.equals("apk", ignoreCase = true) || it.extension.equals("part", ignoreCase = true) }
-            ?.forEach { if (it.name != updateInfo.apkName && it.name != "${updateInfo.apkName}.part") it.delete() }
+            ?.filter {
+                it.extension.equals("apk", ignoreCase = true) ||
+                    it.extension.equals("part", ignoreCase = true)
+            }
+            ?.forEach {
+                if (it.name != updateInfo.apkName && it.name != "${updateInfo.apkName}.part") {
+                    it.delete()
+                }
+            }
 
         val targetFile = File(updateDir, updateInfo.apkName)
         val tempFile = File(updateDir, "${updateInfo.apkName}.part")
@@ -77,66 +111,38 @@ object AppUpdateManager {
             tempFile.delete()
         }
 
-        val connection = (URL(updateInfo.downloadUrl).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000
-            readTimeout = 30_000
-            instanceFollowRedirects = true
-            setRequestProperty("Accept", "application/octet-stream")
-            setRequestProperty("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
-        }
-
-        try {
-            if (connection.responseCode !in 200..299) {
-                throw HttpStatusException(connection.responseCode)
-            }
-
-            val contentLength = connection.contentLengthLong.takeIf { it > 0 } ?: updateInfo.apkSize
-            connection.inputStream.use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    var downloaded = 0L
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        output.write(buffer, 0, read)
-                        downloaded += read
-                        onProgress(
-                            DownloadProgress(
-                                downloadedBytes = downloaded,
-                                totalBytes = contentLength,
-                                progress = if (contentLength > 0) downloaded.toFloat() / contentLength else 0f
-                            )
-                        )
-                    }
-                    output.fd.sync()
-                }
-            }
-
-            val expectedSize = updateInfo.apkSize.takeIf { it > 0 } ?: contentLength
-            val actualSize = tempFile.length()
-            if (expectedSize > 0 && actualSize != expectedSize) {
-                tempFile.delete()
-                error("下载不完整，期望 ${expectedSize} 字节，实际 ${actualSize} 字节")
-            }
-
-            if (targetFile.exists()) targetFile.delete()
-            if (!tempFile.renameTo(targetFile)) {
-                tempFile.copyTo(targetFile, overwrite = true)
-                tempFile.delete()
-            }
-
-            onProgress(
-                DownloadProgress(
-                    downloadedBytes = targetFile.length(),
-                    totalBytes = expectedSize,
-                    progress = 1f,
-                    done = true
-                )
+        onProgress(
+            DownloadProgress(
+                downloadedBytes = 0L,
+                totalBytes = updateInfo.apkSize,
+                progress = 0f
             )
-            targetFile
-        } finally {
-            connection.disconnect()
+        )
+
+        downloadWithRetry(updateInfo, tempFile, onProgress)
+
+        val expectedSize = updateInfo.apkSize.takeIf { it > 0 } ?: tempFile.length()
+        val actualSize = tempFile.length()
+        if (expectedSize > 0 && actualSize != expectedSize) {
+            tempFile.delete()
+            error("?????,?? $expectedSize ??,?? $actualSize ??")
         }
+
+        if (targetFile.exists()) targetFile.delete()
+        if (!tempFile.renameTo(targetFile)) {
+            tempFile.copyTo(targetFile, overwrite = true)
+            tempFile.delete()
+        }
+
+        onProgress(
+            DownloadProgress(
+                downloadedBytes = targetFile.length(),
+                totalBytes = expectedSize,
+                progress = 1f,
+                done = true
+            )
+        )
+        targetFile
     }
 
     fun createInstallIntent(context: Context, apkFile: File): Intent {
@@ -171,9 +177,23 @@ object AppUpdateManager {
     }
 
     private fun requestText(url: String): String {
+        var lastException: Throwable? = null
+        buildCandidateUrls(url).forEach { candidateUrl ->
+            runCatching {
+                requestTextOnce(candidateUrl)
+            }.onSuccess {
+                return it
+            }.onFailure {
+                lastException = it
+            }
+        }
+        throw lastException ?: error("??????")
+    }
+
+    private fun requestTextOnce(url: String): String {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
-            readTimeout = 15_000
+            readTimeout = 20_000
             setRequestProperty("Accept", "application/vnd.github+json")
             setRequestProperty("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
         }
@@ -195,14 +215,14 @@ object AppUpdateManager {
 
         val exception = latestResult.exceptionOrNull()
         if (exception !is HttpStatusException || exception.code != HttpURLConnection.HTTP_NOT_FOUND) {
-            throw exception ?: error("检查更新失败")
+            throw exception ?: error("??????")
         }
 
         val releasesUrl = LATEST_RELEASE_URL.removeSuffix("/latest")
         val releases = json.decodeFromString<List<GitHubRelease>>(requestText(releasesUrl))
             .filterNot { it.draft || it.prerelease }
         return releases.firstOrNull()
-            ?: error("当前仓库暂无 Release，请先发布包含 APK 的 Release")
+            ?: error("?????? Release,?????? APK ? Release")
     }
 
     private fun isNewerVersion(latest: String, current: String): Boolean {
@@ -220,7 +240,91 @@ object AppUpdateManager {
     private fun versionParts(version: String): List<Int> =
         Regex("\\d+").findAll(version).map { it.value.toIntOrNull() ?: 0 }.toList()
 
-    private class HttpStatusException(val code: Int) : Exception("检查更新失败: HTTP $code")
+    private fun buildCandidateUrls(url: String): List<String> =
+        githubProxyPrefixes.map { prefix ->
+            if (prefix.isEmpty()) url else "$prefix$url"
+        }.distinct()
+
+    private fun downloadWithRetry(
+        updateInfo: UpdateInfo,
+        tempFile: File,
+        onProgress: (DownloadProgress) -> Unit,
+    ) {
+        val candidateUrls = buildCandidateUrls(updateInfo.downloadUrl)
+        var lastException: Throwable? = null
+
+        repeat(DOWNLOAD_MAX_RETRIES + 1) { attempt ->
+            candidateUrls.forEachIndexed { index, candidateUrl ->
+                runCatching {
+                    downloadOnce(candidateUrl, updateInfo, tempFile, onProgress)
+                }.onSuccess {
+                    return
+                }.onFailure { throwable ->
+                    tempFile.delete()
+                    lastException = throwable
+
+                    val hasMoreCandidates = index < candidateUrls.lastIndex
+                    val canRetry = attempt < DOWNLOAD_MAX_RETRIES && throwable.isRetryableDownloadError()
+                    if (!hasMoreCandidates && !canRetry) {
+                        throw throwable
+                    }
+                }
+            }
+        }
+
+        throw lastException ?: error("??????")
+    }
+
+    private fun downloadOnce(
+        url: String,
+        updateInfo: UpdateInfo,
+        tempFile: File,
+        onProgress: (DownloadProgress) -> Unit,
+    ) {
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "application/octet-stream")
+            .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+            .build()
+
+        downloadClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw HttpStatusException(response.code)
+            }
+
+            val body = response.body ?: error("??????:?????????")
+            val contentLength = body.contentLength().takeIf { it > 0 } ?: updateInfo.apkSize
+            body.byteStream().use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var downloaded = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        downloaded += read
+                        onProgress(
+                            DownloadProgress(
+                                downloadedBytes = downloaded,
+                                totalBytes = contentLength,
+                                progress = if (contentLength > 0) {
+                                    downloaded.toFloat() / contentLength
+                                } else {
+                                    0f
+                                }
+                            )
+                        )
+                    }
+                    output.fd.sync()
+                }
+            }
+        }
+    }
+
+    private fun Throwable.isRetryableDownloadError(): Boolean =
+        this is SocketTimeoutException || this is IOException
+
+    private class HttpStatusException(val code: Int) : Exception("??????: HTTP $code")
 }
 
 data class UpdateInfo(
