@@ -34,6 +34,7 @@ class PlaylistScreenViewModel @Inject constructor(
     private val playlistId = savedStateHandle.get<Long>("playlistId")
     private val limit = savedStateHandle.get<Int>("limit")
     private val noCache = savedStateHandle.get<Boolean>("noCache") ?: false
+    private var favoriteSongIds: List<Long> = emptyList()
     private val _playlistDetail =
         MutableStateFlow<PlaylistDetailResponse?>(null)
     val playlistDetail: StateFlow<PlaylistDetailResponse?> =
@@ -66,11 +67,14 @@ class PlaylistScreenViewModel @Inject constructor(
 
     private fun fetchWithObserver() {
         viewModelScope.launch {
-            context.favoriteSongIdsDatastore.data.distinctUntilChanged().collectLatest {
+            context.favoriteSongIdsDatastore.data.distinctUntilChanged().collectLatest { favoriteSongs ->
+                favoriteSongIds = favoriteSongs.songIdsList
                 playlistId?.let {
                     _playlistDetail.value = PlaylistApi.playlistV6Detail(
                         id = playlistId,
-                    ).getOrNull()?.let(FavoriteSongSyncBus::mergeInto)
+                    ).getOrNull()?.let { response ->
+                        FavoriteSongSyncBus.mergeInto(response, favoriteSongIds)
+                    }
                 }
             }
         }
@@ -79,7 +83,9 @@ class PlaylistScreenViewModel @Inject constructor(
     private fun observeLocalFavoriteSongs() {
         viewModelScope.launch {
             FavoriteSongSyncBus.localSongs.collectLatest {
-                _playlistDetail.value = _playlistDetail.value?.let(FavoriteSongSyncBus::mergeInto)
+                _playlistDetail.value = _playlistDetail.value?.let { response ->
+                    FavoriteSongSyncBus.mergeInto(response, favoriteSongIds)
+                }
             }
         }
     }

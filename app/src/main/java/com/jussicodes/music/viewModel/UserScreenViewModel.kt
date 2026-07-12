@@ -8,6 +8,7 @@ import com.rcmiku.ncmapi.api.artist.ArtistApi
 import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.UserDetailResponse
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +33,9 @@ class UserScreenViewModel @Inject constructor(savedStateHandle: SavedStateHandle
 
     private val _isSelf = MutableStateFlow(false)
     val isSelf: StateFlow<Boolean> = _isSelf.asStateFlow()
+
+    private val _isAvatarUploading = MutableStateFlow(false)
+    val isAvatarUploading: StateFlow<Boolean> = _isAvatarUploading.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -66,6 +70,23 @@ class UserScreenViewModel @Inject constructor(savedStateHandle: SavedStateHandle
             }
             AccountApi.followUser(userId, nextFollowed)
             _isFollowUpdating.value = false
+        }
+    }
+
+    fun uploadAvatar(file: File, onResult: (Boolean) -> Unit = {}) {
+        if (!_isSelf.value || _isAvatarUploading.value) return
+        viewModelScope.launch {
+            _isAvatarUploading.value = true
+            val success = AccountApi.uploadAvatar(file).isSuccess
+            if (success) {
+                val refreshed = ArtistApi.userDetail(userId).getOrNull()
+                    ?: AccountApi.accountInfo().getOrNull()?.let { account ->
+                        UserDetailResponse(profile = account.profile)
+                    }
+                refreshed?.let { _userDetail.value = it }
+            }
+            _isAvatarUploading.value = false
+            onResult(success)
         }
     }
 }

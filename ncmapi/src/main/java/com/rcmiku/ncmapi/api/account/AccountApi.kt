@@ -1,10 +1,14 @@
 package com.rcmiku.ncmapi.api.account
 
 import com.rcmiku.ncmapi.api.apiGet
+import com.rcmiku.ncmapi.api.apiPostFileOkHttp
+import com.rcmiku.ncmapi.api.apiPostFile
 import com.rcmiku.ncmapi.api.apiPost
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.*
 import com.rcmiku.ncmapi.utils.CookieProvider
+import io.ktor.http.ContentType
+import java.io.File
 
 object AccountApi {
     private const val USER_PLAYLIST_CACHE_TTL_MS = 60_000L
@@ -19,6 +23,20 @@ object AccountApi {
         val result = apiGet<UserInfoBatch>("/user/account")
         return result.map { fixAccountProfile(it) }
     }
+
+    suspend fun uploadAvatar(file: File, imgSize: Int = 800): Result<ApiCodeResponse> =
+        apiPostFileOkHttp(
+            "/avatar/upload",
+            "imgFile",
+            file,
+            contentType = ContentType.Image.JPEG,
+            params = mapOf(
+                "imgSize" to imgSize,
+                "imgX" to 0,
+                "imgY" to 0
+            ),
+            includeCommonParams = true
+        )
 
     private fun fixAccountProfile(batch: UserInfoBatch): UserInfoBatch {
         return batch.copy(account = batch.account.copy(profile = batch.profile))

@@ -175,20 +175,6 @@ fun PlayerTransform(
                             placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
                             boundsTransform = AlbumArtBoundsTransform,
                         ),
-                        modifier = Modifier.sharedBounds(
-                            sharedContentState = rememberSharedContentState(
-                                key = "container"
-                            ),
-                            animatedVisibilityScope = this,
-                            placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
-                            boundsTransform = AlbumArtBoundsTransform,
-                            enter = fadeIn(
-                                tweenEnter(delayMillis = DURATION_EXIT_SHORT)
-                            ),
-                            exit = fadeOut(
-                                tweenExit(durationMillis = DURATION_EXIT_SHORT)
-                            )
-                        ),
                         onBackPressed = { show = FULL_PLAYER },
                     )
                 }

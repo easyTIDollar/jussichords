@@ -6,6 +6,7 @@ enum class CoverImageSize(val pixels: Int) {
     LIST(128),
     GRID(256),
     DETAIL(512),
+    LARGE(1000),
     HERO(768),
 }
 

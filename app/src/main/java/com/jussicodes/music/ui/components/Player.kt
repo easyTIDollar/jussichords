@@ -85,9 +85,12 @@ import com.jussicodes.music.ui.icons.SkipNextFill
 import com.jussicodes.music.ui.icons.SkipPreviousFill
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.ArtistNav
+import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.FavoriteSongAction
 import com.jussicodes.music.utils.getItemShape
 import com.jussicodes.music.utils.makeTimeString
+import com.jussicodes.music.utils.toCoverImageUrl
+import com.rcmiku.ncmapi.api.album.AlbumApi
 import com.rcmiku.ncmapi.model.Artist
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.SongAlbum
@@ -132,6 +135,7 @@ fun Player(
     var currentSong by remember { mutableStateOf<Song?>(null) }
     var openBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openPlayerBottomSheet by rememberSaveable { mutableStateOf(false) }
+    var coverPreviewUrl by remember { mutableStateOf<Any?>(null) }
     var coverOffsetX by remember { mutableFloatStateOf(0f) }
     var coverOffsetY by remember { mutableFloatStateOf(0f) }
     var coverAnimationJob by remember { mutableStateOf<Job?>(null) }
@@ -347,7 +351,27 @@ fun Player(
                         }
                     }
                     .pointerInput(Unit) {
-                        detectTapGestures(onTap = { onClick() })
+                        detectTapGestures(
+                            onTap = { onClick() },
+                            onLongPress = {
+                                scope.launch {
+                                    val albumCoverUrl = currentSong?.al
+                                        ?.takeIf { it.id > 0 }
+                                        ?.let { album ->
+                                            AlbumApi.albumDetail(album.id)
+                                                .getOrNull()
+                                                ?.album
+                                                ?.picUrl
+                                        }
+                                        ?.takeIf { it.isNotBlank() }
+                                    coverPreviewUrl = (
+                                        albumCoverUrl
+                                            ?: currentSong?.al?.picUrl
+                                            ?: mediaMetadata.artworkUri
+                                    ).toCoverImageUrl(CoverImageSize.LARGE)
+                                }
+                            }
+                        )
                     }
             ) {
                 AsyncImage(
@@ -604,6 +628,13 @@ fun Player(
             onDismiss = { openPlayerBottomSheet = false },
             openBottomSheet = openPlayerBottomSheet
         )
+
+        coverPreviewUrl?.let { url ->
+            LargeImageDialog(
+                imageUrl = url,
+                onDismiss = { coverPreviewUrl = null }
+            )
+        }
         }
     }
 }

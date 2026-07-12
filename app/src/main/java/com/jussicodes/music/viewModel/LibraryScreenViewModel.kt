@@ -11,6 +11,8 @@ import com.jussicodes.music.constants.libraryUserPlaylistsCacheKey
 import com.jussicodes.music.constants.pinnedAlbumIdsKey
 import com.jussicodes.music.constants.pinnedAlbumsCacheKey
 import com.jussicodes.music.constants.userIdKye
+import com.jussicodes.music.data.favoriteSongIdsDatastore
+import com.jussicodes.music.utils.FavoriteSongSyncBus
 import com.jussicodes.music.utils.PlaylistCollectionSyncBus
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.account.AccountApi
@@ -23,6 +25,7 @@ import com.rcmiku.ncmapi.model.UserInfoBatch
 import com.rcmiku.ncmapi.utils.json
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +39,10 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import javax.inject.Inject
 
+private const val USER_INFO_REFRESH_INTERVAL_MS = 5 * 60 * 1000L
+private const val LIKED_PLAYLIST_SPECIAL_TYPE = 5
+private const val LIKED_PLAYLIST_NAME_FRAGMENT = "\u559c\u6b22"
+
 @HiltViewModel
 class LibraryScreenViewModel @Inject constructor(
     @ApplicationContext private val context: Context
@@ -48,12 +55,18 @@ class LibraryScreenViewModel @Inject constructor(
 
     private val _userPlaylists = MutableStateFlow<List<Playlist>>(emptyList())
     val userPlaylists: StateFlow<List<Playlist>> = _userPlaylists.asStateFlow()
+    private var baseUserPlaylists: List<Playlist> = emptyList()
 
     private val _pinnedAlbums = MutableStateFlow<List<Album>>(emptyList())
     val pinnedAlbums: StateFlow<List<Album>> = _pinnedAlbums.asStateFlow()
     private val _pinnedAlbumsCacheLoaded = MutableStateFlow(false)
     val pinnedAlbumsCacheLoaded: StateFlow<Boolean> = _pinnedAlbumsCacheLoaded.asStateFlow()
     private var loadedPinnedAlbumIds: List<Long> = emptyList()
+    private var lastUserInfoRefreshAt = 0L
+    private var lastUserInfoCookieHash = 0
+    private var favoriteSongCount = 0
+    private val _isAvatarUploading = MutableStateFlow(false)
+    val isAvatarUploading: StateFlow<Boolean> = _isAvatarUploading.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -62,9 +75,21 @@ class LibraryScreenViewModel @Inject constructor(
         observeUserIdChanges()
         observePlaylistRefreshToken()
         observePlaylistCollectionEvents()
+        observeFavoriteSongEvents()
+        observeFavoriteSongIds()
     }
 
-    fun fetchUserInfo() {
+    fun fetchUserInfo(cookie: String? = null, force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        val cookieHash = cookie?.hashCode() ?: 0
+        val shouldUseCurrentInfo = !force &&
+            _userInfo.value != null &&
+            lastUserInfoCookieHash == cookieHash &&
+            now - lastUserInfoRefreshAt < USER_INFO_REFRESH_INTERVAL_MS
+        if (shouldUseCurrentInfo) return
+
+        lastUserInfoRefreshAt = now
+        lastUserInfoCookieHash = cookieHash
         viewModelScope.launch {
             AccountApi.accountInfo().getOrNull()?.let {
                 _userInfo.value = it
@@ -95,25 +120,61 @@ class LibraryScreenViewModel @Inject constructor(
                 ?.playlist
                 ?.let(PlaylistCollectionSyncBus::mergeInto)
             if (playlists != null) {
-                _userPlaylists.value = playlists
+                baseUserPlaylists = playlists
+                _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
                 context.dataStore.edit { prefs ->
-                    prefs[libraryUserPlaylistsCacheKey] = json.encodeToString(playlists)
+                    prefs[libraryUserPlaylistsCacheKey] = json.encodeToString(baseUserPlaylists)
                 }
             }
         }
     }
 
+    fun uploadAvatar(file: File, onResult: (Boolean, String?) -> Unit = { _, _ -> }) {
+        if (_isAvatarUploading.value) return
+        viewModelScope.launch {
+            _isAvatarUploading.value = true
+            val result = AccountApi.uploadAvatar(file)
+            val success = result.isSuccess
+            if (success) {
+                fetchUserInfo(force = true)
+            }
+            _isAvatarUploading.value = false
+            onResult(success, result.exceptionOrNull()?.message)
+        }
+    }
+
     private fun applyPlaylistCollectionEvent(event: PlaylistCollectionSyncBus.Event) {
-        val current = _userPlaylists.value
+        val current = baseUserPlaylists
         val updated = if (event.collected) {
             if (current.any { it.id == event.playlist.id }) current else current + event.playlist
         } else {
             current.filterNot { it.id == event.playlist.id }
         }
-        _userPlaylists.value = updated
+        baseUserPlaylists = updated
+        _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
         viewModelScope.launch {
             context.dataStore.edit { prefs ->
-                prefs[libraryUserPlaylistsCacheKey] = json.encodeToString(updated)
+                prefs[libraryUserPlaylistsCacheKey] = json.encodeToString(baseUserPlaylists)
+            }
+        }
+    }
+
+    private fun applyFavoriteSongEvent(event: FavoriteSongSyncBus.Event) {
+        _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+    }
+
+    private fun isFavoritePlaylist(playlist: Playlist, userId: Long): Boolean {
+        return playlist.specialType == LIKED_PLAYLIST_SPECIAL_TYPE ||
+            (playlist.creator?.userId == userId && playlist.name.contains(LIKED_PLAYLIST_NAME_FRAGMENT))
+    }
+
+    private fun mergeFavoritePlaylistState(playlists: List<Playlist>): List<Playlist> {
+        val userId = _userInfo.value?.account?.profile?.userId ?: 0L
+        return playlists.map { playlist ->
+            if (isFavoritePlaylist(playlist, userId)) {
+                FavoriteSongSyncBus.mergeIntoFavoritePlaylist(playlist, favoriteSongCount)
+            } else {
+                playlist
             }
         }
     }
@@ -121,7 +182,10 @@ class LibraryScreenViewModel @Inject constructor(
     fun clear() {
         _userInfo.value = null
         _favoriteSong.value = null
+        baseUserPlaylists = emptyList()
         _userPlaylists.value = emptyList()
+        lastUserInfoRefreshAt = 0L
+        lastUserInfoCookieHash = 0
         viewModelScope.launch {
             context.dataStore.edit { prefs ->
                 prefs[userIdKye] = 0L
@@ -157,7 +221,8 @@ class LibraryScreenViewModel @Inject constructor(
         val prefs = context.dataStore.data.first()
         _userInfo.value = decodeCache(prefs[libraryUserInfoCacheKey])
         _favoriteSong.value = decodeCache(prefs[libraryFavoriteSongCacheKey])
-        _userPlaylists.value = decodeCache<List<Playlist>>(prefs[libraryUserPlaylistsCacheKey]).orEmpty()
+        baseUserPlaylists = decodeCache<List<Playlist>>(prefs[libraryUserPlaylistsCacheKey]).orEmpty()
+        _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
         val cachedPinnedAlbums = decodeCache<List<Album>>(prefs[pinnedAlbumsCacheKey]).orEmpty()
         _pinnedAlbums.value = cachedPinnedAlbums
         loadedPinnedAlbumIds = when {
@@ -185,6 +250,7 @@ class LibraryScreenViewModel @Inject constructor(
                 .collectLatest { userId ->
                     if (userId == null) {
                         _favoriteSong.value = null
+                        baseUserPlaylists = emptyList()
                         _userPlaylists.value = emptyList()
                     } else {
                         fetchFavoriteSong(userId)
@@ -211,6 +277,26 @@ class LibraryScreenViewModel @Inject constructor(
             PlaylistCollectionSyncBus.events.collectLatest { event ->
                 applyPlaylistCollectionEvent(event)
             }
+        }
+    }
+
+    private fun observeFavoriteSongEvents() {
+        viewModelScope.launch {
+            FavoriteSongSyncBus.events.collectLatest { event ->
+                applyFavoriteSongEvent(event)
+            }
+        }
+    }
+
+    private fun observeFavoriteSongIds() {
+        viewModelScope.launch {
+            context.favoriteSongIdsDatastore.data
+                .map { it.songIdsList.size }
+                .distinctUntilChanged()
+                .collectLatest { count ->
+                    favoriteSongCount = count
+                    _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+                }
         }
     }
 }

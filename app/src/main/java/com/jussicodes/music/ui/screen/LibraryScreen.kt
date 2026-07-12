@@ -1,5 +1,16 @@
 ﻿package com.jussicodes.music.ui.screen
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,6 +30,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalIconButton
@@ -32,13 +46,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,6 +68,7 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.pinnedAlbumIdsKey
+import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.TopBar
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.Login
@@ -66,9 +86,11 @@ import com.jussicodes.music.viewModel.LibraryScreenViewModel
 import com.rcmiku.ncmapi.model.Album
 import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.UserInfoBatch
+import java.io.File
 import kotlinx.coroutines.flow.map
 
 private const val LIKED_PLAYLIST_NAME_FRAGMENT = "\u559c\u6b22"
+private const val AVATAR_UPLOAD_SIZE = 800
 
 @Composable
 fun LibraryScreen(
@@ -81,7 +103,19 @@ fun LibraryScreen(
     val userPlaylists by libraryScreenViewModel.userPlaylists.collectAsState()
     val pinnedAlbums by libraryScreenViewModel.pinnedAlbums.collectAsState()
     val pinnedAlbumsCacheLoaded by libraryScreenViewModel.pinnedAlbumsCacheLoaded.collectAsState()
+    val isAvatarUploading by libraryScreenViewModel.isAvatarUploading.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
+    var showAvatarDialog by remember { mutableStateOf(false) }
+    var selectedAvatarUri by remember { mutableStateOf<Uri?>(null) }
+    var avatarScale by remember { mutableStateOf(1f) }
+    var avatarOffset by remember { mutableStateOf(Offset.Zero) }
+    val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            avatarScale = 1f
+            avatarOffset = Offset.Zero
+            selectedAvatarUri = it
+        }
+    }
     val pinnedAlbumIdsText by remember {
         context.dataStore.data.map { it[pinnedAlbumIdsKey] }
     }.collectAsState(initial = null)
@@ -94,7 +128,7 @@ fun LibraryScreen(
             return@LaunchedEffect
         }
         if (ncmCookie?.isNotEmpty() == true) {
-            libraryScreenViewModel.fetchUserInfo()
+            libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie)
         } else {
             libraryScreenViewModel.clear()
         }
@@ -178,7 +212,11 @@ fun LibraryScreen(
                         LibraryUserCard(
                             navController = navController,
                             userInfo = it,
-                            onRoamClick = { navController.navigate(Screen.Roam.route) }
+                            onRoamClick = { navController.navigate(Screen.Roam.route) },
+                            onAvatarClick = {
+                                libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie, force = true)
+                                showAvatarDialog = true
+                            }
                         )
                     }
                 }
@@ -246,13 +284,96 @@ fun LibraryScreen(
             }
         }
     }
+
+    val avatarUrl = userInfoBatchState?.account?.profile?.avatarUrl
+    if (showAvatarDialog && !avatarUrl.isNullOrBlank()) {
+        LargeImageDialog(
+            imageUrl = avatarUrl.toCoverImageUrl(CoverImageSize.LARGE),
+            onDismiss = { showAvatarDialog = false }
+        ) {
+            TextButton(
+                onClick = { avatarPicker.launch("image/*") },
+                enabled = !isAvatarUploading
+            ) {
+                Text(if (isAvatarUploading) "上传中" else "编辑")
+            }
+        }
+    }
+
+    selectedAvatarUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { selectedAvatarUri = null },
+            title = { Text("编辑头像") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .size(260.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .pointerInput(uri) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    avatarScale = (avatarScale * zoom).coerceIn(1f, 6f)
+                                    avatarOffset += pan
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = uri,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = avatarOffset.x
+                                    translationY = avatarOffset.y
+                                    scaleX = avatarScale
+                                    scaleY = avatarScale
+                                }
+                        )
+                    }
+                    Text(
+                        "双指缩放，拖动调整区域 · ${AVATAR_UPLOAD_SIZE} x ${AVATAR_UPLOAD_SIZE}",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        uri.copyToAvatarCache(context, avatarScale, avatarOffset)?.let { file ->
+                            selectedAvatarUri = null
+                            libraryScreenViewModel.uploadAvatar(file) { success, message ->
+                                Toast.makeText(
+                                    context,
+                                    if (success) "头像上传成功" else "头像上传失败：${message.orEmpty()}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        } ?: Toast.makeText(context, "头像处理失败", Toast.LENGTH_SHORT).show()
+                    },
+                    enabled = !isAvatarUploading
+                ) {
+                    Text("上传")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedAvatarUri = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
 }
 
 @Composable
 private fun LibraryUserCard(
     navController: NavHostController,
     userInfo: UserInfoBatch,
-    onRoamClick: () -> Unit
+    onRoamClick: () -> Unit,
+    onAvatarClick: () -> Unit
 ) {
     val profile = userInfo.account.profile
     val secondaryText = profile.signature.takeIf { it.isNotBlank() }
@@ -323,7 +444,13 @@ private fun LibraryUserCard(
             }
         }
 
-        Box(modifier = Modifier.size(76.dp), contentAlignment = Alignment.BottomEnd) {
+        Box(
+            modifier = Modifier
+                .size(76.dp)
+                .clip(CircleShape)
+                .clickable(enabled = profile.avatarUrl.isNotBlank(), onClick = onAvatarClick),
+            contentAlignment = Alignment.BottomEnd
+        ) {
             AsyncImage(
                 model = profile.avatarUrl,
                 contentDescription = null,
@@ -344,6 +471,43 @@ private fun LibraryUserCard(
             }
         }
     }
+}
+
+private fun Uri.copyToAvatarCache(context: Context, scale: Float, offset: Offset): File? {
+    val outputSize = AVATAR_UPLOAD_SIZE
+    val previewSize = 260f
+    val file = File(context.cacheDir, "avatar_${System.currentTimeMillis()}.jpg")
+    return runCatching {
+        context.contentResolver.openInputStream(this)?.use { input ->
+            val bitmap = BitmapFactory.decodeStream(input) ?: return null
+            val outputBitmap = Bitmap.createBitmap(outputSize, outputSize, Bitmap.Config.RGB_565)
+            val canvas = Canvas(outputBitmap)
+            canvas.drawColor(Color.WHITE)
+            val baseScale = maxOf(
+                outputSize.toFloat() / bitmap.width.toFloat(),
+                outputSize.toFloat() / bitmap.height.toFloat()
+            )
+            val finalScale = baseScale * scale
+            val drawWidth = bitmap.width * finalScale
+            val drawHeight = bitmap.height * finalScale
+            val previewToOutputScale = outputSize / previewSize
+            val left = (outputSize - drawWidth) / 2f + offset.x * previewToOutputScale
+            val top = (outputSize - drawHeight) / 2f + offset.y * previewToOutputScale
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            canvas.drawBitmap(
+                bitmap,
+                null,
+                RectF(left, top, left + drawWidth, top + drawHeight),
+                paint
+            )
+            file.outputStream().use { stream ->
+                outputBitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream)
+            }
+            outputBitmap.recycle()
+            bitmap.recycle()
+        } ?: return null
+        file
+    }.getOrNull()
 }
 
 @Composable

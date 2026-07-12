@@ -28,11 +28,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -62,6 +62,7 @@ import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.autoSkipNextOnErrorKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.dynamicThemeColorKey
+import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.themeSeedColorKey
 import com.jussicodes.music.constants.unblockSourceKey
@@ -71,6 +72,7 @@ import com.jussicodes.music.ui.components.Dialog
 import com.jussicodes.music.ui.components.SongQualityDialog
 import com.jussicodes.music.ui.components.ThemeSeedDialog
 import com.jussicodes.music.ui.components.UnblockSourceDialog
+import com.jussicodes.music.ui.components.UpdateDialog
 import com.jussicodes.music.ui.components.UrlEditDialog
 import com.jussicodes.music.ui.components.unblockSourceOptions
 import com.jussicodes.music.ui.icons.Dns
@@ -90,8 +92,6 @@ import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.api.player.SongLevel
 import kotlinx.coroutines.launch
-import kotlin.math.ln
-import kotlin.math.pow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -111,12 +111,16 @@ fun SettingsScreen(navController: NavHostController) {
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://119.23.64.141:3000")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
+    var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     var showQualityDialog by remember { mutableStateOf(false) }
     var showThemeSeedDialog by remember { mutableStateOf(false) }
     var showApiUrlDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
     var updating by rememberSaveable { mutableStateOf(false) }
     var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+    var downloadingUpdate by remember { mutableStateOf(false) }
+    var updateDownloadProgress by remember { mutableFloatStateOf(0f) }
+    var updateDownloadText by remember { mutableStateOf<String?>(null) }
     var logout by rememberSaveable { mutableStateOf(false) }
     var overlayPermissionGranted by remember {
         mutableStateOf(DesktopLyricManager.canDrawOverlays(context))
@@ -445,58 +449,62 @@ fun SettingsScreen(navController: NavHostController) {
     }
 
     pendingUpdateInfo?.let { updateInfo ->
-        AlertDialog(
-            onDismissRequest = { pendingUpdateInfo = null },
-            title = { Text(text = "发现新版本 ${updateInfo.versionName}") },
-            text = {
-                Text(
-                    text = buildString {
-                        appendLine(updateInfo.releaseName)
-                        appendLine("安装包大小: ${formatFileSize(updateInfo.apkSize)}")
-                        val notes = updateInfo.body.trim()
-                        if (notes.isNotEmpty()) {
-                            appendLine()
-                            append(notes)
-                        }
-                    }.trim()
-                )
+        UpdateDialog(
+            updateInfo = updateInfo,
+            isDownloading = downloadingUpdate,
+            downloadProgress = if (downloadingUpdate) updateDownloadProgress else null,
+            progressText = updateDownloadText,
+            onDismiss = {
+                pendingUpdateInfo = null
+                downloadingUpdate = false
+                updateDownloadProgress = 0f
+                updateDownloadText = null
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pendingUpdateInfo = null
-                        runCatching {
-                            uriHandler.openUri(updateInfo.downloadUrl)
-                        }.onFailure {
-                            Toast.makeText(
-                                context,
-                                it.message ?: "无法打开浏览器",
-                                Toast.LENGTH_LONG
-                            ).show()
+            onIgnoreVersion = {
+                ignoredUpdateVersion = updateInfo.versionName
+                pendingUpdateInfo = null
+                downloadingUpdate = false
+                updateDownloadProgress = 0f
+                updateDownloadText = null
+            },
+            onDownload = {
+                if (downloadingUpdate) return@UpdateDialog
+                downloadingUpdate = true
+                updateDownloadProgress = 0f
+                updateDownloadText = "准备下载…"
+                coroutineScope.launch {
+                    val apkResult = runCatching {
+                        AppUpdateManager.downloadApk(
+                            context = context.applicationContext,
+                            updateInfo = updateInfo
+                        ) { progress ->
+                            updateDownloadProgress =
+                                if (progress.totalBytes > 0) progress.progress else 0f
+                            updateDownloadText =
+                                "${com.jussicodes.music.ui.components.formatFileSize(progress.downloadedBytes)} / ${com.jussicodes.music.ui.components.formatFileSize(progress.totalBytes)}"
                         }
                     }
-                ) {
-                    Text("浏览器下载 APK")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingUpdateInfo = null }) {
-                    Text("稍后再说")
+                    downloadingUpdate = false
+                    apkResult.onSuccess { apkFile ->
+                        pendingUpdateInfo = null
+                        AppUpdateManager.installApk(context.applicationContext, apkFile)
+                            .onFailure {
+                                Toast.makeText(
+                                    context,
+                                    it.message ?: "无法打开安装器",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                    }.onFailure {
+                        Toast.makeText(
+                            context,
+                            it.message ?: "下载更新失败",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
             }
         )
-    }
-}
-
-private fun formatFileSize(size: Long): String {
-    if (size <= 0) return "0 B"
-    val units = listOf("B", "KB", "MB", "GB")
-    val digitGroup = (ln(size.toDouble()) / ln(1024.0)).toInt().coerceIn(0, units.lastIndex)
-    val scaled = size / 1024.0.pow(digitGroup.toDouble())
-    return if (digitGroup == 0) {
-        "${scaled.toInt()} ${units[digitGroup]}"
-    } else {
-        String.format("%.1f %s", scaled, units[digitGroup])
     }
 }
 
