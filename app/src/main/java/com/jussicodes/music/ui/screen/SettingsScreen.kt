@@ -272,7 +272,7 @@ fun SettingsScreen(navController: NavHostController) {
             title = if (updating) "正在更新" else "检查版本更新",
             subtitle = when {
                 updating -> "正在检查 GitHub Release"
-                else -> "点按检查更新，在浏览器下载最新 APK"
+                else -> "点按检查更新，发现新版本后可直接下载并安装 APK"
             },
             imageVector = Github,
             onClick = {
