@@ -86,11 +86,15 @@ import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.theme.AppThemeSeed
 import com.jussicodes.music.utils.AppUpdateManager
+import com.jussicodes.music.utils.UpdateDownloadPhase
+import com.jussicodes.music.utils.UpdateDownloadService
+import com.jussicodes.music.utils.UpdateDownloadStateStore
 import com.jussicodes.music.utils.UpdateInfo
 import com.jussicodes.music.utils.getItemShape
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.api.player.SongLevel
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -138,11 +142,51 @@ fun SettingsScreen(navController: NavHostController) {
         }
     }
 
-    val appearanceTitle = "外观设置"
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        UpdateDownloadStateStore.state.collectLatest { snapshot ->
+            val pendingVersion = pendingUpdateInfo?.versionName
+            val snapshotVersion = snapshot.updateInfo?.versionName
+            if (pendingVersion != null && snapshotVersion != null && pendingVersion != snapshotVersion) {
+                return@collectLatest
+            }
+            when (snapshot.phase) {
+                UpdateDownloadPhase.IDLE -> Unit
+                UpdateDownloadPhase.DOWNLOADING -> {
+                    downloadingUpdate = true
+                    updateDownloadProgress =
+                        if (snapshot.totalBytes > 0L) {
+                            snapshot.downloadedBytes.toFloat() / snapshot.totalBytes
+                        } else {
+                            0f
+                        }
+                    updateDownloadText =
+                        "${com.jussicodes.music.ui.components.formatFileSize(snapshot.downloadedBytes)} / ${com.jussicodes.music.ui.components.formatFileSize(snapshot.totalBytes)}"
+                }
+                UpdateDownloadPhase.COMPLETED -> {
+                    downloadingUpdate = false
+                    updateDownloadProgress = 1f
+                    updateDownloadText = "????????????"
+                    pendingUpdateInfo = null
+                }
+                UpdateDownloadPhase.FAILED -> {
+                    downloadingUpdate = false
+                    updateDownloadProgress = 0f
+                    updateDownloadText = snapshot.message ?: "????"
+                    Toast.makeText(
+                        context,
+                        snapshot.message ?: "????",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    val appearanceTitle = "????"
     val appearanceSubtitle = when {
-        useDynamicThemeColor && dynamicColorAvailable -> "壁纸动态取色"
-        useDynamicThemeColor -> "壁纸动态取色 (当前不可用)"
-        else -> "主题色: ${themeSeed.label}"
+        useDynamicThemeColor && dynamicColorAvailable -> "??????"
+        useDynamicThemeColor -> "?????? (?????)"
+        else -> "???: ${themeSeed.label}"
     }
 
     val baseSettingItems = listOf(
@@ -164,11 +208,11 @@ fun SettingsScreen(navController: NavHostController) {
             }
         ),
         SettingItemData(
-            title = "桌面歌词",
+            title = "????",
             subtitle = when {
-                desktopLyricEnabled && overlayPermissionGranted -> "已开启悬浮歌词"
-                !overlayPermissionGranted -> "需要悬浮窗权限"
-                else -> "已关闭"
+                desktopLyricEnabled && overlayPermissionGranted -> "???????"
+                !overlayPermissionGranted -> "???????"
+                else -> "???"
             },
             imageVector = GraphicEq,
             trailingContent = {
@@ -185,7 +229,7 @@ fun SettingsScreen(navController: NavHostController) {
                             if (it && !result) {
                                 Toast.makeText(
                                     context,
-                                    "请先授予悬浮窗权限",
+                                    "?????????",
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
@@ -206,7 +250,7 @@ fun SettingsScreen(navController: NavHostController) {
                     if (target && !result) {
                         Toast.makeText(
                             context,
-                            "请先授予悬浮窗权限",
+                            "?????????",
                             Toast.LENGTH_SHORT
                         ).show()
                     }
@@ -261,7 +305,7 @@ fun SettingsScreen(navController: NavHostController) {
             onClick = { showApiUrlDialog = true }
         ),
         SettingItemData(
-            title = "解灰音源",
+            title = "????",
             subtitle = unblockSourceOptions.firstOrNull { it.value == unblockSource }?.label
                 ?: "AUTO",
             imageVector = Dns,
@@ -269,10 +313,10 @@ fun SettingsScreen(navController: NavHostController) {
             onLongClick = { showUnblockSourceDialog = true }
         ),
         SettingItemData(
-            title = if (updating) "正在更新" else "检查版本更新",
+            title = if (updating) "????" else "??????",
             subtitle = when {
-                updating -> "正在检查 GitHub Release"
-                else -> "点按检查更新，发现新版本后可直接下载并安装 APK"
+                updating -> "???? GitHub Release"
+                else -> "??????,?????????????? APK"
             },
             imageVector = Github,
             onClick = {
@@ -283,7 +327,7 @@ fun SettingsScreen(navController: NavHostController) {
                         val updateInfo = updateResult.getOrElse {
                             Toast.makeText(
                                 context,
-                                it.message ?: "检查更新失败",
+                                it.message ?: "??????",
                                 Toast.LENGTH_LONG
                             ).show()
                             updating = false
@@ -292,7 +336,7 @@ fun SettingsScreen(navController: NavHostController) {
 
                         updating = false
                         if (updateInfo == null) {
-                            Toast.makeText(context, "当前已是最新版本", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "????????", Toast.LENGTH_SHORT).show()
                         } else {
                             pendingUpdateInfo = updateInfo
                         }
@@ -305,17 +349,17 @@ fun SettingsScreen(navController: NavHostController) {
     val settingsItems = listOf(
         SettingItemData(
             title = stringResource(R.string.app_name),
-            subtitle = "简洁的第三方网易云音乐客户端",
+            subtitle = "??????????????",
             imageVector = PlayPause
         ),
         SettingItemData(
-            title = "版本号",
+            title = "???",
             subtitle = BuildConfig.VERSION_NAME,
             imageVector = Github
         ),
         SettingItemData(
             title = "jussicodes",
-            subtitle = "项目作者",
+            subtitle = "????",
             imageVector = UserRound,
             onClick = { uriHandler.openUri("https://github.com/easyTIDollar") }
         )
@@ -471,41 +515,12 @@ fun SettingsScreen(navController: NavHostController) {
                 if (downloadingUpdate) return@UpdateDialog
                 downloadingUpdate = true
                 updateDownloadProgress = 0f
-                updateDownloadText = "准备下载…"
-                coroutineScope.launch {
-                    val apkResult = runCatching {
-                        AppUpdateManager.downloadApk(
-                            context = context.applicationContext,
-                            updateInfo = updateInfo
-                        ) { progress ->
-                            updateDownloadProgress =
-                                if (progress.totalBytes > 0) progress.progress else 0f
-                            updateDownloadText =
-                                "${com.jussicodes.music.ui.components.formatFileSize(progress.downloadedBytes)} / ${com.jussicodes.music.ui.components.formatFileSize(progress.totalBytes)}"
-                        }
-                    }
-                    downloadingUpdate = false
-                    apkResult.onSuccess { apkFile ->
-                        pendingUpdateInfo = null
-                        AppUpdateManager.installApk(context.applicationContext, apkFile)
-                            .onFailure {
-                                Toast.makeText(
-                                    context,
-                                    it.message ?: "无法打开安装器",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
-                    }.onFailure {
-                        Toast.makeText(
-                            context,
-                            it.message ?: "下载更新失败",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
+                updateDownloadText = "?????????"
+                UpdateDownloadService.start(context.applicationContext, updateInfo)
             }
         )
     }
+
 }
 
 @Composable

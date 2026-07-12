@@ -6,33 +6,38 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
-import androidx.datastore.preferences.core.edit
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.extensions.init
 import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.playback.PlayerState
 import com.jussicodes.music.playback.state
 import com.jussicodes.music.ui.components.UpdateDialog
+import com.jussicodes.music.ui.components.formatFileSize
 import com.jussicodes.music.ui.screen.MainScreen
 import com.jussicodes.music.ui.theme.JetMeloTheme
 import com.jussicodes.music.utils.AppUpdateManager
 import com.jussicodes.music.utils.SongListUtil
+import com.jussicodes.music.utils.UpdateDownloadPhase
+import com.jussicodes.music.utils.UpdateDownloadService
+import com.jussicodes.music.utils.UpdateDownloadStateStore
 import com.jussicodes.music.utils.UpdateInfo
 import com.jussicodes.music.utils.dataStore
-import kotlinx.coroutines.Dispatchers
 import com.rcmiku.ncmapi.utils.FileProvider
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.android.awaitFrame
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -72,6 +77,47 @@ class MainActivity : ComponentActivity() {
                     pendingUpdateInfo = updateInfo
                 }
             }
+
+            LaunchedEffect(Unit) {
+                UpdateDownloadStateStore.state.collectLatest { snapshot ->
+                    val pendingVersion = pendingUpdateInfo?.versionName
+                    val snapshotVersion = snapshot.updateInfo?.versionName
+                    if (pendingVersion != null && snapshotVersion != null && pendingVersion != snapshotVersion) {
+                        return@collectLatest
+                    }
+                    when (snapshot.phase) {
+                        UpdateDownloadPhase.IDLE -> Unit
+                        UpdateDownloadPhase.DOWNLOADING -> {
+                            isDownloadingUpdate = true
+                            downloadProgress =
+                                if (snapshot.totalBytes > 0L) {
+                                    snapshot.downloadedBytes.toFloat() / snapshot.totalBytes
+                                } else {
+                                    0f
+                                }
+                            downloadProgressText =
+                                "${formatFileSize(snapshot.downloadedBytes)} / ${formatFileSize(snapshot.totalBytes)}"
+                        }
+                        UpdateDownloadPhase.COMPLETED -> {
+                            isDownloadingUpdate = false
+                            downloadProgress = 1f
+                            downloadProgressText = "????,???????"
+                            pendingUpdateInfo = null
+                        }
+                        UpdateDownloadPhase.FAILED -> {
+                            isDownloadingUpdate = false
+                            downloadProgress = 0f
+                            downloadProgressText = snapshot.message ?: "????"
+                            Toast.makeText(
+                                applicationContext,
+                                snapshot.message ?: "????",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
+            }
+
             playerController.controller?.run {
                 if (playerState?.player !== this) {
                     playerState?.dispose()
@@ -107,40 +153,8 @@ class MainActivity : ComponentActivity() {
                                 if (isDownloadingUpdate) return@UpdateDialog
                                 isDownloadingUpdate = true
                                 downloadProgress = 0f
-                                downloadProgressText = "准备下载…"
-                                lifecycleScope.launch {
-                                    val apkResult = runCatching {
-                                        AppUpdateManager.downloadApk(
-                                            context = applicationContext,
-                                            updateInfo = updateInfo
-                                        ) { progress ->
-                                            runOnUiThread {
-                                                downloadProgress =
-                                                    if (progress.totalBytes > 0) progress.progress else 0f
-                                                downloadProgressText =
-                                                    "${com.jussicodes.music.ui.components.formatFileSize(progress.downloadedBytes)} / ${com.jussicodes.music.ui.components.formatFileSize(progress.totalBytes)}"
-                                            }
-                                        }
-                                    }
-                                    isDownloadingUpdate = false
-                                    apkResult.onSuccess { apkFile ->
-                                        pendingUpdateInfo = null
-                                        AppUpdateManager.installApk(applicationContext, apkFile)
-                                            .onFailure {
-                                                Toast.makeText(
-                                                    applicationContext,
-                                                    it.message ?: "无法打开安装器",
-                                                    Toast.LENGTH_LONG
-                                                ).show()
-                                            }
-                                    }.onFailure {
-                                        Toast.makeText(
-                                            applicationContext,
-                                            it.message ?: "下载更新失败",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    }
-                                }
+                                downloadProgressText = "?????????"
+                                UpdateDownloadService.start(applicationContext, updateInfo)
                             }
                         )
                     }
@@ -154,7 +168,6 @@ class MainActivity : ComponentActivity() {
         playerState = null
         super.onDestroy()
     }
-
 }
 
 val LocalPlayerController = staticCompositionLocalOf<PlayerController> {

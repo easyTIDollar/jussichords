@@ -32,9 +32,7 @@ object AppUpdateManager {
     private const val DOWNLOAD_CALL_TIMEOUT_SECONDS = 300L
     private const val DOWNLOAD_MAX_RETRIES = 2
 
-    // Mainland users often cannot reach GitHub reliably. Try the official URL first,
-    // then fall back to a mirror-compatible proxy URL.
-    private val githubProxyPrefixes = listOf(
+    private val downloadProxyPrefixes = listOf(
         "",
         "https://gh-proxy.com/"
     )
@@ -60,7 +58,7 @@ object AppUpdateManager {
         runCatching {
             val release = fetchLatestRelease()
             val asset = release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
-                ?: error("?? Release ????? APK ???")
+                ?: error("Latest release does not contain an APK asset")
             val latestVersion = release.tagName.trim().trimStart('v', 'V')
             if (!isNewerVersion(latestVersion, BuildConfig.VERSION_NAME)) {
                 return@runCatching null
@@ -95,7 +93,8 @@ object AppUpdateManager {
 
         val targetFile = File(updateDir, updateInfo.apkName)
         val tempFile = File(updateDir, "${updateInfo.apkName}.part")
-        if (targetFile.exists() && targetFile.length() == updateInfo.apkSize) {
+
+        if (targetFile.exists() && updateInfo.apkSize > 0L && targetFile.length() == updateInfo.apkSize) {
             onProgress(
                 DownloadProgress(
                     downloadedBytes = updateInfo.apkSize,
@@ -107,15 +106,20 @@ object AppUpdateManager {
             return@withContext targetFile
         }
 
-        if (tempFile.exists()) {
+        if (updateInfo.apkSize > 0L && tempFile.exists() && tempFile.length() > updateInfo.apkSize) {
             tempFile.delete()
         }
 
+        val existingBytes = tempFile.takeIf(File::exists)?.length() ?: 0L
         onProgress(
             DownloadProgress(
-                downloadedBytes = 0L,
+                downloadedBytes = existingBytes,
                 totalBytes = updateInfo.apkSize,
-                progress = 0f
+                progress = if (updateInfo.apkSize > 0L) {
+                    existingBytes.toFloat() / updateInfo.apkSize
+                } else {
+                    0f
+                }
             )
         )
 
@@ -124,8 +128,7 @@ object AppUpdateManager {
         val expectedSize = updateInfo.apkSize.takeIf { it > 0 } ?: tempFile.length()
         val actualSize = tempFile.length()
         if (expectedSize > 0 && actualSize != expectedSize) {
-            tempFile.delete()
-            error("?????,?? $expectedSize ??,?? $actualSize ??")
+            error("Downloaded APK is incomplete: expected $expectedSize bytes, got $actualSize bytes")
         }
 
         if (targetFile.exists()) targetFile.delete()
@@ -177,20 +180,6 @@ object AppUpdateManager {
     }
 
     private fun requestText(url: String): String {
-        var lastException: Throwable? = null
-        buildCandidateUrls(url).forEach { candidateUrl ->
-            runCatching {
-                requestTextOnce(candidateUrl)
-            }.onSuccess {
-                return it
-            }.onFailure {
-                lastException = it
-            }
-        }
-        throw lastException ?: error("??????")
-    }
-
-    private fun requestTextOnce(url: String): String {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 20_000
@@ -215,14 +204,14 @@ object AppUpdateManager {
 
         val exception = latestResult.exceptionOrNull()
         if (exception !is HttpStatusException || exception.code != HttpURLConnection.HTTP_NOT_FOUND) {
-            throw exception ?: error("??????")
+            throw exception ?: error("Failed to check update")
         }
 
         val releasesUrl = LATEST_RELEASE_URL.removeSuffix("/latest")
         val releases = json.decodeFromString<List<GitHubRelease>>(requestText(releasesUrl))
             .filterNot { it.draft || it.prerelease }
         return releases.firstOrNull()
-            ?: error("?????? Release,?????? APK ? Release")
+            ?: error("No published release with APK was found")
     }
 
     private fun isNewerVersion(latest: String, current: String): Boolean {
@@ -241,7 +230,7 @@ object AppUpdateManager {
         Regex("\\d+").findAll(version).map { it.value.toIntOrNull() ?: 0 }.toList()
 
     private fun buildCandidateUrls(url: String): List<String> =
-        githubProxyPrefixes.map { prefix ->
+        downloadProxyPrefixes.map { prefix ->
             if (prefix.isEmpty()) url else "$prefix$url"
         }.distinct()
 
@@ -260,9 +249,7 @@ object AppUpdateManager {
                 }.onSuccess {
                     return
                 }.onFailure { throwable ->
-                    tempFile.delete()
                     lastException = throwable
-
                     val hasMoreCandidates = index < candidateUrls.lastIndex
                     val canRetry = attempt < DOWNLOAD_MAX_RETRIES && throwable.isRetryableDownloadError()
                     if (!hasMoreCandidates && !canRetry) {
@@ -272,7 +259,7 @@ object AppUpdateManager {
             }
         }
 
-        throw lastException ?: error("??????")
+        throw lastException ?: error("Failed to download update")
     }
 
     private fun downloadOnce(
@@ -281,23 +268,53 @@ object AppUpdateManager {
         tempFile: File,
         onProgress: (DownloadProgress) -> Unit,
     ) {
-        val request = Request.Builder()
+        var existingBytes = tempFile.takeIf(File::exists)?.length() ?: 0L
+        val requestBuilder = Request.Builder()
             .url(url)
             .header("Accept", "application/octet-stream")
             .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
-            .build()
 
-        downloadClient.newCall(request).execute().use { response ->
+        if (existingBytes > 0L) {
+            requestBuilder.header("Range", "bytes=$existingBytes-")
+        }
+
+        downloadClient.newCall(requestBuilder.build()).execute().use { response ->
+            if (response.code == 416 &&
+                updateInfo.apkSize > 0 &&
+                existingBytes == updateInfo.apkSize
+            ) {
+                onProgress(
+                    DownloadProgress(
+                        downloadedBytes = existingBytes,
+                        totalBytes = updateInfo.apkSize,
+                        progress = 1f,
+                        done = true
+                    )
+                )
+                return
+            }
+
             if (!response.isSuccessful) {
                 throw HttpStatusException(response.code)
             }
 
-            val body = response.body ?: error("??????:?????????")
-            val contentLength = body.contentLength().takeIf { it > 0 } ?: updateInfo.apkSize
+            val append = response.code == HttpURLConnection.HTTP_PARTIAL && existingBytes > 0L
+            if (!append && existingBytes > 0L) {
+                tempFile.delete()
+                existingBytes = 0L
+            }
+
+            val body = response.body ?: error("Response body for APK download is empty")
+            val totalBytes = when {
+                updateInfo.apkSize > 0L -> updateInfo.apkSize
+                append && body.contentLength() > 0L -> existingBytes + body.contentLength()
+                else -> body.contentLength().coerceAtLeast(0L)
+            }
+
             body.byteStream().use { input ->
-                FileOutputStream(tempFile).use { output ->
+                FileOutputStream(tempFile, append).use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    var downloaded = 0L
+                    var downloaded = existingBytes
                     while (true) {
                         val read = input.read(buffer)
                         if (read < 0) break
@@ -306,12 +323,8 @@ object AppUpdateManager {
                         onProgress(
                             DownloadProgress(
                                 downloadedBytes = downloaded,
-                                totalBytes = contentLength,
-                                progress = if (contentLength > 0) {
-                                    downloaded.toFloat() / contentLength
-                                } else {
-                                    0f
-                                }
+                                totalBytes = totalBytes,
+                                progress = if (totalBytes > 0L) downloaded.toFloat() / totalBytes else 0f
                             )
                         )
                     }
@@ -324,9 +337,10 @@ object AppUpdateManager {
     private fun Throwable.isRetryableDownloadError(): Boolean =
         this is SocketTimeoutException || this is IOException
 
-    private class HttpStatusException(val code: Int) : Exception("??????: HTTP $code")
+    private class HttpStatusException(val code: Int) : Exception("HTTP $code")
 }
 
+@Serializable
 data class UpdateInfo(
     val versionName: String,
     val releaseName: String,
