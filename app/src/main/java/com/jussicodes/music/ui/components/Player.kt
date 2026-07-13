@@ -135,6 +135,7 @@ fun Player(
     var currentSong by remember { mutableStateOf<Song?>(null) }
     var openBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openPlayerBottomSheet by rememberSaveable { mutableStateOf(false) }
+    var openComments by rememberSaveable { mutableStateOf(false) }
     var coverPreviewUrl by remember { mutableStateOf<Any?>(null) }
     var coverOffsetX by remember { mutableFloatStateOf(0f) }
     var coverOffsetY by remember { mutableFloatStateOf(0f) }
@@ -496,8 +497,6 @@ fun Player(
                 if (screenHeight.dp > 700.dp)
                     Spacer(Modifier.height(24.dp))
 
-                val buttonSize = Modifier.size(48.dp)
-
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceEvenly,
@@ -507,33 +506,30 @@ fun Player(
                 ) {
                     FilledTonalIconButton(
                         onClick = { mediaController?.seekToPrevious() },
-                        modifier = buttonSize
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             SkipPreviousFill,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                            contentDescription = null
                         )
                     }
-                    FilledTonalIconButton(
+                    FilledIconButton(
                         modifier = Modifier.size(72.dp),
                         onClick = { if (!isPlaying) mediaController?.play() else mediaController?.pause() }
                     ) {
                         Icon(
                             if (isPlaying) PauseFill else Icons.Filled.PlayArrow,
-                            modifier = Modifier.size(48.dp),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                            modifier = Modifier.size(36.dp),
+                            contentDescription = null
                         )
                     }
                     FilledTonalIconButton(
                         onClick = { mediaController?.seekToNext() },
-                        modifier = buttonSize
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             SkipNextFill,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                            contentDescription = null
                         )
                     }
                 }
@@ -555,7 +551,7 @@ fun Player(
                                 var totalDragX = 0f
                                 var totalDragY = 0f
                                 var isVerticalDrag: Boolean? = null
-                                var openedQueue = false
+                                var openedComments = false
 
                                 while (true) {
                                     val event = awaitPointerEvent()
@@ -585,20 +581,25 @@ fun Player(
                                         !openBottomSheet &&
                                         !openPlayerBottomSheet
                                     ) {
-                                        openedQueue = true
-                                        onContainerClick()
+                                        openedComments = true
+                                        openComments = true
                                         change.consume()
                                         break
                                     }
                                 }
 
-                                if (openedQueue) {
+                                if (openedComments) {
                                     while (true) {
                                         val event = awaitPointerEvent()
                                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                                         if (!change.pressed) break
                                         change.consume()
                                     }
+                                } else if (isVerticalDrag == null &&
+                                    !openBottomSheet &&
+                                    !openPlayerBottomSheet
+                                ) {
+                                    onContainerClick()
                                 }
                             }
                         }
@@ -633,6 +634,14 @@ fun Player(
             LargeImageDialog(
                 imageUrl = url,
                 onDismiss = { coverPreviewUrl = null }
+            )
+        }
+
+        if (openComments) {
+            PlayerComments(
+                mediaId = mediaId?.toLongOrNull(),
+                mediaMetadata = mediaMetadata,
+                onBackPressed = { openComments = false }
             )
         }
         }

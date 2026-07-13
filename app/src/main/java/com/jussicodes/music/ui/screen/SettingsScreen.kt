@@ -165,16 +165,16 @@ fun SettingsScreen(navController: NavHostController) {
                 UpdateDownloadPhase.COMPLETED -> {
                     downloadingUpdate = false
                     updateDownloadProgress = 1f
-                    updateDownloadText = "????????????"
+                    updateDownloadText = "请先授予悬浮窗权限"
                     pendingUpdateInfo = null
                 }
                 UpdateDownloadPhase.FAILED -> {
                     downloadingUpdate = false
                     updateDownloadProgress = 0f
-                    updateDownloadText = snapshot.message ?: "????"
+                    updateDownloadText = snapshot.message ?: "下载失败"
                     Toast.makeText(
                         context,
-                        snapshot.message ?: "????",
+                        snapshot.message ?: "下载失败",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -182,11 +182,11 @@ fun SettingsScreen(navController: NavHostController) {
         }
     }
 
-    val appearanceTitle = "????"
+    val appearanceTitle = "外观"
     val appearanceSubtitle = when {
-        useDynamicThemeColor && dynamicColorAvailable -> "??????"
-        useDynamicThemeColor -> "?????? (?????)"
-        else -> "???: ${themeSeed.label}"
+        useDynamicThemeColor && dynamicColorAvailable -> "跟随系统取色"
+        useDynamicThemeColor -> "跟随系统取色（当前设备不支持）"
+        else -> "主题色：${themeSeed.label}"
     }
 
     val baseSettingItems = listOf(
@@ -208,11 +208,11 @@ fun SettingsScreen(navController: NavHostController) {
             }
         ),
         SettingItemData(
-            title = "????",
+            title = "桌面歌词",
             subtitle = when {
-                desktopLyricEnabled && overlayPermissionGranted -> "???????"
-                !overlayPermissionGranted -> "???????"
-                else -> "???"
+                desktopLyricEnabled && overlayPermissionGranted -> "已开启悬浮歌词"
+                !overlayPermissionGranted -> "需要悬浮窗权限"
+                else -> "已关闭"
             },
             imageVector = GraphicEq,
             trailingContent = {
@@ -229,7 +229,7 @@ fun SettingsScreen(navController: NavHostController) {
                             if (it && !result) {
                                 Toast.makeText(
                                     context,
-                                    "?????????",
+                                    "请先授予悬浮窗权限",
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
@@ -250,7 +250,7 @@ fun SettingsScreen(navController: NavHostController) {
                     if (target && !result) {
                         Toast.makeText(
                             context,
-                            "?????????",
+                            "请先授予悬浮窗权限",
                             Toast.LENGTH_SHORT
                         ).show()
                     }
@@ -305,7 +305,7 @@ fun SettingsScreen(navController: NavHostController) {
             onClick = { showApiUrlDialog = true }
         ),
         SettingItemData(
-            title = "????",
+            title = "解灰音源",
             subtitle = unblockSourceOptions.firstOrNull { it.value == unblockSource }?.label
                 ?: "AUTO",
             imageVector = Dns,
@@ -313,10 +313,10 @@ fun SettingsScreen(navController: NavHostController) {
             onLongClick = { showUnblockSourceDialog = true }
         ),
         SettingItemData(
-            title = if (updating) "????" else "??????",
+            title = if (updating) "正在检查" else "检查版本更新",
             subtitle = when {
-                updating -> "???? GitHub Release"
-                else -> "??????,?????????????? APK"
+                updating -> "正在检查 GitHub Release"
+                else -> "点按检查更新，在浏览器下载最新 APK"
             },
             imageVector = Github,
             onClick = {
@@ -327,7 +327,7 @@ fun SettingsScreen(navController: NavHostController) {
                         val updateInfo = updateResult.getOrElse {
                             Toast.makeText(
                                 context,
-                                it.message ?: "??????",
+                                it.message ?: "更新失败",
                                 Toast.LENGTH_LONG
                             ).show()
                             updating = false
@@ -336,7 +336,7 @@ fun SettingsScreen(navController: NavHostController) {
 
                         updating = false
                         if (updateInfo == null) {
-                            Toast.makeText(context, "????????", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "当前已是最新版本", Toast.LENGTH_SHORT).show()
                         } else {
                             pendingUpdateInfo = updateInfo
                         }
@@ -348,18 +348,18 @@ fun SettingsScreen(navController: NavHostController) {
 
     val settingsItems = listOf(
         SettingItemData(
-            title = stringResource(R.string.app_name),
-            subtitle = "??????????????",
+            title = "jussichords",
+            subtitle = "简洁的第三方网易云音乐客户端",
             imageVector = PlayPause
         ),
         SettingItemData(
-            title = "???",
+            title = "版本号",
             subtitle = BuildConfig.VERSION_NAME,
             imageVector = Github
         ),
         SettingItemData(
             title = "jussicodes",
-            subtitle = "????",
+            subtitle = "项目作者",
             imageVector = UserRound,
             onClick = { uriHandler.openUri("https://github.com/easyTIDollar") }
         )
@@ -515,7 +515,7 @@ fun SettingsScreen(navController: NavHostController) {
                 if (downloadingUpdate) return@UpdateDialog
                 downloadingUpdate = true
                 updateDownloadProgress = 0f
-                updateDownloadText = "?????????"
+                updateDownloadText = "准备开始下载更新"
                 UpdateDownloadService.start(context.applicationContext, updateInfo)
             }
         )

@@ -1,5 +1,7 @@
 package com.jussicodes.music.ui.screen
 
+import android.net.Uri
+import android.icu.text.Transliterator
 import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -52,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
@@ -60,11 +63,13 @@ import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
+import com.jussicodes.music.ui.components.PlayerComments
 import com.jussicodes.music.ui.components.PlaylistThumbnailImage
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
 import com.jussicodes.music.ui.icons.LibraryAdd
 import com.jussicodes.music.ui.icons.LibraryAddCheck
+import com.jussicodes.music.ui.icons.ModeComment
 import com.jussicodes.music.ui.icons.Search
 import com.jussicodes.music.utils.formatPlayCount
 import com.jussicodes.music.utils.formatTimestamp
@@ -72,7 +77,6 @@ import com.jussicodes.music.viewModel.PlaylistScreenViewModel
 import com.rcmiku.ncmapi.model.Song
 import java.util.Locale
 import kotlinx.coroutines.flow.map
-import android.icu.text.Transliterator
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -92,6 +96,7 @@ fun PlaylistScreen(
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
     val playlistInfoState by playlistScreenViewModel.playlistInfo.collectAsState()
     var openBottomSheet by rememberSaveable { mutableStateOf(false) }
+    var openPlaylistComments by rememberSaveable { mutableStateOf(false) }
     var selectSong by remember { mutableStateOf<Song?>(null) }
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -279,6 +284,19 @@ fun PlaylistScreen(
                                             text = stringResource(R.string.play)
                                         )
                                     }
+                                    OutlinedButton(
+                                        onClick = { openPlaylistComments = true },
+                                        contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = ModeComment,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(ButtonDefaults.IconSize)
+                                        )
+                                        Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                                        Text(text = "评论")
+                                    }
                                 }
                             }
                         }
@@ -322,6 +340,24 @@ fun PlaylistScreen(
         onDismiss = { openBottomSheet = false },
         openBottomSheet = openBottomSheet
     )
+
+    if (openPlaylistComments) {
+        playlistDetailState?.playlist?.let { playlist ->
+            val playlistMetadata = remember(playlist.id, playlist.coverImgUrl) {
+                MediaMetadata.Builder()
+                    .setTitle(playlist.name)
+                    .setArtist(playlist.creator?.nickname.orEmpty())
+                    .setArtworkUri(Uri.parse(playlist.coverImgUrl))
+                    .build()
+            }
+            PlayerComments(
+                mediaId = playlist.id,
+                mediaMetadata = playlistMetadata,
+                commentType = 2,
+                onBackPressed = { openPlaylistComments = false }
+            )
+        }
+    }
 }
 
 private class PlaylistSongSearchEntry(song: Song) {

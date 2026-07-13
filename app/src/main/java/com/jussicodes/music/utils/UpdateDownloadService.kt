@@ -120,7 +120,7 @@ class UpdateDownloadService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle("?????? ${updateInfo.versionName}")
-            .setContentText("??????")
+            .setContentText("点击安装更新")
             .setAutoCancel(true)
             .setContentIntent(buildInstallPendingIntent(apkFile))
             .build()
@@ -166,10 +166,10 @@ class UpdateDownloadService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "????",
+            "应用更新",
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "????????????"
+            description = "显示应用更新下载与安装通知"
         }
         manager.createNotificationChannel(channel)
     }

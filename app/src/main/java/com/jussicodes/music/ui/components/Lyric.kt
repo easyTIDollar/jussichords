@@ -2,17 +2,14 @@ package com.jussicodes.music.ui.components
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.EaseInOutBack
-import androidx.compose.animation.core.EaseInOutCubic
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -89,6 +86,7 @@ fun Lyric(
     val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
     val currentMediaId = playerState?.currentMediaItem?.mediaId
+        ?: mediaController?.currentMediaItem?.mediaId
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val lyric by lyricViewModel.lyric.collectAsState()
@@ -113,7 +111,7 @@ fun Lyric(
         lrcLine?.map { it.time to it.text }
     }
 
-    LaunchedEffect(currentMediaId) {
+    LaunchedEffect(currentMediaId, mediaMetadata.title) {
         currentIndex = 0
         currentMediaId?.toLongOrNull()?.let {
             lyricViewModel.fetchLyric(it)
@@ -224,20 +222,7 @@ fun Lyric(
                             coroutineScope.launch {
                                 if (index > 0) {
                                     val targetIndex = maxOf(currentIndex - 2, 0)
-                                    val visibleItem =
-                                        listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex }
-                                    if (visibleItem == null) {
-                                        listState.scrollToItem(targetIndex)
-                                    } else {
-                                        val itemOffset = visibleItem.offset
-                                        listState.animateScrollBy(
-                                            itemOffset.toFloat(),
-                                            animationSpec = tween(
-                                                durationMillis = 500,
-                                                easing = EaseInOutCubic
-                                            )
-                                        )
-                                    }
+                                    listState.animateScrollToItem(targetIndex)
                                 }
                             }
                         }

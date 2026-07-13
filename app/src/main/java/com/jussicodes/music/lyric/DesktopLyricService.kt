@@ -30,6 +30,7 @@ import com.jussicodes.music.R
 import com.jussicodes.music.constants.lyricTranslationEnabledKey
 import com.jussicodes.music.playback.PlaybackService
 import com.jussicodes.music.utils.LrcLine
+import com.jussicodes.music.utils.AppVisibilityTracker
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.parseLrc
 import com.jussicodes.music.utils.parseYrc
@@ -63,6 +64,7 @@ class DesktopLyricService : Service() {
     private var controller: MediaController? = null
     private var progressJob: Job? = null
     private var preferenceJob: Job? = null
+    private var visibilityJob: Job? = null
     private var currentMediaId: String? = null
     private var lyricLines: List<DesktopLyricLine> = emptyList()
     private var currentLineText: String? = null
@@ -70,6 +72,7 @@ class DesktopLyricService : Service() {
     private var translationEnabled = false
     private var panelExpanded = false
     private var hasPlaybackStarted = false
+    private var isAppInForeground = AppVisibilityTracker.isAppInForeground.value
 
     private val lyricBackgroundColor = Color.parseColor("#D92F2F33")
     private val controlBackgroundColor = Color.parseColor("#E62B2B2F")
@@ -117,6 +120,7 @@ class DesktopLyricService : Service() {
         }
         connectController()
         observePreferences()
+        observeAppVisibility()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -133,6 +137,7 @@ class DesktopLyricService : Service() {
     override fun onDestroy() {
         progressJob?.cancel()
         preferenceJob?.cancel()
+        visibilityJob?.cancel()
         controller?.removeListener(playerListener)
         controllerFuture?.let(MediaController::releaseFuture)
         controller = null
@@ -153,7 +158,7 @@ class DesktopLyricService : Service() {
                     controller = mediaController
                     mediaController.addListener(playerListener)
                     hasPlaybackStarted = mediaController.isPlaying
-                    if (hasPlaybackStarted) {
+                    if (shouldShowOverlay()) {
                         ensureOverlayView()
                     }
                     syncTrack(mediaController.currentMediaItem)
@@ -176,6 +181,23 @@ class DesktopLyricService : Service() {
                     updateTranslationButton()
                     updateLyric()
                 }
+        }
+    }
+
+    private fun observeAppVisibility() {
+        visibilityJob?.cancel()
+        visibilityJob = serviceScope.launch {
+            AppVisibilityTracker.isAppInForeground.collectLatest { inForeground ->
+                isAppInForeground = inForeground
+                if (inForeground) {
+                    removeOverlayView()
+                } else if (shouldShowOverlay()) {
+                    ensureOverlayView()
+                    updatePlaybackButton()
+                    updateTranslationButton()
+                    updateLyric()
+                }
+            }
         }
     }
 
@@ -253,6 +275,10 @@ class DesktopLyricService : Service() {
 
     private fun updateLyric() {
         if (!hasPlaybackStarted) return
+        if (isAppInForeground) {
+            removeOverlayView()
+            return
+        }
         ensureOverlayView()
 
         val mediaController = controller
@@ -302,9 +328,13 @@ class DesktopLyricService : Service() {
     }
 
     private fun ensureOverlayView() {
+        if (!shouldShowOverlay()) return
         if (overlayView != null) return
         createOverlayView()
     }
+
+    private fun shouldShowOverlay(): Boolean =
+        hasPlaybackStarted && !isAppInForeground
 
     private fun createOverlayView() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -601,6 +631,8 @@ class DesktopLyricService : Service() {
         controlPanelView = null
         currentLineView = null
         secondaryLineView = null
+        currentLineText = null
+        secondaryLineText = null
         playPauseButton = null
         translationButton = null
         translationStateView = null

@@ -49,6 +49,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -82,6 +83,8 @@ import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.components.ArtworkGlassBackdrop
 import com.jussicodes.music.ui.components.ArtworkBackdropStyle
 import com.jussicodes.music.ui.components.Lyric
+import com.jussicodes.music.ui.components.PlayerComments
+import com.jussicodes.music.ui.components.PlayerQueue
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.FavoriteFill
 import com.jussicodes.music.ui.icons.PauseFill
@@ -102,6 +105,7 @@ import kotlin.math.abs
 
 private const val ROAM_PLAYER = 0
 private const val ROAM_LYRIC = 1
+private const val ROAM_QUEUE = 2
 private const val PERSONAL_FM_SOURCE = "personal_fm"
 
 private data class PersonalFmModeOption(
@@ -154,7 +158,8 @@ fun RoamScreen(
     var isLoading by rememberSaveable { mutableStateOf(false) }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var queuedFmSongs by remember { mutableStateOf(emptyList<Song>()) }
-    var showLyric by rememberSaveable { mutableStateOf(false) }
+    var shownPanel by rememberSaveable { mutableIntStateOf(ROAM_PLAYER) }
+    var openComments by rememberSaveable { mutableStateOf(false) }
     var selectedModeIndex by rememberSaveable { mutableStateOf(0) }
     val selectedMode = personalFmModeOptions[selectedModeIndex]
 
@@ -225,7 +230,7 @@ fun RoamScreen(
         modifier = Modifier.fillMaxSize()
     ) {
         AnimatedContent(
-            targetState = if (showLyric && metadata != null) ROAM_LYRIC else ROAM_PLAYER,
+            targetState = if (metadata == null) ROAM_PLAYER else shownPanel,
             transitionSpec = {
                 fadeIn(tweenEnter(delayMillis = DURATION_EXIT_SHORT)) togetherWith
                     fadeOut(tweenExit(durationMillis = DURATION_EXIT_SHORT))
@@ -235,7 +240,7 @@ fun RoamScreen(
                 Lyric(
                     position = position,
                     mediaMetadata = metadata,
-                    onBackPressed = { showLyric = false },
+                    onBackPressed = { shownPanel = ROAM_PLAYER },
                     imageModifier = Modifier.sharedElement(
                         state = rememberSharedContentState(
                             key = "roamArtwork-${metadata.artworkUri ?: metadata.title}"
@@ -244,6 +249,19 @@ fun RoamScreen(
                         placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
                         boundsTransform = AlbumArtBoundsTransform
                     )
+                )
+            } else if (target == ROAM_QUEUE && metadata != null) {
+                PlayerQueue(
+                    mediaMetadata = metadata,
+                    imageModifier = Modifier.sharedElement(
+                        state = rememberSharedContentState(
+                            key = "roamArtwork-${metadata.artworkUri ?: metadata.title}"
+                        ),
+                        animatedVisibilityScope = this@AnimatedContent,
+                        placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
+                        boundsTransform = AlbumArtBoundsTransform
+                    ),
+                    onBackPressed = { shownPanel = ROAM_PLAYER }
                 )
             } else {
                 RoamPlayerContent(
@@ -255,7 +273,9 @@ fun RoamScreen(
                     duration = duration,
                     sliderPosition = sliderPosition,
                     isPlaying = isPlaying,
-                    onShowLyric = { showLyric = true },
+                    onShowLyric = { shownPanel = ROAM_LYRIC },
+                    onContainerClick = { shownPanel = ROAM_QUEUE },
+                    onContainerSwipeUp = { openComments = true },
                     onPlayPersonalFm = { playPersonalFm() },
                     onModeSelected = { index ->
                         selectedModeIndex = index
@@ -322,6 +342,13 @@ fun RoamScreen(
                 )
             }
         }
+        if (openComments && metadata != null) {
+            PlayerComments(
+                mediaId = mediaId?.toLongOrNull(),
+                mediaMetadata = metadata,
+                onBackPressed = { openComments = false }
+            )
+        }
     }
 }
 
@@ -337,6 +364,8 @@ private fun RoamPlayerContent(
     sliderPosition: Long?,
     isPlaying: Boolean,
     onShowLyric: () -> Unit,
+    onContainerClick: () -> Unit,
+    onContainerSwipeUp: () -> Unit,
     onPlayPersonalFm: () -> Unit,
     onModeSelected: (Int) -> Unit,
     onPlayPause: () -> Unit,
@@ -361,6 +390,7 @@ private fun RoamPlayerContent(
     val dismissThresholdPx = with(density) { 96.dp.toPx() }
     val coverDismissLimitPx = dismissThresholdPx * 1.1f
     val dragDirectionSlopPx = with(density) { 3.dp.toPx() }
+    val queueOpenThresholdPx = with(density) { 40.dp.toPx() }
     val coverDragProgress = maxOf(
         abs(coverOffsetX) / swipeThresholdPx,
         coverOffsetY / dismissThresholdPx
@@ -700,19 +730,17 @@ private fun RoamPlayerContent(
                     ) {
                         Icon(
                             imageVector = SkipPreviousFill,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                            contentDescription = null
                         )
                     }
-                    FilledTonalIconButton(
+                    FilledIconButton(
                         modifier = Modifier.size(72.dp),
                         onClick = onPlayPause
                     ) {
                         Icon(
                             imageVector = if (isPlaying) PauseFill else Icons.Filled.PlayArrow,
-                            modifier = Modifier.size(48.dp),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                            modifier = Modifier.size(36.dp),
+                            contentDescription = null
                         )
                     }
                     FilledTonalIconButton(
@@ -721,13 +749,71 @@ private fun RoamPlayerContent(
                     ) {
                         Icon(
                             imageVector = SkipNextFill,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                            contentDescription = null
                         )
                     }
                 }
 
-                Spacer(Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp)
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .pointerInput(modeMenuExpanded, queueOpenThresholdPx) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                var totalDragX = 0f
+                                var totalDragY = 0f
+                                var isVerticalDrag: Boolean? = null
+                                var openedComments = false
+
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!change.pressed) break
+
+                                    val positionChange = change.positionChange()
+                                    totalDragX += positionChange.x
+                                    totalDragY += positionChange.y
+
+                                    if (isVerticalDrag == null &&
+                                        (abs(totalDragX) > dragDirectionSlopPx || abs(totalDragY) > dragDirectionSlopPx)
+                                    ) {
+                                        isVerticalDrag = abs(totalDragY) > abs(totalDragX)
+                                    }
+
+                                    if (isVerticalDrag == false) {
+                                        break
+                                    }
+
+                                    if (isVerticalDrag == true && totalDragY < 0f) {
+                                        change.consume()
+                                    }
+
+                                    if (isVerticalDrag == true &&
+                                        totalDragY <= -queueOpenThresholdPx &&
+                                        !modeMenuExpanded
+                                    ) {
+                                        openedComments = true
+                                        onContainerSwipeUp()
+                                        change.consume()
+                                        break
+                                    }
+                                }
+
+                                if (openedComments) {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                        if (!change.pressed) break
+                                        change.consume()
+                                    }
+                                } else if (isVerticalDrag == null && !modeMenuExpanded) {
+                                    onContainerClick()
+                                }
+                            }
+                        }
+                )
             }
         }
     }

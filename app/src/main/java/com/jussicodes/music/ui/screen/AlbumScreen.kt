@@ -1,5 +1,6 @@
 ﻿package com.jussicodes.music.ui.screen
 
+import android.net.Uri
 import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +52,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import androidx.datastore.preferences.core.edit
@@ -63,10 +66,14 @@ import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
+import com.jussicodes.music.ui.components.PlayerComments
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
 import com.jussicodes.music.ui.icons.LibraryAdd
 import com.jussicodes.music.ui.icons.LibraryAddCheck
+import com.jussicodes.music.ui.icons.ModeComment
+import com.jussicodes.music.ui.icons.PushPin
+import com.jussicodes.music.ui.icons.PushPinFill
 import com.jussicodes.music.ui.navigation.ArtistNav
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.dataStore
@@ -98,6 +105,7 @@ fun AlbumScreen(
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
     val albumInfoState by albumScreenViewModel.albumInfo.collectAsState()
     var openBottomSheet by rememberSaveable { mutableStateOf(false) }
+    var openAlbumComments by rememberSaveable { mutableStateOf(false) }
     var selectSong by remember { mutableStateOf<Song?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -108,6 +116,35 @@ fun AlbumScreen(
     }
     val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
         .collectAsState(emptyList())
+    val currentAlbum = albumDetailState?.getOrNull()?.album
+
+    fun togglePinnedAlbum(album: Album) {
+        coroutineScope.launch {
+            context.dataStore.edit { prefs ->
+                val currentIds = prefs[pinnedAlbumIdsKey]
+                    .orEmpty()
+                    .split(",")
+                    .mapNotNull { it.toLongOrNull() }
+                    .toMutableList()
+                if (album.id in currentIds) {
+                    currentIds.remove(album.id)
+                } else {
+                    currentIds.add(0, album.id)
+                }
+                val pinnedIds = currentIds.distinct()
+                val currentAlbums = runCatching {
+                    json.decodeFromString<List<Album>>(prefs[pinnedAlbumsCacheKey].orEmpty())
+                }.getOrDefault(emptyList())
+                val updatedAlbums = if (album.id in currentAlbums.map { it.id }) {
+                    currentAlbums.filterNot { it.id == album.id }
+                } else {
+                    listOf(album) + currentAlbums
+                }.filter { it.id in pinnedIds }
+                prefs[pinnedAlbumIdsKey] = pinnedIds.joinToString(",")
+                prefs[pinnedAlbumsCacheKey] = json.encodeToString(updatedAlbums)
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -122,6 +159,27 @@ fun AlbumScreen(
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                    }
+                },
+                actions = {
+                    currentAlbum?.let { album ->
+                        val isPinned = album.id in pinnedAlbumIds
+                        if (isPinned) {
+                            FilledTonalIconButton(onClick = { togglePinnedAlbum(album) }) {
+                                Icon(
+                                    imageVector = PushPinFill,
+                                    contentDescription = "取消固定",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        } else {
+                            IconButton(onClick = { togglePinnedAlbum(album) }) {
+                                Icon(
+                                    imageVector = PushPin,
+                                    contentDescription = "固定到主页"
+                                )
+                            }
+                        }
                     }
                 }
             )
@@ -211,37 +269,17 @@ fun AlbumScreen(
                                 Text(text = stringResource(R.string.play))
                             }
                             OutlinedButton(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        context.dataStore.edit { prefs ->
-                                            val currentIds = prefs[pinnedAlbumIdsKey]
-                                                .orEmpty()
-                                                .split(",")
-                                                .mapNotNull { it.toLongOrNull() }
-                                                .toMutableList()
-                                            if (detail.album.id in currentIds) {
-                                                currentIds.remove(detail.album.id)
-                                            } else {
-                                                currentIds.add(0, detail.album.id)
-                                            }
-                                            val pinnedIds = currentIds.distinct()
-                                            val currentAlbums = runCatching {
-                                                json.decodeFromString<List<Album>>(prefs[pinnedAlbumsCacheKey].orEmpty())
-                                            }.getOrDefault(emptyList())
-                                            val updatedAlbums = if (detail.album.id in currentAlbums.map { it.id }) {
-                                                currentAlbums.filterNot { it.id == detail.album.id }
-                                            } else {
-                                                listOf(detail.album) + currentAlbums
-                                            }.filter { it.id in pinnedIds }
-                                            prefs[pinnedAlbumIdsKey] = pinnedIds.joinToString(",")
-                                            prefs[pinnedAlbumsCacheKey] = json.encodeToString(updatedAlbums)
-                                        }
-                                    }
-                                },
+                                onClick = { openAlbumComments = true },
                                 contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text(text = if (detail.album.id in pinnedAlbumIds) "取消固定" else "固定到主页")
+                                Icon(
+                                    imageVector = ModeComment,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(ButtonDefaults.IconSize)
+                                )
+                                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                                Text(text = "评论")
                             }
                         }
                     }
@@ -278,4 +316,22 @@ fun AlbumScreen(
         onDismiss = { openBottomSheet = false },
         openBottomSheet = openBottomSheet
     )
+
+    if (openAlbumComments) {
+        currentAlbum?.let { album ->
+            val albumMetadata = remember(album.id, album.picUrl) {
+                MediaMetadata.Builder()
+                    .setTitle(album.name)
+                    .setArtist(album.artist.name)
+                    .setArtworkUri(Uri.parse(album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL)))
+                    .build()
+            }
+            PlayerComments(
+                mediaId = album.id,
+                mediaMetadata = albumMetadata,
+                commentType = 3,
+                onBackPressed = { openAlbumComments = false }
+            )
+        }
+    }
 }

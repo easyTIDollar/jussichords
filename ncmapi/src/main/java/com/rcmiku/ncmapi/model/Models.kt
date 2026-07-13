@@ -298,6 +298,45 @@ data class LyricContent(
 )
 
 @Serializable
+data class CommentNewResponse(
+    val data: CommentNewData = CommentNewData(),
+    val code: Int = 0
+)
+
+@Serializable
+data class CommentNewData(
+    val comments: List<Comment> = emptyList(),
+    @SerialName("totalCount") val totalCount: Long = 0,
+    @SerialName("hasMore") val hasMore: Boolean = false,
+    val cursor: Long = 0
+)
+
+@Serializable
+data class Comment(
+    @SerialName("commentId") val commentId: Long = 0,
+    val content: String = "",
+    val time: Long = 0,
+    @SerialName("timeStr") val timeStr: String = "",
+    @SerialName("likedCount") val likedCount: Long = 0,
+    val liked: Boolean = false,
+    val user: CommentUser = CommentUser(),
+    @SerialName("beReplied") val beReplied: List<CommentReply> = emptyList()
+)
+
+@Serializable
+data class CommentUser(
+    @SerialName("userId") val userId: Long = 0,
+    val nickname: String = "",
+    @SerialName("avatarUrl") val avatarUrl: String = ""
+)
+
+@Serializable
+data class CommentReply(
+    val content: String = "",
+    val user: CommentUser = CommentUser()
+)
+
+@Serializable
 data class SongUrlResponse(
     val data: List<SongUrl> = emptyList()
 )

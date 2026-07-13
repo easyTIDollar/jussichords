@@ -13,6 +13,7 @@ import coil3.request.crossfade
 import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.unblockSourceKey
+import com.jussicodes.music.utils.AppVisibilityTracker
 import com.jussicodes.music.utils.UserAgentUtil
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.API_BASE_URL
@@ -37,6 +38,7 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
     @androidx.annotation.OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
+        AppVisibilityTracker.register(this)
         UserAgentProvider.init(UserAgentUtil.DEFAULT_USER_AGENT)
         applicationScope.launch {
             UserAgentProvider.init(UserAgentUtil.DEFAULT_USER_AGENT)

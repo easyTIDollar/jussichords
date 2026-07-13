@@ -101,16 +101,16 @@ class MainActivity : ComponentActivity() {
                         UpdateDownloadPhase.COMPLETED -> {
                             isDownloadingUpdate = false
                             downloadProgress = 1f
-                            downloadProgressText = "????,???????"
+                            downloadProgressText = "下载完成，等待安装"
                             pendingUpdateInfo = null
                         }
                         UpdateDownloadPhase.FAILED -> {
                             isDownloadingUpdate = false
                             downloadProgress = 0f
-                            downloadProgressText = snapshot.message ?: "????"
+                            downloadProgressText = snapshot.message ?: "下载失败"
                             Toast.makeText(
                                 applicationContext,
-                                snapshot.message ?: "????",
+                                snapshot.message ?: "下载失败",
                                 Toast.LENGTH_LONG
                             ).show()
                         }
@@ -153,7 +153,7 @@ class MainActivity : ComponentActivity() {
                                 if (isDownloadingUpdate) return@UpdateDialog
                                 isDownloadingUpdate = true
                                 downloadProgress = 0f
-                                downloadProgressText = "?????????"
+                                downloadProgressText = "准备开始下载更新"
                                 UpdateDownloadService.start(applicationContext, updateInfo)
                             }
                         )

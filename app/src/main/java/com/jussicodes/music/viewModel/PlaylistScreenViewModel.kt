@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+private const val LIKED_PLAYLIST_SPECIAL_TYPE = 5
+
 @HiltViewModel
 class PlaylistScreenViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -119,6 +121,10 @@ class PlaylistScreenViewModel @Inject constructor(
                             subscribed = shouldSubscribe
                         )
                     }
+                if (playlist?.specialType == LIKED_PLAYLIST_SPECIAL_TYPE) {
+                    Toast.makeText(context, "喜欢歌曲列表不能收藏或取消收藏", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
                 _playlistInfo.value = previousPlaylistInfo?.copy(
                     subscribed = shouldSubscribe
                 ) ?: PlaylistInfoResponse(subscribed = shouldSubscribe)
@@ -131,6 +137,13 @@ class PlaylistScreenViewModel @Inject constructor(
                 }
 
                 PlaylistApi.playlistSub(id = it, isSub = shouldSubscribe).onFailure {
+                    _playlistInfo.value = previousPlaylistInfo
+                    playlist?.let { item ->
+                        PlaylistCollectionSyncBus.setCollected(item, !shouldSubscribe)
+                    }
+                    context.dataStore.edit { prefs ->
+                        prefs[libraryPlaylistRefreshTokenKey] = System.currentTimeMillis()
+                    }
                     Toast.makeText(context, "歌单收藏同步失败", Toast.LENGTH_SHORT).show()
                 }
             }
