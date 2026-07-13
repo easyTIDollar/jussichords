@@ -96,6 +96,7 @@ import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.api.player.SongLevel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -144,9 +145,9 @@ fun SettingsScreen(navController: NavHostController) {
 
     androidx.compose.runtime.LaunchedEffect(Unit) {
         UpdateDownloadStateStore.state.collectLatest { snapshot ->
-            val pendingVersion = pendingUpdateInfo?.versionName
+            val pendingVersion = pendingUpdateInfo?.versionName ?: return@collectLatest
             val snapshotVersion = snapshot.updateInfo?.versionName
-            if (pendingVersion != null && snapshotVersion != null && pendingVersion != snapshotVersion) {
+            if (snapshotVersion != null && pendingVersion != snapshotVersion) {
                 return@collectLatest
             }
             when (snapshot.phase) {
@@ -165,7 +166,17 @@ fun SettingsScreen(navController: NavHostController) {
                 UpdateDownloadPhase.COMPLETED -> {
                     downloadingUpdate = false
                     updateDownloadProgress = 1f
-                    updateDownloadText = "请先授予悬浮窗权限"
+                    updateDownloadText = "下载完成，正在打开安装器"
+                    snapshot.apkPath?.let { apkPath ->
+                        AppUpdateManager.installApk(context, File(apkPath))
+                            .onFailure { throwable ->
+                                Toast.makeText(
+                                    context,
+                                    throwable.message ?: "无法打开安装器",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                    }
                     pendingUpdateInfo = null
                 }
                 UpdateDownloadPhase.FAILED -> {
@@ -316,7 +327,7 @@ fun SettingsScreen(navController: NavHostController) {
             title = if (updating) "正在检查" else "检查版本更新",
             subtitle = when {
                 updating -> "正在检查 GitHub Release"
-                else -> "点按检查更新，在浏览器下载最新 APK"
+                else -> "点按检查更新，下载最新 APK"
             },
             imageVector = Github,
             onClick = {

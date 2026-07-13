@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 @UnstableApi
 @AndroidEntryPoint
@@ -80,9 +81,9 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(Unit) {
                 UpdateDownloadStateStore.state.collectLatest { snapshot ->
-                    val pendingVersion = pendingUpdateInfo?.versionName
+                    val pendingVersion = pendingUpdateInfo?.versionName ?: return@collectLatest
                     val snapshotVersion = snapshot.updateInfo?.versionName
-                    if (pendingVersion != null && snapshotVersion != null && pendingVersion != snapshotVersion) {
+                    if (snapshotVersion != null && pendingVersion != snapshotVersion) {
                         return@collectLatest
                     }
                     when (snapshot.phase) {
@@ -101,7 +102,17 @@ class MainActivity : ComponentActivity() {
                         UpdateDownloadPhase.COMPLETED -> {
                             isDownloadingUpdate = false
                             downloadProgress = 1f
-                            downloadProgressText = "下载完成，等待安装"
+                            downloadProgressText = "下载完成，正在打开安装器"
+                            snapshot.apkPath?.let { apkPath ->
+                                AppUpdateManager.installApk(applicationContext, File(apkPath))
+                                    .onFailure { throwable ->
+                                        Toast.makeText(
+                                            applicationContext,
+                                            throwable.message ?: "无法打开安装器",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                            }
                             pendingUpdateInfo = null
                         }
                         UpdateDownloadPhase.FAILED -> {
