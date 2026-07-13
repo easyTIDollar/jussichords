@@ -132,8 +132,6 @@ jobs:
           files: app/build/outputs/apk/release/jussichords-${{ github.ref_name }}.apk
           name: jussichords-${{ github.ref_name }}
           body: |
-            (a) 优化页面动画
-            (b) 增加评论系统
-            (c) 增加歌单专辑查看评论
+            更新服务器关注歌手逻辑
           draft: false
           prerelease: false
