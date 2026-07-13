@@ -13,5 +13,4 @@
 - 采用 Hilt、Ktor、Coil、DataStore、Paging、Protocol Buffers 等现代 Android 技术栈。
 
 ## 相关：
-网易 API https://neteasecloudmusicapienhanced.js.org/
-解灰 https://github.com/NeteaseCloudMusicApiEnhanced/UnblockNeteaseMusic-utils
+API https://neteasecloudmusicapienhanced.js.org/
