@@ -18,6 +18,8 @@ gen/
 # Ignore gradle files
 .gradle/
 build/
+/tmp/
+/screenshot/
 
 # Local configuration file (sdk path, etc)
 local.properties

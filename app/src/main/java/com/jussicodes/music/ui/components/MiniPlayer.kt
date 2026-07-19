@@ -357,7 +357,7 @@ fun MiniMediaInfo(
             mediaMetadata.artist?.let {
                 Text(
                     text = it.toString(),
-                    color = MaterialTheme.colorScheme.secondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

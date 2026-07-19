@@ -338,7 +338,7 @@ fun PlayerComments(
                             Text(
                                 text = selectedSort.title,
                                 style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.clickable { sortMenuExpanded = true }
                             )
                             IconButton(onClick = { sortMenuExpanded = true }) {

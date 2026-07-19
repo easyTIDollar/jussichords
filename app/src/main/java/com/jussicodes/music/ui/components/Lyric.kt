@@ -271,9 +271,9 @@ fun Lyric(
                                         buildAnnotatedString {
                                             yrc?.words?.forEachIndexed { wordIndex, word ->
                                                 val style = if (wordIndex < activeEnd) {
-                                                    SpanStyle(color = MaterialTheme.colorScheme.primary)
+                                                    SpanStyle(color = MaterialTheme.colorScheme.onSurface)
                                                 } else {
-                                                    SpanStyle(color = MaterialTheme.colorScheme.secondary)
+                                                    SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                 }
                                                 withStyle(style) {
                                                     append(word.text)

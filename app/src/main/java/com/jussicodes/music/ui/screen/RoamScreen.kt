@@ -636,7 +636,7 @@ private fun RoamPlayerContent(
                                     ?: metadata?.artist?.toString().orEmpty().ifBlank { "私人 FM" },
                                 maxLines = 1,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.secondary,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.basicMarquee()
                             )
                         }

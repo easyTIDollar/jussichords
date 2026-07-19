@@ -211,7 +211,7 @@ fun PlaylistScreen(
                                 Text(
                                     text = it.playlist.name,
                                     style = MaterialTheme.typography.titleLarge,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     textAlign = TextAlign.Center,
                                     overflow = TextOverflow.Ellipsis,
                                     maxLines = 2,

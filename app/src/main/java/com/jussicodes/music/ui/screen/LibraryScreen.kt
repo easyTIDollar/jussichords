@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalIconButton
@@ -415,22 +416,32 @@ private fun LibraryUserCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        TextButton(onClick = {
-                            navController.navigate(
-                                UserFollowNav(
-                                    userId = profile.userId,
-                                    type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWS.name
+                        TextButton(
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                            onClick = {
+                                navController.navigate(
+                                    UserFollowNav(
+                                        userId = profile.userId,
+                                        type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWS.name
+                                    )
                                 )
-                            )
-                        }) { Text(text = "关注") }
-                        TextButton(onClick = {
-                            navController.navigate(
-                                UserFollowNav(
-                                    userId = profile.userId,
-                                    type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWEDS.name
+                            },
+                        ) { Text(text = "关注") }
+                        TextButton(
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                            onClick = {
+                                navController.navigate(
+                                    UserFollowNav(
+                                        userId = profile.userId,
+                                        type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWEDS.name
+                                    )
                                 )
-                            )
-                        }) { Text(text = "粉丝") }
+                            },
+                        ) { Text(text = "粉丝") }
                     }
                     secondaryText?.let {
                         Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
@@ -463,12 +474,15 @@ private fun LibraryUserCard(
             )
             if (profile.vipType != 0) {
                 Box(
-                    modifier = Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer).padding(6.dp)
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+                        .padding(6.dp)
                 ) {
                     androidx.compose.material3.Icon(
                         imageVector = VipFill,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(12.dp)
                     )
                 }

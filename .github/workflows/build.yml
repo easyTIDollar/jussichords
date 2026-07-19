@@ -132,7 +132,6 @@ jobs:
           files: app/build/outputs/apk/release/jussichords-${{ github.ref_name }}.apk
           name: jussichords-${{ github.ref_name }}
           body: |
-            优化设置界面
-            优化播放页面背景层
+            修复已知问题
           draft: false
           prerelease: false

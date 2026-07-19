@@ -60,15 +60,14 @@ import com.jussicodes.music.constants.SettingItemSubCorner
 import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
-import com.jussicodes.music.constants.dynamicThemeColorKey
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.ncmCookieKey
-import com.jussicodes.music.constants.themeSeedColorKey
+import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.lyric.DesktopLyricManager
 import com.jussicodes.music.ui.components.Dialog
 import com.jussicodes.music.ui.components.SongQualityDialog
-import com.jussicodes.music.ui.components.ThemeSeedDialog
+import com.jussicodes.music.ui.components.ThemeColorSourceDialog
 import com.jussicodes.music.ui.components.UnblockSourceDialog
 import com.jussicodes.music.ui.components.UpdateDialog
 import com.jussicodes.music.ui.components.UrlEditDialog
@@ -80,7 +79,7 @@ import com.jussicodes.music.ui.icons.Logout
 import com.jussicodes.music.ui.icons.PlayPause
 import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
-import com.jussicodes.music.ui.theme.AppThemeSeed
+import com.jussicodes.music.ui.theme.ThemeColorSource
 import com.jussicodes.music.utils.AppUpdateManager
 import com.jussicodes.music.utils.UpdateDownloadPhase
 import com.jussicodes.music.utils.UpdateDownloadService
@@ -105,14 +104,16 @@ fun SettingsScreen(navController: NavHostController) {
 
     var desktopLyricEnabled by rememberPreference(desktopLyricEnabledKey, false)
     var audioQuality by rememberEnumPreference(audioQualityKey, defaultValue = SongLevel.STANDARD)
-    var useDynamicThemeColor by rememberPreference(dynamicThemeColorKey, dynamicColorAvailable)
-    var themeSeed by rememberEnumPreference(themeSeedColorKey, defaultValue = AppThemeSeed.PURPLE)
+    var themeColorSource by rememberEnumPreference(
+        themeColorSourceKey,
+        defaultValue = ThemeColorSource.WALLPAPER,
+    )
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://119.23.64.141:3000")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     var showQualityDialog by remember { mutableStateOf(false) }
-    var showThemeSeedDialog by remember { mutableStateOf(false) }
+    var showThemeColorSourceDialog by remember { mutableStateOf(false) }
     var showApiUrlDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
     var updating by rememberSaveable { mutableStateOf(false) }
@@ -188,10 +189,14 @@ fun SettingsScreen(navController: NavHostController) {
     }
 
     val appearanceTitle = "外观"
-    val appearanceSubtitle = when {
-        useDynamicThemeColor && dynamicColorAvailable -> "跟随系统取色"
-        useDynamicThemeColor -> "跟随系统取色（当前设备不支持）"
-        else -> "主题色：${themeSeed.label}"
+    val appearanceSubtitle = when (themeColorSource) {
+        ThemeColorSource.WALLPAPER -> if (dynamicColorAvailable) {
+            "根据壁纸动态取色"
+        } else {
+            "壁纸动态取色（当前设备不支持）"
+        }
+
+        ThemeColorSource.ARTWORK -> "从当前播放音乐的封面取色"
     }
 
     val baseSettingItems = listOf(
@@ -199,7 +204,7 @@ fun SettingsScreen(navController: NavHostController) {
             title = appearanceTitle,
             subtitle = appearanceSubtitle,
             imageVector = GraphicEq,
-            onClick = { showThemeSeedDialog = true }
+            onClick = { showThemeColorSourceDialog = true }
         ),
         SettingItemData(
             title = stringResource(if (ncmCookie.isNotEmpty()) R.string.logout else R.string.login),
@@ -418,14 +423,12 @@ fun SettingsScreen(navController: NavHostController) {
         )
     }
 
-    if (showThemeSeedDialog) {
-        ThemeSeedDialog(
-            currentSeed = themeSeed,
-            dynamicColorAvailable = dynamicColorAvailable,
-            dynamicColorEnabled = useDynamicThemeColor,
-            onDismiss = { showThemeSeedDialog = false },
-            onDynamicColorChange = { useDynamicThemeColor = it },
-            onSeedSelected = { themeSeed = it }
+    if (showThemeColorSourceDialog) {
+        ThemeColorSourceDialog(
+            currentSource = themeColorSource,
+            wallpaperColorAvailable = dynamicColorAvailable,
+            onDismiss = { showThemeColorSourceDialog = false },
+            onSourceSelected = { themeColorSource = it },
         )
     }
 
@@ -560,7 +563,7 @@ fun SettingItem(
                 Text(
                     text = description,
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.secondary
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             if (progress != null) {

@@ -403,7 +403,7 @@ fun Player(
                                     text = it.toString(),
                                     maxLines = 1,
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.secondary,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier
                                         .basicMarquee()
                                         .clickable { openBottomSheet = true }

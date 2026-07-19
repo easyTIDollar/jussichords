@@ -16,29 +16,44 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.graphics.ColorUtils
-import com.jussicodes.music.constants.dynamicThemeColorKey
-import com.jussicodes.music.constants.themeSeedColorKey
-import com.jussicodes.music.utils.rememberPreference
+import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.utils.rememberEnumPreference
 
 @Composable
 fun JetMeloTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    artwork: Any? = null,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
     val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val useDynamicColor by rememberPreference(dynamicThemeColorKey, dynamicColorAvailable)
-    val themeSeed by rememberEnumPreference(themeSeedColorKey, defaultValue = AppThemeSeed.PURPLE)
-    val colorScheme = remember(themeSeed, darkTheme, useDynamicColor, dynamicColorAvailable, context) {
-        when {
-            useDynamicColor && dynamicColorAvailable -> {
+    val themeColorSource by rememberEnumPreference(
+        themeColorSourceKey,
+        defaultValue = ThemeColorSource.WALLPAPER,
+    )
+    val artworkSeed = rememberArtworkSeed(
+        artwork = artwork.takeIf { themeColorSource == ThemeColorSource.ARTWORK },
+    )
+    val colorScheme = remember(
+        artworkSeed,
+        darkTheme,
+        themeColorSource,
+        dynamicColorAvailable,
+        context,
+    ) {
+        val generatedScheme = when {
+            themeColorSource == ThemeColorSource.ARTWORK && artworkSeed != null -> {
+                if (darkTheme) createDarkScheme(artworkSeed) else createLightScheme(artworkSeed)
+            }
+
+            dynamicColorAvailable -> {
                 if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
             }
 
-            darkTheme -> createDarkScheme(themeSeed.seedColor)
-            else -> createLightScheme(themeSeed.seedColor)
+            darkTheme -> createDarkScheme(DefaultThemeSeed)
+            else -> createLightScheme(DefaultThemeSeed)
         }
+        generatedScheme.withNeutralTextColors()
     }
 
     MaterialTheme(
@@ -47,6 +62,32 @@ fun JetMeloTheme(
         content = content
     )
 }
+
+private val DefaultThemeSeed = Color(0xFF6650A4)
+
+private fun ColorScheme.withNeutralTextColors(): ColorScheme {
+    val isLight = surface.luminance() > 0.5f
+    val mainText = if (isLight) Color(0xFF1B1B1F) else Color(0xFFE8E1E9)
+    val secondaryText = if (isLight) Color(0xFF49454F) else Color(0xFFCBC4CC)
+
+    return copy(
+        onBackground = mainText,
+        onSurface = mainText,
+        onSurfaceVariant = secondaryText,
+        inverseOnSurface = neutralContentColor(inverseSurface),
+        onPrimary = neutralContentColor(primary),
+        onPrimaryContainer = neutralContentColor(primaryContainer),
+        onSecondary = neutralContentColor(secondary),
+        onSecondaryContainer = neutralContentColor(secondaryContainer),
+        onTertiary = neutralContentColor(tertiary),
+        onTertiaryContainer = neutralContentColor(tertiaryContainer),
+        onError = neutralContentColor(error),
+        onErrorContainer = neutralContentColor(errorContainer),
+    )
+}
+
+private fun neutralContentColor(background: Color): Color =
+    if (background.luminance() > 0.46f) Color(0xFF17171B) else Color(0xFFF4EFF5)
 
 private fun createLightScheme(seed: Color): ColorScheme {
     val primary = seed.blend(Color.Black, 0.06f)

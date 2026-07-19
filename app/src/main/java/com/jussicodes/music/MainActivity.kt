@@ -136,7 +136,7 @@ class MainActivity : ComponentActivity() {
                     playerState = state(applicationContext)
                 }
             }
-            JetMeloTheme {
+            JetMeloTheme(artwork = playerState?.mediaMetadata?.artworkUri) {
                 CompositionLocalProvider(
                     LocalPlayerController provides playerController,
                     LocalPlayerState provides playerState
