@@ -24,7 +24,7 @@ object AccountApi {
         return result.map { fixAccountProfile(it) }
     }
 
-    suspend fun uploadAvatar(file: File, imgSize: Int = 800): Result<ApiCodeResponse> =
+    suspend fun uploadAvatar(file: File, imgSize: Int = 800): Result<AvatarUploadResponse> =
         apiPostFileOkHttp(
             "/avatar/upload",
             "imgFile",

@@ -9,7 +9,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -80,8 +79,6 @@ import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.setPlaylist
-import com.jussicodes.music.ui.components.ArtworkGlassBackdrop
-import com.jussicodes.music.ui.components.ArtworkBackdropStyle
 import com.jussicodes.music.ui.components.Lyric
 import com.jussicodes.music.ui.components.PlayerComments
 import com.jussicodes.music.ui.components.PlayerQueue
@@ -433,10 +430,6 @@ private fun RoamPlayerContent(
         color = Color.Transparent
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            ArtworkGlassBackdrop(
-                artwork = metadata?.artworkUri,
-                style = ArtworkBackdropStyle.FullScreen
-            )
             Column(
                 modifier = Modifier
                     .statusBarsPadding()
@@ -495,14 +488,7 @@ private fun RoamPlayerContent(
                 }
             }
 
-            Surface(
-                shape = MaterialTheme.shapes.small,
-                tonalElevation = 2.dp,
-                shadowElevation = 18.dp,
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                ),
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)

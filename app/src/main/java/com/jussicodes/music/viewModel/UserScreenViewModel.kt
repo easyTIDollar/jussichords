@@ -36,6 +36,8 @@ class UserScreenViewModel @Inject constructor(savedStateHandle: SavedStateHandle
 
     private val _isAvatarUploading = MutableStateFlow(false)
     val isAvatarUploading: StateFlow<Boolean> = _isAvatarUploading.asStateFlow()
+    private val _avatarCacheVersion = MutableStateFlow(0L)
+    val avatarCacheVersion: StateFlow<Long> = _avatarCacheVersion.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -77,8 +79,9 @@ class UserScreenViewModel @Inject constructor(savedStateHandle: SavedStateHandle
         if (!_isSelf.value || _isAvatarUploading.value) return
         viewModelScope.launch {
             _isAvatarUploading.value = true
-            val success = AccountApi.uploadAvatar(file).isSuccess
+            val success = AccountApi.uploadAvatar(file).getOrNull()?.isSuccess == true
             if (success) {
+                _avatarCacheVersion.value = System.currentTimeMillis()
                 val refreshed = ArtistApi.userDetail(userId).getOrNull()
                     ?: AccountApi.accountInfo().getOrNull()?.let { account ->
                         UserDetailResponse(profile = account.profile)

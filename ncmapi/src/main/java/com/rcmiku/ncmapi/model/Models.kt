@@ -590,3 +590,28 @@ data class ApiCodeResponse(
     val message: String? = null,
     val msg: String? = null
 )
+
+/**
+ * The avatar endpoint is proxied by some NCM API servers. Those servers can
+ * return an outer 200 while the actual Netease result is in data.code.
+ */
+@Serializable
+data class AvatarUploadResponse(
+    val code: Int = 0,
+    val message: String? = null,
+    val msg: String? = null,
+    val data: AvatarUploadData? = null
+) {
+    val isSuccess: Boolean get() = code == 200 && data?.code == 200
+    val errorMessage: String?
+        get() = data?.message ?: message ?: msg
+}
+
+@Serializable
+data class AvatarUploadData(
+    val code: Int = 0,
+    val message: String? = null,
+    val msg: String? = null,
+    @SerialName("url_pre") val urlPre: String? = null,
+    val imgId: String? = null
+)

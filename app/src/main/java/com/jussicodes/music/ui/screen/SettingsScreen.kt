@@ -59,14 +59,12 @@ import com.jussicodes.music.constants.SettingItemHeight
 import com.jussicodes.music.constants.SettingItemSubCorner
 import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.audioQualityKey
-import com.jussicodes.music.constants.autoSkipNextOnErrorKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.dynamicThemeColorKey
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.themeSeedColorKey
 import com.jussicodes.music.constants.unblockSourceKey
-import com.jussicodes.music.constants.use40DpIconKey
 import com.jussicodes.music.lyric.DesktopLyricManager
 import com.jussicodes.music.ui.components.Dialog
 import com.jussicodes.music.ui.components.SongQualityDialog
@@ -74,14 +72,12 @@ import com.jussicodes.music.ui.components.ThemeSeedDialog
 import com.jussicodes.music.ui.components.UnblockSourceDialog
 import com.jussicodes.music.ui.components.UpdateDialog
 import com.jussicodes.music.ui.components.UrlEditDialog
-import com.jussicodes.music.ui.components.unblockSourceOptions
 import com.jussicodes.music.ui.icons.Dns
 import com.jussicodes.music.ui.icons.Github
 import com.jussicodes.music.ui.icons.GraphicEq
 import com.jussicodes.music.ui.icons.Login
 import com.jussicodes.music.ui.icons.Logout
 import com.jussicodes.music.ui.icons.PlayPause
-import com.jussicodes.music.ui.icons.SkipNext
 import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.theme.AppThemeSeed
@@ -107,12 +103,10 @@ fun SettingsScreen(navController: NavHostController) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
-    var use40DpIcon by rememberPreference(use40DpIconKey, false)
     var desktopLyricEnabled by rememberPreference(desktopLyricEnabledKey, false)
     var audioQuality by rememberEnumPreference(audioQualityKey, defaultValue = SongLevel.STANDARD)
     var useDynamicThemeColor by rememberPreference(dynamicThemeColorKey, dynamicColorAvailable)
     var themeSeed by rememberEnumPreference(themeSeedColorKey, defaultValue = AppThemeSeed.PURPLE)
-    var autoSkipNextOnError by rememberPreference(autoSkipNextOnErrorKey, false)
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://119.23.64.141:3000")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
@@ -269,19 +263,6 @@ fun SettingsScreen(navController: NavHostController) {
             }
         ),
         SettingItemData(
-            title = stringResource(R.string.command_button),
-            subtitle = stringResource(R.string.command_button_subtitle),
-            imageVector = PlayPause,
-            trailingContent = {
-                Switch(
-                    checked = use40DpIcon,
-                    onCheckedChange = { use40DpIcon = it }
-                )
-                Spacer(Modifier.width(12.dp))
-            },
-            onClick = { use40DpIcon = !use40DpIcon }
-        ),
-        SettingItemData(
             title = stringResource(R.string.audio_quality),
             subtitle = when (audioQuality) {
                 SongLevel.STANDARD -> stringResource(R.string.standard)
@@ -298,36 +279,17 @@ fun SettingsScreen(navController: NavHostController) {
             onClick = { showQualityDialog = true }
         ),
         SettingItemData(
-            title = stringResource(R.string.auto_skip),
-            imageVector = SkipNext,
-            trailingContent = {
-                Switch(
-                    checked = autoSkipNextOnError,
-                    onCheckedChange = { autoSkipNextOnError = it }
-                )
-                Spacer(Modifier.width(12.dp))
-            },
-            onClick = { autoSkipNextOnError = !autoSkipNextOnError }
-        ),
-        SettingItemData(
             title = stringResource(R.string.api_server),
             subtitle = apiBaseUrl,
             imageVector = Dns,
-            onClick = { showApiUrlDialog = true }
-        ),
-        SettingItemData(
-            title = "解灰音源",
-            subtitle = unblockSourceOptions.firstOrNull { it.value == unblockSource }?.label
-                ?: "AUTO",
-            imageVector = Dns,
-            onClick = { showUnblockSourceDialog = true },
+            onClick = { showApiUrlDialog = true },
             onLongClick = { showUnblockSourceDialog = true }
         ),
         SettingItemData(
             title = if (updating) "正在检查" else "检查版本更新",
             subtitle = when {
                 updating -> "正在检查 GitHub Release"
-                else -> "点按检查更新，下载最新 APK"
+                else -> "当前版本：${BuildConfig.VERSION_NAME} · 点按检查更新"
             },
             imageVector = Github,
             onClick = {
@@ -362,11 +324,6 @@ fun SettingsScreen(navController: NavHostController) {
             title = "jussichords",
             subtitle = "简洁的第三方网易云音乐客户端",
             imageVector = PlayPause
-        ),
-        SettingItemData(
-            title = "版本号",
-            subtitle = BuildConfig.VERSION_NAME,
-            imageVector = Github
         ),
         SettingItemData(
             title = "jussicodes",

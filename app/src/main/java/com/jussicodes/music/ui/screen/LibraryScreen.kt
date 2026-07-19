@@ -82,6 +82,7 @@ import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.rememberNullablePreference
 import com.jussicodes.music.utils.toCoverImageUrl
+import com.jussicodes.music.utils.withAvatarCacheBuster
 import com.jussicodes.music.viewModel.LibraryScreenViewModel
 import com.rcmiku.ncmapi.model.Album
 import com.rcmiku.ncmapi.model.Playlist
@@ -104,6 +105,7 @@ fun LibraryScreen(
     val pinnedAlbums by libraryScreenViewModel.pinnedAlbums.collectAsState()
     val pinnedAlbumsCacheLoaded by libraryScreenViewModel.pinnedAlbumsCacheLoaded.collectAsState()
     val isAvatarUploading by libraryScreenViewModel.isAvatarUploading.collectAsState()
+    val avatarCacheVersion by libraryScreenViewModel.avatarCacheVersion.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     var showAvatarDialog by remember { mutableStateOf(false) }
     var selectedAvatarUri by remember { mutableStateOf<Uri?>(null) }
@@ -212,6 +214,7 @@ fun LibraryScreen(
                         LibraryUserCard(
                             navController = navController,
                             userInfo = it,
+                            avatarCacheVersion = avatarCacheVersion,
                             onRoamClick = { navController.navigate(Screen.Roam.route) },
                             onAvatarClick = {
                                 libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie, force = true)
@@ -372,6 +375,7 @@ fun LibraryScreen(
 private fun LibraryUserCard(
     navController: NavHostController,
     userInfo: UserInfoBatch,
+    avatarCacheVersion: Long,
     onRoamClick: () -> Unit,
     onAvatarClick: () -> Unit
 ) {
@@ -452,7 +456,7 @@ private fun LibraryUserCard(
             contentAlignment = Alignment.BottomEnd
         ) {
             AsyncImage(
-                model = profile.avatarUrl,
+                model = profile.avatarUrl.withAvatarCacheBuster(avatarCacheVersion),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.clip(CircleShape).border(3.dp, MaterialTheme.colorScheme.surface, CircleShape).size(76.dp)

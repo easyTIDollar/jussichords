@@ -41,8 +41,6 @@
     <string name="playing_list">播放列表</string>
     <string name="pause">暂停</string>
     <string name="song_size">共%d首歌曲</string>
-    <string name="command_button">媒体控件按钮</string>
-    <string name="command_button_subtitle">媒体控件按钮使用40dp图标 (避免 HyperOS 媒体控件按钮图标显示过大)</string>
     <string name="record">听歌排行</string>
     <string name="cloud_music">云盘音乐</string>
     <string name="week_record">最近一周</string>
@@ -68,7 +66,6 @@
     <string name="exhigh">极高</string>
     <string name="higer">高</string>
     <string name="standard">标准</string>
-    <string name="auto_skip">跳过加载失败歌曲</string>
     <string name="logout">退出登录</string>
     <string name="like">喜爱</string>
     <string name="view_artist">查看歌手</string>

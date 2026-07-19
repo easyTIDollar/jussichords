@@ -28,7 +28,8 @@ object ArtistApi {
             mapOf(
                 "id" to artistId,
                 "t" to if (subscribe) 1 else 0,
-                "timestamp" to System.currentTimeMillis()
+                "timestamp" to System.currentTimeMillis(),
+                "randomCNIP" to false
             )
         ).mapCatching {
             if (it.code == 200) {

@@ -47,6 +47,7 @@ import com.jussicodes.music.ui.navigation.PlaylistNav
 import com.jussicodes.music.ui.navigation.UserFollowNav
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.toCoverImageUrl
+import com.jussicodes.music.utils.withAvatarCacheBuster
 import com.jussicodes.music.viewModel.UserFollowType
 import com.jussicodes.music.viewModel.UserScreenViewModel
 import java.io.File
@@ -63,6 +64,7 @@ fun UserScreen(
     val isFollowUpdating by userScreenViewModel.isFollowUpdating.collectAsState()
     val isSelf by userScreenViewModel.isSelf.collectAsState()
     val isAvatarUploading by userScreenViewModel.isAvatarUploading.collectAsState()
+    val avatarCacheVersion by userScreenViewModel.avatarCacheVersion.collectAsState()
     val context = LocalContext.current
     val avatarUrl = userDetailState?.profile?.avatarUrl
     var showAvatarDialog by remember { mutableStateOf(false) }
@@ -96,7 +98,7 @@ fun UserScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     AsyncImage(
-                        model = avatarUrl,
+                        model = avatarUrl.withAvatarCacheBuster(avatarCacheVersion),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier

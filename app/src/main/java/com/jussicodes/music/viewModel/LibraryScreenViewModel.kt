@@ -67,6 +67,8 @@ class LibraryScreenViewModel @Inject constructor(
     private var favoriteSongCount = 0
     private val _isAvatarUploading = MutableStateFlow(false)
     val isAvatarUploading: StateFlow<Boolean> = _isAvatarUploading.asStateFlow()
+    private val _avatarCacheVersion = MutableStateFlow(0L)
+    val avatarCacheVersion: StateFlow<Long> = _avatarCacheVersion.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -91,12 +93,16 @@ class LibraryScreenViewModel @Inject constructor(
         lastUserInfoRefreshAt = now
         lastUserInfoCookieHash = cookieHash
         viewModelScope.launch {
-            AccountApi.accountInfo().getOrNull()?.let {
-                _userInfo.value = it
-                context.dataStore.edit { prefs ->
-                    prefs[libraryUserInfoCacheKey] = json.encodeToString(it)
-                    prefs[userIdKye] = it.account.profile.userId
-                }
+            refreshUserInfo()
+        }
+    }
+
+    private suspend fun refreshUserInfo() {
+        AccountApi.accountInfo().getOrNull()?.let {
+            _userInfo.value = it
+            context.dataStore.edit { prefs ->
+                prefs[libraryUserInfoCacheKey] = json.encodeToString(it)
+                prefs[userIdKye] = it.account.profile.userId
             }
         }
     }
@@ -134,12 +140,14 @@ class LibraryScreenViewModel @Inject constructor(
         viewModelScope.launch {
             _isAvatarUploading.value = true
             val result = AccountApi.uploadAvatar(file)
-            val success = result.isSuccess
+            val response = result.getOrNull()
+            val success = response?.isSuccess == true
             if (success) {
-                fetchUserInfo(force = true)
+                _avatarCacheVersion.value = System.currentTimeMillis()
+                refreshUserInfo()
             }
             _isAvatarUploading.value = false
-            onResult(success, result.exceptionOrNull()?.message)
+            onResult(success, result.exceptionOrNull()?.message ?: response?.errorMessage)
         }
     }
 
