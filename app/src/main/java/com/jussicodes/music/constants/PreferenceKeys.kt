@@ -1,6 +1,7 @@
 package com.jussicodes.music.constants
 
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 
@@ -10,6 +11,9 @@ val desktopLyricEnabledKey = booleanPreferencesKey("desktopLyricEnabled")
 val currentPlayMediaIdKey = longPreferencesKey("currentPlayMediaId")
 val autoSkipNextOnErrorKey = booleanPreferencesKey("autoSkipNextOnError")
 val audioQualityKey = stringPreferencesKey("audioQuality")
+val audioEffectModeKey = stringPreferencesKey("audioEffectMode")
+val audioEffectIntensityKey = floatPreferencesKey("audioEffectIntensity")
+val audioEffectSpeedKey = floatPreferencesKey("audioEffectSpeed")
 val themeColorSourceKey = stringPreferencesKey("themeColorSource")
 val lyricTranslationEnabledKey = booleanPreferencesKey("lyricTranslationEnabled")
 val wordLyricEnabledKey = booleanPreferencesKey("wordLyricEnabled")

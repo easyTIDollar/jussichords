@@ -191,11 +191,15 @@ fun ArtistScreen(
 
         when (state) {
             0 -> {
-                item {
-                    NavigationTitle(title = stringResource(R.string.artist_info))
+                item(key = "explore-info") {
+                    NavigationTitle(
+                        title = stringResource(R.string.artist_info),
+                        modifier = Modifier.animateItem(placementSpec = null)
+                    )
                     artistHeadInfoState?.data?.artist?.briefDesc?.trimIndent()?.let {
                         Card(
                             modifier = Modifier
+                                .animateItem(placementSpec = null)
                                 .fillMaxWidth()
                                 .padding(horizontal = 12.dp)
                                 .padding(bottom = 12.dp),
@@ -215,12 +219,17 @@ fun ArtistScreen(
                     item {
                         NavigationTitle(title = "相似歌手")
                     }
-                    itemsIndexed(simiArtists) { _, artist ->
+                    itemsIndexed(
+                        items = simiArtists,
+                        key = { _, artist -> "explore-artist-${artist.id}" }
+                    ) { _, artist ->
                         ArtistListItem(
                             artist = artist,
-                            modifier = Modifier.clickable {
-                                navController.navigate(ArtistNav(artistId = artist.id))
-                            }
+                            modifier = Modifier
+                                .animateItem(placementSpec = null)
+                                .clickable {
+                                    navController.navigate(ArtistNav(artistId = artist.id))
+                                }
                         )
                     }
                 }
@@ -228,16 +237,21 @@ fun ArtistScreen(
 
             1 -> {
                 artistTopSongState?.songs?.let { songs ->
-                    itemsIndexed(songs) { index, song ->
+                    itemsIndexed(
+                        items = songs,
+                        key = { _, song -> "top-song-${song.id}" }
+                    ) { index, song ->
                         SongListItem(
                             song = song,
                             isPlaying = isPlaying,
                             isActive = currentMediaId == song.id,
                             songIndex = index + 1,
-                            modifier = Modifier.clickable {
-                                mediaController?.setPlaylist(songs)
-                                mediaController?.playMediaAtId(song.id)
-                            },
+                            modifier = Modifier
+                                .animateItem(placementSpec = null)
+                                .clickable {
+                                    mediaController?.setPlaylist(songs)
+                                    mediaController?.playMediaAtId(song.id)
+                                },
                             trailingContent = {
                                 IconButton(onClick = {
                                     selectSong = song
@@ -257,16 +271,21 @@ fun ArtistScreen(
                         item {
                             NavigationTitle(title = "全部歌曲")
                         }
-                        itemsIndexed(songs) { index, song ->
+                        itemsIndexed(
+                            items = songs,
+                            key = { _, song -> "all-song-${song.id}" }
+                        ) { index, song ->
                             SongListItem(
                                 song = song,
                                 isPlaying = isPlaying,
                                 isActive = currentMediaId == song.id,
                                 songIndex = index + 1,
-                                modifier = Modifier.clickable {
-                                    mediaController?.setPlaylist(songs)
-                                    mediaController?.playMediaAtId(song.id)
-                                }
+                                modifier = Modifier
+                                    .animateItem(placementSpec = null)
+                                    .clickable {
+                                        mediaController?.setPlaylist(songs)
+                                        mediaController?.playMediaAtId(song.id)
+                                    }
                             )
                             if (index != songs.lastIndex) {
                                 HorizontalDivider()
@@ -277,13 +296,18 @@ fun ArtistScreen(
             }
 
             2 -> {
-                items(artistAlbumList.itemCount) { index ->
+                items(
+                    count = artistAlbumList.itemCount,
+                    key = { index -> "album-${artistAlbumList.peek(index)?.id ?: index}" }
+                ) { index ->
                     artistAlbumList[index]?.let {
                         AlbumListItem(
                             album = it,
-                            modifier = Modifier.clickable {
-                                navController.navigate(AlbumNav(albumId = it.id))
-                            }
+                            modifier = Modifier
+                                .animateItem(placementSpec = null)
+                                .clickable {
+                                    navController.navigate(AlbumNav(albumId = it.id))
+                                }
                         )
                     }
                 }

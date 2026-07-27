@@ -132,6 +132,9 @@ jobs:
           files: app/build/outputs/apk/release/jussichords-${{ github.ref_name }}.apk
           name: jussichords-${{ github.ref_name }}
           body: |
-            修复已知问题
+            - 添加歌手页动画
+            - 添加音效控件
+            - 添加媒体播放通知栏桌面歌词开关
+            - 修复私人 FM 切歌失败
           draft: false
           prerelease: false

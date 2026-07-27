@@ -110,7 +110,9 @@ fun Player(
     onClick: () -> Unit = {},
     onContainerClick: () -> Unit = {},
     onPositionUpdate: (Long) -> Unit,
-    navController: NavHostController
+    navController: NavHostController,
+    playerLabel: String? = null,
+    metadataClickEnabled: Boolean = true,
 ) {
 
     BackHandler {
@@ -211,25 +213,37 @@ fun Player(
                     24.dp
                 )
             ) {
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBackPressed) {
-                    Icon(
-                        imageVector = ChevronDown,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBackPressed) {
+                        Icon(
+                            imageVector = ChevronDown,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    IconButton(onClick = { openPlayerBottomSheet = true }) {
+                        Icon(
+                            imageVector = Icons.Outlined.MoreVert,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
-                IconButton(onClick = { openPlayerBottomSheet = true }) {
-                    Icon(
-                        imageVector = Icons.Outlined.MoreVert,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
+                playerLabel?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.align(Alignment.Center)
                     )
                 }
             }
@@ -395,7 +409,9 @@ fun Player(
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier
                                         .basicMarquee()
-                                        .clickable { openBottomSheet = true }
+                                        .clickable(enabled = metadataClickEnabled) {
+                                            openBottomSheet = true
+                                        }
                                 )
                             }
                             mediaMetadata.artist?.let {
@@ -406,7 +422,9 @@ fun Player(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier
                                         .basicMarquee()
-                                        .clickable { openBottomSheet = true }
+                                        .clickable(enabled = metadataClickEnabled) {
+                                            openBottomSheet = true
+                                        }
                                 )
                             }
                         }

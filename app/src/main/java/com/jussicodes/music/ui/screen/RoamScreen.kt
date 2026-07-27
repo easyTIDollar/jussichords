@@ -82,6 +82,7 @@ import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.components.Lyric
 import com.jussicodes.music.ui.components.PlayerComments
 import com.jussicodes.music.ui.components.PlayerQueue
+import com.jussicodes.music.ui.components.Player as FullPlayer
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.FavoriteFill
 import com.jussicodes.music.ui.icons.PauseFill
@@ -99,6 +100,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import androidx.navigation.NavHostController
 
 private const val ROAM_PLAYER = 0
 private const val ROAM_LYRIC = 1
@@ -124,6 +126,7 @@ private val personalFmModeOptions = listOf(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun RoamScreen(
+    navController: NavHostController,
     isActive: Boolean = true,
     onBackPressed: () -> Unit = {}
 ) {
@@ -160,9 +163,9 @@ fun RoamScreen(
     var selectedModeIndex by rememberSaveable { mutableStateOf(0) }
     val selectedMode = personalFmModeOptions[selectedModeIndex]
 
-    fun playSong(song: Song) {
+    fun playSongs(songs: List<Song>) {
         player?.setPlaylist(
-            songs = listOf(song),
+            songs = songs,
             sourceName = PERSONAL_FM_SOURCE
         )
         player?.playMediaAt(0)
@@ -174,8 +177,8 @@ fun RoamScreen(
     ) {
         if (isLoading) return
         if (!forceFetch && queuedFmSongs.isNotEmpty()) {
-            playSong(queuedFmSongs.first())
-            queuedFmSongs = queuedFmSongs.drop(1)
+            playSongs(queuedFmSongs)
+            queuedFmSongs = emptyList()
             return
         }
         scope.launch {
@@ -188,8 +191,8 @@ fun RoamScreen(
                 .onSuccess { response ->
                     val songs = response.data.map { it.toSong() }.filter { it.id != 0L }
                     if (songs.isNotEmpty()) {
-                        playSong(songs.first())
-                        queuedFmSongs = songs.drop(1)
+                        playSongs(songs)
+                        queuedFmSongs = emptyList()
                     } else {
                         errorMessage = "私人 FM 暂时没有返回歌曲"
                     }
@@ -259,6 +262,19 @@ fun RoamScreen(
                         boundsTransform = AlbumArtBoundsTransform
                     ),
                     onBackPressed = { shownPanel = ROAM_PLAYER }
+                )
+            } else if (metadata != null) {
+                FullPlayer(
+                    navController = navController,
+                    mediaMetadata = metadata,
+                    position = position,
+                    duration = duration,
+                    onBackPressed = onBackPressed,
+                    onClick = { shownPanel = ROAM_LYRIC },
+                    onContainerClick = { shownPanel = ROAM_QUEUE },
+                    onPositionUpdate = { position = it },
+                    playerLabel = "私人 FM",
+                    metadataClickEnabled = false,
                 )
             } else {
                 RoamPlayerContent(

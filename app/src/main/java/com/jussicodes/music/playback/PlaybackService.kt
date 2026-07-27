@@ -14,7 +14,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Player.REPEAT_MODE_ALL
-import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -23,6 +22,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.audio.AudioRendererEventListener
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.metadata.MetadataOutput
@@ -42,18 +42,24 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.jussicodes.music.MainActivity
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MediaSessionConstants
+import com.jussicodes.music.constants.audioEffectIntensityKey
+import com.jussicodes.music.constants.audioEffectModeKey
+import com.jussicodes.music.constants.audioEffectSpeedKey
 import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.use40DpIconKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.updateMediaItemUri
 import com.jussicodes.music.lyric.DesktopLyricManager
+import com.jussicodes.music.playback.audio.AudioEffectMode
+import com.jussicodes.music.playback.audio.PlaybackAudioProcessors
 import com.jussicodes.music.utils.FavoriteSongAction
 import com.jussicodes.music.utils.UserAgentUtil
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.enumPreference
 import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.preference
+import com.jussicodes.music.utils.toEnum
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.Song
@@ -155,7 +161,10 @@ class PlaybackService : MediaSessionService() {
                         this,
                         MediaCodecSelector.DEFAULT,
                         handler,
-                        audioListener
+                        audioListener,
+                        DefaultAudioSink.Builder(this)
+                            .setAudioProcessors(PlaybackAudioProcessors.asArray())
+                            .build()
                     )
                 )
             }
@@ -203,17 +212,6 @@ class PlaybackService : MediaSessionService() {
                 }
                 setMediaSourceFactory(DefaultMediaSourceFactory(resolvingDataSourceFactory))
             }.build()
-
-        val audioOffloadPreferences =
-            TrackSelectionParameters.AudioOffloadPreferences.Builder()
-                .setAudioOffloadMode(TrackSelectionParameters.AudioOffloadPreferences.AUDIO_OFFLOAD_MODE_ENABLED)
-                .setIsGaplessSupportRequired(true)
-                .build()
-        player.trackSelectionParameters =
-            player.trackSelectionParameters
-                .buildUpon()
-                .setAudioOffloadPreferences(audioOffloadPreferences)
-                .build()
         player.repeatMode = REPEAT_MODE_ALL
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(
@@ -227,7 +225,6 @@ class PlaybackService : MediaSessionService() {
             .setCustomLayout(
                 ImmutableList.of(
                     favoriteButton,
-                    shuffleButton,
                     if (desktopLyricEnabled) desktopLyricButtonOn else desktopLyricButton
                 )
             )
@@ -235,6 +232,8 @@ class PlaybackService : MediaSessionService() {
         observeIconPreference()
         observeFavoriteSongIds()
         observeDesktopLyricPreference()
+        observeAudioEffectMode()
+        observeAudioEffectParams()
         observeScrobble(player)
         DesktopLyricManager.syncService(this)
     }
@@ -262,7 +261,6 @@ class PlaybackService : MediaSessionService() {
         mediaSession?.setCustomLayout(
             ImmutableList.of(
                 if (favoriteSongIds.contains(mediaSession?.player?.currentMediaItem?.mediaId?.toLong())) favoriteButtonOn else favoriteButton,
-                if (mediaSession?.player?.shuffleModeEnabled != false) shuffleButtonOn else shuffleButton,
                 if (desktopLyricEnabled) desktopLyricButtonOn else desktopLyricButton
             )
         )
@@ -473,6 +471,34 @@ class PlaybackService : MediaSessionService() {
                 .collect {
                     updateCustomLayout()
                     DesktopLyricManager.syncService(applicationContext)
+                }
+        }
+    }
+
+    @kotlin.OptIn(FlowPreview::class)
+    private fun observeAudioEffectMode() {
+        scope.launch {
+            applicationContext.dataStore.data.debounce(300)
+                .map { it[audioEffectModeKey].toEnum(AudioEffectMode.OFF) }
+                .distinctUntilChanged()
+                .collect { mode ->
+                    PlaybackAudioProcessors.setMode(mode)
+                }
+        }
+    }
+
+    @kotlin.OptIn(FlowPreview::class)
+    private fun observeAudioEffectParams() {
+        scope.launch {
+            applicationContext.dataStore.data.debounce(100)
+                .map { preferences ->
+                    (preferences[audioEffectIntensityKey] ?: 0.5f) to
+                        (preferences[audioEffectSpeedKey] ?: 0.5f)
+                }
+                .distinctUntilChanged()
+                .collect { (intensity, speed) ->
+                    PlaybackAudioProcessors.setIntensity(intensity)
+                    PlaybackAudioProcessors.setSpeed(speed)
                 }
         }
     }

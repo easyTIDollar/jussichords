@@ -121,7 +121,10 @@ fun NavGraph(
                 )
             }
             composable(Screen.Roam.route) {
-                RoamScreen(onBackPressed = { navController.popBackStack() })
+                RoamScreen(
+                    navController = navController,
+                    onBackPressed = { navController.popBackStack() }
+                )
             }
             composable(Screen.Settings.route) { SettingsScreen(navController = navController) }
             composable(Screen.Login.route) { LoginScreen(navController = navController) }
