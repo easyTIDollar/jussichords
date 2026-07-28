@@ -99,21 +99,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
 import androidx.navigation.NavHostController
 
 private const val ROAM_PLAYER = 0
 private const val ROAM_LYRIC = 1
 private const val ROAM_QUEUE = 2
-private const val PERSONAL_FM_SOURCE = "personal_fm"
+internal const val PERSONAL_FM_SOURCE = "personal_fm"
 
-private data class PersonalFmModeOption(
+internal data class PersonalFmModeOption(
     val title: String,
     val mode: String,
     val submode: String? = null
 )
 
-private val personalFmModeOptions = listOf(
+internal val personalFmModeOptions = listOf(
     PersonalFmModeOption("默认", "DEFAULT"),
     PersonalFmModeOption("AI DJ", "aidj"),
     PersonalFmModeOption("熟悉", "FAMILIAR"),
@@ -122,6 +124,18 @@ private val personalFmModeOptions = listOf(
     PersonalFmModeOption("专注场景", "SCENE_RCMD", "FOCUS"),
     PersonalFmModeOption("夜晚情绪", "SCENE_RCMD", "NIGHT_EMO")
 )
+
+internal object PersonalFmQueueLoader {
+    private val mutex = Mutex()
+    var selectedMode: PersonalFmModeOption = personalFmModeOptions.first()
+
+    suspend fun load(modeOption: PersonalFmModeOption = selectedMode): Result<List<Song>> =
+        mutex.withLock {
+            selectedMode = modeOption
+            RecommendApi.personalFm(mode = modeOption.mode, submode = modeOption.submode)
+                .map { response -> response.data.map { it.toSong() }.filter { it.id != 0L } }
+        }
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -157,10 +171,13 @@ fun RoamScreen(
     }
     var isLoading by rememberSaveable { mutableStateOf(false) }
     var errorMessage by rememberSaveable { mutableStateOf<String?>(null) }
-    var queuedFmSongs by remember { mutableStateOf(emptyList<Song>()) }
     var shownPanel by rememberSaveable { mutableIntStateOf(ROAM_PLAYER) }
     var openComments by rememberSaveable { mutableStateOf(false) }
-    var selectedModeIndex by rememberSaveable { mutableStateOf(0) }
+    var selectedModeIndex by rememberSaveable {
+        mutableStateOf(
+            personalFmModeOptions.indexOf(PersonalFmQueueLoader.selectedMode).coerceAtLeast(0)
+        )
+    }
     val selectedMode = personalFmModeOptions[selectedModeIndex]
 
     fun playSongs(songs: List<Song>) {
@@ -172,27 +189,17 @@ fun RoamScreen(
     }
 
     fun playPersonalFm(
-        forceFetch: Boolean = false,
         modeOption: PersonalFmModeOption = selectedMode
     ) {
         if (isLoading) return
-        if (!forceFetch && queuedFmSongs.isNotEmpty()) {
-            playSongs(queuedFmSongs)
-            queuedFmSongs = emptyList()
-            return
-        }
         scope.launch {
             isLoading = true
             errorMessage = null
-            RecommendApi.personalFm(
-                mode = modeOption.mode,
-                submode = modeOption.submode
-            )
+            PersonalFmQueueLoader.load(modeOption)
                 .onSuccess { response ->
-                    val songs = response.data.map { it.toSong() }.filter { it.id != 0L }
+                    val songs = response
                     if (songs.isNotEmpty()) {
                         playSongs(songs)
-                        queuedFmSongs = emptyList()
                     } else {
                         errorMessage = "私人 FM 暂时没有返回歌曲"
                     }
@@ -274,6 +281,12 @@ fun RoamScreen(
                     onContainerClick = { shownPanel = ROAM_QUEUE },
                     onPositionUpdate = { position = it },
                     playerLabel = "私人 FM",
+                    playerLabelOptions = personalFmModeOptions.map { it.title },
+                    selectedPlayerLabelOption = selectedModeIndex,
+                    onPlayerLabelOptionSelected = { index ->
+                        selectedModeIndex = index
+                        playPersonalFm(personalFmModeOptions[index])
+                    },
                     metadataClickEnabled = false,
                 )
             } else {
@@ -292,11 +305,7 @@ fun RoamScreen(
                     onPlayPersonalFm = { playPersonalFm() },
                     onModeSelected = { index ->
                         selectedModeIndex = index
-                        queuedFmSongs = emptyList()
-                        playPersonalFm(
-                            forceFetch = true,
-                            modeOption = personalFmModeOptions[index]
-                        )
+                        playPersonalFm(personalFmModeOptions[index])
                     },
                     onPlayPause = {
                         if (!isPersonalFm) {

@@ -1,4 +1,4 @@
-package com.jussicodes.music.ui.components
+﻿package com.jussicodes.music.ui.components
 
 import android.content.Intent
 import android.os.Bundle
@@ -12,17 +12,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -38,14 +37,15 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MediaSessionConstants
+import com.jussicodes.music.constants.audioEffectEightDEnabledKey
 import com.jussicodes.music.constants.audioEffectIntensityKey
 import com.jussicodes.music.constants.audioEffectModeKey
+import com.jussicodes.music.constants.audioEffectReverbEnabledKey
 import com.jussicodes.music.constants.audioEffectSpeedKey
 import com.jussicodes.music.playback.audio.AudioEffectMode
 import com.jussicodes.music.ui.icons.AudioLines
@@ -76,19 +76,22 @@ fun PlayerMenuBottomSheet(
     val shuffleMode = playerState?.shuffleModeEnabled == true
     val repeatMode = playerState?.repeatMode ?: 0
     var audioEffectMode by rememberEnumPreference(audioEffectModeKey, AudioEffectMode.OFF)
+    var eightDEnabledPreference by rememberPreference(audioEffectEightDEnabledKey, audioEffectMode == AudioEffectMode.EIGHT_D)
+    var reverbEnabledPreference by rememberPreference(audioEffectReverbEnabledKey, audioEffectMode == AudioEffectMode.REVERB)
     var audioEffectIntensity by rememberPreference(audioEffectIntensityKey, 0.5f)
     var audioEffectSpeed by rememberPreference(audioEffectSpeedKey, 0.5f)
     var showAudioEffectPage by rememberSaveable { mutableStateOf(false) }
+    val eightDEnabled = eightDEnabledPreference || audioEffectMode == AudioEffectMode.EIGHT_D
+    val reverbEnabled = reverbEnabledPreference || audioEffectMode == AudioEffectMode.REVERB
     val repeatIcon = when (repeatMode) {
         1 -> RepeatOne
         else -> Repeat
     }
-    val audioEffectModeText = when (audioEffectMode) {
-        AudioEffectMode.OFF -> "关闭"
-        AudioEffectMode.EIGHT_D -> "8D 环绕"
-        AudioEffectMode.BASS_BOOST -> "低音增强"
-        AudioEffectMode.MUFFLED -> "闷声"
-        AudioEffectMode.REVERB -> "混响"
+    val audioEffectModeText = when {
+        eightDEnabled && reverbEnabled -> "双耳空间 + 混响"
+        eightDEnabled -> "双耳空间"
+        reverbEnabled -> "混响"
+        else -> "关闭"
     }
     val repeatModeText = when (repeatMode) {
         1 -> stringResource(R.string.playback_mode_repeat_one)
@@ -121,8 +124,16 @@ fun PlayerMenuBottomSheet(
         ) {
             if (showAudioEffectPage) {
                 AudioEffectPage(
-                    audioEffectMode = audioEffectMode,
-                    onAudioEffectModeChange = { audioEffectMode = it },
+                    eightDEnabled = eightDEnabled,
+                    onEightDEnabledChange = {
+                        eightDEnabledPreference = it
+                        audioEffectMode = AudioEffectMode.OFF
+                    },
+                    reverbEnabled = reverbEnabled,
+                    onReverbEnabledChange = {
+                        reverbEnabledPreference = it
+                        audioEffectMode = AudioEffectMode.OFF
+                    },
                     intensity = audioEffectIntensity,
                     onIntensityChange = { audioEffectIntensity = it },
                     speed = audioEffectSpeed,
@@ -195,7 +206,7 @@ fun PlayerMenuBottomSheet(
                             icon = AudioLines,
                             title = "音效",
                             value = audioEffectModeText,
-                            iconAlpha = if (audioEffectMode == AudioEffectMode.OFF) 0.4f else 1f,
+                            iconAlpha = if (eightDEnabled || reverbEnabled) 1f else 0.4f,
                             onClick = { showAudioEffectPage = true }
                         )
                     }
@@ -279,8 +290,10 @@ fun PlayerMenuBottomSheet(
 
 @Composable
 private fun AudioEffectPage(
-    audioEffectMode: AudioEffectMode,
-    onAudioEffectModeChange: (AudioEffectMode) -> Unit,
+    eightDEnabled: Boolean,
+    onEightDEnabledChange: (Boolean) -> Unit,
+    reverbEnabled: Boolean,
+    onReverbEnabledChange: (Boolean) -> Unit,
     intensity: Float,
     onIntensityChange: (Float) -> Unit,
     speed: Float,
@@ -301,41 +314,41 @@ private fun AudioEffectPage(
                 ),
                 icon = Icons.AutoMirrored.Outlined.ArrowBack,
                 title = "音效设置",
-                value = audioEffectMode.label,
+                value = audioEffectLabel(eightDEnabled, reverbEnabled),
                 onClick = onBack
             )
         }
 
-        AudioEffectMode.entries.forEach { mode ->
-            item {
-                AudioEffectOption(
-                    mode = mode,
-                    selected = audioEffectMode == mode,
-                    onClick = { onAudioEffectModeChange(mode) }
-                )
-            }
+        item {
+            AudioEffectOption(
+                title = "双耳空间",
+                selected = eightDEnabled,
+                onClick = { onEightDEnabledChange(!eightDEnabled) }
+            )
+        }
+
+        item {
+            AudioEffectOption(
+                title = "混响",
+                selected = reverbEnabled,
+                onClick = { onReverbEnabledChange(!reverbEnabled) }
+            )
         }
 
         item {
             AudioEffectSlider(
-                title = when (audioEffectMode) {
-                    AudioEffectMode.EIGHT_D -> "空间旋转幅度"
-                    AudioEffectMode.BASS_BOOST -> "低音强度"
-                    AudioEffectMode.MUFFLED -> "闷声程度"
-                    AudioEffectMode.REVERB -> "混响强度"
-                    AudioEffectMode.OFF -> "音效强度"
-                },
+                title = "音效强度",
                 value = intensity,
-                enabled = audioEffectMode != AudioEffectMode.OFF,
+                enabled = eightDEnabled || reverbEnabled,
                 onValueChange = onIntensityChange
             )
         }
 
         item {
             AudioEffectSlider(
-                title = "8D 旋转速度",
+                title = "空间旋转速度",
                 value = speed,
-                enabled = audioEffectMode == AudioEffectMode.EIGHT_D,
+                enabled = eightDEnabled,
                 onValueChange = onSpeedChange
             )
         }
@@ -348,7 +361,7 @@ private fun AudioEffectPage(
 
 @Composable
 private fun AudioEffectOption(
-    mode: AudioEffectMode,
+    title: String,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -360,17 +373,13 @@ private fun AudioEffectOption(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp)
-                .selectable(
-                    selected = selected,
-                    onClick = onClick,
-                    role = Role.RadioButton
-                )
+                .clickable(onClick = onClick)
                 .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            RadioButton(selected = selected, onClick = null)
+            Checkbox(checked = selected, onCheckedChange = null)
             Text(
-                text = mode.label,
+                text = title,
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(start = 8.dp)
             )
@@ -416,14 +425,12 @@ private fun AudioEffectSlider(
     }
 }
 
-private val AudioEffectMode.label: String
-    get() = when (this) {
-        AudioEffectMode.OFF -> "关闭"
-        AudioEffectMode.EIGHT_D -> "8D 环绕"
-        AudioEffectMode.BASS_BOOST -> "低音增强"
-        AudioEffectMode.MUFFLED -> "闷声"
-        AudioEffectMode.REVERB -> "混响"
-    }
+private fun audioEffectLabel(eightDEnabled: Boolean, reverbEnabled: Boolean): String = when {
+    eightDEnabled && reverbEnabled -> "双耳空间 + 混响"
+    eightDEnabled -> "双耳空间"
+    reverbEnabled -> "混响"
+    else -> "关闭"
+}
 
 @Composable
 private fun PlayerMenuActionCard(
@@ -467,3 +474,4 @@ private fun PlayerMenuActionCard(
         }
     }
 }
+

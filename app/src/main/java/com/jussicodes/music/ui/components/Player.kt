@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
@@ -112,6 +114,9 @@ fun Player(
     onPositionUpdate: (Long) -> Unit,
     navController: NavHostController,
     playerLabel: String? = null,
+    playerLabelOptions: List<String> = emptyList(),
+    selectedPlayerLabelOption: Int = 0,
+    onPlayerLabelOptionSelected: (Int) -> Unit = {},
     metadataClickEnabled: Boolean = true,
 ) {
 
@@ -136,6 +141,7 @@ fun Player(
     var openBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openPlayerBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openComments by rememberSaveable { mutableStateOf(false) }
+    var playerLabelMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var coverPreviewUrl by remember { mutableStateOf<Any?>(null) }
     var coverOffsetX by remember { mutableFloatStateOf(0f) }
     var coverOffsetY by remember { mutableFloatStateOf(0f) }
@@ -239,12 +245,38 @@ fun Player(
                     }
                 }
                 playerLabel?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
+                    Box(modifier = Modifier.align(Alignment.Center)) {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clickable(
+                                enabled = playerLabelOptions.isNotEmpty()
+                            ) { playerLabelMenuExpanded = true }
+                        )
+                        DropdownMenu(
+                            expanded = playerLabelMenuExpanded,
+                            onDismissRequest = { playerLabelMenuExpanded = false }
+                        ) {
+                            playerLabelOptions.forEachIndexed { index, option ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (index == selectedPlayerLabelOption) {
+                                                "$option · 当前"
+                                            } else {
+                                                option
+                                            }
+                                        )
+                                    },
+                                    onClick = {
+                                        playerLabelMenuExpanded = false
+                                        onPlayerLabelOptionSelected(index)
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
 

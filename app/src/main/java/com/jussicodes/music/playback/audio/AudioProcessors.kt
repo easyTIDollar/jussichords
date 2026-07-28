@@ -7,41 +7,64 @@ import androidx.media3.common.util.UnstableApi
 import java.nio.ByteBuffer
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.floor
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 enum class AudioEffectMode {
     OFF,
     EIGHT_D,
-    BASS_BOOST,
-    MUFFLED,
     REVERB
 }
 
 @UnstableApi
 class EightDAudioProcessor : BaseAudioProcessor() {
+    @Volatile
     private var enabled = false
-    private var time: Double = 0.0
-    private var rotationSpeed: Double = 0.00001
-    private var depth: Float = 0.8f
+
+    @Volatile
+    private var rotationPeriodSeconds = 10.0
+
+    @Volatile
+    private var depth = 0.5f
+
+    private var coefficients: ShortArray = SadieHrirData.HRIR_48000
+    private var phase = 0.0
+    private var phaseIncrement = 0.0
+    private var history = FloatArray(SadieHrirData.TAPS)
+    private var historyIndex = 0
+    private var leftLowPassState = 0f
+    private var rightLowPassState = 0f
 
     fun setEnabled(enabled: Boolean) {
         this.enabled = enabled
-        if (!enabled) time = 0.0
+        if (!enabled) resetState()
     }
 
     fun setSpeed(normalizedSpeed: Float) {
-        rotationSpeed = (0.000006 + normalizedSpeed * 0.00009).coerceIn(0.000006, 0.000096)
+        rotationPeriodSeconds = 24.0 - normalizedSpeed.coerceIn(0f, 1f) * 20.0
+        updatePhaseIncrement()
     }
 
     fun setDepth(normalizedIntensity: Float) {
-        depth = (0.35f + normalizedIntensity * 0.65f).coerceIn(0.35f, 1f)
+        depth = normalizedIntensity.coerceIn(0f, 1f)
     }
 
-    override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat =
-        if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) inputAudioFormat else AudioProcessor.AudioFormat.NOT_SET
+    override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
+        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT || inputAudioFormat.channelCount != 2) {
+            return AudioProcessor.AudioFormat.NOT_SET
+        }
+
+        coefficients = SadieHrirData.coefficientsFor(inputAudioFormat.sampleRate)
+        history = FloatArray(SadieHrirData.TAPS)
+        updatePhaseIncrement(inputAudioFormat.sampleRate)
+        resetState()
+        return inputAudioFormat
+    }
 
     override fun onFlush() {
-        if (enabled) time = 0.0
+        resetState()
     }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
@@ -55,25 +78,100 @@ class EightDAudioProcessor : BaseAudioProcessor() {
             return
         }
 
-        while (inputBuffer.remaining() >= 2) {
-            if (inputAudioFormat.channelCount == 2 && inputBuffer.remaining() >= 4) {
-                val left = inputBuffer.getShort().toFloat()
-                val right = inputBuffer.getShort().toFloat()
+        while (inputBuffer.remaining() >= 4) {
+            val dryLeft = inputBuffer.getShort().toFloat()
+            val dryRight = inputBuffer.getShort().toFloat()
+            val mono = (dryLeft + dryRight) * 0.5f
 
-                time += rotationSpeed
-                val pan = sin(time) * depth
-                val angle = (pan + 1.0) * PI / 4.0
-                val pannedLeft = left * cos(angle)
-                val pannedRight = right * sin(angle)
-                val dry = 1f - depth
+            history[historyIndex] = mono
+            val spatialPhase = orbitPhase()
+            val rawWetLeft = convolveEar(LEFT_EAR)
+            val rawWetRight = convolveEar(RIGHT_EAR)
+            val frontAmount = maxOf(0.0, cos(spatialPhase)).toFloat()
+            val rearAmount = maxOf(0.0, -cos(spatialPhase)).toFloat()
+            val wetLeft = applyMedianPlaneCue(rawWetLeft, LEFT_EAR, frontAmount, rearAmount)
+            val wetRight = applyMedianPlaneCue(rawWetRight, RIGHT_EAR, frontAmount, rearAmount)
 
-                outputBuffer.putShort((left * dry + pannedLeft * depth).toInt().toShort())
-                outputBuffer.putShort((right * dry + pannedRight * depth).toInt().toShort())
-            } else {
-                outputBuffer.putShort(inputBuffer.getShort())
-            }
+            val mix = if (depth <= 0f) 0f else (0.35f + depth * 0.65f).coerceIn(0f, 1f)
+            outputBuffer.putShort(mix(dryLeft, wetLeft, mix))
+            outputBuffer.putShort(mix(dryRight, wetRight, mix))
+
+            historyIndex = (historyIndex + 1) % history.size
+            phase += phaseIncrement
+            if (phase >= TWO_PI) phase -= TWO_PI
         }
         outputBuffer.flip()
+    }
+
+    private fun convolveEar(ear: Int): Float {
+        val scaledPosition = orbitPhase() / TWO_PI * SadieHrirData.POSITIONS
+        val firstPosition = floor(scaledPosition).toInt() % SadieHrirData.POSITIONS
+        val secondPosition = (firstPosition + 1) % SadieHrirData.POSITIONS
+        val blend = (scaledPosition - floor(scaledPosition)).toFloat()
+        val firstOffset = ((firstPosition * EARS) + ear) * SadieHrirData.TAPS
+        val secondOffset = ((secondPosition * EARS) + ear) * SadieHrirData.TAPS
+        var sum = 0f
+        var readIndex = historyIndex
+
+        for (tap in 0 until SadieHrirData.TAPS) {
+            val coefficient = coefficients[firstOffset + tap] * (1f - blend) +
+                coefficients[secondOffset + tap] * blend
+            sum += history[readIndex] * coefficient
+            readIndex--
+            if (readIndex < 0) readIndex = history.lastIndex
+        }
+        return sum / SadieHrirData.SCALE
+    }
+
+    private fun orbitPhase(): Double {
+        val slowedAtFrontAndRear = phase - FRONT_REAR_DWELL * 0.5 * sin(phase * 2.0)
+        return if (slowedAtFrontAndRear < 0.0) slowedAtFrontAndRear + TWO_PI else slowedAtFrontAndRear
+    }
+
+    private fun applyMedianPlaneCue(input: Float, ear: Int, frontAmount: Float, rearAmount: Float): Float {
+        val lowPassed = lowPass(input, ear, 4_800f)
+        val highPassed = input - lowPassed
+        val frontPresence = input + highPassed * 0.22f * frontAmount
+        val rearDarkened = frontPresence * (1f - rearAmount * 0.18f) - highPassed * 0.58f * rearAmount
+        return rearDarkened
+    }
+
+    private fun lowPass(input: Float, ear: Int, cutoffHz: Float): Float {
+        val sampleRate = inputAudioFormat.sampleRate.coerceAtLeast(1)
+        val memory = exp(-TWO_PI * cutoffHz / sampleRate).toFloat()
+        return if (ear == LEFT_EAR) {
+            leftLowPassState = input * (1f - memory) + leftLowPassState * memory
+            leftLowPassState
+        } else {
+            rightLowPassState = input * (1f - memory) + rightLowPassState * memory
+            rightLowPassState
+        }
+    }
+
+    private fun mix(dry: Float, wet: Float, amount: Float): Short =
+        (dry * (1f - amount) + wet * amount)
+            .roundToInt()
+            .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            .toShort()
+
+    private fun resetState() {
+        phase = 0.0
+        history.fill(0f)
+        historyIndex = 0
+        leftLowPassState = 0f
+        rightLowPassState = 0f
+    }
+
+    private fun updatePhaseIncrement(sampleRate: Int = inputAudioFormat.sampleRate) {
+        if (sampleRate > 0) phaseIncrement = TWO_PI / (rotationPeriodSeconds * sampleRate)
+    }
+
+    private companion object {
+        const val EARS = 2
+        const val LEFT_EAR = 0
+        const val RIGHT_EAR = 1
+        const val FRONT_REAR_DWELL = 0.58
+        const val TWO_PI = 2.0 * PI
     }
 }
 
@@ -237,12 +335,12 @@ class FxAudioProcessor : BaseAudioProcessor() {
 @UnstableApi
 class ReverbAudioProcessor : BaseAudioProcessor() {
     private var enabled = false
-    private var combFilters: Array<CombFilter> = emptyArray()
-    private var allPassFilters: Array<AllPassFilter> = emptyArray()
-    private var wet = 0.25f
-    private var dry = 0.75f
-    private var roomSize = 0.78f
-    private var damping = 0.35f
+    private var channels: Array<ReverbChannel> = emptyArray()
+    private var channelCount = 0
+    private var wet = 0.22f
+    private var dry = 0.82f
+    private var roomSize = 0.76f
+    private var damping = 0.42f
 
     fun setEnabled(enabled: Boolean) {
         if (this.enabled != enabled) {
@@ -253,18 +351,19 @@ class ReverbAudioProcessor : BaseAudioProcessor() {
 
     fun setAmount(normalizedIntensity: Float) {
         val intensity = normalizedIntensity.coerceIn(0f, 1f)
-        wet = (0.12f + intensity * 0.42f).coerceIn(0.12f, 0.54f)
-        dry = (1f - wet * 0.65f).coerceIn(0.65f, 0.95f)
-        roomSize = (0.68f + intensity * 0.22f).coerceIn(0.68f, 0.9f)
-        damping = (0.22f + intensity * 0.48f).coerceIn(0.22f, 0.7f)
-        combFilters.forEach { it.setFeedback(roomSize, damping) }
+        wet = (0.08f + intensity * 0.24f).coerceIn(0.08f, 0.32f)
+        dry = (0.92f - intensity * 0.12f).coerceIn(0.80f, 0.92f)
+        roomSize = (0.68f + intensity * 0.16f).coerceIn(0.68f, 0.84f)
+        damping = (0.34f + intensity * 0.34f).coerceIn(0.34f, 0.68f)
+        channels.forEach { it.setFeedback(roomSize, damping) }
     }
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) {
             return AudioProcessor.AudioFormat.NOT_SET
         }
-        createFilters(inputAudioFormat.sampleRate, inputAudioFormat.channelCount)
+        channelCount = inputAudioFormat.channelCount.coerceAtLeast(1)
+        createFilters(inputAudioFormat.sampleRate, channelCount)
         return inputAudioFormat
     }
 
@@ -283,40 +382,93 @@ class ReverbAudioProcessor : BaseAudioProcessor() {
             return
         }
 
+        var channel = 0
         while (inputBuffer.remaining() >= 2) {
             val inputSample = inputBuffer.getShort().toFloat() / Short.MAX_VALUE
-            val combSum = combFilters.sumOf { it.process(inputSample).toDouble() }.toFloat()
-            val combOut = if (combFilters.isNotEmpty()) combSum / combFilters.size else inputSample
-            val reverbOut = allPassFilters.fold(combOut) { sample, filter -> filter.process(sample) }
-            val outputSample = ((inputSample * dry + reverbOut * wet) * Short.MAX_VALUE)
-                .toInt()
-                .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
-                .toShort()
+            val reverbOut = channels.getOrNull(channel)?.process(inputSample * INPUT_GAIN) ?: inputSample
+            val outputSample = floatToPcm16(inputSample * dry + reverbOut * wet)
 
             outputBuffer.putShort(outputSample)
+            channel = (channel + 1) % channelCount
         }
         outputBuffer.flip()
     }
 
     private fun createFilters(sampleRate: Int, channelCount: Int) {
         val scale = sampleRate / 44100f
-        val channels = channelCount.coerceAtLeast(1)
-        combFilters = intArrayOf(1116, 1188, 1277, 1356, 1422, 1491)
-            .map { delay ->
-                CombFilter((delay * scale).toInt().coerceAtLeast(1) * channels)
-            }
-            .toTypedArray()
-        allPassFilters = intArrayOf(556, 441, 341)
-            .map { delay ->
-                AllPassFilter((delay * scale).toInt().coerceAtLeast(1) * channels)
-            }
-            .toTypedArray()
-        setAmount((wet - 0.12f) / 0.42f)
+        channels = Array(channelCount.coerceAtLeast(1)) { channel ->
+            ReverbChannel(
+                sampleRate = sampleRate,
+                combSizes = COMB_DELAYS.map { delay ->
+                    ((delay + channel * STEREO_SPREAD) * scale).roundToInt().coerceAtLeast(1)
+                },
+                allPassSizes = ALL_PASS_DELAYS.map { delay ->
+                    ((delay + channel * STEREO_SPREAD) * scale).roundToInt().coerceAtLeast(1)
+                }
+            )
+        }
+        setAmount(((wet - 0.08f) / 0.24f).coerceIn(0f, 1f))
     }
 
     private fun resetStates() {
-        combFilters.forEach(CombFilter::reset)
-        allPassFilters.forEach(AllPassFilter::reset)
+        channels.forEach(ReverbChannel::reset)
+    }
+
+    private fun floatToPcm16(sample: Float): Short {
+        val limited = softClip(sample)
+        return (limited * Short.MAX_VALUE)
+            .roundToInt()
+            .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            .toShort()
+    }
+
+    private fun softClip(sample: Float): Float {
+        val x = sample.coerceIn(-SOFT_CLIP_LIMIT, SOFT_CLIP_LIMIT)
+        return x * (1.5f - 0.5f * x * x)
+    }
+
+    private class ReverbChannel(
+        sampleRate: Int,
+        combSizes: List<Int>,
+        allPassSizes: List<Int>
+    ) {
+        private val combFilters = combSizes.map(::CombFilter).toTypedArray()
+        private val allPassFilters = allPassSizes.map(::AllPassFilter).toTypedArray()
+        private val inputLowCut = OnePoleHighPass(sampleRate, WET_LOW_CUT_HZ)
+        private val outputLowCut = OnePoleHighPass(sampleRate, WET_LOW_CUT_HZ)
+
+        fun setFeedback(feedback: Float, damping: Float) {
+            combFilters.forEach { it.setFeedback(feedback, damping) }
+        }
+
+        fun process(input: Float): Float {
+            val filteredInput = inputLowCut.process(input)
+            val combSum = combFilters.sumOf { it.process(filteredInput).toDouble() }.toFloat()
+            val combOut = combSum * COMB_GAIN
+            val diffused = allPassFilters.fold(combOut) { sample, filter -> filter.process(sample) }
+            return outputLowCut.process(diffused)
+        }
+
+        fun reset() {
+            combFilters.forEach(CombFilter::reset)
+            allPassFilters.forEach(AllPassFilter::reset)
+            inputLowCut.reset()
+            outputLowCut.reset()
+        }
+    }
+
+    private class OnePoleHighPass(sampleRate: Int, cutoffHz: Float) {
+        private val coefficient = 1f - exp(-TWO_PI_FLOAT * cutoffHz / sampleRate.coerceAtLeast(1)).toFloat()
+        private var low = 0f
+
+        fun process(input: Float): Float {
+            low += coefficient * (input - low)
+            return input - low
+        }
+
+        fun reset() {
+            low = 0f
+        }
     }
 
     private class CombFilter(size: Int) {
@@ -334,7 +486,7 @@ class ReverbAudioProcessor : BaseAudioProcessor() {
         fun process(input: Float): Float {
             val output = buffer[index]
             dampedSample = output * (1f - damping) + dampedSample * damping
-            buffer[index] = input + dampedSample * feedback
+            buffer[index] = (input + dampedSample * feedback).sanitize()
             index = (index + 1) % buffer.size
             return output
         }
@@ -354,7 +506,7 @@ class ReverbAudioProcessor : BaseAudioProcessor() {
         fun process(input: Float): Float {
             val buffered = buffer[index]
             val output = -input + buffered
-            buffer[index] = input + buffered * feedback
+            buffer[index] = (input + buffered * feedback).sanitize()
             index = (index + 1) % buffer.size
             return output
         }
@@ -363,6 +515,19 @@ class ReverbAudioProcessor : BaseAudioProcessor() {
             buffer.fill(0f)
             index = 0
         }
+    }
+
+    private companion object {
+        val COMB_DELAYS = intArrayOf(1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617)
+        val ALL_PASS_DELAYS = intArrayOf(556, 441, 341, 225)
+        const val STEREO_SPREAD = 23
+        const val INPUT_GAIN = 0.62f
+        const val COMB_GAIN = 0.125f
+        const val SOFT_CLIP_LIMIT = 1f
+        const val WET_LOW_CUT_HZ = 140f
+        const val TWO_PI_FLOAT = (2f * PI).toFloat()
+
+        fun Float.sanitize(): Float = if (this.isFinite()) this.coerceIn(-4f, 4f) else 0f
     }
 }
 
@@ -375,12 +540,16 @@ object PlaybackAudioProcessors {
     fun asArray(): Array<AudioProcessor> = arrayOf(eightD, fx, reverb)
 
     fun setMode(mode: AudioEffectMode) {
-        eightD.setEnabled(mode == AudioEffectMode.EIGHT_D)
-        fx.setEffects(
-            muffled = mode == AudioEffectMode.MUFFLED,
-            bassBoost = mode == AudioEffectMode.BASS_BOOST
+        setEnabled(
+            eightDEnabled = mode == AudioEffectMode.EIGHT_D,
+            reverbEnabled = mode == AudioEffectMode.REVERB
         )
-        reverb.setEnabled(mode == AudioEffectMode.REVERB)
+    }
+
+    fun setEnabled(eightDEnabled: Boolean, reverbEnabled: Boolean) {
+        eightD.setEnabled(eightDEnabled)
+        fx.setEffects(muffled = false, bassBoost = false)
+        reverb.setEnabled(reverbEnabled)
     }
 
     fun setIntensity(normalizedIntensity: Float) {

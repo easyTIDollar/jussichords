@@ -42,8 +42,10 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.jussicodes.music.MainActivity
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MediaSessionConstants
+import com.jussicodes.music.constants.audioEffectEightDEnabledKey
 import com.jussicodes.music.constants.audioEffectIntensityKey
 import com.jussicodes.music.constants.audioEffectModeKey
+import com.jussicodes.music.constants.audioEffectReverbEnabledKey
 import com.jussicodes.music.constants.audioEffectSpeedKey
 import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
@@ -479,10 +481,17 @@ class PlaybackService : MediaSessionService() {
     private fun observeAudioEffectMode() {
         scope.launch {
             applicationContext.dataStore.data.debounce(300)
-                .map { it[audioEffectModeKey].toEnum(AudioEffectMode.OFF) }
+                .map { preferences ->
+                    val legacyMode = preferences[audioEffectModeKey].toEnum(AudioEffectMode.OFF)
+                    val eightDEnabled = preferences[audioEffectEightDEnabledKey]
+                        ?: (legacyMode == AudioEffectMode.EIGHT_D)
+                    val reverbEnabled = preferences[audioEffectReverbEnabledKey]
+                        ?: (legacyMode == AudioEffectMode.REVERB)
+                    eightDEnabled to reverbEnabled
+                }
                 .distinctUntilChanged()
-                .collect { mode ->
-                    PlaybackAudioProcessors.setMode(mode)
+                .collect { (eightDEnabled, reverbEnabled) ->
+                    PlaybackAudioProcessors.setEnabled(eightDEnabled, reverbEnabled)
                 }
         }
     }

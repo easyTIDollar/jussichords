@@ -54,6 +54,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.BottomNavigationHeight
 import com.jussicodes.music.constants.DURATION_ENTER
 import com.jussicodes.music.constants.EmphasizedDecelerateEasing
@@ -62,6 +63,7 @@ import com.jussicodes.music.constants.currentPlayMediaIdKey
 import com.jussicodes.music.ui.components.tabs
 import com.jussicodes.music.ui.navigation.NavGraph
 import com.jussicodes.music.ui.navigation.Screen
+import com.jussicodes.music.extensions.toMediaItemList
 import com.jussicodes.music.utils.rememberPreference
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -97,6 +99,31 @@ fun MainScreen() {
     val isRoamRoute = currentDestination?.route == Screen.Roam.route
     val showNavigationBar = isTabRoute
     val showMiniPlayerChrome = showMiniPlayer && !isRoamRoute
+
+    LaunchedEffect(
+        playerState?.currentMediaItem,
+        playerState?.mediaItemIndex,
+        playerState?.timeline?.windowCount
+    ) {
+        val player = playerState?.player ?: return@LaunchedEffect
+        val sourceName = playerState.currentMediaItem?.mediaMetadata?.extras
+            ?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME)
+        if (sourceName != PERSONAL_FM_SOURCE) return@LaunchedEffect
+
+        val itemCount = player.mediaItemCount
+        if (itemCount == 0 || player.currentMediaItemIndex < itemCount - 2) return@LaunchedEffect
+
+        PersonalFmQueueLoader.load().onSuccess { songs ->
+            val existingIds = (0 until player.mediaItemCount)
+                .mapTo(mutableSetOf()) { player.getMediaItemAt(it).mediaId }
+            val newSongs = songs.filter { it.id.toString() !in existingIds }
+            if (newSongs.isNotEmpty()) {
+                player.addMediaItems(
+                    newSongs.toMediaItemList(sourceName = PERSONAL_FM_SOURCE)
+                )
+            }
+        }
+    }
 
     LaunchedEffect(playerState, isPlaying, lifecycleOwner) {
         val player = playerState?.player ?: return@LaunchedEffect
