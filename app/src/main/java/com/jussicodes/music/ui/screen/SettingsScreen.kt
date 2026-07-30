@@ -25,9 +25,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -89,6 +91,8 @@ import com.jussicodes.music.utils.getItemShape
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.api.player.SongLevel
+import com.rcmiku.ncmapi.utils.json
+import com.rcmiku.ncmapi.utils.parseCookieString
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
@@ -116,6 +120,7 @@ fun SettingsScreen(navController: NavHostController) {
     var showThemeColorSourceDialog by remember { mutableStateOf(false) }
     var showApiUrlDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
+    var showCookieDialog by remember { mutableStateOf(false) }
     var updating by rememberSaveable { mutableStateOf(false) }
     var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var downloadingUpdate by remember { mutableStateOf(false) }
@@ -199,6 +204,9 @@ fun SettingsScreen(navController: NavHostController) {
         ThemeColorSource.ARTWORK -> "从当前播放音乐的封面取色"
     }
 
+    val accountCookie = remember(ncmCookie) { ncmCookie.toCookieHeader() }
+    val accountCookieMap = remember(accountCookie) { parseCookieString(accountCookie) }
+
     val baseSettingItems = listOf(
         SettingItemData(
             title = appearanceTitle,
@@ -216,6 +224,16 @@ fun SettingsScreen(navController: NavHostController) {
                     navController.navigate(Screen.Login.route)
                 }
             }
+        ),
+        SettingItemData(
+            title = "账号 Cookie",
+            subtitle = if (accountCookie.isBlank()) {
+                "未保存 Cookie"
+            } else {
+                "已保存 ${accountCookieMap.size} 项，点击查看或更改"
+            },
+            imageVector = UserRound,
+            onClick = { showCookieDialog = true }
         ),
         SettingItemData(
             title = "桌面歌词",
@@ -463,6 +481,16 @@ fun SettingsScreen(navController: NavHostController) {
         )
     }
 
+    if (showCookieDialog) {
+        CookieEditDialog(
+            currentCookie = accountCookie,
+            onDismiss = { showCookieDialog = false },
+            onConfirm = { cookie ->
+                ncmCookie = cookie.toStoredCookieJson()
+            }
+        )
+    }
+
     pendingUpdateInfo?.let { updateInfo ->
         UpdateDialog(
             updateInfo = updateInfo,
@@ -492,6 +520,64 @@ fun SettingsScreen(navController: NavHostController) {
         )
     }
 
+}
+
+@Composable
+private fun CookieEditDialog(
+    currentCookie: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var editedCookie by rememberSaveable(currentCookie) { mutableStateOf(currentCookie) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("账号 Cookie") },
+        text = {
+            OutlinedTextField(
+                value = editedCookie,
+                onValueChange = { editedCookie = it },
+                label = { Text("完整 Cookie") },
+                minLines = 5,
+                maxLines = 10,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirm(editedCookie.trim())
+                    onDismiss()
+                }
+            ) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { editedCookie = "" }) {
+                    Text("清空")
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        }
+    )
+}
+
+private fun String.toCookieHeader(): String {
+    if (isBlank()) return ""
+    return runCatching {
+        json.decodeFromString<Map<String, String>>(this)
+            .entries
+            .joinToString("; ") { (key, value) -> "$key=$value" }
+    }.getOrElse { this }
+}
+
+private fun String.toStoredCookieJson(): String {
+    if (isBlank()) return ""
+    return json.encodeToString(parseCookieString(this))
 }
 
 @Composable

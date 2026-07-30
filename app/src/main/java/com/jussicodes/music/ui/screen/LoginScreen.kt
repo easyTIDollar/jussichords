@@ -9,27 +9,36 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.NavController
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.ncmCookieKey
+import com.jussicodes.music.ui.icons.Login as LoginIcon
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.utils.getDeviceID
 import com.jussicodes.music.utils.rememberPreference
@@ -47,7 +56,9 @@ fun LoginScreen(
     navController: NavController,
 ) {
 
+    val context = LocalContext.current
     var ncmCookie by rememberPreference(ncmCookieKey, "")
+    var showCookieLoginDialog by rememberSaveable { mutableStateOf(false) }
     var webView: WebView? = null
 
     Scaffold(
@@ -66,6 +77,14 @@ fun LoginScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = null
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showCookieLoginDialog = true }) {
+                        Icon(
+                            imageVector = LoginIcon,
+                            contentDescription = "Cookie 登录"
                         )
                     }
                 }
@@ -111,11 +130,8 @@ fun LoginScreen(
                                         ).show()
                                         return
                                     }
-                                    cookieMap[CookieKeys.DEVICE_ID] = getDeviceID()
-                                    cookieMap[CookieKeys.OS_VER] = Build.VERSION.RELEASE
-                                    cookieMap[CookieKeys.MOBILE_NAME] = Build.MODEL
-                                    ncmCookie = json.encodeToString(cookieMap)
-                                    CookieProvider.init(cookieMap)
+                                    ncmCookie = cookieMap.withDeviceInfo().toStoredCookie()
+                                    CookieProvider.init(cookieMap.withDeviceInfo())
                                     webView?.clearCache(true)
                                     navController.navigate(Screen.Library.route)
                                 }
@@ -134,6 +150,69 @@ fun LoginScreen(
             )
         }
     }
+
+    if (showCookieLoginDialog) {
+        CookieLoginDialog(
+            onDismiss = { showCookieLoginDialog = false },
+            onConfirm = { rawCookie ->
+                val cookieMap = parseCookieString(rawCookie).withDeviceInfo()
+                if (!cookieMap.containsKey(CookieKeys.MUSIC_U)) {
+                    Toast.makeText(context, "Cookie 缺少 MUSIC_U，无法登录", Toast.LENGTH_SHORT).show()
+                    return@CookieLoginDialog
+                }
+                ncmCookie = cookieMap.toStoredCookie()
+                CookieProvider.init(cookieMap)
+                showCookieLoginDialog = false
+                navController.navigate(Screen.Library.route)
+            }
+        )
+    }
 }
+
+@Composable
+private fun CookieLoginDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var cookie by rememberSaveable { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Cookie 登录") },
+        text = {
+            OutlinedTextField(
+                value = cookie,
+                onValueChange = { cookie = it },
+                label = { Text("完整 Cookie") },
+                minLines = 6,
+                maxLines = 12,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(cookie.trim()) }) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { cookie = "" }) {
+                    Text("清空")
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        }
+    )
+}
+
+private fun Map<String, String>.withDeviceInfo(): MutableMap<String, String> = toMutableMap().apply {
+    this[CookieKeys.DEVICE_ID] = getDeviceID()
+    this[CookieKeys.OS_VER] = Build.VERSION.RELEASE
+    this[CookieKeys.MOBILE_NAME] = Build.MODEL
+}
+
+private fun Map<String, String>.toStoredCookie(): String = json.encodeToString(this)
 
 

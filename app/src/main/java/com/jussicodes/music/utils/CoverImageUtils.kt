@@ -47,3 +47,12 @@ fun String?.withAvatarCacheBuster(version: Long): String? {
         .build()
         .toString()
 }
+
+fun String?.withPlaylistCoverCacheBuster(version: Long): String? {
+    if (this.isNullOrBlank() || version <= 0) return this
+    return this.toUri()
+        .buildUpon()
+        .appendQueryParameter("playlistCoverVersion", version.toString())
+        .build()
+        .toString()
+}

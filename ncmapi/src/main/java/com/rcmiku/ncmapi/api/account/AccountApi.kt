@@ -115,6 +115,14 @@ object AccountApi {
         }
     }
 
+    fun invalidateUserPlaylistCache(userId: Long? = null) {
+        if (userId == null) {
+            userPlaylistRawCache.clear()
+        } else {
+            userPlaylistRawCache.remove(userId)
+        }
+    }
+
     suspend fun userPlaylist(
         userId: Long,
         userPlaylistType: UserPlaylistType
@@ -146,6 +154,10 @@ object AccountApi {
                 creator = item.creator,
                 description = item.description
             )
+        }.filter { playlist ->
+            raw.playlist.firstOrNull { it.id == playlist.id }?.let { item ->
+                !item.subscribed && item.specialType != 5 && item.creator?.userId == userId
+            } == true
         }
         return Result.success(UserPlaylistV1Response(playlist = playlistsV1))
     }
@@ -162,11 +174,8 @@ object AccountApi {
             put("timestamp", System.currentTimeMillis())
             CookieProvider.cookie.takeIf { it.isNotBlank() }?.let { put("cookie", it) }
         }
-        return if (manipulateType == PlayManipulateType.ADD) {
-            apiGet("/playlist/track/add", commonParams)
-        } else {
-            apiGet("/playlist/track/delete", commonParams)
-        }
+        return apiGet<ApiCodeResponse>("/playlist/tracks", commonParams)
+            .onSuccess { userPlaylistRawCache.clear() }
     }
 
     suspend fun cloudSong(offset: Int, limit: Int): Result<CloudSongResponse> =
@@ -219,7 +228,8 @@ object AccountApi {
         val creator: PlaylistCreator? = null,
         val description: String = "",
         val subscribed: Boolean = false,
-        @kotlinx.serialization.SerialName("specialType") val specialType: Int = 0
+        @kotlinx.serialization.SerialName("specialType") val specialType: Int = 0,
+        @kotlinx.serialization.SerialName("createTime") val createTime: Long = 0
     ) {
         fun toPlaylist() = Playlist(
             id = id,
@@ -230,7 +240,8 @@ object AccountApi {
             creator = creator,
             description = description,
             subscribed = subscribed,
-            specialType = specialType
+            specialType = specialType,
+            createTime = createTime
         )
     }
 }

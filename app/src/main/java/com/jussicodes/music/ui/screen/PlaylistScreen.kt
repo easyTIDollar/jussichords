@@ -1,12 +1,25 @@
 package com.jussicodes.music.ui.screen
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.net.Uri
 import android.icu.text.Transliterator
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,16 +33,21 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
@@ -44,11 +62,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
@@ -71,12 +95,24 @@ import com.jussicodes.music.ui.icons.LibraryAdd
 import com.jussicodes.music.ui.icons.LibraryAddCheck
 import com.jussicodes.music.ui.icons.ModeComment
 import com.jussicodes.music.ui.icons.Search
+import com.jussicodes.music.constants.userIdKye
 import com.jussicodes.music.utils.formatPlayCount
 import com.jussicodes.music.utils.formatTimestamp
 import com.jussicodes.music.viewModel.PlaylistScreenViewModel
+import com.jussicodes.music.utils.PlaylistCoverSyncBus
+import com.jussicodes.music.utils.withPlaylistCoverCacheBuster
 import com.rcmiku.ncmapi.model.Song
+import coil3.compose.AsyncImage
+import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.flow.map
+import androidx.core.view.HapticFeedbackConstantsCompat
+import androidx.core.view.ViewCompat
+import com.jussicodes.music.utils.rememberPreference
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
+
+private const val PLAYLIST_COVER_UPLOAD_SIZE = 300
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -97,15 +133,34 @@ fun PlaylistScreen(
     val playlistInfoState by playlistScreenViewModel.playlistInfo.collectAsState()
     var openBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openPlaylistComments by rememberSaveable { mutableStateOf(false) }
+    var playlistMenuExpanded by remember { mutableStateOf(false) }
+    var showEditPlaylistDialog by remember { mutableStateOf(false) }
+    var editPlaylistName by remember { mutableStateOf("") }
+    var editPlaylistDescription by remember { mutableStateOf("") }
+    var selectedCoverUri by remember { mutableStateOf<Uri?>(null) }
+    var coverScale by remember { mutableStateOf(1f) }
+    var coverOffset by remember { mutableStateOf(Offset.Zero) }
     var selectSong by remember { mutableStateOf<Song?>(null) }
     val context = LocalContext.current
+    val view = LocalView.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val searchFocusRequester = remember { FocusRequester() }
     var searchActive by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
         .collectAsState(emptyList())
+    val playlistCoverVersions by PlaylistCoverSyncBus.versions.collectAsState()
+    val userId by rememberPreference(userIdKye, 0)
     val subscribed = playlistInfoState?.subscribed ?: false
+    var reorderedTracks by remember { mutableStateOf<List<Song>?>(null) }
+    var songOrderChanged by remember { mutableStateOf(false) }
+    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            coverScale = 1f
+            coverOffset = Offset.Zero
+            selectedCoverUri = it
+        }
+    }
 
     LaunchedEffect(searchActive) {
         if (searchActive) {
@@ -172,17 +227,88 @@ fun PlaylistScreen(
                                 contentDescription = stringResource(R.string.search)
                             )
                         }
+                        Box {
+                            IconButton(onClick = { playlistMenuExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = stringResource(R.string.more)
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = playlistMenuExpanded,
+                                onDismissRequest = { playlistMenuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("编辑信息") },
+                                    onClick = {
+                                        val playlist = playlistDetailState?.playlist
+                                        playlistMenuExpanded = false
+                                        if (playlist != null) {
+                                            editPlaylistName = playlist.name
+                                            editPlaylistDescription = playlist.description
+                                            showEditPlaylistDialog = true
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("上传封面") },
+                                    onClick = {
+                                        playlistMenuExpanded = false
+                                        coverPicker.launch("image/*")
+                                    }
+                                )
+                            }
+                        }
                     },
                 )
             }
         ) { padding ->
             playlistDetailState?.let {
-                val tracks = it.playlist.getAllTracks()
+                val serverTracks = it.playlist.getAllTracks()
+                LaunchedEffect(it.playlist.id, serverTracks.map { song -> song.id }) {
+                    if (!songOrderChanged) {
+                        reorderedTracks = serverTracks
+                    }
+                }
+                val tracks = reorderedTracks ?: serverTracks
                 val searchEntries = remember(tracks) {
                     tracks.map(::PlaylistSongSearchEntry)
                 }
                 val visibleTracks = remember(searchEntries, searchQuery) {
                     searchEntries.filterBy(searchQuery)
+                }
+                val canReorderSongs = !searchActive &&
+                    searchQuery.isBlank() &&
+                    it.playlist.creator?.userId == userId
+                val currentPlaylistId = it.playlist.id
+                val headerOffset = if (!searchActive || searchQuery.isBlank()) 1 else 0
+                val reorderableLazyListState =
+                    rememberReorderableLazyListState(listState) { from, to ->
+                        val fromIndex = from.index - headerOffset
+                        val toIndex = to.index - headerOffset
+                        if (fromIndex in tracks.indices && toIndex in tracks.indices) {
+                            reorderedTracks = tracks.toMutableList().apply {
+                                add(toIndex, removeAt(fromIndex))
+                            }
+                            songOrderChanged = true
+                            ViewCompat.performHapticFeedback(
+                                view,
+                                HapticFeedbackConstantsCompat.SEGMENT_FREQUENT_TICK
+                            )
+                        }
+                    }
+
+                LaunchedEffect(reorderableLazyListState.isAnyItemDragging) {
+                    if (!reorderableLazyListState.isAnyItemDragging && songOrderChanged) {
+                        reorderedTracks?.let { songs ->
+                            playlistScreenViewModel.reorderSongs(songs) { success ->
+                                if (!success) {
+                                    Toast.makeText(context, "歌曲排序失败", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                        songOrderChanged = false
+                    }
                 }
                 LazyColumn(
                     contentPadding = padding, state = listState,
@@ -197,7 +323,9 @@ fun PlaylistScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 PlaylistThumbnailImage(
-                                    url = it.playlist.coverImgUrl,
+                                    url = it.playlist.coverImgUrl.withPlaylistCoverCacheBuster(
+                                        playlistCoverVersions[it.playlist.id] ?: 0L
+                                    ),
                                     modifier = Modifier.sharedElement(
                                         sharedTransitionScope.rememberSharedContentState(key = it.playlist.id),
                                         animatedVisibilityScope = animatedContentScope,
@@ -303,31 +431,58 @@ fun PlaylistScreen(
                     }
 
                     itemsIndexed(visibleTracks, key = { _, song -> song.id }) { index, song ->
-                        SongListItem(
-                            song = song,
-                            isPlaying = isPlaying,
-                            showLikedIcon = song.id in songIds,
-                            isActive = currentMediaId == song.id,
-                            songIndex = index + 1,
-                            modifier = Modifier.clickable {
-                                mediaController?.setPlaylist(
-                                    tracks,
-                                    sourceId = it.playlist.id
-                                )
-                                mediaController?.playMediaAtId(song.id)
-                            },
-                            trailingContent = {
-                                IconButton(onClick = {
-                                    selectSong = song
-                                    openBottomSheet = true
-                                }) {
-                                    Icon(
-                                        imageVector = Icons.Default.MoreVert,
-                                        contentDescription = stringResource(R.string.more)
+                        ReorderableItem(
+                            reorderableLazyListState,
+                            key = song.id,
+                            enabled = canReorderSongs
+                        ) {
+                            SongListItem(
+                                song = song,
+                                isPlaying = isPlaying,
+                                showLikedIcon = song.id in songIds,
+                                isActive = currentMediaId == song.id,
+                                songIndex = index + 1,
+                                modifier = Modifier
+                                    .then(
+                                        if (canReorderSongs) {
+                                            Modifier.longPressDraggableHandle(
+                                                onDragStarted = {
+                                                    ViewCompat.performHapticFeedback(
+                                                        view,
+                                                        HapticFeedbackConstantsCompat.GESTURE_START
+                                                    )
+                                                },
+                                                onDragStopped = {
+                                                    ViewCompat.performHapticFeedback(
+                                                        view,
+                                                        HapticFeedbackConstantsCompat.GESTURE_END
+                                                    )
+                                                }
+                                            )
+                                        } else {
+                                            Modifier
+                                        }
                                     )
+                                    .clickable {
+                                        mediaController?.setPlaylist(
+                                            tracks,
+                                            sourceId = currentPlaylistId
+                                        )
+                                        mediaController?.playMediaAtId(song.id)
+                                    },
+                                trailingContent = {
+                                    IconButton(onClick = {
+                                        selectSong = song
+                                        openBottomSheet = true
+                                    }) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = stringResource(R.string.more)
+                                        )
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
             }
@@ -340,6 +495,127 @@ fun PlaylistScreen(
         onDismiss = { openBottomSheet = false },
         openBottomSheet = openBottomSheet
     )
+
+    if (showEditPlaylistDialog) {
+        AlertDialog(
+            onDismissRequest = { showEditPlaylistDialog = false },
+            title = { Text("编辑歌单") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = editPlaylistName,
+                        onValueChange = { editPlaylistName = it },
+                        label = { Text("歌单名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editPlaylistDescription,
+                        onValueChange = { editPlaylistDescription = it },
+                        label = { Text("歌单描述") },
+                        minLines = 3,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        playlistScreenViewModel.updatePlaylistInfo(
+                            name = editPlaylistName,
+                            description = editPlaylistDescription
+                        ) { success ->
+                            Toast.makeText(
+                                context,
+                                if (success) "歌单已更新" else "更新歌单失败",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                        showEditPlaylistDialog = false
+                    },
+                    enabled = editPlaylistName.isNotBlank()
+                ) {
+                    Text("保存")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditPlaylistDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    selectedCoverUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { selectedCoverUri = null },
+            title = { Text("编辑封面") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .size(260.dp)
+                            .clip(MaterialTheme.shapes.large)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .pointerInput(uri) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    coverScale = (coverScale * zoom).coerceIn(1f, 6f)
+                                    coverOffset += pan
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = uri,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .size(260.dp)
+                                .graphicsLayer {
+                                    translationX = coverOffset.x
+                                    translationY = coverOffset.y
+                                    scaleX = coverScale
+                                    scaleY = coverScale
+                                }
+                        )
+                    }
+                    Text(
+                        "双指缩放，拖动调整区域 · ${PLAYLIST_COVER_UPLOAD_SIZE} x ${PLAYLIST_COVER_UPLOAD_SIZE}",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        uri.copyToPlaylistCoverCache(
+                            context = context,
+                            scale = coverScale,
+                            offset = coverOffset
+                        )?.let { file ->
+                            selectedCoverUri = null
+                            playlistScreenViewModel.uploadPlaylistCover(file) { success ->
+                                Toast.makeText(
+                                    context,
+                                    if (success) "封面已更新" else "上传封面失败",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        } ?: Toast.makeText(context, "封面处理失败", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("上传")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedCoverUri = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
 
     if (openPlaylistComments) {
         playlistDetailState?.playlist?.let { playlist ->
@@ -399,6 +675,43 @@ private fun String.toInitials(): String =
         .mapNotNull { word -> word.firstOrNull { it.isLetterOrDigit() } }
         .joinToString("")
         .lowercase(Locale.ROOT)
+
+private fun Uri.copyToPlaylistCoverCache(context: Context, scale: Float, offset: Offset): File? {
+    val outputSize = PLAYLIST_COVER_UPLOAD_SIZE
+    val previewSize = 260f
+    val file = File(context.cacheDir, "playlist_cover_${System.currentTimeMillis()}.jpg")
+    return runCatching {
+        context.contentResolver.openInputStream(this)?.use { input ->
+            val bitmap = BitmapFactory.decodeStream(input) ?: return null
+            val outputBitmap = Bitmap.createBitmap(outputSize, outputSize, Bitmap.Config.RGB_565)
+            val canvas = Canvas(outputBitmap)
+            canvas.drawColor(Color.WHITE)
+            val baseScale = maxOf(
+                outputSize.toFloat() / bitmap.width.toFloat(),
+                outputSize.toFloat() / bitmap.height.toFloat()
+            )
+            val finalScale = baseScale * scale
+            val drawWidth = bitmap.width * finalScale
+            val drawHeight = bitmap.height * finalScale
+            val previewToOutputScale = outputSize / previewSize
+            val left = (outputSize - drawWidth) / 2f + offset.x * previewToOutputScale
+            val top = (outputSize - drawHeight) / 2f + offset.y * previewToOutputScale
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            canvas.drawBitmap(
+                bitmap,
+                null,
+                RectF(left, top, left + drawWidth, top + drawHeight),
+                paint
+            )
+            file.outputStream().use { stream ->
+                outputBitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream)
+            }
+            outputBitmap.recycle()
+            bitmap.recycle()
+        } ?: return null
+        file
+    }.getOrNull()
+}
 
 private object PinyinInitialTransliterator {
     private val transliterator by lazy {

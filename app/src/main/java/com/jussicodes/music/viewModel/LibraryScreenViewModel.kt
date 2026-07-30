@@ -14,10 +14,12 @@ import com.jussicodes.music.constants.userIdKye
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.utils.FavoriteSongSyncBus
 import com.jussicodes.music.utils.PlaylistCollectionSyncBus
+import com.jussicodes.music.utils.PlaylistCoverSyncBus
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.account.UserPlaylistType
 import com.rcmiku.ncmapi.api.album.AlbumApi
+import com.rcmiku.ncmapi.api.playlist.PlaylistApi
 import com.rcmiku.ncmapi.model.Album
 import com.rcmiku.ncmapi.model.FavoriteSongResponse
 import com.rcmiku.ncmapi.model.Playlist
@@ -132,6 +134,157 @@ class LibraryScreenViewModel @Inject constructor(
                     prefs[libraryUserPlaylistsCacheKey] = json.encodeToString(baseUserPlaylists)
                 }
             }
+        }
+    }
+
+    fun createPlaylist(name: String, onResult: (Boolean) -> Unit = {}) {
+        val trimmedName = name.trim()
+        if (trimmedName.isEmpty()) {
+            onResult(false)
+            return
+        }
+        viewModelScope.launch {
+            val success = PlaylistApi.createPlaylist(trimmedName).isSuccess
+            if (success) {
+                invalidateUserPlaylistCache()
+                refreshUserPlaylists()
+            }
+            onResult(success)
+        }
+    }
+
+    fun deletePlaylist(playlist: Playlist, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val previousPlaylists = baseUserPlaylists
+            baseUserPlaylists = baseUserPlaylists.filterNot { it.id == playlist.id }
+            _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+            val success = PlaylistApi.deletePlaylist(playlist.id).isSuccess
+            if (success) {
+                saveUserPlaylistsCache()
+                invalidateUserPlaylistCache()
+                refreshUserPlaylists()
+            } else {
+                baseUserPlaylists = previousPlaylists
+                _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+            }
+            onResult(success)
+        }
+    }
+
+    fun uncollectPlaylist(playlist: Playlist, onResult: (Boolean) -> Unit = {}) {
+        if (playlist.specialType == LIKED_PLAYLIST_SPECIAL_TYPE) {
+            onResult(false)
+            return
+        }
+        viewModelScope.launch {
+            val previousPlaylists = baseUserPlaylists
+            baseUserPlaylists = baseUserPlaylists.filterNot { it.id == playlist.id }
+            _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+            val success = PlaylistApi.playlistSub(id = playlist.id, isSub = false).isSuccess
+            if (success) {
+                PlaylistCollectionSyncBus.setCollected(playlist, false)
+                saveUserPlaylistsCache()
+                invalidateUserPlaylistCache()
+                refreshUserPlaylists()
+            } else {
+                baseUserPlaylists = previousPlaylists
+                _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+            }
+            onResult(success)
+        }
+    }
+
+    fun updatePlaylistInfo(
+        playlist: Playlist,
+        name: String,
+        description: String,
+        onResult: (Boolean) -> Unit = {}
+    ) {
+        val trimmedName = name.trim()
+        if (trimmedName.isEmpty()) {
+            onResult(false)
+            return
+        }
+        viewModelScope.launch {
+            val previousPlaylists = baseUserPlaylists
+            val updatedPlaylist = playlist.copy(name = trimmedName, description = description)
+            baseUserPlaylists = baseUserPlaylists.map { item ->
+                if (item.id == playlist.id) updatedPlaylist else item
+            }
+            _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+
+            val nameSuccess = if (playlist.name != trimmedName) {
+                PlaylistApi.updatePlaylistName(playlist.id, trimmedName).isSuccess
+            } else {
+                true
+            }
+            val descriptionSuccess = if (playlist.description != description) {
+                PlaylistApi.updatePlaylistDescription(playlist.id, description).isSuccess
+            } else {
+                true
+            }
+            val success = nameSuccess && descriptionSuccess
+            if (success) {
+                saveUserPlaylistsCache()
+                invalidateUserPlaylistCache()
+                refreshUserPlaylists()
+            } else {
+                baseUserPlaylists = previousPlaylists
+                _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+            }
+            onResult(success)
+        }
+    }
+
+    fun uploadPlaylistCover(playlist: Playlist, file: File, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val success = PlaylistApi.updatePlaylistCover(playlist.id, file).isSuccess
+            if (success) {
+                PlaylistCoverSyncBus.markUpdated(playlist.id)
+                invalidateUserPlaylistCache()
+                refreshUserPlaylists()
+            }
+            onResult(success)
+        }
+    }
+
+    fun reorderCreatedPlaylists(orderedCreatedPlaylists: List<Playlist>, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val previousPlaylists = baseUserPlaylists
+            val orderedIds = orderedCreatedPlaylists.map { it.id }
+            val orderedById = orderedCreatedPlaylists.associateBy { it.id }
+            val remainingCreated = baseUserPlaylists.filter { item ->
+                item.id !in orderedIds && item.creator?.userId == _userInfo.value?.account?.profile?.userId && !item.subscribed
+            }
+            val others = baseUserPlaylists.filterNot { item ->
+                item.id in orderedIds || item in remainingCreated
+            }
+            baseUserPlaylists = others + orderedIds.mapNotNull(orderedById::get) + remainingCreated
+            _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+            val success = PlaylistApi.updatePlaylistOrder(orderedIds).isSuccess
+            if (success) {
+                saveUserPlaylistsCache()
+                invalidateUserPlaylistCache()
+            } else {
+                baseUserPlaylists = previousPlaylists
+                _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+            }
+            onResult(success)
+        }
+    }
+
+    private fun invalidateUserPlaylistCache() {
+        AccountApi.invalidateUserPlaylistCache(_userInfo.value?.account?.profile?.userId)
+    }
+
+    private fun refreshUserPlaylists() {
+        val userId = _userInfo.value?.account?.profile?.userId ?: return
+        fetchUserPlaylists(userId)
+    }
+
+    private suspend fun saveUserPlaylistsCache() {
+        context.dataStore.edit { prefs ->
+            prefs[libraryUserPlaylistsCacheKey] = json.encodeToString(baseUserPlaylists)
         }
     }
 

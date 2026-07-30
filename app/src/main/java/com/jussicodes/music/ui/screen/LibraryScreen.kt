@@ -31,14 +31,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -59,6 +65,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,26 +80,35 @@ import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.TopBar
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.Login
+import com.jussicodes.music.ui.icons.MoreVert
 import com.jussicodes.music.ui.icons.PersonalRadio
+import com.jussicodes.music.ui.icons.PlaylistAdd
 import com.jussicodes.music.ui.icons.VipFill
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.PlaylistNav
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.navigation.UserFollowNav
 import com.jussicodes.music.utils.CoverImageSize
+import com.jussicodes.music.utils.PlaylistCoverSyncBus
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.rememberNullablePreference
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.utils.withAvatarCacheBuster
+import com.jussicodes.music.utils.withPlaylistCoverCacheBuster
 import com.jussicodes.music.viewModel.LibraryScreenViewModel
 import com.rcmiku.ncmapi.model.Album
 import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.UserInfoBatch
 import java.io.File
 import kotlinx.coroutines.flow.map
+import androidx.core.view.HapticFeedbackConstantsCompat
+import androidx.core.view.ViewCompat
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 private const val LIKED_PLAYLIST_NAME_FRAGMENT = "\u559c\u6b22"
 private const val AVATAR_UPLOAD_SIZE = 800
+private const val PLAYLIST_COVER_UPLOAD_SIZE = 300
 
 @Composable
 fun LibraryScreen(
@@ -107,16 +123,33 @@ fun LibraryScreen(
     val pinnedAlbumsCacheLoaded by libraryScreenViewModel.pinnedAlbumsCacheLoaded.collectAsState()
     val isAvatarUploading by libraryScreenViewModel.isAvatarUploading.collectAsState()
     val avatarCacheVersion by libraryScreenViewModel.avatarCacheVersion.collectAsState()
+    val playlistCoverVersions by PlaylistCoverSyncBus.versions.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     var showAvatarDialog by remember { mutableStateOf(false) }
     var selectedAvatarUri by remember { mutableStateOf<Uri?>(null) }
+    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    var newPlaylistName by remember { mutableStateOf("") }
+    var editingPlaylist by remember { mutableStateOf<Playlist?>(null) }
+    var editingPlaylistName by remember { mutableStateOf("") }
+    var editingPlaylistDescription by remember { mutableStateOf("") }
+    var coverEditingPlaylist by remember { mutableStateOf<Playlist?>(null) }
+    var selectedCoverUri by remember { mutableStateOf<Uri?>(null) }
     var avatarScale by remember { mutableStateOf(1f) }
     var avatarOffset by remember { mutableStateOf(Offset.Zero) }
+    var coverScale by remember { mutableStateOf(1f) }
+    var coverOffset by remember { mutableStateOf(Offset.Zero) }
     val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
             avatarScale = 1f
             avatarOffset = Offset.Zero
             selectedAvatarUri = it
+        }
+    }
+    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            coverScale = 1f
+            coverOffset = Offset.Zero
+            selectedCoverUri = it
         }
     }
     val pinnedAlbumIdsText by remember {
@@ -229,6 +262,8 @@ fun LibraryScreen(
                     item {
                         FavoritePlaylistCard(
                             playlist = playlist,
+                            coverVersion = playlistCoverVersions[playlist.id] ?: 0L,
+                            onCreatePlaylistClick = { showCreatePlaylistDialog = true },
                             onClick = {
                                 navController.navigate(
                                     PlaylistNav(
@@ -246,6 +281,7 @@ fun LibraryScreen(
                         PlaylistGroupCard(
                             title = stringResource(R.string.create_playlist),
                             playlists = createdPlaylists,
+                            coverVersions = playlistCoverVersions,
                             onPlaylistClick = { playlist ->
                                 navController.navigate(
                                     PlaylistNav(
@@ -253,6 +289,34 @@ fun LibraryScreen(
                                         limit = playlist.trackCount
                                     )
                                 )
+                            },
+                            menuItems = listOf(
+                                PlaylistMenuItem("编辑信息") { playlist ->
+                                    editingPlaylist = playlist
+                                    editingPlaylistName = playlist.name
+                                    editingPlaylistDescription = playlist.description
+                                },
+                                PlaylistMenuItem("上传封面") { playlist ->
+                                    coverEditingPlaylist = playlist
+                                    coverPicker.launch("image/*")
+                                },
+                                PlaylistMenuItem("删除歌单") { playlist ->
+                                    libraryScreenViewModel.deletePlaylist(playlist) { success ->
+                                        Toast.makeText(
+                                            context,
+                                            if (success) "歌单已删除" else "删除歌单失败",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            ),
+                            reorderEnabled = true,
+                            onPlaylistOrderChanged = { playlists ->
+                                libraryScreenViewModel.reorderCreatedPlaylists(playlists) { success ->
+                                    if (!success) {
+                                        Toast.makeText(context, "歌单排序失败", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                             }
                         )
                     }
@@ -263,6 +327,7 @@ fun LibraryScreen(
                         PlaylistGroupCard(
                             title = stringResource(R.string.collect_playlist),
                             playlists = collectedPlaylists,
+                            coverVersions = playlistCoverVersions,
                             onPlaylistClick = { playlist ->
                                 navController.navigate(
                                     PlaylistNav(
@@ -270,7 +335,18 @@ fun LibraryScreen(
                                         limit = playlist.trackCount
                                     )
                                 )
-                            }
+                            },
+                            menuItems = listOf(
+                                PlaylistMenuItem("取消收藏") { playlist ->
+                                    libraryScreenViewModel.uncollectPlaylist(playlist) { success ->
+                                        Toast.makeText(
+                                            context,
+                                            if (success) "已取消收藏" else "取消收藏失败",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            )
                         )
                     }
                 }
@@ -289,6 +365,140 @@ fun LibraryScreen(
         }
     }
 
+    editingPlaylist?.let { playlist ->
+        AlertDialog(
+            onDismissRequest = { editingPlaylist = null },
+            title = { Text("编辑歌单") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = editingPlaylistName,
+                        onValueChange = { editingPlaylistName = it },
+                        label = { Text("歌单名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editingPlaylistDescription,
+                        onValueChange = { editingPlaylistDescription = it },
+                        label = { Text("歌单描述") },
+                        minLines = 3,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        libraryScreenViewModel.updatePlaylistInfo(
+                            playlist = playlist,
+                            name = editingPlaylistName,
+                            description = editingPlaylistDescription
+                        ) { success ->
+                            Toast.makeText(
+                                context,
+                                if (success) "歌单已更新" else "更新歌单失败",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                        editingPlaylist = null
+                    },
+                    enabled = editingPlaylistName.isNotBlank()
+                ) {
+                    Text("保存")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingPlaylist = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    selectedCoverUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = {
+                selectedCoverUri = null
+                coverEditingPlaylist = null
+            },
+            title = { Text("编辑封面") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .size(260.dp)
+                            .clip(MaterialTheme.shapes.large)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .pointerInput(uri) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    coverScale = (coverScale * zoom).coerceIn(1f, 6f)
+                                    coverOffset += pan
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = uri,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    translationX = coverOffset.x
+                                    translationY = coverOffset.y
+                                    scaleX = coverScale
+                                    scaleY = coverScale
+                                }
+                        )
+                    }
+                    Text(
+                        "双指缩放，拖动调整区域 · ${PLAYLIST_COVER_UPLOAD_SIZE} x ${PLAYLIST_COVER_UPLOAD_SIZE}",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val playlist = coverEditingPlaylist
+                        val file = uri.copyToSquareImageCache(
+                            context = context,
+                            outputSize = PLAYLIST_COVER_UPLOAD_SIZE,
+                            scale = coverScale,
+                            offset = coverOffset,
+                            prefix = "playlist_cover"
+                        )
+                        if (playlist != null && file != null) {
+                            selectedCoverUri = null
+                            coverEditingPlaylist = null
+                            libraryScreenViewModel.uploadPlaylistCover(playlist, file) { success ->
+                                Toast.makeText(
+                                    context,
+                                    if (success) "封面已更新" else "上传封面失败",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        } else {
+                            Toast.makeText(context, "封面处理失败", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                ) {
+                    Text("上传")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    selectedCoverUri = null
+                    coverEditingPlaylist = null
+                }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
     val avatarUrl = userInfoBatchState?.account?.profile?.avatarUrl
     if (showAvatarDialog && !avatarUrl.isNullOrBlank()) {
         LargeImageDialog(
@@ -302,6 +512,46 @@ fun LibraryScreen(
                 Text(if (isAvatarUploading) "上传中" else "编辑")
             }
         }
+    }
+
+    if (showCreatePlaylistDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreatePlaylistDialog = false },
+            title = { Text("新建歌单") },
+            text = {
+                OutlinedTextField(
+                    value = newPlaylistName,
+                    onValueChange = { newPlaylistName = it },
+                    label = { Text("歌单名称") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val playlistName = newPlaylistName
+                        libraryScreenViewModel.createPlaylist(playlistName) { success ->
+                            Toast.makeText(
+                                context,
+                                if (success) "歌单已创建" else "新建歌单失败",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                        newPlaylistName = ""
+                        showCreatePlaylistDialog = false
+                    },
+                    enabled = newPlaylistName.isNotBlank()
+                ) {
+                    Text("创建")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreatePlaylistDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 
     selectedAvatarUri?.let { uri ->
@@ -347,7 +597,13 @@ fun LibraryScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        uri.copyToAvatarCache(context, avatarScale, avatarOffset)?.let { file ->
+                        uri.copyToSquareImageCache(
+                            context = context,
+                            outputSize = AVATAR_UPLOAD_SIZE,
+                            scale = avatarScale,
+                            offset = avatarOffset,
+                            prefix = "avatar"
+                        )?.let { file ->
                             selectedAvatarUri = null
                             libraryScreenViewModel.uploadAvatar(file) { success, message ->
                                 Toast.makeText(
@@ -491,10 +747,15 @@ private fun LibraryUserCard(
     }
 }
 
-private fun Uri.copyToAvatarCache(context: Context, scale: Float, offset: Offset): File? {
-    val outputSize = AVATAR_UPLOAD_SIZE
+private fun Uri.copyToSquareImageCache(
+    context: Context,
+    outputSize: Int,
+    scale: Float,
+    offset: Offset,
+    prefix: String
+): File? {
     val previewSize = 260f
-    val file = File(context.cacheDir, "avatar_${System.currentTimeMillis()}.jpg")
+    val file = File(context.cacheDir, "${prefix}_${System.currentTimeMillis()}.jpg")
     return runCatching {
         context.contentResolver.openInputStream(this)?.use { input ->
             val bitmap = BitmapFactory.decodeStream(input) ?: return null
@@ -573,6 +834,8 @@ private fun AlbumShowcaseCard(
 @Composable
 private fun FavoritePlaylistCard(
     playlist: Playlist,
+    coverVersion: Long,
+    onCreatePlaylistClick: () -> Unit,
     onClick: () -> Unit
 ) {
     Card(
@@ -584,7 +847,16 @@ private fun FavoritePlaylistCard(
             RowCardContent(
                 title = playlist.name,
                 subtitle = stringResource(R.string.track_count, playlist.trackCount),
-                coverUrl = playlist.picUrl
+                coverUrl = playlist.picUrl,
+                coverVersion = coverVersion,
+                trailingContent = {
+                    IconButton(onClick = onCreatePlaylistClick) {
+                        androidx.compose.material3.Icon(
+                            imageVector = PlaylistAdd,
+                            contentDescription = "新建歌单"
+                        )
+                    }
+                }
             )
             Box(
                 modifier = Modifier.align(Alignment.BottomStart).padding(start = 38.dp, top = 38.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)).padding(5.dp)
@@ -604,8 +876,31 @@ private fun FavoritePlaylistCard(
 private fun PlaylistGroupCard(
     title: String,
     playlists: List<Playlist>,
-    onPlaylistClick: (Playlist) -> Unit
+    coverVersions: Map<Long, Long>,
+    onPlaylistClick: (Playlist) -> Unit,
+    menuItems: List<PlaylistMenuItem>,
+    reorderEnabled: Boolean = false,
+    onPlaylistOrderChanged: (List<Playlist>) -> Unit = {}
 ) {
+    val view = LocalView.current
+    val listState = rememberLazyListState()
+    var orderedPlaylists by remember(playlists) { mutableStateOf(playlists) }
+    var dragChanged by remember { mutableStateOf(false) }
+    val reorderableState = rememberReorderableLazyListState(listState) { from, to ->
+        orderedPlaylists = orderedPlaylists.toMutableList().apply {
+            add(to.index, removeAt(from.index))
+        }
+        dragChanged = true
+        ViewCompat.performHapticFeedback(view, HapticFeedbackConstantsCompat.SEGMENT_FREQUENT_TICK)
+    }
+
+    LaunchedEffect(reorderableState.isAnyItemDragging) {
+        if (!reorderableState.isAnyItemDragging && dragChanged) {
+            onPlaylistOrderChanged(orderedPlaylists)
+            dragChanged = false
+        }
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.extraLarge,
@@ -613,10 +908,38 @@ private fun PlaylistGroupCard(
     ) {
         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(text = title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
-            playlists.forEachIndexed { index, playlist ->
-                LibraryPlaylistRow(playlist = playlist, onClick = { onPlaylistClick(playlist) })
-                if (index != playlists.lastIndex) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 3.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            LazyColumn(
+                state = listState,
+                userScrollEnabled = false,
+                modifier = Modifier.heightIn(max = (orderedPlaylists.size * 66).dp)
+            ) {
+                itemsIndexed(orderedPlaylists, key = { _, playlist -> playlist.id }) { index, playlist ->
+                    ReorderableItem(reorderableState, key = playlist.id, enabled = reorderEnabled) {
+                        LibraryPlaylistRow(
+                            playlist = playlist,
+                            coverVersion = coverVersions[playlist.id] ?: 0L,
+                            menuItems = menuItems,
+                            reorderEnabled = reorderEnabled,
+                            dragModifier = Modifier.longPressDraggableHandle(
+                                onDragStarted = {
+                                    ViewCompat.performHapticFeedback(
+                                        view,
+                                        HapticFeedbackConstantsCompat.GESTURE_START
+                                    )
+                                },
+                                onDragStopped = {
+                                    ViewCompat.performHapticFeedback(
+                                        view,
+                                        HapticFeedbackConstantsCompat.GESTURE_END
+                                    )
+                                }
+                            ),
+                            onClick = { onPlaylistClick(playlist) }
+                        )
+                    }
+                    if (index != orderedPlaylists.lastIndex) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 3.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    }
                 }
             }
         }
@@ -626,8 +949,13 @@ private fun PlaylistGroupCard(
 @Composable
 private fun LibraryPlaylistRow(
     playlist: Playlist,
+    coverVersion: Long,
+    menuItems: List<PlaylistMenuItem>,
+    reorderEnabled: Boolean,
+    dragModifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
     val creatorName = playlist.creator?.nickname.orEmpty()
     val subtitle = buildString {
         append(stringResource(R.string.track_count, playlist.trackCount))
@@ -637,20 +965,64 @@ private fun LibraryPlaylistRow(
         }
     }
 
-    Box(modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).clickable(onClick = onClick).padding(vertical = 1.dp)) {
-        RowCardContent(title = playlist.name, subtitle = subtitle, coverUrl = playlist.picUrl)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.large)
+            .then(if (reorderEnabled) dragModifier else Modifier)
+            .clickable(onClick = onClick)
+            .padding(vertical = 1.dp)
+    ) {
+        RowCardContent(
+            title = playlist.name,
+            subtitle = subtitle,
+            coverUrl = playlist.picUrl,
+            coverVersion = coverVersion,
+            trailingContent = {
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        androidx.compose.material3.Icon(
+                            imageVector = MoreVert,
+                            contentDescription = stringResource(R.string.more)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        menuItems.forEach { item ->
+                            DropdownMenuItem(
+                                text = { Text(item.text) },
+                                onClick = {
+                                    menuExpanded = false
+                                    item.onClick(playlist)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        )
     }
 }
+
+private data class PlaylistMenuItem(
+    val text: String,
+    val onClick: (Playlist) -> Unit
+)
 
 @Composable
 private fun RowCardContent(
     title: String,
     subtitle: String,
-    coverUrl: String
+    coverUrl: String,
+    coverVersion: Long = 0L,
+    trailingContent: (@Composable () -> Unit)? = null
 ) {
     androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
         AsyncImage(
-            model = coverUrl.toCoverImageUrl(CoverImageSize.LIST),
+            model = coverUrl.toCoverImageUrl(CoverImageSize.LIST)
+                .withPlaylistCoverCacheBuster(coverVersion),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.clip(MaterialTheme.shapes.medium).size(52.dp)
@@ -659,6 +1031,7 @@ private fun RowCardContent(
             Text(text = title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(text = subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        trailingContent?.invoke()
     }
 }
 

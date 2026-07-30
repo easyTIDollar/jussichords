@@ -10,6 +10,7 @@ import com.jussicodes.music.constants.libraryPlaylistRefreshTokenKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.utils.FavoriteSongSyncBus
 import com.jussicodes.music.utils.PlaylistCollectionSyncBus
+import com.jussicodes.music.utils.PlaylistCoverSyncBus
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.playlist.PlaylistApi
 import com.rcmiku.ncmapi.model.Playlist
@@ -17,6 +18,7 @@ import com.rcmiku.ncmapi.model.PlaylistDetailResponse
 import com.rcmiku.ncmapi.model.PlaylistInfoResponse
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -147,6 +149,92 @@ class PlaylistScreenViewModel @Inject constructor(
                     Toast.makeText(context, "歌单收藏同步失败", Toast.LENGTH_SHORT).show()
                 }
             }
+        }
+    }
+
+    fun updatePlaylistInfo(name: String, description: String, onResult: (Boolean) -> Unit = {}) {
+        val currentPlaylistId = playlistId ?: return onResult(false)
+        val trimmedName = name.trim()
+        if (trimmedName.isEmpty()) {
+            onResult(false)
+            return
+        }
+        viewModelScope.launch {
+            val previousDetail = _playlistDetail.value
+            _playlistDetail.value = previousDetail?.copy(
+                playlist = previousDetail.playlist.copy(
+                    name = trimmedName,
+                    description = description
+                )
+            )
+            val nameSuccess = if (previousDetail?.playlist?.name != trimmedName) {
+                PlaylistApi.updatePlaylistName(currentPlaylistId, trimmedName).isSuccess
+            } else {
+                true
+            }
+            val descriptionSuccess = if (previousDetail?.playlist?.description != description) {
+                PlaylistApi.updatePlaylistDescription(currentPlaylistId, description).isSuccess
+            } else {
+                true
+            }
+            val success = nameSuccess && descriptionSuccess
+            if (success) {
+                refreshLibraryPlaylists()
+            } else {
+                _playlistDetail.value = previousDetail
+            }
+            onResult(success)
+        }
+    }
+
+    fun uploadPlaylistCover(file: File, onResult: (Boolean) -> Unit = {}) {
+        val currentPlaylistId = playlistId ?: return onResult(false)
+        viewModelScope.launch {
+            val success = PlaylistApi.updatePlaylistCover(currentPlaylistId, file).isSuccess
+            if (success) {
+                PlaylistCoverSyncBus.markUpdated(currentPlaylistId)
+                PlaylistApi.clearPlaylistCaches(currentPlaylistId)
+                refreshPlaylistDetail()
+                refreshLibraryPlaylists()
+            }
+            onResult(success)
+        }
+    }
+
+    fun reorderSongs(songs: List<com.rcmiku.ncmapi.model.Song>, onResult: (Boolean) -> Unit = {}) {
+        val currentPlaylistId = playlistId ?: return onResult(false)
+        viewModelScope.launch {
+            val previousDetail = _playlistDetail.value
+            _playlistDetail.value = previousDetail?.copy(
+                playlist = previousDetail.playlist.copy(
+                    tracks = songs,
+                    songs = songs
+                )
+            )
+            val success = PlaylistApi.updateSongOrder(
+                playlistId = currentPlaylistId,
+                ids = songs.map { it.id }
+            ).isSuccess
+            if (success) {
+                refreshLibraryPlaylists()
+            } else {
+                _playlistDetail.value = previousDetail
+            }
+            onResult(success)
+        }
+    }
+
+    private fun refreshPlaylistDetail() {
+        viewModelScope.launch {
+            playlistId?.let {
+                _playlistDetail.value = PlaylistApi.playlistV6Detail(it).getOrNull()
+            }
+        }
+    }
+
+    private suspend fun refreshLibraryPlaylists() {
+        context.dataStore.edit { prefs ->
+            prefs[libraryPlaylistRefreshTokenKey] = System.currentTimeMillis()
         }
     }
 

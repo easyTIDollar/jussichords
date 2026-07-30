@@ -370,7 +370,8 @@ data class PlaylistDetail(
     val description: String = "",
     @SerialName("trackCount") val trackCount: Int = 0,
     @SerialName("trackUpdateTime") val trackUpdateTime: Long = 0,
-    @SerialName("playCount") val playCount: Double = 0.0
+    @SerialName("playCount") val playCount: Double = 0.0,
+    @SerialName("specialType") val specialType: Int = 0
 ) {
     fun getAllTracks(): List<Song> = tracks.ifEmpty { songs }
 }
