@@ -1,15 +1,19 @@
 package com.jussicodes.music.ui.components
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.jussicodes.music.utils.AppUpdateManager
+import com.jussicodes.music.utils.GitHubDownloadSourceStatus
 import com.jussicodes.music.utils.UpdateInfo
 import kotlin.math.ln
 import kotlin.math.pow
@@ -20,6 +24,9 @@ fun UpdateDialog(
     isDownloading: Boolean,
     downloadProgress: Float?,
     progressText: String?,
+    selectedSourceId: String = AppUpdateManager.downloadSources.first().id,
+    sourceStatuses: List<GitHubDownloadSourceStatus> = emptyList(),
+    onSourceSelected: (String) -> Unit = {},
     onDismiss: () -> Unit,
     onIgnoreVersion: () -> Unit,
     onDownload: () -> Unit,
@@ -30,7 +37,7 @@ fun UpdateDialog(
         },
         title = { Text(text = "发现新版本 ${updateInfo.versionName}") },
         text = {
-            androidx.compose.foundation.layout.Column {
+            Column {
                 Text(
                     text = buildString {
                         appendLine(updateInfo.releaseName)
@@ -42,6 +49,30 @@ fun UpdateDialog(
                         }
                     }.trim()
                 )
+                Text(
+                    text = "下载源",
+                    modifier = Modifier.padding(top = 12.dp)
+                )
+                AppUpdateManager.downloadSources.forEach { source ->
+                    val status = sourceStatuses.firstOrNull { it.source.id == source.id }
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        RadioButton(
+                            selected = source.id == selectedSourceId,
+                            onClick = { if (!isDownloading) onSourceSelected(source.id) },
+                            enabled = !isDownloading
+                        )
+                        Text(
+                            text = buildString {
+                                append(source.name)
+                                status?.let {
+                                    append(" · ")
+                                    append(if (it.available) "${it.latencyMs ?: 0} ms" else it.message)
+                                }
+                            },
+                            modifier = Modifier.padding(top = 12.dp)
+                        )
+                    }
+                }
                 if (isDownloading && downloadProgress != null) {
                     LinearProgressIndicator(
                         progress = { downloadProgress.coerceIn(0f, 1f) },

@@ -34,7 +34,11 @@ data class RadioNav(val radioId: Long)
 data class UserPlayListNav(val userId: Long, val type: String)
 
 @Serializable
-data class UserFollowNav(val userId: Long, val type: String)
+data class UserFollowNav(
+    val userId: Long,
+    val type: String,
+    val showArtistFollows: Boolean = false
+)
 
 @Serializable
 data class UserNav(val userId: Long)

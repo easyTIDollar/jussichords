@@ -64,6 +64,7 @@ import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.components.AlbumListItem
 import com.jussicodes.music.ui.components.ArtistListItem
+import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.NavigationTitle
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
@@ -96,6 +97,7 @@ fun ArtistScreen(
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
     var openBottomSheet by rememberSaveable { mutableStateOf(false) }
     var selectSong by remember { mutableStateOf<Song?>(null) }
+    var previewArtistImageUrl by remember { mutableStateOf<String?>(null) }
     var horizontalDragAmount = 0f
 
     val heroUrl = artistHeadInfoState?.data?.artist?.cover
@@ -132,7 +134,11 @@ fun ArtistScreen(
                     model = heroUrl.toCoverImageUrl(CoverImageSize.HERO),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.aspectRatio(4f / 3f)
+                    modifier = Modifier
+                        .aspectRatio(4f / 3f)
+                        .clickable(enabled = heroUrl != null) {
+                            previewArtistImageUrl = heroUrl
+                        }
                 )
                 AsyncImage(
                     model = avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
@@ -142,6 +148,9 @@ fun ArtistScreen(
                         .padding(12.dp)
                         .size(84.dp)
                         .clip(CircleShape)
+                        .clickable(enabled = avatarUrl != null) {
+                            previewArtistImageUrl = avatarUrl
+                        }
                 )
                 artistHeadInfoState?.data?.artist?.name?.let {
                     Box(
@@ -352,4 +361,11 @@ fun ArtistScreen(
         onDismiss = { openBottomSheet = false },
         openBottomSheet = openBottomSheet
     )
+    previewArtistImageUrl?.let { imageUrl ->
+        LargeImageDialog(
+            imageUrl = imageUrl.toCoverImageUrl(CoverImageSize.LARGE),
+            onDismiss = { previewArtistImageUrl = null },
+            showSaveAction = true
+        )
+    }
 }

@@ -44,6 +44,8 @@ class UpdateDownloadService : Service() {
             stopSelf(startId)
             return START_NOT_STICKY
         }
+        val sourceId = intent.getStringExtra(EXTRA_DOWNLOAD_SOURCE_ID)
+            ?: AppUpdateManager.downloadSources.first().id
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildProgressNotification(updateInfo, 0L, updateInfo.apkSize))
@@ -54,7 +56,7 @@ class UpdateDownloadService : Service() {
 
         serviceScope.launch {
             val result = runCatching {
-                AppUpdateManager.downloadApk(applicationContext, updateInfo) { progress ->
+                AppUpdateManager.downloadApk(applicationContext, updateInfo, sourceId) { progress ->
                     UpdateDownloadStateStore.downloading(updateInfo, progress)
                     notificationManager.notify(
                         NOTIFICATION_ID,
@@ -178,15 +180,21 @@ class UpdateDownloadService : Service() {
         private const val CHANNEL_ID = "app_update_download"
         private const val NOTIFICATION_ID = 10086
         private const val EXTRA_UPDATE_INFO = "extra_update_info"
+        private const val EXTRA_DOWNLOAD_SOURCE_ID = "extra_download_source_id"
         private const val EXTRA_APK_PATH = "extra_apk_path"
         private const val ACTION_START_DOWNLOAD = "com.jussicodes.music.action.START_UPDATE_DOWNLOAD"
         private const val ACTION_INSTALL_APK = "com.jussicodes.music.action.INSTALL_DOWNLOADED_APK"
 
-        fun start(context: Context, updateInfo: UpdateInfo) {
+        fun start(
+            context: Context,
+            updateInfo: UpdateInfo,
+            sourceId: String = AppUpdateManager.downloadSources.first().id,
+        ) {
             UpdateDownloadStateStore.reset()
             val intent = Intent(context, UpdateDownloadService::class.java).apply {
                 action = ACTION_START_DOWNLOAD
                 putExtra(EXTRA_UPDATE_INFO, Json.encodeToString(UpdateInfo.serializer(), updateInfo))
+                putExtra(EXTRA_DOWNLOAD_SOURCE_ID, sourceId)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)

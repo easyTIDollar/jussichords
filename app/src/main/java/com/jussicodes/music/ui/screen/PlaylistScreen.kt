@@ -88,6 +88,7 @@ import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.components.PlayerComments
+import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.PlaylistThumbnailImage
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
@@ -138,6 +139,7 @@ fun PlaylistScreen(
     var editPlaylistName by remember { mutableStateOf("") }
     var editPlaylistDescription by remember { mutableStateOf("") }
     var selectedCoverUri by remember { mutableStateOf<Uri?>(null) }
+    var previewCoverUrl by remember { mutableStateOf<String?>(null) }
     var coverScale by remember { mutableStateOf(1f) }
     var coverOffset by remember { mutableStateOf(Offset.Zero) }
     var selectSong by remember { mutableStateOf<Song?>(null) }
@@ -333,7 +335,11 @@ fun PlaylistScreen(
                                             IntSize(contentSize.width, animatedSize.height)
                                         },
                                         boundsTransform = AlbumArtBoundsTransform,
-                                    )
+                                    ).clickable {
+                                        previewCoverUrl = it.playlist.coverImgUrl.withPlaylistCoverCacheBuster(
+                                            playlistCoverVersions[it.playlist.id] ?: 0L
+                                        )
+                                    }
                                 )
                                 Spacer(Modifier.height(12.dp))
                                 Text(
@@ -495,6 +501,14 @@ fun PlaylistScreen(
         onDismiss = { openBottomSheet = false },
         openBottomSheet = openBottomSheet
     )
+
+    previewCoverUrl?.let { imageUrl ->
+        LargeImageDialog(
+            imageUrl = imageUrl,
+            onDismiss = { previewCoverUrl = null },
+            showSaveAction = true
+        )
+    }
 
     if (showEditPlaylistDialog) {
         AlertDialog(

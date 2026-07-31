@@ -13,6 +13,7 @@ import com.jussicodes.music.constants.pinnedAlbumsCacheKey
 import com.jussicodes.music.constants.userIdKye
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.utils.FavoriteSongSyncBus
+import com.jussicodes.music.utils.AvatarUploadLimiter
 import com.jussicodes.music.utils.PlaylistCollectionSyncBus
 import com.jussicodes.music.utils.PlaylistCoverSyncBus
 import com.jussicodes.music.utils.dataStore
@@ -290,12 +291,17 @@ class LibraryScreenViewModel @Inject constructor(
 
     fun uploadAvatar(file: File, onResult: (Boolean, String?) -> Unit = { _, _ -> }) {
         if (_isAvatarUploading.value) return
+        if (AvatarUploadLimiter.remaining(context) <= 0) {
+            onResult(false, "本周头像上传次数已用完（每周最多 5 次）")
+            return
+        }
         viewModelScope.launch {
             _isAvatarUploading.value = true
             val result = AccountApi.uploadAvatar(file)
             val response = result.getOrNull()
             val success = response?.isSuccess == true
             if (success) {
+                AvatarUploadLimiter.recordSuccess(context)
                 _avatarCacheVersion.value = System.currentTimeMillis()
                 refreshUserInfo()
             }

@@ -14,10 +14,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.datastore.preferences.core.edit
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
+import com.jussicodes.music.constants.githubDownloadSourceKey
+import com.jussicodes.music.constants.uiScaleKey
 import com.jussicodes.music.extensions.init
 import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.playback.PlayerState
@@ -33,6 +37,7 @@ import com.jussicodes.music.utils.UpdateDownloadService
 import com.jussicodes.music.utils.UpdateDownloadStateStore
 import com.jussicodes.music.utils.UpdateInfo
 import com.jussicodes.music.utils.dataStore
+import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.utils.FileProvider
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
@@ -62,6 +67,16 @@ class MainActivity : ComponentActivity() {
             var isDownloadingUpdate by remember { mutableStateOf(false) }
             var downloadProgress by remember { mutableFloatStateOf(0f) }
             var downloadProgressText by remember { mutableStateOf<String?>(null) }
+            var uiScale by rememberPreference(uiScaleKey, 1f)
+            var liveUiScale by remember { mutableFloatStateOf(uiScale) }
+            var githubDownloadSource by rememberPreference(
+                githubDownloadSourceKey,
+                AppUpdateManager.downloadSources.first().id
+            )
+
+            LaunchedEffect(uiScale) {
+                liveUiScale = uiScale
+            }
 
             LaunchedEffect(Unit) {
                 awaitFrame()
@@ -136,11 +151,28 @@ class MainActivity : ComponentActivity() {
                     playerState = state(applicationContext)
                 }
             }
-            JetMeloTheme(artwork = playerState?.mediaMetadata?.artworkUri) {
-                CompositionLocalProvider(
-                    LocalPlayerController provides playerController,
-                    LocalPlayerState provides playerState
-                ) {
+            val baseDensity = LocalDensity.current
+            val scaledDensity = remember(baseDensity, liveUiScale) {
+                val scale = liveUiScale.coerceIn(0.7f, 1.1f)
+                Density(
+                    density = baseDensity.density * scale,
+                    fontScale = baseDensity.fontScale * scale
+                )
+            }
+            CompositionLocalProvider(LocalDensity provides scaledDensity) {
+                JetMeloTheme(artwork = playerState?.mediaMetadata?.artworkUri) {
+                    CompositionLocalProvider(
+                        LocalPlayerController provides playerController,
+                        LocalPlayerState provides playerState,
+                        LocalUiScaleController provides UiScaleController(
+                            scale = liveUiScale,
+                            setScale = {
+                                val scale = it.coerceIn(0.7f, 1.1f)
+                                liveUiScale = scale
+                                uiScale = scale
+                            }
+                        )
+                    ) {
                     MainScreen()
                     pendingUpdateInfo?.let { updateInfo ->
                         UpdateDialog(
@@ -148,6 +180,8 @@ class MainActivity : ComponentActivity() {
                             isDownloading = isDownloadingUpdate,
                             downloadProgress = if (isDownloadingUpdate) downloadProgress else null,
                             progressText = downloadProgressText,
+                            selectedSourceId = githubDownloadSource,
+                            onSourceSelected = { githubDownloadSource = it },
                             onDismiss = { pendingUpdateInfo = null },
                             onIgnoreVersion = {
                                 pendingUpdateInfo = null
@@ -165,10 +199,15 @@ class MainActivity : ComponentActivity() {
                                 isDownloadingUpdate = true
                                 downloadProgress = 0f
                                 downloadProgressText = "准备开始下载更新"
-                                UpdateDownloadService.start(applicationContext, updateInfo)
+                                UpdateDownloadService.start(
+                                    applicationContext,
+                                    updateInfo,
+                                    githubDownloadSource
+                                )
                             }
                         )
                     }
+                }
                 }
             }
         }
@@ -187,4 +226,16 @@ val LocalPlayerController = staticCompositionLocalOf<PlayerController> {
 
 val LocalPlayerState = staticCompositionLocalOf<PlayerState?> {
     error("No PlayerState provided")
+}
+
+data class UiScaleController(
+    val scale: Float,
+    val setScale: (Float) -> Unit,
+)
+
+val LocalUiScaleController = staticCompositionLocalOf<UiScaleController> {
+    UiScaleController(
+        scale = 1f,
+        setScale = {},
+    )
 }

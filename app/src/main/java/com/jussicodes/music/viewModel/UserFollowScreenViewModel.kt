@@ -59,6 +59,9 @@ class UserFollowScreenViewModel @Inject constructor(
     private val _hasMore = MutableStateFlow(false)
     val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
 
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
     private var hasMoreUsers = false
     private var hasMoreArtists = false
     private var activeUserId: Long = 0L
@@ -95,6 +98,7 @@ class UserFollowScreenViewModel @Inject constructor(
         fetchJob = viewModelScope.launch {
             _isLoading.value = true
             _isLoadingMore.value = false
+            _errorMessage.value = null
             when (type) {
                 UserFollowType.ARTISTS -> {
                     _follows.value = null
@@ -110,7 +114,20 @@ class UserFollowScreenViewModel @Inject constructor(
                 }
                 UserFollowType.FOLLOWS,
                 UserFollowType.FOLLOWEDS -> {
-                    val result = fetchUserPage(userId, type, offset = 0)
+                    val pageResult = fetchUserPage(userId, type, offset = 0)
+                    val result = pageResult.getOrNull()
+                    if (pageResult.isFailure) {
+                        val detail = pageResult.exceptionOrNull()?.message.orEmpty()
+                        _errorMessage.value = if (
+                            detail.contains("未公开") ||
+                            detail.contains("隐私") ||
+                            detail.contains("权限")
+                        ) {
+                            "对方未公开关注列表"
+                        } else {
+                            "关注列表加载失败，请稍后重试"
+                        }
+                    }
                     _follows.value = result
                     _artists.value = emptyList()
                     hasMoreUsers = result?.hasMore == true
@@ -154,6 +171,7 @@ class UserFollowScreenViewModel @Inject constructor(
         nextUserOffset = 0
         nextArtistOffset = 0
         _hasMore.value = false
+        _errorMessage.value = null
         _follows.value = null
         _users.value = emptyList()
         _artists.value = emptyList()
@@ -165,19 +183,19 @@ class UserFollowScreenViewModel @Inject constructor(
         userId: Long,
         type: UserFollowType,
         offset: Int
-    ): UserFollowResponse? {
+    ): Result<UserFollowResponse> {
         return when (type) {
             UserFollowType.FOLLOWS -> AccountApi.userFollows(userId, limit = PAGE_SIZE, offset = offset)
             UserFollowType.FOLLOWEDS -> AccountApi.userFolloweds(userId, limit = PAGE_SIZE, offset = offset)
-            UserFollowType.ARTISTS -> null
-        }?.getOrNull()
+            UserFollowType.ARTISTS -> Result.failure(IllegalArgumentException("Artists are not user follow pages"))
+        }
     }
 
     private suspend fun loadMoreUsers(userId: Long, type: UserFollowType) {
         if (!hasMoreUsers) return
         _isLoadingMore.value = true
         try {
-            val result = fetchUserPage(userId, type, offset = nextUserOffset)
+            val result = fetchUserPage(userId, type, offset = nextUserOffset).getOrNull()
             if (result != null) {
                 hasMoreUsers = result.hasMore
                 _hasMore.value = hasMoreUsers

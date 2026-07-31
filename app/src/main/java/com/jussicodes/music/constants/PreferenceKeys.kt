@@ -2,6 +2,7 @@ package com.jussicodes.music.constants
 
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 
@@ -31,3 +32,6 @@ val searchTopListFilterIdsKey = stringPreferencesKey("searchTopListFilterIds")
 val apiBaseUrlKey = stringPreferencesKey("apiBaseUrl")
 val unblockSourceKey = stringPreferencesKey("unblockSource")
 val ignoredUpdateVersionKey = stringPreferencesKey("ignoredUpdateVersion")
+val uiScaleKey = floatPreferencesKey("uiScale")
+val githubDownloadSourceKey = stringPreferencesKey("githubDownloadSource")
+val playerGestureTutorialVersionKey = intPreferencesKey("playerGestureTutorialVersion")

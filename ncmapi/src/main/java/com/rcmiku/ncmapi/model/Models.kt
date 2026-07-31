@@ -180,7 +180,8 @@ data class SearchUser(
     @SerialName("userId") val id: Long = 0,
     val nickname: String = "",
     @SerialName("avatarUrl") val avatarUrl: String = "",
-    val signature: String = ""
+    val signature: String = "",
+    val userType: Int = 0
 )
 
 data class SearchResources(

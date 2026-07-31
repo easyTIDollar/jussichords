@@ -1,10 +1,5 @@
 package com.jussicodes.music.ui.screen
 
-import androidx.compose.animation.AnimatedContentScope
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -57,7 +52,6 @@ import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.AlbumThumbnailSize
-import com.jussicodes.music.constants.DURATION_EXIT_SHORT
 import com.jussicodes.music.constants.ListItemHeight
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.playMediaAtId
@@ -69,6 +63,7 @@ import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
 import com.jussicodes.music.ui.components.TopBar
 import com.jussicodes.music.ui.navigation.PlaylistNav
+import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.viewModel.ExploreScreenViewModel
 import com.rcmiku.ncmapi.model.Song
 import kotlinx.coroutines.delay
@@ -76,13 +71,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-@OptIn(ExperimentalSharedTransitionApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExploreScreen(
     navController: NavHostController,
-    exploreScreenViewModel: ExploreScreenViewModel = hiltViewModel(),
-    sharedTransitionScope: SharedTransitionScope,
-    animatedContentScope: AnimatedContentScope
+    exploreScreenViewModel: ExploreScreenViewModel = hiltViewModel()
 ) {
     val recommendSongsState by exploreScreenViewModel.recommendSongs.collectAsState()
     val recommendPlaylistState by exploreScreenViewModel.recommendPlaylist.collectAsState()
@@ -113,13 +106,11 @@ fun ExploreScreen(
         }
     }
 
-    with(sharedTransitionScope) {
-
-        Scaffold(
-            topBar = {
-                TopBar(navController = navController, titleRes = R.string.explore)
-            },
-        ) { padding ->
+    Scaffold(
+        topBar = {
+            TopBar(navController = navController, titleRes = R.string.explore)
+        },
+    ) { padding ->
             PullToRefreshBox(
                 modifier = Modifier
                     .padding(top = padding.calculateTopPadding())
@@ -218,8 +209,7 @@ fun ExploreScreen(
                     item {
                         recommendPlaylistState?.onSuccess {
                             NavigationTitle(
-                                title = stringResource(R.string.recommend_playlist),
-                                modifier = Modifier.animateItem()
+                                title = stringResource(R.string.recommend_playlist)
                             )
                             LazyRow(
                                 state = playlistRowState,
@@ -230,24 +220,15 @@ fun ExploreScreen(
                                     PlaylistGridItem(
                                         playlist = playlist,
                                         modifier = Modifier
-                                            .sharedBounds(
-                                                sharedContentState = rememberSharedContentState(
-                                                    key = playlist.name + playlist.id
-                                                ),
-                                                animatedVisibilityScope = animatedContentScope,
-                                                placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
-                                                boundsTransform = AlbumArtBoundsTransform,
-                                                enter = fadeIn(
-                                                    tweenEnter(delayMillis = DURATION_EXIT_SHORT)
-                                                ),
-                                                exit = fadeOut(
-                                                    tweenExit(durationMillis = DURATION_EXIT_SHORT)
-                                                )
-                                            )
                                             .clip(MaterialTheme.shapes.small)
                                             .width(AlbumThumbnailSize)
                                             .clickable(
                                                 onClick = {
+                                                    if (navController.currentDestination?.route != Screen.Explore.route) {
+                                                        navController.navigate(Screen.Explore.route) {
+                                                            launchSingleTop = true
+                                                        }
+                                                    }
                                                     navController.navigate(
                                                         PlaylistNav(
                                                             playlistId = playlist.id,
@@ -258,14 +239,7 @@ fun ExploreScreen(
                                             ),
                                         thumbnailContent = {
                                             GridThumbnailImage(
-                                                url = playlist.picUrl,
-                                                modifier = Modifier
-                                                    .sharedElement(
-                                                        sharedTransitionScope.rememberSharedContentState(
-                                                            key = playlist.id
-                                                        ),
-                                                        animatedVisibilityScope = animatedContentScope
-                                                    )
+                                                url = playlist.picUrl
                                             )
                                         }
                                     )
@@ -276,7 +250,6 @@ fun ExploreScreen(
                     }
                 }
             }
-        }
     }
 
     SongMenuBottomSheet(

@@ -23,10 +23,14 @@ import com.jussicodes.music.ui.theme.ThemeColorSource
 @Composable
 fun ThemeColorSourceDialog(
     currentSource: ThemeColorSource,
+    currentUiScale: Float,
     wallpaperColorAvailable: Boolean,
     onDismiss: () -> Unit,
     onSourceSelected: (ThemeColorSource) -> Unit,
+    onUiScaleSelected: (Float) -> Unit,
 ) {
+    val uiScaleOptions = listOf(0.7f, 0.8f, 0.9f, 1f, 1.1f)
+
     Dialog(onDismissRequest = onDismiss) {
         Card(shape = MaterialTheme.shapes.extraLarge) {
             Column(
@@ -85,6 +89,46 @@ fun ThemeColorSourceDialog(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                            RadioButton(selected = selected, onClick = null)
+                        }
+                    }
+                }
+
+                Text(
+                    text = "界面缩放",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+
+                uiScaleOptions.forEach { scale ->
+                    val selected = kotlin.math.abs(currentUiScale - scale) < 0.01f
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (selected) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainer
+                            },
+                        ),
+                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onUiScaleSelected(scale)
+                            },
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "${(scale * 100).toInt()}%",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f),
+                            )
                             RadioButton(selected = selected, onClick = null)
                         }
                     }

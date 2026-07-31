@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -89,6 +90,7 @@ import com.jussicodes.music.ui.navigation.PlaylistNav
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.navigation.UserFollowNav
 import com.jussicodes.music.utils.CoverImageSize
+import com.jussicodes.music.utils.AvatarUploadLimiter
 import com.jussicodes.music.utils.PlaylistCoverSyncBus
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.rememberNullablePreference
@@ -328,6 +330,7 @@ fun LibraryScreen(
                             title = stringResource(R.string.collect_playlist),
                             playlists = collectedPlaylists,
                             coverVersions = playlistCoverVersions,
+                            showDividers = false,
                             onPlaylistClick = { playlist ->
                                 navController.navigate(
                                     PlaylistNav(
@@ -503,10 +506,19 @@ fun LibraryScreen(
     if (showAvatarDialog && !avatarUrl.isNullOrBlank()) {
         LargeImageDialog(
             imageUrl = avatarUrl.toCoverImageUrl(CoverImageSize.LARGE),
-            onDismiss = { showAvatarDialog = false }
+            onDismiss = { showAvatarDialog = false },
+            showSaveAction = true
         ) {
             TextButton(
-                onClick = { avatarPicker.launch("image/*") },
+                onClick = {
+                    val remaining = AvatarUploadLimiter.remaining(context)
+                    Toast.makeText(
+                        context,
+                        "头像每周最多上传 5 次，本周还可上传 $remaining 次",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    if (remaining > 0) avatarPicker.launch("image/*")
+                },
                 enabled = !isAvatarUploading
             ) {
                 Text(if (isAvatarUploading) "上传中" else "编辑")
@@ -680,7 +692,8 @@ private fun LibraryUserCard(
                                 navController.navigate(
                                     UserFollowNav(
                                         userId = profile.userId,
-                                        type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWS.name
+                                        type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWS.name,
+                                        showArtistFollows = true
                                     )
                                 )
                             },
@@ -877,6 +890,7 @@ private fun PlaylistGroupCard(
     title: String,
     playlists: List<Playlist>,
     coverVersions: Map<Long, Long>,
+    showDividers: Boolean = true,
     onPlaylistClick: (Playlist) -> Unit,
     menuItems: List<PlaylistMenuItem>,
     reorderEnabled: Boolean = false,
@@ -938,7 +952,11 @@ private fun PlaylistGroupCard(
                         )
                     }
                     if (index != orderedPlaylists.lastIndex) {
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 3.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        if (showDividers) {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 3.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        } else {
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
                     }
                 }
             }

@@ -1,12 +1,14 @@
 package com.jussicodes.music.ui.screen
 
-import androidx.compose.foundation.clickable
+import android.icu.text.Transliterator
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -16,8 +18,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,17 +37,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import com.jussicodes.music.ui.components.ArtistListItem
+import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.navigation.ArtistNav
 import com.jussicodes.music.ui.navigation.UserNav
+import com.jussicodes.music.utils.CoverImageSize
+import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.UserFollowScreenViewModel
 import com.jussicodes.music.viewModel.UserFollowType
 import com.rcmiku.ncmapi.model.SearchArtist
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,6 +60,7 @@ fun UserFollowScreen(
     navController: NavHostController,
     userId: Long,
     type: UserFollowType,
+    showArtistFollows: Boolean,
     userFollowScreenViewModel: UserFollowScreenViewModel = hiltViewModel()
 ) {
     val users by userFollowScreenViewModel.users.collectAsState()
@@ -60,18 +68,33 @@ fun UserFollowScreen(
     val isLoading by userFollowScreenViewModel.isLoading.collectAsState()
     val isLoadingMore by userFollowScreenViewModel.isLoadingMore.collectAsState()
     val hasMore by userFollowScreenViewModel.hasMore.collectAsState()
-    var selectedType by remember(type) {
+    val errorMessage by userFollowScreenViewModel.errorMessage.collectAsState()
+    val sortedArtists = artists.sortedBy { it.name.toPinyinSortKey() }
+    val followedArtistUsers = users
+        .filter { it.userType == 2 || it.userType == 4 }
+        .sortedBy { it.nickname.toPinyinSortKey() }
+    val followedUsers = users
+        .filterNot { it.userType == 2 || it.userType == 4 }
+        .sortedBy { it.nickname.toPinyinSortKey() }
+    var selectedType by remember(type, showArtistFollows) {
         mutableStateOf(if (type == UserFollowType.FOLLOWS) UserFollowType.ARTISTS else type)
     }
+    var previewAvatarUrl by remember { mutableStateOf<String?>(null) }
+    var horizontalDragAmount by remember { mutableStateOf(0f) }
     val isContentEmpty = when (selectedType) {
-        UserFollowType.ARTISTS -> artists.isEmpty()
-        UserFollowType.FOLLOWS,
+        UserFollowType.ARTISTS -> if (showArtistFollows) sortedArtists.isEmpty() else followedArtistUsers.isEmpty()
+        UserFollowType.FOLLOWS -> followedUsers.isEmpty()
         UserFollowType.FOLLOWEDS -> users.isEmpty()
     }
 
     LaunchedEffect(userId, selectedType) {
-        if (selectedType == UserFollowType.ARTISTS || userId > 0) {
-            userFollowScreenViewModel.fetch(userId, selectedType)
+        val fetchType = if (selectedType == UserFollowType.ARTISTS && !showArtistFollows) {
+            UserFollowType.FOLLOWS
+        } else {
+            selectedType
+        }
+        if (fetchType == UserFollowType.ARTISTS || userId > 0) {
+            userFollowScreenViewModel.fetch(userId, fetchType)
         } else {
             userFollowScreenViewModel.clear()
         }
@@ -106,6 +129,20 @@ fun UserFollowScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .pointerInput(type) {
+                    if (type == UserFollowType.FOLLOWS) {
+                        detectHorizontalDragGestures(
+                            onDragStart = { horizontalDragAmount = 0f },
+                            onHorizontalDrag = { _, amount -> horizontalDragAmount += amount },
+                            onDragEnd = {
+                                if (horizontalDragAmount < -80f) selectedType = UserFollowType.FOLLOWS
+                                if (horizontalDragAmount > 80f) selectedType = UserFollowType.ARTISTS
+                                horizontalDragAmount = 0f
+                            },
+                            onDragCancel = { horizontalDragAmount = 0f }
+                        )
+                    }
+                }
         ) {
             if (type == UserFollowType.FOLLOWS) {
                 item {
@@ -124,16 +161,49 @@ fun UserFollowScreen(
                         )
                     }
                 }
+                if (!showArtistFollows) {
+                    item {
+                        Text(
+                            text = "接口未提供关注时间，列表按 A-Z 排序，中文按拼音排序",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                        )
+                    }
+                }
             }
 
             when (selectedType) {
                 UserFollowType.ARTISTS -> {
                     if (isLoading && isContentEmpty) {
                         loadingListItems()
+                    } else if (errorMessage != null && isContentEmpty) {
+                        emptyMessageItem(errorMessage.orEmpty())
+                    } else if (!showArtistFollows) {
+                        items(followedArtistUsers, key = { it.id }) { user ->
+                            ArtistListItem(
+                                artist = SearchArtist(
+                                    id = user.id,
+                                    name = user.nickname,
+                                    picUrl = user.avatarUrl,
+                                    briefDesc = user.signature
+                                ),
+                                onThumbnailClick = { previewAvatarUrl = user.avatarUrl },
+                                modifier = Modifier.clickable {
+                                    navController.navigate(UserNav(userId = user.id))
+                                }
+                            )
+                        }
+                        loadMoreItem(
+                            hasMore = hasMore,
+                            isLoadingMore = isLoadingMore,
+                            onClick = { userFollowScreenViewModel.loadMore() }
+                        )
                     } else {
-                        items(artists, key = { it.id }) { artist ->
+                        items(sortedArtists, key = { it.id }) { artist ->
                             ArtistListItem(
                                 artist = artist,
+                                onThumbnailClick = { previewAvatarUrl = artist.cover },
                                 modifier = Modifier.clickable {
                                     navController.navigate(ArtistNav(artistId = artist.id))
                                 }
@@ -150,8 +220,11 @@ fun UserFollowScreen(
                 UserFollowType.FOLLOWEDS -> {
                     if (isLoading && isContentEmpty) {
                         loadingListItems()
+                    } else if (errorMessage != null && isContentEmpty) {
+                        emptyMessageItem(errorMessage.orEmpty())
                     } else {
-                        items(users, key = { it.id }) { user ->
+                        val displayedUsers = if (selectedType == UserFollowType.FOLLOWS) followedUsers else users
+                        items(displayedUsers, key = { it.id }) { user ->
                             ArtistListItem(
                                 artist = SearchArtist(
                                     id = user.id,
@@ -159,6 +232,7 @@ fun UserFollowScreen(
                                     picUrl = user.avatarUrl,
                                     briefDesc = user.signature
                                 ),
+                                onThumbnailClick = { previewAvatarUrl = user.avatarUrl },
                                 modifier = Modifier.clickable {
                                     navController.navigate(UserNav(userId = user.id))
                                 }
@@ -172,6 +246,41 @@ fun UserFollowScreen(
                     }
                 }
             }
+        }
+    }
+    previewAvatarUrl?.let { url ->
+        LargeImageDialog(
+            imageUrl = url.toCoverImageUrl(CoverImageSize.LARGE),
+            onDismiss = { previewAvatarUrl = null },
+            showSaveAction = true
+        )
+    }
+}
+
+private fun String.toPinyinSortKey(): String =
+    FollowListPinyinTransliterator.transliterate(trim()).lowercase(Locale.ROOT)
+
+private object FollowListPinyinTransliterator {
+    private val transliterator by lazy {
+        Transliterator.getInstance("Han-Latin/Names; Latin-ASCII")
+    }
+
+    fun transliterate(value: String): String = transliterator.transliterate(value)
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.emptyMessageItem(message: String) {
+    item {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 48.dp),
+            contentAlignment = androidx.compose.ui.Alignment.Center
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -196,7 +305,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.loadMoreItem(
                 if (isLoadingMore) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp))
                 } else {
-                    Text(text = "\u52a0\u8f7d\u4e0b\u4e00\u9875")
+                    Text(text = "加载下一页")
                 }
             }
         }

@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxWithConstraintsScope
@@ -227,6 +228,7 @@ fun GridItem(
 fun ArtistListItem(
     artist: SearchArtist,
     modifier: Modifier = Modifier,
+    onThumbnailClick: (() -> Unit)? = null,
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) = ListItem(
     title = artist.name,
@@ -238,6 +240,7 @@ fun ArtistListItem(
             modifier = Modifier
                 .clip(CircleShape)
                 .size(ListThumbnailSize)
+                .then(onThumbnailClick?.let { Modifier.clickable(onClick = it) } ?: Modifier)
         )
     },
     trailingContent = trailingContent,

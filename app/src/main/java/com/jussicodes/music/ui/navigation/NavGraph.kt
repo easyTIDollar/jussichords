@@ -105,9 +105,7 @@ fun NavGraph(
                     navController = navController,
                     pagerState = homePagerState,
                     onPageChange = onHomePageChange,
-                    onPageScroll = onHomePageScroll,
-                    sharedTransitionScope = this@SharedTransitionLayout,
-                    animatedContentScope = this@composable
+                    onPageScroll = onHomePageScroll
                 )
             }
             composable(Screen.Explore.route) {
@@ -115,9 +113,7 @@ fun NavGraph(
                     navController = navController,
                     pagerState = homePagerState,
                     onPageChange = onHomePageChange,
-                    onPageScroll = onHomePageScroll,
-                    sharedTransitionScope = this@SharedTransitionLayout,
-                    animatedContentScope = this@composable
+                    onPageScroll = onHomePageScroll
                 )
             }
             composable(Screen.Roam.route) {
@@ -155,6 +151,7 @@ fun NavGraph(
                 UserFollowScreen(
                     navController = navController,
                     userId = route.userId,
+                    showArtistFollows = route.showArtistFollows,
                     type = when {
                         route.type.equals(UserFollowType.FOLLOWEDS.name, ignoreCase = true) ->
                             UserFollowType.FOLLOWEDS
@@ -187,15 +184,12 @@ fun NavGraph(
     }
 }
 
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun HomePager(
     navController: NavHostController,
     pagerState: PagerState,
     onPageChange: (Int) -> Unit,
-    onPageScroll: (Float) -> Unit,
-    sharedTransitionScope: androidx.compose.animation.SharedTransitionScope,
-    animatedContentScope: androidx.compose.animation.AnimatedContentScope
+    onPageScroll: (Float) -> Unit
 ) {
     LaunchedEffect(pagerState.settledPage) {
         onPageChange(pagerState.settledPage)
@@ -224,11 +218,7 @@ private fun HomePager(
     ) { page ->
         when (page) {
             0 -> LibraryScreen(navController = navController)
-            1 -> ExploreScreen(
-                navController = navController,
-                sharedTransitionScope = sharedTransitionScope,
-                animatedContentScope = animatedContentScope
-            )
+            1 -> ExploreScreen(navController = navController)
         }
     }
 }

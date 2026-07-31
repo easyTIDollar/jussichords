@@ -57,7 +57,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -75,6 +77,7 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.data.favoriteSongIdsDatastore
+import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.Artist
 import com.jussicodes.music.ui.icons.ChevronDown
@@ -89,6 +92,7 @@ import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.FavoriteSongAction
 import com.jussicodes.music.utils.getItemShape
 import com.jussicodes.music.utils.makeTimeString
+import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.rcmiku.ncmapi.api.album.AlbumApi
 import com.rcmiku.ncmapi.model.Artist
@@ -142,6 +146,12 @@ fun Player(
     var openPlayerBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openComments by rememberSaveable { mutableStateOf(false) }
     var playerLabelMenuExpanded by rememberSaveable { mutableStateOf(false) }
+    var gestureTutorialVersion by rememberPreference(
+        playerGestureTutorialVersionKey,
+        0
+    )
+    val showGestureTutorial = gestureTutorialVersion < PLAYER_GESTURE_TUTORIAL_VERSION
+    var gestureTutorialActionCompleted by rememberSaveable { mutableStateOf(false) }
     var coverPreviewUrl by remember { mutableStateOf<Any?>(null) }
     var coverOffsetX by remember { mutableFloatStateOf(0f) }
     var coverOffsetY by remember { mutableFloatStateOf(0f) }
@@ -161,10 +171,18 @@ fun Player(
     val coverDismissLimitPx = dismissThresholdPx * 1.1f
     val dragDirectionSlopPx = with(density) { 3.dp.toPx() }
     val queueOpenThresholdPx = with(density) { 40.dp.toPx() }
+    val tutorialContentColor = MaterialTheme.colorScheme.onSurface
+    val tutorialAccentColor = MaterialTheme.colorScheme.primary
     val coverDragProgress = maxOf(
         abs(coverOffsetX) / swipeThresholdPx,
         coverOffsetY / dismissThresholdPx
     ).coerceIn(0f, 1f)
+
+    LaunchedEffect(showGestureTutorial) {
+        if (showGestureTutorial) {
+            gestureTutorialActionCompleted = false
+        }
+    }
 
     fun animateCoverOffsetTo(target: Float) {
         coverAnimationJob?.cancel()
@@ -531,50 +549,22 @@ fun Player(
                 if (screenHeight.dp > 700.dp)
                     Spacer(Modifier.height(24.dp))
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    modifier = Modifier
-                        .padding(horizontal = 24.dp)
-                        .fillMaxWidth()
-                ) {
-                    FilledTonalIconButton(
-                        onClick = { mediaController?.seekToPrevious() },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            SkipPreviousFill,
-                            contentDescription = null
-                        )
-                    }
-                    FilledIconButton(
-                        modifier = Modifier.size(72.dp),
-                        onClick = { if (!isPlaying) mediaController?.play() else mediaController?.pause() }
-                    ) {
-                        Icon(
-                            if (isPlaying) PauseFill else Icons.Filled.PlayArrow,
-                            modifier = Modifier.size(36.dp),
-                            contentDescription = null
-                        )
-                    }
-                    FilledTonalIconButton(
-                        onClick = { mediaController?.seekToNext() },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            SkipNextFill,
-                            contentDescription = null
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(8.dp))
-
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 24.dp)
                         .fillMaxWidth()
-                        .height(56.dp)
+                        .weight(1f)
+                        .drawBehind {
+                            if (showGestureTutorial) {
+                                val top = 72.dp.toPx()
+                                drawLine(
+                                    color = tutorialAccentColor.copy(alpha = 0.8f),
+                                    start = Offset(16.dp.toPx(), top),
+                                    end = Offset(size.width - 16.dp.toPx(), top),
+                                    strokeWidth = 2.dp.toPx()
+                                )
+                            }
+                        }
                         .pointerInput(
                             openBottomSheet,
                             openPlayerBottomSheet,
@@ -582,11 +572,12 @@ fun Player(
                         ) {
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
+                                if (down.position.y < 72.dp.toPx()) {
+                                    return@awaitEachGesture
+                                }
                                 var totalDragX = 0f
                                 var totalDragY = 0f
                                 var isVerticalDrag: Boolean? = null
-                                var openedComments = false
-
                                 while (true) {
                                     val event = awaitPointerEvent()
                                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -615,29 +606,105 @@ fun Player(
                                         !openBottomSheet &&
                                         !openPlayerBottomSheet
                                     ) {
-                                        openedComments = true
+                                        gestureTutorialActionCompleted = true
                                         openComments = true
                                         change.consume()
                                         break
                                     }
                                 }
+                            }
+                        }
+                ) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            FilledTonalIconButton(
+                                onClick = { mediaController?.seekToPrevious() },
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Icon(SkipPreviousFill, contentDescription = null)
+                            }
+                            FilledIconButton(
+                                modifier = Modifier.size(72.dp),
+                                onClick = {
+                                    if (!isPlaying) mediaController?.play() else mediaController?.pause()
+                                }
+                            ) {
+                                Icon(
+                                    if (isPlaying) PauseFill else Icons.Filled.PlayArrow,
+                                    modifier = Modifier.size(36.dp),
+                                    contentDescription = null
+                                )
+                            }
+                            FilledTonalIconButton(
+                                onClick = { mediaController?.seekToNext() },
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Icon(SkipNextFill, contentDescription = null)
+                            }
+                        }
 
-                                if (openedComments) {
-                                    while (true) {
-                                        val event = awaitPointerEvent()
-                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                        if (!change.pressed) break
-                                        change.consume()
-                                    }
-                                } else if (isVerticalDrag == null &&
-                                    !openBottomSheet &&
-                                    !openPlayerBottomSheet
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    enabled = !openBottomSheet && !openPlayerBottomSheet
                                 ) {
+                                    gestureTutorialActionCompleted = true
                                     onContainerClick()
+                                }
+                        ) {
+                            if (showGestureTutorial) {
+                                if (gestureTutorialActionCompleted) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(
+                                            text = "操作完成",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = tutorialContentColor
+                                        )
+                                        androidx.compose.material3.TextButton(
+                                            onClick = {
+                                                gestureTutorialVersion =
+                                                    PLAYER_GESTURE_TUTORIAL_VERSION
+                                            }
+                                        ) {
+                                            Text(text = "关闭教程", color = tutorialContentColor)
+                                        }
+                                    }
+                                } else {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceEvenly,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "点击 · 播放列表",
+                                            maxLines = 1,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = tutorialContentColor
+                                        )
+                                        Text(
+                                            text = "上滑 · 评论",
+                                            maxLines = 1,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = tutorialContentColor
+                                        )
+                                    }
                                 }
                             }
                         }
-                )
+                    }
+                }
             }
         }
 
@@ -667,7 +734,8 @@ fun Player(
         coverPreviewUrl?.let { url ->
             LargeImageDialog(
                 imageUrl = url,
-                onDismiss = { coverPreviewUrl = null }
+                onDismiss = { coverPreviewUrl = null },
+                showSaveAction = true
             )
         }
 
@@ -681,6 +749,8 @@ fun Player(
         }
     }
 }
+
+private const val PLAYER_GESTURE_TUTORIAL_VERSION = 1
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -67,6 +67,7 @@ import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.components.PlayerComments
+import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
 import com.jussicodes.music.ui.icons.LibraryAdd
@@ -107,6 +108,7 @@ fun AlbumScreen(
     var openBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openAlbumComments by rememberSaveable { mutableStateOf(false) }
     var selectSong by remember { mutableStateOf<Song?>(null) }
+    var previewCoverUrl by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     val pinnedAlbumIdsText by context.dataStore.data.map { it[pinnedAlbumIdsKey].orEmpty() }
@@ -208,6 +210,11 @@ fun AlbumScreen(
                                     )
                                     .size(200.dp)
                                     .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                    .clickable {
+                                        previewCoverUrl = detail.album.picUrl.toCoverImageUrl(
+                                            CoverImageSize.LARGE
+                                        )
+                                    }
                             )
                         }
                         Spacer(Modifier.height(12.dp))
@@ -316,6 +323,14 @@ fun AlbumScreen(
         onDismiss = { openBottomSheet = false },
         openBottomSheet = openBottomSheet
     )
+
+    previewCoverUrl?.let { imageUrl ->
+        LargeImageDialog(
+            imageUrl = imageUrl,
+            onDismiss = { previewCoverUrl = null },
+            showSaveAction = true
+        )
+    }
 
     if (openAlbumComments) {
         currentAlbum?.let { album ->

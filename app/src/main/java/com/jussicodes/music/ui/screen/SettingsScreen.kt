@@ -26,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -55,6 +56,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import com.jussicodes.music.BuildConfig
+import com.jussicodes.music.LocalUiScaleController
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.SettingItemCorner
 import com.jussicodes.music.constants.SettingItemHeight
@@ -63,7 +65,9 @@ import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
+import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
+import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.lyric.DesktopLyricManager
@@ -73,12 +77,15 @@ import com.jussicodes.music.ui.components.ThemeColorSourceDialog
 import com.jussicodes.music.ui.components.UnblockSourceDialog
 import com.jussicodes.music.ui.components.UpdateDialog
 import com.jussicodes.music.ui.components.UrlEditDialog
+import com.jussicodes.music.ui.icons.AudioLines
+import com.jussicodes.music.ui.icons.DesktopLyrics
 import com.jussicodes.music.ui.icons.Dns
 import com.jussicodes.music.ui.icons.Github
-import com.jussicodes.music.ui.icons.GraphicEq
 import com.jussicodes.music.ui.icons.Login
 import com.jussicodes.music.ui.icons.Logout
 import com.jussicodes.music.ui.icons.PlayPause
+import com.jussicodes.music.ui.icons.ModeComment
+import com.jussicodes.music.ui.icons.Star
 import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.theme.ThemeColorSource
@@ -86,6 +93,7 @@ import com.jussicodes.music.utils.AppUpdateManager
 import com.jussicodes.music.utils.UpdateDownloadPhase
 import com.jussicodes.music.utils.UpdateDownloadService
 import com.jussicodes.music.utils.UpdateDownloadStateStore
+import com.jussicodes.music.utils.GitHubDownloadSourceStatus
 import com.jussicodes.music.utils.UpdateInfo
 import com.jussicodes.music.utils.getItemShape
 import com.jussicodes.music.utils.rememberEnumPreference
@@ -116,11 +124,23 @@ fun SettingsScreen(navController: NavHostController) {
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://119.23.64.141:3000")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
+    var playerGestureTutorialVersion by rememberPreference(
+        playerGestureTutorialVersionKey,
+        0
+    )
+    val uiScaleController = LocalUiScaleController.current
+    var githubDownloadSource by rememberPreference(
+        githubDownloadSourceKey,
+        AppUpdateManager.downloadSources.first().id
+    )
     var showQualityDialog by remember { mutableStateOf(false) }
     var showThemeColorSourceDialog by remember { mutableStateOf(false) }
     var showApiUrlDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
     var showCookieDialog by remember { mutableStateOf(false) }
+    var showGithubSourceDialog by remember { mutableStateOf(false) }
+    var githubSourceStatuses by remember { mutableStateOf<List<GitHubDownloadSourceStatus>>(emptyList()) }
+    var testingGithubSources by remember { mutableStateOf(false) }
     var updating by rememberSaveable { mutableStateOf(false) }
     var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var downloadingUpdate by remember { mutableStateOf(false) }
@@ -204,14 +224,15 @@ fun SettingsScreen(navController: NavHostController) {
         ThemeColorSource.ARTWORK -> "从当前播放音乐的封面取色"
     }
 
+    val appearanceWithScale = "$appearanceSubtitle · 缩放 ${(uiScaleController.scale * 100).toInt()}%"
     val accountCookie = remember(ncmCookie) { ncmCookie.toCookieHeader() }
     val accountCookieMap = remember(accountCookie) { parseCookieString(accountCookie) }
 
     val baseSettingItems = listOf(
         SettingItemData(
             title = appearanceTitle,
-            subtitle = appearanceSubtitle,
-            imageVector = GraphicEq,
+            subtitle = appearanceWithScale,
+            imageVector = Star,
             onClick = { showThemeColorSourceDialog = true }
         ),
         SettingItemData(
@@ -242,7 +263,7 @@ fun SettingsScreen(navController: NavHostController) {
                 !overlayPermissionGranted -> "需要悬浮窗权限"
                 else -> "已关闭"
             },
-            imageVector = GraphicEq,
+            imageVector = DesktopLyrics,
             trailingContent = {
                 Switch(
                     checked = desktopLyricEnabled && overlayPermissionGranted,
@@ -298,8 +319,17 @@ fun SettingsScreen(navController: NavHostController) {
                 SongLevel.DOLBY -> stringResource(R.string.dolby)
                 SongLevel.JYMASTER -> stringResource(R.string.jymaster)
             },
-            imageVector = GraphicEq,
+            imageVector = AudioLines,
             onClick = { showQualityDialog = true }
+        ),
+        SettingItemData(
+            title = "重新学播放器手势",
+            subtitle = "在播放页重新显示点击和上滑操作提示",
+            imageVector = ModeComment,
+            onClick = {
+                playerGestureTutorialVersion = 0
+                Toast.makeText(context, "播放器手势教程已重新开启", Toast.LENGTH_SHORT).show()
+            }
         ),
         SettingItemData(
             title = stringResource(R.string.api_server),
@@ -312,9 +342,19 @@ fun SettingsScreen(navController: NavHostController) {
             title = if (updating) "正在检查" else "检查版本更新",
             subtitle = when {
                 updating -> "正在检查 GitHub Release"
-                else -> "当前版本：${BuildConfig.VERSION_NAME} · 点按检查更新"
+                else -> "当前版本：${BuildConfig.VERSION_NAME} · 点按检查更新 · 长按切换更新源"
             },
             imageVector = Github,
+            onLongClick = {
+                showGithubSourceDialog = true
+                testingGithubSources = true
+                coroutineScope.launch {
+                    githubSourceStatuses = AppUpdateManager.measureDownloadSources(
+                        "https://github.com/easyTIDollar/jussichords/releases/latest"
+                    )
+                    testingGithubSources = false
+                }
+            },
             onClick = {
                 if (!updating) {
                     updating = true
@@ -444,9 +484,11 @@ fun SettingsScreen(navController: NavHostController) {
     if (showThemeColorSourceDialog) {
         ThemeColorSourceDialog(
             currentSource = themeColorSource,
+            currentUiScale = uiScaleController.scale,
             wallpaperColorAvailable = dynamicColorAvailable,
             onDismiss = { showThemeColorSourceDialog = false },
             onSourceSelected = { themeColorSource = it },
+            onUiScaleSelected = uiScaleController.setScale,
         )
     }
 
@@ -491,12 +533,34 @@ fun SettingsScreen(navController: NavHostController) {
         )
     }
 
+    if (showGithubSourceDialog) {
+        GitHubDownloadSourceDialog(
+            currentSourceId = githubDownloadSource,
+            statuses = githubSourceStatuses,
+            testing = testingGithubSources,
+            onDismiss = { showGithubSourceDialog = false },
+            onRefresh = {
+                testingGithubSources = true
+                coroutineScope.launch {
+                    githubSourceStatuses = AppUpdateManager.measureDownloadSources(
+                        "https://github.com/easyTIDollar/jussichords/releases/latest"
+                    )
+                    testingGithubSources = false
+                }
+            },
+            onSourceSelected = { githubDownloadSource = it }
+        )
+    }
+
     pendingUpdateInfo?.let { updateInfo ->
         UpdateDialog(
             updateInfo = updateInfo,
             isDownloading = downloadingUpdate,
             downloadProgress = if (downloadingUpdate) updateDownloadProgress else null,
             progressText = updateDownloadText,
+            selectedSourceId = githubDownloadSource,
+            sourceStatuses = githubSourceStatuses,
+            onSourceSelected = { githubDownloadSource = it },
             onDismiss = {
                 pendingUpdateInfo = null
                 downloadingUpdate = false
@@ -515,11 +579,80 @@ fun SettingsScreen(navController: NavHostController) {
                 downloadingUpdate = true
                 updateDownloadProgress = 0f
                 updateDownloadText = "准备开始下载更新"
-                UpdateDownloadService.start(context.applicationContext, updateInfo)
+                UpdateDownloadService.start(
+                    context.applicationContext,
+                    updateInfo,
+                    githubDownloadSource
+                )
             }
         )
     }
 
+}
+
+@Composable
+private fun GitHubDownloadSourceDialog(
+    currentSourceId: String,
+    statuses: List<GitHubDownloadSourceStatus>,
+    testing: Boolean,
+    onDismiss: () -> Unit,
+    onRefresh: () -> Unit,
+    onSourceSelected: (String) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("GitHub 下载源") },
+        text = {
+            Column {
+                if (testing) {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                    )
+                }
+                AppUpdateManager.downloadSources.forEach { source ->
+                    val status = statuses.firstOrNull { it.source.id == source.id }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = source.id == currentSourceId,
+                            onClick = { onSourceSelected(source.id) }
+                        )
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(vertical = 8.dp)
+                        ) {
+                            Text(source.name, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = when {
+                                    testing && status == null -> "测速中..."
+                                    status == null -> if (source.prefix.isBlank()) "不使用加速源" else source.prefix
+                                    status.available -> "可用 · ${status.latencyMs ?: 0} ms"
+                                    else -> "不可用 · ${status.message}"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onRefresh, enabled = !testing) {
+                Text("重新测速")
+            }
+        }
+    )
 }
 
 @Composable

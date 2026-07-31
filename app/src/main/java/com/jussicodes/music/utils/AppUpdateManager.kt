@@ -7,6 +7,9 @@ import android.net.Uri
 import androidx.core.content.FileProvider
 import com.jussicodes.music.BuildConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -19,6 +22,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
+import kotlin.system.measureTimeMillis
 import java.util.concurrent.TimeUnit
 
 private const val LATEST_RELEASE_URL =
@@ -31,10 +35,14 @@ object AppUpdateManager {
     private const val DOWNLOAD_READ_TIMEOUT_SECONDS = 120L
     private const val DOWNLOAD_CALL_TIMEOUT_SECONDS = 300L
     private const val DOWNLOAD_MAX_RETRIES = 2
+    private const val SOURCE_TEST_TIMEOUT_SECONDS = 3L
 
-    private val downloadProxyPrefixes = listOf(
-        "",
-        "https://gh-proxy.com/"
+    val downloadSources = listOf(
+        GitHubDownloadSource("direct", "GitHub 直连", ""),
+        GitHubDownloadSource("gh-proxy", "gh-proxy.com", "https://gh-proxy.com/"),
+        GitHubDownloadSource("gh-llkk", "gh.llkk.cc", "https://gh.llkk.cc/"),
+        GitHubDownloadSource("ghproxy-net", "ghproxy.net", "https://ghproxy.net/"),
+        GitHubDownloadSource("ghfast", "ghfast.top", "https://ghfast.top/")
     )
 
     private val json = Json {
@@ -51,6 +59,17 @@ object AppUpdateManager {
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(true)
+            .build()
+    }
+
+    private val sourceTestClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(SOURCE_TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(SOURCE_TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(SOURCE_TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(false)
             .build()
     }
 
@@ -77,6 +96,7 @@ object AppUpdateManager {
     suspend fun downloadApk(
         context: Context,
         updateInfo: UpdateInfo,
+        sourceId: String = downloadSources.first().id,
         onProgress: (DownloadProgress) -> Unit,
     ): File = withContext(Dispatchers.IO) {
         val updateDir = File(context.cacheDir, UPDATE_DIR).apply { mkdirs() }
@@ -123,7 +143,7 @@ object AppUpdateManager {
             )
         )
 
-        downloadWithRetry(updateInfo, tempFile, onProgress)
+        downloadWithRetry(updateInfo, tempFile, sourceId, onProgress)
 
         val expectedSize = updateInfo.apkSize.takeIf { it > 0 } ?: tempFile.length()
         val actualSize = tempFile.length()
@@ -179,6 +199,39 @@ object AppUpdateManager {
         }
     }
 
+    suspend fun measureDownloadSources(sourceUrl: String): List<GitHubDownloadSourceStatus> =
+        withContext(Dispatchers.IO) {
+            supervisorScope {
+                downloadSources.map { source ->
+                    async {
+                        runCatching {
+                            val elapsed = measureTimeMillis {
+                                val request = Request.Builder()
+                                    .url(source.apply(sourceUrl))
+                                    .head()
+                                    .header("Accept", "application/octet-stream")
+                                    .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+                                    .build()
+                                sourceTestClient.newCall(request).execute().use { response ->
+                                    if (!response.isSuccessful && response.code !in 300..399) {
+                                        throw HttpStatusException(response.code)
+                                    }
+                                }
+                            }
+                            GitHubDownloadSourceStatus(source, elapsed, true, "可用")
+                        }.getOrElse { throwable ->
+                            GitHubDownloadSourceStatus(
+                                source = source,
+                                latencyMs = null,
+                                available = false,
+                                message = throwable.message ?: "不可用",
+                            )
+                        }
+                    }
+                }.awaitAll()
+            }
+        }
+
     private fun requestText(url: String): String {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
@@ -229,17 +282,20 @@ object AppUpdateManager {
     private fun versionParts(version: String): List<Int> =
         Regex("\\d+").findAll(version).map { it.value.toIntOrNull() ?: 0 }.toList()
 
-    private fun buildCandidateUrls(url: String): List<String> =
-        downloadProxyPrefixes.map { prefix ->
-            if (prefix.isEmpty()) url else "$prefix$url"
-        }.distinct()
+    private fun buildCandidateUrls(url: String, preferredSourceId: String): List<String> {
+        val preferred = downloadSources.firstOrNull { it.id == preferredSourceId }
+        return (listOfNotNull(preferred) + downloadSources)
+            .map { it.apply(url) }
+            .distinct()
+    }
 
     private fun downloadWithRetry(
         updateInfo: UpdateInfo,
         tempFile: File,
+        sourceId: String,
         onProgress: (DownloadProgress) -> Unit,
     ) {
-        val candidateUrls = buildCandidateUrls(updateInfo.downloadUrl)
+        val candidateUrls = buildCandidateUrls(updateInfo.downloadUrl, sourceId)
         var lastException: Throwable? = null
 
         repeat(DOWNLOAD_MAX_RETRIES + 1) { attempt ->
@@ -339,6 +395,22 @@ object AppUpdateManager {
 
     private class HttpStatusException(val code: Int) : Exception("HTTP $code")
 }
+
+@Serializable
+data class GitHubDownloadSource(
+    val id: String,
+    val name: String,
+    val prefix: String,
+) {
+    fun apply(url: String): String = if (prefix.isBlank()) url else "$prefix$url"
+}
+
+data class GitHubDownloadSourceStatus(
+    val source: GitHubDownloadSource,
+    val latencyMs: Long?,
+    val available: Boolean,
+    val message: String,
+)
 
 @Serializable
 data class UpdateInfo(
