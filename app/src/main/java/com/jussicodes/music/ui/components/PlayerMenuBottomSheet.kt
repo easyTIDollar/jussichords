@@ -360,7 +360,6 @@ fun PlayerMenuBottomSheet(
                                 index + 1,
                                 listOf(current.withSongSource(effective))
                             )
-                            controller.seekTo(C.TIME_UNSET, 0L)
                         }
                         Toast.makeText(
                             context,
