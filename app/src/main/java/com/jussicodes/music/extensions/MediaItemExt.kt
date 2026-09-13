@@ -16,10 +16,11 @@ import com.rcmiku.ncmapi.model.Radio
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.utils.json
 
-private fun Song.encodeUri(): String {
+private fun Song.encodeUri(source: String? = null): String {
     val base = id.toString()
     val pl = privilege?.pl ?: 0
-    return "$base?fee=$fee&pl=$pl"
+    val srcParam = if (source != null && source != "AUTO") "&src=$source" else ""
+    return "$base?fee=$fee&pl=$pl$srcParam"
 }
 
 fun Song.toMediaItem(sourceId: Long = 0L, sourceName: String = "list") =
@@ -146,21 +147,24 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel): Uri? {
  * cache / global setting.
  */
 fun MediaItem.withSongSource(source: String?): MediaItem {
-    // Preserve every existing query param (fee, pl, ...) while adding or
-    // replacing the per-song `src` override.
-    val existing = uri
-    val b = existing.buildUpon().clearQuery()
-    existing.queryParameterNames.forEach { name ->
+    // The playable URI is stored in localConfiguration, not as a top-level field.
+    val oldUri = localConfiguration?.uri ?: return this
+
+    // Rebuild the Uri: keep all existing params, drop `src`, then add the new value.
+    val uriBuilder = oldUri.buildUpon().clearQuery()
+    oldUri.queryParameterNames.forEach { name ->
         if (name != "src") {
-            existing.getQueryParameter(name)?.let { b.appendQueryParameter(name, it) }
+            oldUri.getQueryParameter(name)?.let { uriBuilder.appendQueryParameter(name, it) }
         }
     }
     val effective = source?.takeIf { it != "AUTO" }
-    if (effective != null) b.appendQueryParameter("src", effective)
+    if (effective != null) uriBuilder.appendQueryParameter("src", effective)
 
-    // MediaItem is a final class (not a data class): rebuild via toBuilder(),
-    // which preserves mediaId / metadata / request metadata, then swap the URI.
-    return toBuilder().setUri(b.build()).build()
+    // buildUpon() copies mediaId, metadata, request metadata, and all other
+    // fields; we only override the URI.
+    return buildUpon()
+        .setUri(uriBuilder.build())
+        .build()
 }
 
 /** Read the per-song `src=` override off a song URI, or null. */

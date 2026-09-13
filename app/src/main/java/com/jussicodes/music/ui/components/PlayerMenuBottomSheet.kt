@@ -351,7 +351,16 @@ fun PlayerMenuBottomSheet(
                             // Replace only the current item (queue preserved). The
                             // changed URI makes ResolvingDataSource re-resolve the
                             // song under the new per-song source, then reload it.
-                            controller.setMediaItem(index, current.withSongSource(effective))
+                            //
+                            // Media3 1.4.1 MediaController has no setMediaItem(index, item)
+                            // overload; replaceMediaItems(start, stopExclusive, list) is
+                            // the intended API for queue in-place replacement.
+                            controller.replaceMediaItems(
+                                index,
+                                index + 1,
+                                listOf(current.withSongSource(effective))
+                            )
+                            controller.seekTo(C.TIME_UNSET, 0L)
                         }
                         Toast.makeText(
                             context,
