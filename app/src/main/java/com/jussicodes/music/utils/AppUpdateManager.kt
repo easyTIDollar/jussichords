@@ -42,9 +42,13 @@ object AppUpdateManager {
     val downloadSources = listOf(
         GitHubDownloadSource("direct", "GitHub 直连", ""),
         GitHubDownloadSource("gh-proxy", "gh-proxy.com", "https://gh-proxy.com/"),
+        GitHubDownloadSource("gh-proxy-mirror", "ghproxy mirror", "https://mirror.ghproxy.com/"),
+        GitHubDownloadSource("ghproxy-cc", "ghproxy.cc", "https://ghproxy.cc/"),
         GitHubDownloadSource("gh-llkk", "gh.llkk.cc", "https://gh.llkk.cc/"),
         GitHubDownloadSource("ghproxy-net", "ghproxy.net", "https://ghproxy.net/"),
-        GitHubDownloadSource("ghfast", "ghfast.top", "https://ghfast.top/")
+        GitHubDownloadSource("ghfast", "ghfast.top", "https://ghfast.top/"),
+        GitHubDownloadSource("sishu", "sishu.dev", "https://hub.sishu.dev/"),
+        GitHubDownloadSource("acm-sh", "acm.sh", "https://gh.acm.sh/")
     )
 
     private val json = Json {
@@ -265,17 +269,22 @@ object AppUpdateManager {
             }
         }
 
-    private fun requestText(url: String): String {
-        var lastDetail = ""
-        repeat(DOWNLOAD_MAX_RETRIES + 1) { attempt ->
-            val detail = requestTextOnce(url)
-            if (detail.ok) return detail.body
-            lastDetail = detail.detail
-            // 限流（403 + X-RateLimit-Remaining: 0）或 503 服务不可用：退避 30s 重试
-            if (detail.retryable && attempt < DOWNLOAD_MAX_RETRIES) {
+    /**
+     * 拉取 GitHub API 文本。直连不通（墙内 403/超时）时，逐个换代理源重试，
+     * 复用 downloadSources 的前缀列表；命中第一个能用的源即返回。
+     * 同一源内若遇限流（403 + X-RateLimit-Remaining:0 / 503），退避 30s 重试。
+     */
+    private fun requestText(baseApiUrl: String): String {
+        val candidates = downloadSources.map { it.apply(baseApiUrl) }
+        var lastDetail = "无法连接 GitHub API"
+        for (candidate in candidates) {
+            for (attempt in 0..DOWNLOAD_MAX_RETRIES) {
+                val detail = requestTextOnce(candidate)
+                if (detail.ok) return detail.body
+                lastDetail = detail.detail
+                // 限流/503：本源退避重试；连接失败、403 拦截等不可重试错误：换下一个代理源
+                if (!detail.retryable || attempt == DOWNLOAD_MAX_RETRIES) break
                 Thread.sleep(30_000L)
-            } else {
-                throw HttpStatusException(detail.code, detail)
             }
         }
         throw HttpStatusException(0, lastDetail)
@@ -284,11 +293,15 @@ object AppUpdateManager {
     private class HttpTextResult(val ok: Boolean, val body: String, val code: Int, val detail: String, val retryable: Boolean)
 
     private fun requestTextOnce(url: String): HttpTextResult {
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000
-            readTimeout = 20_000
-            setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+        val connection = try {
+            (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15_000
+                readTimeout = 20_000
+                setRequestProperty("Accept", "application/vnd.github+json")
+                setRequestProperty("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+            }
+        } catch (e: IOException) {
+            return HttpTextResult(false, "", 0, "连接失败：${url}（${e.message}）", false)
         }
         return try {
             val code = connection.responseCode
@@ -314,6 +327,8 @@ object AppUpdateManager {
                 }
                 HttpTextResult(false, "", code, detail, rateLimited || code == 503)
             }
+        } catch (e: IOException) {
+            HttpTextResult(false, "", 0, "读取失败：${url}（${e.message}）", false)
         } finally {
             connection.disconnect()
         }
