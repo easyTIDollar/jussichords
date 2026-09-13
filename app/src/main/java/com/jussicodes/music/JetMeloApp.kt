@@ -13,6 +13,7 @@ import coil3.request.crossfade
 import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.unblockSourceKey
+import com.jussicodes.music.data.SongSourceCache
 import com.jussicodes.music.utils.AppVisibilityTracker
 import com.jussicodes.music.utils.UserAgentUtil
 import com.jussicodes.music.utils.dataStore
@@ -39,6 +40,7 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         AppVisibilityTracker.register(this)
+        SongSourceCache.init(this)
         UserAgentProvider.init(UserAgentUtil.DEFAULT_USER_AGENT)
         applicationScope.launch {
             UserAgentProvider.init(UserAgentUtil.DEFAULT_USER_AGENT)

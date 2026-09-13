@@ -1,6 +1,7 @@
 ﻿package com.jussicodes.music.ui.components
 
 import android.content.Intent
+import android.widget.Toast
 import android.os.Bundle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -22,6 +24,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -31,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -38,16 +42,21 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MediaSessionConstants
+import com.jussicodes.music.constants.unblockSourceKey
+import com.jussicodes.music.data.SongSourceCache
+import com.jussicodes.music.extensions.withSongSource
 import com.jussicodes.music.constants.audioEffectEightDEnabledKey
 import com.jussicodes.music.constants.audioEffectIntensityKey
 import com.jussicodes.music.constants.audioEffectModeKey
 import com.jussicodes.music.constants.audioEffectReverbEnabledKey
 import com.jussicodes.music.constants.audioEffectSpeedKey
 import com.jussicodes.music.playback.audio.AudioEffectMode
+import com.jussicodes.music.ui.icons.Dns
 import com.jussicodes.music.ui.icons.AudioLines
 import com.jussicodes.music.ui.icons.Repeat
 import com.jussicodes.music.ui.icons.RepeatOne
@@ -58,6 +67,10 @@ import com.jussicodes.music.ui.icons.Timer
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.model.Song
+import androidx.media3.common.C
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import kotlinx.coroutines.launch
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
 
@@ -108,6 +121,20 @@ fun PlayerMenuBottomSheet(
     val context = LocalContext.current
     var cancelSleepTimer by rememberSaveable { mutableStateOf(false) }
     var openSongListBottomSheet by rememberSaveable { mutableStateOf(false) }
+
+    // Per-song unblock-source picker state.
+    val scope = rememberCoroutineScope()
+    var globalSource by rememberPreference(unblockSourceKey, "AUTO")
+    var showSourcePicker by rememberSaveable { mutableStateOf(false) }
+    var perSongSourceOverride by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(openBottomSheet, currentSong?.id) {
+        if (openBottomSheet) {
+            currentSong?.id?.let { perSongSourceOverride = SongSourceCache.getForSong(it) }
+        } else {
+            perSongSourceOverride = null
+        }
+    }
 
     LaunchedEffect(openBottomSheet) {
         if (openBottomSheet) {
@@ -212,6 +239,26 @@ fun PlayerMenuBottomSheet(
                     }
 
                     item {
+                        val effectiveSource = perSongSourceOverride
+                            ?: globalSource.takeIf { it != "AUTO" }
+                        val sourceLabel = when (effectiveSource) {
+                            null -> "自动（全局）"
+                            else -> effectiveSource
+                        }
+                        PlayerMenuActionCard(
+                            shape = RoundedCornerShape(8.dp),
+                            icon = Dns,
+                            title = "音源",
+                            value = sourceLabel,
+                            iconAlpha = 1f,
+                            onClick = {
+                                showSourcePicker = true
+                                onDismiss()
+                            }
+                        )
+                    }
+
+                    item {
                         PlayerMenuActionCard(
                             shape = RoundedCornerShape(8.dp),
                             icon = SongListAdd,
@@ -283,9 +330,105 @@ fun PlayerMenuBottomSheet(
         }
     }
 
+    if (showSourcePicker) {
+        SourcePickerSheet(
+            songId = currentSong?.id,
+            currentSource = perSongSourceOverride ?: globalSource,
+            onDismiss = { showSourcePicker = false },
+            onApply = { selected ->
+                showSourcePicker = false
+                currentSong?.id?.let { songId ->
+                    scope.launch {
+                        val effective = selected.takeIf { it != "AUTO" }
+                        SongSourceCache.setForSong(songId, effective)
+                        val controller = mediaController
+                        val current = playerState?.currentMediaItem
+                        val index = controller?.currentMediaItemIndex
+                        if (controller != null && current != null &&
+                            index != null && index != C.INDEX_UNSET
+                        ) {
+                            // Replace only the current item (queue preserved); the
+                            // ResolvingDataSource re-resolves the song under the
+                            // new per-song source.
+                            controller.setMediaItem(index, current.withSongSource(effective))
+                        }
+                        Toast.makeText(
+                            context,
+                            if (effective == null) "已恢复自动音源" else "已切换到 ${selectedLabel(selected)} 音源",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+        )
+    }
+
     SongListBottomSheet(song = currentSong, onDismiss = {
         openSongListBottomSheet = false
     }, openBottomSheet = openSongListBottomSheet)
+}
+
+/**
+ * Map a raw unblock source value to its friendly label for toast/preview text.
+ */
+private fun selectedLabel(source: String): String =
+    unblockSourceOptions.firstOrNull { it.value == source }?.label ?: source
+
+/**
+ * Picker for the per-song unblock source. Selecting "AUTO"/"自动" clears the
+ * per-song override so the song follows the global setting; any other value is
+ * persisted per-song and immediately re-resolves the current track.
+ */
+@Composable
+private fun SourcePickerSheet(
+    songId: Long?,
+    currentSource: String,
+    onDismiss: () -> Unit,
+    onApply: (String) -> Unit,
+) {
+    val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    LaunchedEffect(Unit) { bottomSheetState.show() }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = bottomSheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .selectableGroup()
+                .padding(vertical = 12.dp)
+        ) {
+            Text(
+                text = "为「${songId ?: 0L}」选择音源",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+            unblockSourceOptions.forEach { option ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .selectable(
+                            selected = option.value == currentSource,
+                            onClick = { onApply(option.value) },
+                            role = Role.RadioButton,
+                        )
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = option.value == currentSource,
+                        onClick = null
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = option.label,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
