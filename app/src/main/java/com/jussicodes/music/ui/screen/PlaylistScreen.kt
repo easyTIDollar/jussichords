@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -37,6 +38,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -106,7 +108,9 @@ import com.rcmiku.ncmapi.model.Song
 import coil3.compose.AsyncImage
 import java.io.File
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.core.view.ViewCompat
 import com.jussicodes.music.utils.rememberPreference
@@ -265,6 +269,16 @@ fun PlaylistScreen(
                 )
             }
         ) { padding ->
+            if (playlistDetailState == null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
             playlistDetailState?.let {
                 val serverTracks = it.playlist.getAllTracks()
                 LaunchedEffect(it.playlist.id, serverTracks.map { song -> song.id }) {
@@ -273,12 +287,7 @@ fun PlaylistScreen(
                     }
                 }
                 val tracks = reorderedTracks ?: serverTracks
-                val searchEntries = remember(tracks) {
-                    tracks.map(::PlaylistSongSearchEntry)
-                }
-                val visibleTracks = remember(searchEntries, searchQuery) {
-                    searchEntries.filterBy(searchQuery)
-                }
+                val visibleTracks = rememberFilteredSongs(tracks, searchQuery)
                 val canReorderSongs = !searchActive &&
                     searchQuery.isBlank() &&
                     it.playlist.creator?.userId == userId
@@ -671,15 +680,6 @@ private class PlaylistSongSearchEntry(song: Song) {
     }
 }
 
-private fun List<PlaylistSongSearchEntry>.filterBy(query: String): List<Song> {
-    val normalizedQuery = query.toSearchText()
-    if (normalizedQuery.isBlank()) return map { it.song }
-    return asSequence()
-        .filter { it.matches(normalizedQuery) }
-        .map { it.song }
-        .toList()
-}
-
 private fun String.toSearchText(): String =
     lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }
 
@@ -689,6 +689,38 @@ private fun String.toInitials(): String =
         .mapNotNull { word -> word.firstOrNull { it.isLetterOrDigit() } }
         .joinToString("")
         .lowercase(Locale.ROOT)
+
+/**
+ * Filters [tracks] for in-list search without blocking the UI thread.
+ * The pinyin search index (ICU transliteration per song and artist) is built
+ * on [Dispatchers.Default]. When no query is active the full list is returned
+ * as-is, so merely opening a large playlist does no per-song work at all;
+ * filtering only runs against the pre-computed index once a query is entered.
+ */
+@Composable
+private fun rememberFilteredSongs(tracks: List<Song>, query: String): List<Song> {
+    val normalizedQuery = remember(query) { query.toSearchText() }
+    var index by remember(tracks) { mutableStateOf<PlaylistSearchIndex?>(null) }
+    LaunchedEffect(tracks) {
+        index = withContext(Dispatchers.Default) { tracks.toSearchIndex() }
+    }
+    return when {
+        normalizedQuery.isBlank() -> tracks
+        index == null -> tracks
+        else -> index!!.filter(normalizedQuery)
+    }
+}
+
+private fun List<Song>.toSearchIndex(): PlaylistSearchIndex =
+    PlaylistSearchIndex(map(::PlaylistSongSearchEntry))
+
+private class PlaylistSearchIndex(private val entries: List<PlaylistSongSearchEntry>) {
+    fun filter(normalizedQuery: String): List<Song> =
+        entries.asSequence()
+            .filter { it.matches(normalizedQuery) }
+            .map { it.song }
+            .toList()
+}
 
 private fun Uri.copyToPlaylistCoverCache(context: Context, scale: Float, offset: Offset): File? {
     val outputSize = PLAYLIST_COVER_UPLOAD_SIZE
