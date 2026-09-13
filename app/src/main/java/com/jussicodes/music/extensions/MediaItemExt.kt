@@ -127,7 +127,7 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel): Uri? {
     val songId = if (query != null) "$path?$query" else path
 
     // 1) Per-song source chosen in this session (carried on the URI itself).
-    val uriSource = uri.queryParameter("src")?.takeIf { it != "AUTO" }
+    val uriSource = uri.getQueryParameter("src")?.takeIf { it != "AUTO" }
 
     // 2) Persisted per-song override (survives restarts).
     val songIdLong = path.toLongOrNull()
@@ -163,10 +163,17 @@ fun MediaItem.withSongSource(source: String?): MediaItem {
     if (effective != null) {
         builder.appendQueryParameter("src", effective)
     }
+    val newUri = builder.build()
 
-    return copy(uri = builder.build())
+    // MediaItem is not a data class; rebuild via Builder preserving all fields.
+    return MediaItem.Builder(newUri)
+        .setMediaId(mediaId)
+        .setMediaMetadata(mediaMetadata)
+        .setRequestMetadata(requestMetadata)
+        .setClipConfiguration(clipConfiguration)
+        .build()
 }
 
 /** Read the per-song `src=` override off a song URI, or null. */
-fun Uri.songSource(): String? = queryParameter("src")?.takeIf { it != "AUTO" }
+fun Uri.songSource(): String? = getQueryParameter("src")?.takeIf { it != "AUTO" }
 
