@@ -351,8 +351,7 @@ fun PlayerMenuBottomSheet(
                             // Replace only the current item (queue preserved). The
                             // changed URI makes ResolvingDataSource re-resolve the
                             // song under the new per-song source, then reload it.
-                            controller.putMediaItem(index, current.withSongSource(effective))
-                            controller.seekTo(index, 0L)
+                            controller.setMediaItem(index, current.withSongSource(effective))
                         }
                         Toast.makeText(
                             context,
