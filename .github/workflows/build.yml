@@ -123,7 +123,13 @@ jobs:
 
       - name: Build canary APK
         if: env.BUILD_TYPE == 'canary'
-        run: ./gradlew assembleCanary --stacktrace --no-daemon
+        run: |
+          # 每次 canary 构建注入唯一版本后缀（run id），保证 tag 永不冲突、可逐个追踪
+          SUFFIX="-canary.${GITHUB_RUN_ID}"
+          echo "CANARY_VERSION_SUFFIX=$SUFFIX" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v${APP_VERSION}${SUFFIX}" >> "$GITHUB_ENV"
+          echo "RELEASE_NAME=jussichords${SUFFIX}" >> "$GITHUB_ENV"
+          ./gradlew assembleCanary --stacktrace --no-daemon "-PCANARY_VERSION_SUFFIX=$SUFFIX"
 
       # 验证 APK 签名
       - name: Verify APK signature
@@ -152,8 +158,7 @@ jobs:
           fi
           if [ "$BUILD_TYPE" = "canary" ]; then
             TARGET="jussichords-canary.apk"
-            echo "RELEASE_TAG=v${APP_VERSION}-canary" >> "$GITHUB_ENV"
-            echo "RELEASE_NAME=jussichords-canary" >> "$GITHUB_ENV"
+            # RELEASE_TAG / RELEASE_NAME 已在 Build 步骤按唯一 run id 写入 GITHUB_ENV
           else
             TARGET="jussichords-${GITHUB_REF_NAME}.apk"
             echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"

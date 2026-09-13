@@ -359,7 +359,7 @@ fun SettingsScreen(navController: NavHostController) {
                 if (!updating) {
                     updating = true
                     coroutineScope.launch {
-                        val updateResult = AppUpdateManager.checkLatestRelease()
+                        val updateResult = AppUpdateManager.checkUpdate()
                         val updateInfo = updateResult.getOrElse {
                             Toast.makeText(
                                 context,

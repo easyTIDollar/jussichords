@@ -27,6 +27,8 @@ import java.util.concurrent.TimeUnit
 
 private const val LATEST_RELEASE_URL =
     "https://api.github.com/repos/easyTIDollar/jussichords/releases/latest"
+private const val RELEASES_URL =
+    "https://api.github.com/repos/easyTIDollar/jussichords/releases"
 
 object AppUpdateManager {
     private const val UPDATE_DIR = "updates"
@@ -73,6 +75,37 @@ object AppUpdateManager {
             .build()
     }
 
+    /**
+     * 渠道感知的更新检查：
+     * - canary 构建（BuildConfig.BUILD_TYPE == "canary"）只跟踪 pre-release（canary 通道）
+     * - 其他构建只跟踪正式 release
+     */
+    suspend fun checkUpdate(): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
+        runCatching {
+            val (latestStable, latestPre) = fetchLatestReleases()
+            val release = if (BuildConfig.BUILD_TYPE == "canary") {
+                checkNotNull(latestPre) { "No pre-release found for canary channel" }
+            } else {
+                checkNotNull(latestStable) { "No published release found" }
+            }
+            val asset = release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
+                ?: error("Release ${release.tagName} does not contain an APK asset")
+            val latestTag = release.tagName.trim().trimStart('v', 'V')
+            // tag 不同即视为有更新（canary 每个构建 tag 都带 run 编号递增）
+            if (latestTag == BuildConfig.VERSION_NAME) return@runCatching null
+            UpdateInfo(
+                versionName = latestTag,
+                releaseName = release.name.takeIf { it.isNotBlank() } ?: release.tagName,
+                body = release.body,
+                apkName = asset.name,
+                apkSize = asset.size,
+                downloadUrl = asset.downloadUrl
+            )
+        }
+    }
+
+    /** 旧版检查入口，保留以兼容既有调用 */
+    @Deprecated("Replaced by checkUpdate(context) which is channel-aware", ReplaceWith("checkUpdate(context)"))
     suspend fun checkLatestRelease(): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
         runCatching {
             val release = fetchLatestRelease()
@@ -265,6 +298,26 @@ object AppUpdateManager {
             .filterNot { it.draft || it.prerelease }
         return releases.firstOrNull()
             ?: error("No published release with APK was found")
+    }
+
+    /**
+     * 一次拉取全部（非 draft）release，返回 (最新正式版, 最新 pre-release)。
+     * canary 通道用后者，正式通道用前者；列表拉取失败时回退到 /releases/latest 拿正式版。
+     */
+    private fun fetchLatestReleases(): Pair<GitHubRelease?, GitHubRelease?> {
+        val releases = runCatching {
+            json.decodeFromString<List<GitHubRelease>>(requestText(RELEASES_URL))
+                .filterNot { it.draft }
+        }.getOrElse { t ->
+            // 列表接口异常（403 限流等）时，至少保证正式通道还能工作
+            val stable = runCatching {
+                json.decodeFromString<GitHubRelease>(requestText(LATEST_RELEASE_URL))
+            }.getOrNull()
+            return if (stable == null) throw t else Pair(stable, null)
+        }
+        val latestStable = releases.firstOrNull { !it.prerelease }
+        val latestPre = releases.firstOrNull { it.prerelease }
+        return Pair(latestStable, latestPre)
     }
 
     private fun isNewerVersion(latest: String, current: String): Boolean {

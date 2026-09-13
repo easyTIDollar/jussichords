@@ -69,7 +69,8 @@ android {
         }
         register("canary") {
             applicationIdSuffix = ".canary"
-            versionNameSuffix = "-canary"
+            // CI 可通过 -PCANARY_VERSION_SUFFIX=-canary.<runId> 注入唯一后缀，默认 -canary
+            versionNameSuffix = (findProperty("CANARY_VERSION_SUFFIX") as? String) ?: "-canary"
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

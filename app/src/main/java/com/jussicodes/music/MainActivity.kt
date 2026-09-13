@@ -87,7 +87,7 @@ class MainActivity : ComponentActivity() {
                 val ignoredVersion = withContext(Dispatchers.IO) {
                     dataStore.data.first()[ignoredUpdateVersionKey].orEmpty()
                 }
-                val updateResult = AppUpdateManager.checkLatestRelease()
+                val updateResult = AppUpdateManager.checkUpdate()
                 val updateInfo = updateResult.getOrNull()
                 if (updateInfo != null && updateInfo.versionName != ignoredVersion) {
                     pendingUpdateInfo = updateInfo
