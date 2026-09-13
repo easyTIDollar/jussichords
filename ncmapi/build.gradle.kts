@@ -13,6 +13,13 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // 与 :app 的 canary buildType 对齐，否则 app 的 canary 变体无法匹配 :ncmapi 的 variant
+    buildTypes {
+        register("canary") {
+            isMinifyEnabled = false
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
