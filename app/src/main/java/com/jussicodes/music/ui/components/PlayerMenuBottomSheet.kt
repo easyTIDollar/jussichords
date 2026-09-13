@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -347,10 +348,11 @@ fun PlayerMenuBottomSheet(
                         if (controller != null && current != null &&
                             index != null && index != C.INDEX_UNSET
                         ) {
-                            // Replace only the current item (queue preserved); the
-                            // ResolvingDataSource re-resolves the song under the
-                            // new per-song source.
-                            controller.setMediaItem(index, current.withSongSource(effective))
+                            // Replace only the current item (queue preserved). The
+                            // changed URI makes ResolvingDataSource re-resolve the
+                            // song under the new per-song source, then reload it.
+                            controller.putMediaItem(index, current.withSongSource(effective))
+                            controller.seekTo(index, 0L)
                         }
                         Toast.makeText(
                             context,
@@ -379,6 +381,7 @@ private fun selectedLabel(source: String): String =
  * per-song override so the song follows the global setting; any other value is
  * persisted per-song and immediately re-resolves the current track.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SourcePickerSheet(
     songId: Long?,

@@ -3,6 +3,7 @@ package com.jussicodes.music.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.utils.json
@@ -39,7 +40,7 @@ object SongSourceCache {
      */
     suspend fun getForSong(songId: Long): String? {
         val s = store ?: return null
-        val raw = s.first()[KEY] ?: return null
+        val raw = s.data.first()[KEY] ?: return null
         return runCatching { json.decodeFromString<Map<String, String>>(raw) }
             .getOrDefault(emptyMap())[songId.toString()]
     }
