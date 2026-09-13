@@ -146,32 +146,21 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel): Uri? {
  * cache / global setting.
  */
 fun MediaItem.withSongSource(source: String?): MediaItem {
-    val uri = this.uri
-    val path = uri.path.orEmpty().removePrefix("/")
-    val query = uri.query
-
-    // Reassemble as a clean "path?query" base, then add/replace src via a
-    // Uri.Builder so we never mangle percent-encoding.
-    val baseString = if (query.isNullOrEmpty()) path else "$path?$query"
-    val baseUri = baseString.toUri()
-    val builder = baseUri.buildUpon().clearQuery()
-    baseUri.queryParameterNames.forEach { name ->
-        baseUri.getQueryParameter(name)?.let { builder.appendQueryParameter(name, it) }
+    // Preserve every existing query param (fee, pl, ...) while adding or
+    // replacing the per-song `src` override.
+    val existing = uri
+    val b = existing.buildUpon().clearQuery()
+    existing.queryParameterNames.forEach { name ->
+        if (name != "src") {
+            existing.getQueryParameter(name)?.let { b.appendQueryParameter(name, it) }
+        }
     }
-
     val effective = source?.takeIf { it != "AUTO" }
-    if (effective != null) {
-        builder.appendQueryParameter("src", effective)
-    }
-    val newUri = builder.build()
+    if (effective != null) b.appendQueryParameter("src", effective)
 
-    // MediaItem is not a data class; rebuild via Builder preserving all fields.
-    return MediaItem.Builder(newUri)
-        .setMediaId(mediaId)
-        .setMediaMetadata(mediaMetadata)
-        .setRequestMetadata(requestMetadata)
-        .setClipConfiguration(clipConfiguration)
-        .build()
+    // MediaItem is a final class (not a data class): rebuild via toBuilder(),
+    // which preserves mediaId / metadata / request metadata, then swap the URI.
+    return toBuilder().setUri(b.build()).build()
 }
 
 /** Read the per-song `src=` override off a song URI, or null. */

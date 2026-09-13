@@ -52,9 +52,10 @@ object SongSourceCache {
     suspend fun setForSong(songId: Long, source: String?) {
         val s = store ?: return
         s.edit { prefs ->
-            val current = prefs[KEY]?.let {
-                runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrDefault(emptyMap())
-            }.toMutableMap()
+            val raw = prefs[KEY]
+            val current = (raw?.let {
+                runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull()
+            } ?: emptyMap()).toMutableMap()
             val idKey = songId.toString()
             val effective = source?.takeIf { it != "AUTO" }
             if (effective == null) current.remove(idKey) else current[idKey] = effective
