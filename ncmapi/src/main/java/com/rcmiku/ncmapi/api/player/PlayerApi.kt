@@ -24,7 +24,11 @@ import kotlinx.serialization.json.jsonPrimitive
 
 object PlayerApi {
 
-    suspend fun songPlayUrlV1(songId: String, songLevel: SongLevel = SongLevel.STANDARD): Result<SongUrlResponse> {
+    suspend fun songPlayUrlV1(
+        songId: String,
+        songLevel: SongLevel = SongLevel.STANDARD,
+        source: String? = null
+    ): Result<SongUrlResponse> {
         val parsed = parseSongId(songId)
         val realId = parsed.first
         val fee = parsed.second
@@ -32,8 +36,10 @@ object PlayerApi {
         val shouldTryUnblock = fee != 0 || privilegeLevel <= 0
 
         val primaryResult = if (shouldTryUnblock) {
-            // Restricted song: use unblock service first
-            val unblockResult = tryUnblockUrl(realId)
+            // Restricted song: try the unblock service first, honouring an
+            // optional per-song source override. `null` / "AUTO" keeps the
+            // global UNBLOCK_SOURCE behaviour.
+            val unblockResult = tryUnblockUrl(realId, source)
             if (unblockResult.hasPlayableUrl()) return unblockResult
             // Fall back to main API if unblock fails
             apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = true))
@@ -43,7 +49,7 @@ object PlayerApi {
         }
         if (primaryResult.hasPlayableUrl()) return primaryResult
 
-        val unblockResult = tryUnblockUrl(realId)
+        val unblockResult = tryUnblockUrl(realId, source)
         if (unblockResult.hasPlayableUrl()) return unblockResult
 
         return primaryResult
@@ -76,31 +82,66 @@ object PlayerApi {
         return Triple(id, fee, pl)
     }
 
-    private suspend fun tryUnblockUrl(songId: String): Result<SongUrlResponse> {
-        val matchResult = requestUnblockUrl("$API_BASE_URL/song/url/match", songId)
-        if (matchResult.isSuccess) return matchResult
-        return requestUnblockUrl("$API_BASE_URL/match", songId)
+    private suspend fun tryUnblockUrl(songId: String, sourceOverride: String?): Result<SongUrlResponse> {
+        // Per-song override wins; otherwise fall back to the global setting.
+        // "AUTO" (or null) means "let the server pick".
+        val primary = sourceOverride?.takeIf { it.isNotBlank() && it != "AUTO" }
+            ?: UNBLOCK_SOURCE.takeIf { it != "AUTO" }
+
+        if (primary == null) {
+            val matchResult = requestUnblockUrl("$API_BASE_URL/song/url/match", songId, source = null)
+            if (matchResult.isSuccess) return matchResult
+            return requestUnblockUrl("$API_BASE_URL/match", songId, source = null)
+        }
+
+        // Explicit source: try it first, then the remaining known sources in
+        // picker order until one yields a playable URL (auto-fallback).
+        val chain = listOfNotNull(primary) +
+            KNOWN_UNBLOCK_SOURCES.filter { it != primary }
+        var last = Result.failure<SongUrlResponse>(Exception("No unblock URL found for any source"))
+        for (src in chain) {
+            val matchResult = requestUnblockUrl("$API_BASE_URL/song/url/match", songId, source = src)
+            if (matchResult.isSuccess) {
+                Log.d("PlayerApi", "Unblock fallback settled on source=$src for songId=$songId")
+                return matchResult
+            }
+            val legacyResult = requestUnblockUrl("$API_BASE_URL/match", songId, source = src)
+            if (legacyResult.isSuccess) {
+                Log.d("PlayerApi", "Unblock fallback settled on source=$src (legacy) for songId=$songId")
+                return legacyResult
+            }
+            last = legacyResult
+        }
+        return last
     }
 
-    private suspend fun requestUnblockUrl(url: String, songId: String): Result<SongUrlResponse> {
+    /**
+     * Fallback chain for unblock sources, mirroring the order of the app's
+     * source picker (UnblockSourceOption list in the app module).
+     */
+    private val KNOWN_UNBLOCK_SOURCES = listOf(
+        "baka", "bikoo", "bytedance", "kuwo", "migu", "pyncmd", "qq", "youtube"
+    )
+
+    private suspend fun requestUnblockUrl(url: String, songId: String, source: String?): Result<SongUrlResponse> {
         return try {
             val response = apiClient.request(url) {
                 method = HttpMethod.Get
                 parameter("id", songId)
-                if (UNBLOCK_SOURCE != "AUTO") {
-                    parameter("source", UNBLOCK_SOURCE)
+                if (!source.isNullOrEmpty()) {
+                    parameter("source", source)
                 }
             }
             if (response.status.isSuccess()) {
                 val body = response.bodyAsText()
                 val unblockData = parseUnblockResponse(body)
                 if (unblockData != null) {
-                    Log.d("PlayerApi", "Unblock resolved songId=$songId source=$UNBLOCK_SOURCE url=${unblockData.url}")
+                    Log.d("PlayerApi", "Unblock resolved songId=$songId source=$source url=${unblockData.url}")
                     Result.success(SongUrlResponse(data = listOf(
                         SongUrl(id = songId.toLong(), url = unblockData.url, br = unblockData.br)
                     )))
                 } else {
-                    Log.w("PlayerApi", "No unblock URL found for songId=$songId source=$UNBLOCK_SOURCE body=$body")
+                    Log.w("PlayerApi", "No unblock URL found for songId=$songId source=$source body=$body")
                     Result.failure(Exception("No unblock URL found: $body"))
                 }
             } else {
