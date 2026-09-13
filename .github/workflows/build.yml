@@ -5,12 +5,23 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      build_type:
+        description: "Build type"
+        type: choice
+        options:
+          - release
+          - canary
+        default: release
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      BUILD_TYPE: ${{ inputs.build_type || 'release' }}
+      APP_VERSION: ''
     steps:
       # 拉取仓库
       - name: Checkout repository
@@ -35,7 +46,9 @@ jobs:
       - name: Configure Android SDK path
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
 
+      # release 需要仓库内的 signing secrets；canary 用 keytool 现场生成测试密钥
       - name: Prepare release keystore
+        if: env.BUILD_TYPE != 'canary'
         shell: bash
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
@@ -49,6 +62,15 @@ jobs:
             exit 1
           fi
           echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > release-keystore.jks
+
+      - name: Generate canary keystore
+        if: env.BUILD_TYPE == 'canary'
+        run: |
+          keytool -genkeypair \
+            -keystore canary-keystore.jks -storetype JKS \
+            -storepass jussichords-canary -keypass jussichords-canary \
+            -alias jussichords-canary -keyalg RSA -keysize 2048 -validity 7200 \
+            -dname "CN=Jussichords Canary, OU=CI, O=Jussichords, C=US"
 
       # 修复 Linux 无执行权限
       - name: Grant execute permission for gradlew
@@ -64,23 +86,26 @@ jobs:
         with:
           gradle-version: 8.7
 
-      # 检查 tag 和 versionName 是否一致
-      - name: Validate tag matches app version
+      # 从 build.gradle.kts 提取 versionName（release 的 tag 校验与 canary 的 tag 名都用它）
+      - name: Extract app version
         shell: bash
         run: |
-          if [ "${GITHUB_EVENT_NAME}" != "push" ]; then
-            echo "Skip version check"
-            exit 0
-          fi
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          # 提取版本号的操作已改为安全的单行
           APP_VERSION=$(grep 'versionName = ' app/build.gradle.kts | head -n 1 | sed -E 's/.*versionName = "([^"]+)".*/\1/')
-          echo "Tag version: $TAG_VERSION"
-          echo "App version: $APP_VERSION"
           if [ -z "$APP_VERSION" ]; then
             echo "Cannot find versionName"
             exit 1
           fi
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
+          echo "App version: $APP_VERSION"
+
+      # 检查 tag 和 versionName 是否一致（仅 release tag push 时）
+      - name: Validate tag matches app version
+        if: env.BUILD_TYPE != 'canary' && github.event_name == 'push'
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          echo "Tag version: $TAG_VERSION"
+          echo "App version: $APP_VERSION"
           if [ "$TAG_VERSION" != "$APP_VERSION" ]; then
             echo "Tag version does not match app version"
             exit 1
@@ -88,6 +113,7 @@ jobs:
 
       # 构建 APK
       - name: Build release APK
+        if: env.BUILD_TYPE != 'canary'
         env:
           RELEASE_STORE_FILE: release-keystore.jks
           RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
@@ -95,10 +121,15 @@ jobs:
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: ./gradlew assembleRelease --stacktrace --no-daemon
 
+      - name: Build canary APK
+        if: env.BUILD_TYPE == 'canary'
+        run: ./gradlew assembleCanary --stacktrace --no-daemon
+
+      # 验证 APK 签名
       - name: Verify APK signature
         shell: bash
         run: |
-          APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          APK=$(find "app/build/outputs/apk/$BUILD_TYPE" -name "*.apk" | head -n 1)
           if [ -z "$APK" ]; then
             echo "APK not found"
             exit 1
@@ -112,29 +143,49 @@ jobs:
 
       # 重命名 APK
       - name: Rename APK
+        shell: bash
         run: |
-          # 查找和重命名的操作已改为安全的单行
-          APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          APK=$(find "app/build/outputs/apk/$BUILD_TYPE" -name "*.apk" | head -n 1)
           if [ -z "$APK" ]; then
             echo "APK not found"
             exit 1
           fi
-          TARGET="jussichords-${{ github.ref_name }}.apk"
-          mv "$APK" "app/build/outputs/apk/release/$TARGET"
-          echo "Generated:"
-          echo "$TARGET"
+          if [ "$BUILD_TYPE" = "canary" ]; then
+            TARGET="jussichords-canary.apk"
+            echo "RELEASE_TAG=v${APP_VERSION}-canary" >> "$GITHUB_ENV"
+            echo "RELEASE_NAME=jussichords-canary" >> "$GITHUB_ENV"
+          else
+            TARGET="jussichords-${GITHUB_REF_NAME}.apk"
+            echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+            echo "RELEASE_NAME=jussichords-${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          fi
+          mv "$APK" "app/build/outputs/apk/$BUILD_TYPE/$TARGET"
+          echo "Generated: app/build/outputs/apk/$BUILD_TYPE/$TARGET"
 
-      # 创建 GitHub Release
+      # 创建 GitHub Release（canary 为 pre-release）
       - name: Create GitHub Release
+        if: env.BUILD_TYPE == 'canary'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: app/build/outputs/apk/canary/jussichords-canary.apk
+          name: ${{ env.RELEASE_NAME }}
+          draft: false
+          prerelease: true
+          body: |
+            - Canary build for testing (v${{ env.APP_VERSION }}-canary)
+
+      - name: Create GitHub Release
+        if: env.BUILD_TYPE != 'canary'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: app/build/outputs/apk/release/jussichords-${{ github.ref_name }}.apk
-          name: jussichords-${{ github.ref_name }}
+          name: ${{ env.RELEASE_NAME }}
+          draft: false
+          prerelease: false
           body: |
             - 添加歌手页动画
             - 添加音效控件
             - 添加媒体播放通知栏桌面歌词开关
             - 修复私人 FM 切歌失败
-          draft: false
-          prerelease: false

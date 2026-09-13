@@ -67,6 +67,30 @@ android {
         debug {
             applicationIdSuffix = ".debug"
         }
+        register("canary") {
+            applicationIdSuffix = ".canary"
+            versionNameSuffix = "-canary"
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            // canary 专用测试签名：keystore 由 CI(keytool) 构建时生成，不依赖 secrets，指纹每次不同可接受
+            val canaryStore = rootProject.file("canary-keystore.jks")
+            if (canaryStore.exists()) {
+                signingConfigs.create("canary") {
+                    storeFile = canaryStore
+                    storePassword = "jussichords-canary"
+                    keyAlias = "jussichords-canary"
+                    keyPassword = "jussichords-canary"
+                    enableV1Signing = true
+                    enableV2Signing = true
+                    enableV3Signing = true
+                }
+                signingConfig = signingConfigs.getByName("canary")
+            }
+        }
     }
 
     compileOptions {
