@@ -266,6 +266,24 @@ object AppUpdateManager {
         }
 
     private fun requestText(url: String): String {
+        var lastDetail = ""
+        repeat(DOWNLOAD_MAX_RETRIES + 1) { attempt ->
+            val detail = requestTextOnce(url)
+            if (detail.ok) return detail.body
+            lastDetail = detail.detail
+            // 限流（403 + X-RateLimit-Remaining: 0）或 503 服务不可用：退避 30s 重试
+            if (detail.retryable && attempt < DOWNLOAD_MAX_RETRIES) {
+                Thread.sleep(30_000L)
+            } else {
+                throw HttpStatusException(detail.code, detail)
+            }
+        }
+        throw HttpStatusException(0, lastDetail)
+    }
+
+    private class HttpTextResult(val ok: Boolean, val body: String, val code: Int, val detail: String, val retryable: Boolean)
+
+    private fun requestTextOnce(url: String): HttpTextResult {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 20_000
@@ -273,10 +291,29 @@ object AppUpdateManager {
             setRequestProperty("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
         }
         return try {
-            if (connection.responseCode !in 200..299) {
-                throw HttpStatusException(connection.responseCode)
+            val code = connection.responseCode
+            if (code in 200..299) {
+                HttpTextResult(true, connection.inputStream.bufferedReader().use { it.readText() }, code, "", false)
+            } else {
+                val errBody = runCatching {
+                    connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                }.getOrDefault("")
+                // GitHub 403/503 时正文带 "rate limit" 说明限流
+                val rateLimited = code in intArrayOf(403, 503) &&
+                    (errBody.contains("rate limit", ignoreCase = true) ||
+                        errBody.contains("abuse") ||
+                        connection.getHeaderField("X-RateLimit-Remaining") == "0")
+                val retryAfter = connection.getHeaderField("Retry-After")
+                val resetIn = connection.getHeaderField("X-RateLimit-Reset")
+                val detail = when {
+                    rateLimited -> "GitHub API 限流，稍后再试" +
+                        (retryAfter?.let { "（约 ${it}s 后可重试）" } ?: (resetIn?.let { "（${(it.toLong() - System.currentTimeMillis() / 1000).coerceAtLeast(0)}s 后重置）" } ?: ""))
+                    code == 403 -> "GitHub 拒绝请求（403）：网络代理/防火墙拦截，或限流。${errBody.takeIf { it.isNotBlank() }?.let { " · 原文：${it.lineSequence().first().take(160)}" } ?: ""}"
+                    else -> "GitHub 请求失败（$code）" +
+                        (errBody.takeIf { it.isNotBlank() }?.let { " · ${it.lineSequence().first().take(160)}" } ?: "")
+                }
+                HttpTextResult(false, "", code, detail, rateLimited || code == 503)
             }
-            connection.inputStream.bufferedReader().use { it.readText() }
         } finally {
             connection.disconnect()
         }
@@ -446,7 +483,8 @@ object AppUpdateManager {
     private fun Throwable.isRetryableDownloadError(): Boolean =
         this is SocketTimeoutException || this is IOException
 
-    private class HttpStatusException(val code: Int) : Exception("HTTP $code")
+    private class HttpStatusException(val code: Int, val detail: String = "HTTP $code") :
+        Exception(detail)
 }
 
 @Serializable
