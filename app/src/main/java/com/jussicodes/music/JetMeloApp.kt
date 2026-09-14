@@ -13,6 +13,7 @@ import coil3.request.crossfade
 import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.unblockSourceKey
+import com.jussicodes.music.data.ExplorePreloader
 import com.jussicodes.music.data.SongSourceCache
 import com.jussicodes.music.utils.AppVisibilityTracker
 import com.jussicodes.music.utils.UserAgentUtil
@@ -56,6 +57,9 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                     } else {
                         CookieProvider.clear()
                     }
+                    // Warm the explore page content as soon as the cookie
+                    // config changes so it is cached before the user opens it.
+                    ExplorePreloader.warmUp(this@JetMeloApp)
                 }
         }
         applicationScope.launch {
