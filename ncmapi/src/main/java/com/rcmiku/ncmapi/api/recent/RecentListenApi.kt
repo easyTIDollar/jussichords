@@ -28,7 +28,7 @@ object RecentListenApi {
         return Result.success(extractSongs(root))
     }
 
-    // ── 最近播放（/record/recent/*）──
+    // ── 最近播放（/record/recent/ 系列接口）──
 
     /** 最近播放歌曲（data.list 中每项 data 为完整 Song）。 */
     suspend fun recentSongs(limit: Int = 50): Result<RecentListResponse<RecentSongResource>> =
