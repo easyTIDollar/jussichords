@@ -1,6 +1,7 @@
 package com.jussicodes.music.ui.screen
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -103,10 +104,7 @@ fun RecentPlayScreen(
         ) {
             item {
                 Column {
-                    SecondaryTabRow(
-                        selectedTabIndex = selectedTab,
-                        indicator = { FancyAnimatedIndicatorWithModifier(selectedTab) }
-                    ) {
+                    SecondaryTabRow(selectedTabIndex = selectedTab) {
                         titles.forEachIndexed { index, title ->
                             Tab(
                                 selected = selectedTab == index,
@@ -221,11 +219,12 @@ fun RecentPlayScreen(
 
 @Composable
 private fun EmptyRecentPlaceholder() {
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 48.dp),
-        contentAlignment = Alignment.Center
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Icon(
             imageVector = History,
@@ -236,8 +235,7 @@ private fun EmptyRecentPlaceholder() {
         Text(
             text = "暂无最近播放记录",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(top = 12.dp)
+            style = MaterialTheme.typography.bodyMedium
         )
     }
 }
