@@ -80,6 +80,7 @@ import com.jussicodes.music.constants.pinnedAlbumIdsKey
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.TopBar
 import com.jussicodes.music.ui.icons.Favorite
+import com.jussicodes.music.ui.icons.History
 import com.jussicodes.music.ui.icons.Login
 import com.jussicodes.music.ui.icons.MoreVert
 import com.jussicodes.music.ui.icons.PersonalRadio
@@ -252,6 +253,7 @@ fun LibraryScreen(
                             userInfo = it,
                             avatarCacheVersion = avatarCacheVersion,
                             onRoamClick = { navController.navigate(Screen.Roam.route) },
+                            onRecentPlayClick = { navController.navigate(Screen.RecentPlay.route) },
                             onAvatarClick = {
                                 libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie, force = true)
                                 showAvatarDialog = true
@@ -646,6 +648,7 @@ private fun LibraryUserCard(
     userInfo: UserInfoBatch,
     avatarCacheVersion: Long,
     onRoamClick: () -> Unit,
+    onRecentPlayClick: () -> Unit,
     onAvatarClick: () -> Unit
 ) {
     val profile = userInfo.account.profile
@@ -661,14 +664,22 @@ private fun LibraryUserCard(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
-                FilledTonalIconButton(
-                    onClick = onRoamClick,
-                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 14.dp)
+                Row(
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    androidx.compose.material3.Icon(
-                        imageVector = PersonalRadio,
-                        contentDescription = stringResource(R.string.roam)
-                    )
+                    FilledTonalIconButton(onClick = onRecentPlayClick) {
+                        androidx.compose.material3.Icon(
+                            imageVector = History,
+                            contentDescription = stringResource(R.string.recent_play)
+                        )
+                    }
+                    FilledTonalIconButton(onClick = onRoamClick) {
+                        androidx.compose.material3.Icon(
+                            imageVector = PersonalRadio,
+                            contentDescription = stringResource(R.string.roam)
+                        )
+                    }
                 }
 
                 Column(

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jussicodes.music.data.searchHistoryDataStore
+import com.jussicodes.music.utils.ApiServerErrorNotifier
 import com.rcmiku.ncmapi.api.playlist.PlaylistApi
 import com.rcmiku.ncmapi.api.search.SearchApi
 import com.rcmiku.ncmapi.api.search.SearchType
@@ -74,12 +75,18 @@ class SearchViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            _searchResults.value = SearchApi.search(
+            val result = SearchApi.search(
                 offset = 0,
                 limit = 100,
                 keyword = keyword,
                 type = _searchType.value
-            ).getOrNull()?.data?.resources.orEmpty()
+            )
+            // 搜索请求失败 => 已配置的 API 服务器大概率失效/填错，
+            // 弹一次节流的 toast 引导用户去设置更换后端（不刷屏）。
+            result.onFailure {
+                ApiServerErrorNotifier.notifyServerUnreachable(context)
+            }
+            _searchResults.value = result.getOrNull()?.data?.resources.orEmpty()
         }
     }
 

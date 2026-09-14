@@ -142,7 +142,10 @@ object AccountApi {
         userId: Long,
         trackIds: List<Long>
     ): Result<UserPlaylistV1Response> {
-        val raw = userPlaylistsRaw(userId).getOrThrow()
+        // getOrNull: a dead/misconfigured API server surfaces as Result.failure
+        // instead of throwing getOrThrow() into the caller's coroutine scope.
+        val raw = userPlaylistsRaw(userId).getOrNull()
+            ?: return Result.failure(Exception("API 服务器不可用"))
         val playlistsV1 = raw.playlist.map { item ->
             PlaylistV1(
                 id = item.id,
