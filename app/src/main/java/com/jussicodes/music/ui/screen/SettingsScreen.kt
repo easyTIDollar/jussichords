@@ -776,7 +776,7 @@ private fun ApiServerPingDialog(
                     enabled = !testing,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("保存为当前服务器", modifier = Modifier.align(Alignment.CenterHorizontally))
+                    Text("保存为当前服务器")
                 }
             }
         },
