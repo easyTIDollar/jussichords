@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,6 +35,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -76,7 +78,6 @@ import com.jussicodes.music.ui.components.SongQualityDialog
 import com.jussicodes.music.ui.components.ThemeColorSourceDialog
 import com.jussicodes.music.ui.components.UnblockSourceDialog
 import com.jussicodes.music.ui.components.UpdateDialog
-import com.jussicodes.music.ui.components.UrlEditDialog
 import com.jussicodes.music.ui.icons.AudioLines
 import com.jussicodes.music.ui.icons.DesktopLyrics
 import com.jussicodes.music.ui.icons.Dns
@@ -90,6 +91,7 @@ import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.theme.ThemeColorSource
 import com.jussicodes.music.utils.AppUpdateManager
+import com.jussicodes.music.utils.ApiServerStatus
 import com.jussicodes.music.utils.UpdateDownloadPhase
 import com.jussicodes.music.utils.UpdateDownloadService
 import com.jussicodes.music.utils.UpdateDownloadStateStore
@@ -122,7 +124,7 @@ fun SettingsScreen(navController: NavHostController) {
     )
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://119.23.64.141:3000")
-    var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
+    var unblockSource by rememberPreference(unblockSourceKey, "pyncmd")
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     var playerGestureTutorialVersion by rememberPreference(
         playerGestureTutorialVersionKey,
@@ -135,12 +137,13 @@ fun SettingsScreen(navController: NavHostController) {
     )
     var showQualityDialog by remember { mutableStateOf(false) }
     var showThemeColorSourceDialog by remember { mutableStateOf(false) }
-    var showApiUrlDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
     var showCookieDialog by remember { mutableStateOf(false) }
     var showGithubSourceDialog by remember { mutableStateOf(false) }
     var githubSourceStatuses by remember { mutableStateOf<List<GitHubDownloadSourceStatus>>(emptyList()) }
     var testingGithubSources by remember { mutableStateOf(false) }
+    var showApiServerDialog by remember { mutableStateOf(false) }
+    var apiServerStatuses by remember { mutableStateOf<List<ApiServerStatus>>(emptyList()) }
     var updating by rememberSaveable { mutableStateOf(false) }
     var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var downloadingUpdate by remember { mutableStateOf(false) }
@@ -335,7 +338,7 @@ fun SettingsScreen(navController: NavHostController) {
             title = stringResource(R.string.api_server),
             subtitle = apiBaseUrl,
             imageVector = Dns,
-            onClick = { showApiUrlDialog = true },
+            onClick = { showApiServerDialog = true },
             onLongClick = { showUnblockSourceDialog = true }
         ),
         SettingItemData(
@@ -505,13 +508,24 @@ fun SettingsScreen(navController: NavHostController) {
         )
     }
 
-    if (showApiUrlDialog) {
-        UrlEditDialog(
-            title = stringResource(R.string.api_server),
-            currentUrl = apiBaseUrl,
-            defaultUrl = "http://119.23.64.141:3000",
-            onDismiss = { showApiUrlDialog = false },
-            onConfirm = { apiBaseUrl = it }
+    if (showApiServerDialog) {
+        ApiServerPingDialog(
+            currentServer = apiBaseUrl,
+            statuses = apiServerStatuses,
+            onMeasured = { statuses, activateFastest ->
+                apiServerStatuses = statuses
+                if (activateFastest) {
+                    val fastest = AppUpdateManager.pickFastestApiServer(statuses)
+                    if (fastest != null && fastest != apiBaseUrl) {
+                        apiBaseUrl = fastest
+                    }
+                }
+            },
+            onActivate = { server ->
+                apiBaseUrl = server
+                showApiServerDialog = false
+            },
+            onDismiss = { showApiServerDialog = false },
         )
     }
 
@@ -649,6 +663,105 @@ private fun GitHubDownloadSourceDialog(
         },
         dismissButton = {
             TextButton(onClick = onRefresh, enabled = !testing) {
+                Text("重新测速")
+            }
+        }
+    )
+}
+
+/**
+ * 预设 ncmapi 后端的 Ping 对话框。
+ *
+ * 弹出时自动并行测一轮三个预设地址，把延迟最低且可用者设为活动（activate
+ * 回调交给父级写偏好）。也可手动点某一地址直接激活它，或点「重新测速」再测一轮。
+ * 测速进度条由对话框自管，避免和父级状态打架。
+ */
+@Composable
+private fun ApiServerPingDialog(
+    currentServer: String,
+    statuses: List<ApiServerStatus>,
+    onMeasured: (List<ApiServerStatus>, activateFastest: Boolean) -> Unit,
+    onActivate: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var testing by remember { mutableStateOf(false) }
+
+    fun runPing(activateFastest: Boolean) {
+        if (testing) return
+        testing = true
+        scope.launch {
+            val result = AppUpdateManager.measureApiServers()
+            testing = false
+            onMeasured(result, activateFastest)
+        }
+    }
+
+    // 弹出即自动测一轮并激活最快可用源。
+    LaunchedEffect(Unit) { runPing(activateFastest = true) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("API 服务器") },
+        text = {
+            Column {
+                if (testing) {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                    )
+                }
+                AppUpdateManager.apiServers.forEach { server ->
+                    val status = statuses.firstOrNull { it.server == server }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (!testing) onActivate(server)
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = server == currentServer,
+                            onClick = { if (!testing) onActivate(server) }
+                        )
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(vertical = 8.dp)
+                        ) {
+                            Text(server, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = when {
+                                    testing && status == null -> "测速中..."
+                                    status == null -> if (server == currentServer) "当前" else "未测"
+                                    status.available -> "可用 · ${status.latencyMs ?: 0} ms"
+                                    else -> "不可用 · ${status.message}"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (server == currentServer) {
+                            Text(
+                                text = "活动",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { runPing(activateFastest = false) }, enabled = !testing) {
                 Text("重新测速")
             }
         }
