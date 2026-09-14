@@ -125,7 +125,7 @@ object ExplorePreloader {
             ) {
                 return@withLock
             }
-            AccountApi.favoriteSongIds().getOrNull()?.let { songIds ->
+            AccountApi.favoriteSongIds().getOrNull()?.ids?.let { songIds ->
                 FavoriteSongIdsUtil.updateSongIds(context, songIds)
             }
             val songs = RecommendApi.recommendSongs()
