@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
+import android.util.Log
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
@@ -62,6 +63,7 @@ import com.jussicodes.music.utils.enumPreference
 import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.preference
 import com.jussicodes.music.utils.toEnum
+import com.rcmiku.ncmapi.api.API_BASE_URL
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.Song
@@ -94,6 +96,7 @@ class PlaybackService : MediaSessionService() {
     private var scrobbleJob: Job? = null
     private var scrobbleState: ScrobbleState? = null
     private var playSessionId: String? = null
+    private val TAG_SCROBBLE = "Scrobble"
 
     private val favoriteButton: CommandButton
         get() = CommandButton.Builder(ICON_UNDEFINED)
@@ -400,6 +403,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun tickScrobble(player: Player) {
         if (!CookieProvider.isLoggedIn()) {
+            Log.w(TAG_SCROBBLE, "skip: not logged in (no MUSIC_U in cookie) id=${player.currentMediaItem?.mediaId}")
             stopScrobbleTicker()
             return
         }
@@ -474,6 +478,10 @@ class PlaybackService : MediaSessionService() {
         } ?: playedSeconds
 
         scope.launch(Dispatchers.IO) {
+            Log.d(
+                TAG_SCROBBLE,
+                "submit scrobble id=$songId played=${reportedSeconds}s total=$totalSeconds api=$API_BASE_URL"
+            )
             AccountApi.scrobble(
                 songId = songId,
                 time = reportedSeconds,
@@ -483,7 +491,16 @@ class PlaybackService : MediaSessionService() {
                 songName = metadata.title?.toString(),
                 artistName = metadata.artist?.toString(),
                 songLevel = currentAudioQuality
-            )
+            ).onSuccess { resp ->
+                Log.d(TAG_SCROBBLE, "scrobble success id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
+            }.onFailure { err ->
+                Log.e(TAG_SCROBBLE, "scrobble FAILED id=$songId api=$API_BASE_URL: ${err.message}", err)
+                Toast.makeText(
+                    applicationContext,
+                    "听歌打卡失败：${err.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 

@@ -36,7 +36,7 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 
-var API_BASE_URL = "http://119.23.64.141:3000"
+var API_BASE_URL = "http://8.134.163.111:3000"
 var UNBLOCK_SOURCE = "AUTO"
 @PublishedApi
 internal val okHttpUploadClient = OkHttpClient()
