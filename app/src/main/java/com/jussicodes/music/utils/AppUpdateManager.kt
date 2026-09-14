@@ -38,9 +38,6 @@ object AppUpdateManager {
     private const val DOWNLOAD_CALL_TIMEOUT_SECONDS = 300L
     private const val DOWNLOAD_MAX_RETRIES = 2
     private const val SOURCE_TEST_TIMEOUT_SECONDS = 3L
-    private const val API_CONNECT_TIMEOUT_SECONDS = 6L
-    private const val API_READ_TIMEOUT_SECONDS = 10L
-    private const val API_CALL_TIMEOUT_SECONDS = 15L
     private const val API_PING_CONNECT_TIMEOUT_SECONDS = 4L
     private const val API_PING_READ_TIMEOUT_SECONDS = 6L
     private const val API_PING_CALL_TIMEOUT_SECONDS = 8L
@@ -48,6 +45,13 @@ object AppUpdateManager {
     val downloadSources = listOf(
         GitHubDownloadSource("direct", "GitHub 直连", ""),
         GitHubDownloadSource("gh-proxy", "gh-proxy.com", "https://gh-proxy.com/"),
+        GitHubDownloadSource("gh-proxy-mirror", "ghproxy mirror", "https://mirror.ghproxy.com/"),
+        GitHubDownloadSource("ghproxy-cc", "ghproxy.cc", "https://ghproxy.cc/"),
+        GitHubDownloadSource("gh-llkk", "gh.llkk.cc", "https://gh.llkk.cc/"),
+        GitHubDownloadSource("ghproxy-net", "ghproxy.net", "https://ghproxy.net/"),
+        GitHubDownloadSource("ghfast", "ghfast.top", "https://ghfast.top/"),
+        GitHubDownloadSource("sishu", "sishu.dev", "https://hub.sishu.dev/"),
+        GitHubDownloadSource("acm-sh", "acm.sh", "https://gh.acm.sh/")
     )
 
     /** 预设的 ncmapi 后端地址。点按「API 服务器」会并行 Ping 这三个，并把延迟最低的设为活动。 */
@@ -56,9 +60,6 @@ object AppUpdateManager {
         "http://8.134.163.111:3000",
         "https://api.jussichords.kdns.fr",
     )
-
-    /** 仅用于走代理拉 GitHub API（检查更新/测速）；下载 APK 仍复用 downloadSources。 */
-    private val apiSources = downloadSources
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -100,16 +101,54 @@ object AppUpdateManager {
             .build()
     }
 
-    private val apiClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(API_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .readTimeout(API_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .callTimeout(API_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .retryOnConnectionFailure(true)
-            .build()
-    }
+    /**
+     * 并行 Ping 预设的三个 ncmapi 后端，返回每个的延迟与可用性。
+     * 后端可能没有专用健康检查端点，只要 TCP/HTTP 层在短超时内通即记为可用
+     * （任何 2xx/3xx/4xx 都说明地址是活的，4xx 是「在但路径错」也接受）。
+     * 调用方拿到结果后取延迟最低且可用的那个设为活动 API。
+     */
+    suspend fun measureApiServers(): List<ApiServerStatus> =
+        withContext(Dispatchers.IO) {
+            supervisorScope {
+                apiServers.map { server ->
+                    async {
+                        runCatching {
+                            val elapsed = measureTimeMillis {
+                                val request = Request.Builder()
+                                    .url(server)
+                                    .head()
+                                    .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+                                    .build()
+                                apiPingClient.newCall(request).execute().use { response ->
+                                    // 任何 HTTP 响应（含 4xx/5xx）都代表地址可达；
+                                    // 真正不可达会走 catch 分支。
+                                    Unit
+                                }
+                            }
+                            ApiServerStatus(server, elapsed, true, "可用 · ${elapsed} ms")
+                        }.getOrElse { throwable ->
+                            ApiServerStatus(
+                                server = server,
+                                latencyMs = null,
+                                available = false,
+                                message = pingFailureDetail(throwable),
+                            )
+                        }
+                    }
+                }.awaitAll()
+            }
+        }
+
+    /** 取三个后端中「可用且延迟最低」的，全不可用时返回 null。 */
+    fun pickFastestApiServer(statuses: List<ApiServerStatus>): String? =
+        statuses
+            .filter { it.available && it.latencyMs != null }
+            .minByOrNull { it.latencyMs!! }
+            ?.server
+
+    /** 判断某个 URL 是否为预设后端之一（用于区分「预设」与「自定义」。 */
+    fun isPresetApiServer(server: String): Boolean =
+        server.trim().let { it.isNotEmpty() && apiServers.any { p -> p.trim() == it } }
 
     /**
      * 渠道感知的更新检查：
@@ -302,103 +341,67 @@ object AppUpdateManager {
         }
 
     /**
-     * 并行 Ping 预设的三个 ncmapi 后端，返回每个的延迟与可用性。
-     * 后端可能没有专用健康检查端点，只要 TCP/HTTP 层在短超时内通即记为可用
-     * （任何 2xx/3xx/4xx 都说明地址是活的，4xx 是「在但路径错」也接受）。
-     * 调用方拿到结果后取延迟最低且可用的那个设为活动 API。
+     * 拉取 GitHub API 文本。直连不通（墙内 403/超时）时，逐个换代理源重试，
+     * 复用 downloadSources 的前缀列表；命中第一个能用的源即返回。
+     * 同一源内若遇限流（403 + X-RateLimit-Remaining:0 / 503），退避 30s 重试。
      */
-    suspend fun measureApiServers(): List<ApiServerStatus> =
-        withContext(Dispatchers.IO) {
-            supervisorScope {
-                apiServers.map { server ->
-                    async {
-                        runCatching {
-                            val elapsed = measureTimeMillis {
-                                val request = Request.Builder()
-                                    .url(server)
-                                    .head()
-                                    .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
-                                    .build()
-                                apiPingClient.newCall(request).execute().use { response ->
-                                    // 任何 HTTP 响应（含 4xx/5xx）都代表地址可达；
-                                    // 真正不可达会走 catch 分支。
-                                    Unit
-                                }
-                            }
-                            ApiServerStatus(server, elapsed, true, "可用 · ${elapsed} ms")
-                        }.getOrElse { throwable ->
-                            ApiServerStatus(
-                                server = server,
-                                latencyMs = null,
-                                available = false,
-                                message = pingFailureDetail(throwable),
-                            )
-                        }
-                    }
-                }.awaitAll()
+    private fun requestText(baseApiUrl: String): String {
+        val candidates = downloadSources.map { it.apply(baseApiUrl) }
+        var lastDetail = "无法连接 GitHub API"
+        for (candidate in candidates) {
+            for (attempt in 0..DOWNLOAD_MAX_RETRIES) {
+                val detail = requestTextOnce(candidate)
+                if (detail.ok) return detail.body
+                lastDetail = detail.detail
+                // 限流/503：本源退避重试；连接失败、403 拦截等不可重试错误：换下一个代理源
+                if (!detail.retryable || attempt == DOWNLOAD_MAX_RETRIES) break
+                Thread.sleep(30_000L)
             }
         }
+        throw HttpStatusException(0, lastDetail)
+    }
 
-    /** 取三个后端中「可用且延迟最低」的，全不可用时返回 null。 */
-    fun pickFastestApiServer(statuses: List<ApiServerStatus>): String? =
-        statuses
-            .filter { it.available && it.latencyMs != null }
-            .minByOrNull { it.latencyMs!! }
-            ?.server
+    private class HttpTextResult(val ok: Boolean, val body: String, val code: Int, val detail: String, val retryable: Boolean)
 
-    /** 判断某个 URL 是否为预设后端之一（用于区分「预设」与「自定义」。 */
-    fun isPresetApiServer(server: String): Boolean =
-        server.trim().let { it.isNotEmpty() && apiServers.any { p -> p.trim() == it } }
-
-    /**
-     * 拉取 GitHub API 文本：apiSources（GitHub 直连 + gh-proxy.com）**并发竞速**，
-     * 谁先成功立即返回；全部失败才抛错。OkHttp 短超时（connect 6s / read 10s / call 15s），
-     * 墙内直连 hang 也最多 6s 就快速放弃，因此检查更新通常 1~2s 出结果，不再逐个源串行拖慢。
-     */
-    private suspend fun requestText(baseApiUrl: String): String =
-        supervisorScope {
-            val results = apiSources.map { source ->
-                async {
-                    runCatching { requestTextOnce(source.apply(baseApiUrl)) }
-                }
+    private fun requestTextOnce(url: String): HttpTextResult {
+        val connection = try {
+            (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15_000
+                readTimeout = 20_000
+                setRequestProperty("Accept", "application/vnd.github+json")
+                setRequestProperty("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
             }
-            var firstError: String? = null
-            for (deferred in results) {
-                val outcome = deferred.await()
-                if (outcome.isSuccess) {
-                    return@supervisorScope outcome.getOrThrow()
-                }
-                if (firstError == null) {
-                    firstError = outcome.exceptionOrNull()?.message
-                }
-            }
-            throw HttpStatusException(0, "无法连接 GitHub API：${firstError ?: "所有源均失败"}")
+        } catch (e: IOException) {
+            return HttpTextResult(false, "", 0, "连接失败：${url}（${e.message}）", false)
         }
-
-    /** 走单个源（可能带代理前缀）拉一次 GitHub API 文本；成功返回正文，失败抛带说明的异常。 */
-    private suspend fun requestTextOnce(url: String): String {
-        val request = Request.Builder()
-            .url(url)
-            .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "jussicodes.music/${BuildConfig.VERSION_NAME}")
-            .build()
-        apiClient.newCall(request).execute().use { response ->
-            val code = response.code
+        return try {
+            val code = connection.responseCode
             if (code in 200..299) {
-                return response.body?.string()
-                    ?: throw HttpStatusException(0, "GitHub API 响应体为空")
+                HttpTextResult(true, connection.inputStream.bufferedReader().use { it.readText() }, code, "", false)
+            } else {
+                val errBody = runCatching {
+                    connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                }.getOrDefault("")
+                // GitHub 403/503 时正文带 "rate limit" 说明限流
+                val rateLimited = code in intArrayOf(403, 503) &&
+                    (errBody.contains("rate limit", ignoreCase = true) ||
+                        errBody.contains("abuse") ||
+                        connection.getHeaderField("X-RateLimit-Remaining") == "0")
+                val retryAfter = connection.getHeaderField("Retry-After")
+                val resetIn = connection.getHeaderField("X-RateLimit-Reset")
+                val detail = when {
+                    rateLimited -> "GitHub API 限流，稍后再试" +
+                        (retryAfter?.let { "（约 ${it}s 后可重试）" } ?: (resetIn?.let { "（${(it.toLong() - System.currentTimeMillis() / 1000).coerceAtLeast(0)}s 后重置）" } ?: ""))
+                    code == 403 -> "GitHub 拒绝请求（403）：网络代理/防火墙拦截，或限流。${errBody.takeIf { it.isNotBlank() }?.let { " · 原文：${it.lineSequence().first().take(160)}" } ?: ""}"
+                    else -> "GitHub 请求失败（$code）" +
+                        (errBody.takeIf { it.isNotBlank() }?.let { " · ${it.lineSequence().first().take(160)}" } ?: "")
+                }
+                HttpTextResult(false, "", code, detail, rateLimited || code == 503)
             }
-            val errBody = runCatching { response.body?.string() }.getOrNull().orEmpty()
-            val rateLimited = code in intArrayOf(403, 503) &&
-                (errBody.contains("rate limit", ignoreCase = true) ||
-                    errBody.contains("abuse", ignoreCase = true) ||
-                    response.header("X-RateLimit-Remaining") == "0")
-            val detail = when {
-                rateLimited -> "GitHub API 限流，稍后再试"
-                code == 403 -> "GitHub 拒绝请求（403）：网络代理/防火墙拦截，或限流"
-                else -> "GitHub 请求失败（$code）"
-            }
-            throw HttpStatusException(code, detail)
+        } catch (e: IOException) {
+            HttpTextResult(false, "", 0, "读取失败：${url}（${e.message}）", false)
+        } finally {
+            connection.disconnect()
         }
     }
 
@@ -587,16 +590,16 @@ data class GitHubDownloadSource(
     fun apply(url: String): String = if (prefix.isBlank()) url else "$prefix$url"
 }
 
-data class GitHubDownloadSourceStatus(
-    val source: GitHubDownloadSource,
+/** 预设 ncmapi 后端的 Ping 结果：URL、延迟（ms）、是否可用、说明文案。 */
+data class ApiServerStatus(
+    val server: String,
     val latencyMs: Long?,
     val available: Boolean,
     val message: String,
 )
 
-/** 预设 ncmapi 后端的 Ping 结果：URL、延迟（ms）、是否可用、说明文案。 */
-data class ApiServerStatus(
-    val server: String,
+data class GitHubDownloadSourceStatus(
+    val source: GitHubDownloadSource,
     val latencyMs: Long?,
     val available: Boolean,
     val message: String,
