@@ -22,10 +22,13 @@ object RecommendApi {
         }
 
     suspend fun recommendPlaylist(): Result<RecommendPlaylistResponse> {
+        // getOrNull: a dead/misconfigured API server surfaces as Result.failure
+        // instead of throwing getOrThrow() into the caller's coroutine scope.
         val raw = apiGet<RecommendRawResponse>(
             "/personalized",
             mapOf("limit" to 10)
-        ).getOrThrow()
+        ).getOrNull()
+            ?: return Result.failure(Exception("API 服务器不可用"))
         return Result.success(
             RecommendPlaylistResponse(
                 result = raw.result,

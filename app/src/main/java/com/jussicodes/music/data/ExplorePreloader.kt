@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.jussicodes.music.utils.ApiServerErrorNotifier
 import com.jussicodes.music.utils.FavoriteSongIdsUtil
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.account.AccountApi
@@ -137,6 +138,11 @@ object ExplorePreloader {
             if (playlist.isSuccess) {
                 _recommendPlaylist.value = playlist
                 persist(key, keyPlaylist, json.encodeToString(playlist.getOrThrow()))
+            }
+            // 两块推荐都拉不到 => 大概率是已配置的 API 服务器失效/填错，
+            // 弹一次节流的 toast 引导用户去设置更换后端（不刷屏）。
+            if (!songs.isSuccess && !playlist.isSuccess) {
+                ApiServerErrorNotifier.notifyServerUnreachable(context)
             }
             // Dedup only counts a successful fetch — a failed request is
             // retried on the next warmUp even inside the window.

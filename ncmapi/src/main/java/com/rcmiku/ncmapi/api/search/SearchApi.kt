@@ -10,6 +10,8 @@ object SearchApi {
         keyword: String,
         type: SearchType
     ): Result<SearchResultWrapper> {
+        // getOrNull: a dead/misconfigured API server surfaces as Result.failure
+        // instead of throwing getOrThrow() into the caller's coroutine scope.
         val rawResult = apiGet<SearchRawResponse>(
             "/cloudsearch",
             mapOf(
@@ -18,8 +20,8 @@ object SearchApi {
                 "limit" to limit,
                 "offset" to offset
             )
-        ).getOrThrow()
-
+        ).getOrNull()
+            ?: return Result.failure(Exception("API 服务器不可用"))
         return Result.success(rawResult.toSearchResultWrapper(offset, limit))
     }
 
