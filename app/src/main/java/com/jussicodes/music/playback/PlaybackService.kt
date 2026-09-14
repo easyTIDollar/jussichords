@@ -79,6 +79,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.runBlocking
+import kotlin.random.Random
 import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.json
 
@@ -92,6 +93,7 @@ class PlaybackService : MediaSessionService() {
     private val audioQuality by enumPreference(this, audioQualityKey, SongLevel.STANDARD)
     private var scrobbleJob: Job? = null
     private var scrobbleState: ScrobbleState? = null
+    private var playSessionId: String? = null
 
     private val favoriteButton: CommandButton
         get() = CommandButton.Builder(ICON_UNDEFINED)
@@ -304,14 +306,17 @@ class PlaybackService : MediaSessionService() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) {
                     startScrobbleTicker(player)
+                    submitPlayState(player)
                 } else {
                     stopScrobbleTicker()
+                    submitPlayState(player)
                 }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
                     stopScrobbleTicker()
+                    submitPlayState(player)
                 }
             }
         })
@@ -324,6 +329,45 @@ class PlaybackService : MediaSessionService() {
                 mediaItemIndex = player.currentMediaItemIndex
             )
         }
+        startPlaySession(player)
+        submitPlayState(player)
+    }
+
+    /** 切换曲目时开一个新的 12 位播放会话（不切换则沿用同一会话）。 */
+    private fun startPlaySession(player: Player) {
+        val mediaId = player.currentMediaItem?.mediaId
+        if (mediaId == null) {
+            playSessionId = null
+            return
+        }
+        val alphabet = ('A'..'Z') + ('0'..'9')
+        playSessionId = (1..12).map { alphabet[Random.nextInt(alphabet.size)] }.toString()
+    }
+
+    /** 上报播放状态到 /relay/play/state/submit。 */
+    private fun submitPlayState(player: Player) {
+        val mediaItem = player.currentMediaItem ?: return
+        val songId = mediaItem.mediaId.toLongOrNull() ?: return
+        val progressSeconds = (player.currentPosition / 1000L).toInt()
+        val sessionId = playSessionId
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                AccountApi.playStateSubmit(
+                    songId = songId,
+                    sessionId = sessionId,
+                    progress = progressSeconds,
+                    playMode = resolvePlayMode(player)
+                ).getOrThrow()
+            }.onFailure {
+                // 网络/鉴权问题不影响播放；仅忽略
+            }
+        }
+    }
+
+    /** 映射到后端 playMode：单曲循环 / 列表循环 / 顺序（默认列表循环）。 */
+    private fun resolvePlayMode(player: Player): String = when {
+        player.repeatMode == Player.REPEAT_MODE_ONE -> "single_loop"
+        else -> "list_loop"
     }
 
     private fun startScrobbleTicker(player: Player) {
