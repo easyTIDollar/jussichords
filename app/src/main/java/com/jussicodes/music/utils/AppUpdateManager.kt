@@ -345,6 +345,10 @@ object AppUpdateManager {
             .minByOrNull { it.latencyMs!! }
             ?.server
 
+    /** 判断某个 URL 是否为预设后端之一（用于区分「预设」与「自定义」。 */
+    fun isPresetApiServer(server: String): Boolean =
+        server.trim().let { it.isNotEmpty() && apiServers.any { p -> p.trim() == it } }
+
     /**
      * 拉取 GitHub API 文本：依次尝试 apiSources（GitHub 直连、gh-proxy.com），
      * 每源短超时（connect 6s / read 10s / call 15s），命中第一个成功立即返回，
