@@ -3,9 +3,7 @@ package com.jussicodes.music.viewModel
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.jussicodes.music.utils.FavoriteSongIdsUtil
-import com.rcmiku.ncmapi.api.account.AccountApi
-import com.rcmiku.ncmapi.api.recommend.RecommendApi
+import com.jussicodes.music.data.ExplorePreloader
 import com.rcmiku.ncmapi.model.DailySongsResponse
 import com.rcmiku.ncmapi.model.RecommendPlaylistResponse
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,49 +14,40 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/**
+ * Explore screen state is backed by [ExplorePreloader], which preloads the
+ * same content at app startup so the explore page opens instantly.
+ * [refresh] re-runs the preloader to fetch fresh data on demand.
+ */
 @HiltViewModel
-class ExploreScreenViewModel @Inject constructor(@ApplicationContext private val context: Context) :
-    ViewModel() {
+class ExploreScreenViewModel @Inject constructor(
+    @ApplicationContext private val context: Context
+) : ViewModel() {
 
-    private val _recommendSongs =
-        MutableStateFlow<Result<DailySongsResponse>?>(null)
-    val recommendSongs: StateFlow<Result<DailySongsResponse>?> =
-        _recommendSongs.asStateFlow()
-    private val _recommendPlaylist =
-        MutableStateFlow<Result<RecommendPlaylistResponse>?>(null)
-    val recommendPlaylist: StateFlow<Result<RecommendPlaylistResponse>?> =
-        _recommendPlaylist.asStateFlow()
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
-    private fun fetchRecommendSongs() {
-        viewModelScope.launch {
-            _recommendSongs.value = RecommendApi.recommendSongs()
-        }
-    }
+    val recommendSongs: StateFlow<Result<DailySongsResponse>?>
+        get() = ExplorePreloader.recommendSongs
 
-    private fun fetchFavoriteSongIds() {
-        viewModelScope.launch {
-            AccountApi.favoriteSongIds().getOrNull()?.ids?.let {
-                FavoriteSongIdsUtil.updateSongIds(context, it)
-            }
-        }
-    }
-
-    private fun fetchRecommendPlaylist() {
-        viewModelScope.launch {
-            _recommendPlaylist.value = RecommendApi.recommendPlaylist()
-        }
-    }
+    val recommendPlaylist: StateFlow<Result<RecommendPlaylistResponse>?>
+        get() = ExplorePreloader.recommendPlaylist
 
     init {
-        fetchRecommendSongs()
-        fetchRecommendPlaylist()
-        fetchFavoriteSongIds()
+        // Make sure the shared preloader actually ran for this process
+        // (covers e.g. the process being created without the Application
+        // scope observing the cookie flow yet).
+        viewModelScope.launch {
+            ExplorePreloader.warmUp(context)
+        }
     }
 
     fun refresh() {
-        fetchRecommendSongs()
-        fetchRecommendPlaylist()
-        fetchFavoriteSongIds()
+        if (_refreshing.value) return
+        viewModelScope.launch {
+            _refreshing.value = true
+            ExplorePreloader.warmUp(context)
+            _refreshing.value = false
+        }
     }
-
 }

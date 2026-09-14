@@ -38,18 +38,17 @@ object AppUpdateManager {
     private const val DOWNLOAD_CALL_TIMEOUT_SECONDS = 300L
     private const val DOWNLOAD_MAX_RETRIES = 2
     private const val SOURCE_TEST_TIMEOUT_SECONDS = 3L
+    private const val API_CONNECT_TIMEOUT_SECONDS = 6L
+    private const val API_READ_TIMEOUT_SECONDS = 10L
+    private const val API_CALL_TIMEOUT_SECONDS = 15L
 
     val downloadSources = listOf(
         GitHubDownloadSource("direct", "GitHub 直连", ""),
         GitHubDownloadSource("gh-proxy", "gh-proxy.com", "https://gh-proxy.com/"),
-        GitHubDownloadSource("gh-proxy-mirror", "ghproxy mirror", "https://mirror.ghproxy.com/"),
-        GitHubDownloadSource("ghproxy-cc", "ghproxy.cc", "https://ghproxy.cc/"),
-        GitHubDownloadSource("gh-llkk", "gh.llkk.cc", "https://gh.llkk.cc/"),
-        GitHubDownloadSource("ghproxy-net", "ghproxy.net", "https://ghproxy.net/"),
-        GitHubDownloadSource("ghfast", "ghfast.top", "https://ghfast.top/"),
-        GitHubDownloadSource("sishu", "sishu.dev", "https://hub.sishu.dev/"),
-        GitHubDownloadSource("acm-sh", "acm.sh", "https://gh.acm.sh/")
     )
+
+    /** 仅用于走代理拉 GitHub API（检查更新/测速）；下载 APK 仍复用 downloadSources。 */
+    private val apiSources = downloadSources
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -76,6 +75,17 @@ object AppUpdateManager {
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(false)
+            .build()
+    }
+
+    private val apiClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(API_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(API_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(API_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
             .build()
     }
 
@@ -270,67 +280,54 @@ object AppUpdateManager {
         }
 
     /**
-     * 拉取 GitHub API 文本。直连不通（墙内 403/超时）时，逐个换代理源重试，
-     * 复用 downloadSources 的前缀列表；命中第一个能用的源即返回。
-     * 同一源内若遇限流（403 + X-RateLimit-Remaining:0 / 503），退避 30s 重试。
+     * 拉取 GitHub API 文本：apiSources（GitHub 直连 + gh-proxy.com）**并发竞速**，
+     * 谁先成功立即返回；全部失败才抛错。OkHttp 短超时（connect 6s / read 10s / call 15s），
+     * 墙内直连 hang 也最多 6s 就快速放弃，因此检查更新通常 1~2s 出结果，不再逐个源串行拖慢。
      */
-    private fun requestText(baseApiUrl: String): String {
-        val candidates = downloadSources.map { it.apply(baseApiUrl) }
-        var lastDetail = "无法连接 GitHub API"
-        for (candidate in candidates) {
-            for (attempt in 0..DOWNLOAD_MAX_RETRIES) {
-                val detail = requestTextOnce(candidate)
-                if (detail.ok) return detail.body
-                lastDetail = detail.detail
-                // 限流/503：本源退避重试；连接失败、403 拦截等不可重试错误：换下一个代理源
-                if (!detail.retryable || attempt == DOWNLOAD_MAX_RETRIES) break
-                Thread.sleep(30_000L)
-            }
-        }
-        throw HttpStatusException(0, lastDetail)
-    }
-
-    private class HttpTextResult(val ok: Boolean, val body: String, val code: Int, val detail: String, val retryable: Boolean)
-
-    private fun requestTextOnce(url: String): HttpTextResult {
-        val connection = try {
-            (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15_000
-                readTimeout = 20_000
-                setRequestProperty("Accept", "application/vnd.github+json")
-                setRequestProperty("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
-            }
-        } catch (e: IOException) {
-            return HttpTextResult(false, "", 0, "连接失败：${url}（${e.message}）", false)
-        }
-        return try {
-            val code = connection.responseCode
-            if (code in 200..299) {
-                HttpTextResult(true, connection.inputStream.bufferedReader().use { it.readText() }, code, "", false)
-            } else {
-                val errBody = runCatching {
-                    connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                }.getOrDefault("")
-                // GitHub 403/503 时正文带 "rate limit" 说明限流
-                val rateLimited = code in intArrayOf(403, 503) &&
-                    (errBody.contains("rate limit", ignoreCase = true) ||
-                        errBody.contains("abuse") ||
-                        connection.getHeaderField("X-RateLimit-Remaining") == "0")
-                val retryAfter = connection.getHeaderField("Retry-After")
-                val resetIn = connection.getHeaderField("X-RateLimit-Reset")
-                val detail = when {
-                    rateLimited -> "GitHub API 限流，稍后再试" +
-                        (retryAfter?.let { "（约 ${it}s 后可重试）" } ?: (resetIn?.let { "（${(it.toLong() - System.currentTimeMillis() / 1000).coerceAtLeast(0)}s 后重置）" } ?: ""))
-                    code == 403 -> "GitHub 拒绝请求（403）：网络代理/防火墙拦截，或限流。${errBody.takeIf { it.isNotBlank() }?.let { " · 原文：${it.lineSequence().first().take(160)}" } ?: ""}"
-                    else -> "GitHub 请求失败（$code）" +
-                        (errBody.takeIf { it.isNotBlank() }?.let { " · ${it.lineSequence().first().take(160)}" } ?: "")
+    private suspend fun requestText(baseApiUrl: String): String =
+        supervisorScope {
+            val results = apiSources.map { source ->
+                async {
+                    runCatching { requestTextOnce(source.apply(baseApiUrl)) }
                 }
-                HttpTextResult(false, "", code, detail, rateLimited || code == 503)
             }
-        } catch (e: IOException) {
-            HttpTextResult(false, "", 0, "读取失败：${url}（${e.message}）", false)
-        } finally {
-            connection.disconnect()
+            var firstError: String? = null
+            for (deferred in results) {
+                val outcome = deferred.await()
+                if (outcome.isSuccess) {
+                    return@supervisorScope outcome.getOrThrow()
+                }
+                if (firstError == null) {
+                    firstError = outcome.exceptionOrNull()?.message
+                }
+            }
+            throw HttpStatusException(0, "无法连接 GitHub API：${firstError ?: "所有源均失败"}")
+        }
+
+    /** 走单个源（可能带代理前缀）拉一次 GitHub API 文本；成功返回正文，失败抛带说明的异常。 */
+    private suspend fun requestTextOnce(url: String): String {
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "jussicodes.music/${BuildConfig.VERSION_NAME}")
+            .build()
+        apiClient.newCall(request).execute().use { response ->
+            val code = response.code
+            if (code in 200..299) {
+                return response.body?.string()
+                    ?: throw HttpStatusException(0, "GitHub API 响应体为空")
+            }
+            val errBody = runCatching { response.body?.string() }.getOrNull().orEmpty()
+            val rateLimited = code in intArrayOf(403, 503) &&
+                (errBody.contains("rate limit", ignoreCase = true) ||
+                    errBody.contains("abuse", ignoreCase = true) ||
+                    response.header("X-RateLimit-Remaining") == "0")
+            val detail = when {
+                rateLimited -> "GitHub API 限流，稍后再试"
+                code == 403 -> "GitHub 拒绝请求（403）：网络代理/防火墙拦截，或限流"
+                else -> "GitHub 请求失败（$code）"
+            }
+            throw HttpStatusException(code, detail)
         }
     }
 
