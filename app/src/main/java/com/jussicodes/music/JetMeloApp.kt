@@ -1,6 +1,7 @@
 package com.jussicodes.music
 
 import android.app.Application
+import androidx.datastore.preferences.core.edit
 import androidx.media3.common.util.UnstableApi
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -16,6 +17,7 @@ import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.data.ExplorePreloader
 import com.jussicodes.music.data.SongSourceCache
 import com.jussicodes.music.utils.AppVisibilityTracker
+import com.jussicodes.music.utils.AppUpdateManager
 import com.jussicodes.music.utils.UserAgentUtil
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.API_BASE_URL
@@ -29,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -80,6 +83,19 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                     if (!apiUrl.isNullOrEmpty()) API_BASE_URL = apiUrl
                     UNBLOCK_SOURCE = unblockSource ?: "pyncmd"
                 }
+        }
+        // First launch (no API server ever configured): auto-select the fastest
+        // of the three preset backends so the app's default is the lowest-latency
+        // one instead of a hardcoded address. A user-set server always wins.
+        applicationScope.launch {
+            val configured = runCatching { dataStore.data.first()[apiBaseUrlKey] }.getOrNull()
+            if (configured != null) return@launch
+            val fastest = AppUpdateManager.measureApiServers().let { statuses ->
+                AppUpdateManager.pickFastestApiServer(statuses)
+            }
+            if (fastest != null) {
+                dataStore.edit { it[apiBaseUrlKey] = fastest }
+            }
         }
     }
 

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -686,6 +687,10 @@ private fun ApiServerPingDialog(
 ) {
     val scope = rememberCoroutineScope()
     var testing by remember { mutableStateOf(false) }
+    // 自定义服务器输入框：默认回填当前非预设的活动地址，否则空。
+    var customServer by remember {
+        mutableStateOf(currentServer.takeIf { !AppUpdateManager.isPresetApiServer(it) } ?: "")
+    }
 
     fun runPing(activateFastest: Boolean) {
         if (testing) return
@@ -752,6 +757,26 @@ private fun ApiServerPingDialog(
                             )
                         }
                     }
+                }
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = customServer,
+                    onValueChange = { customServer = it },
+                    label = { Text("自定义服务器（可填任意地址）") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                TextButton(
+                    onClick = {
+                        val trimmed = customServer.trim()
+                        if (trimmed.isNotEmpty()) {
+                            onActivate(trimmed)
+                        }
+                    },
+                    enabled = !testing,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("保存为当前服务器", modifier = Modifier.align(Alignment.CenterHorizontally))
                 }
             }
         },
