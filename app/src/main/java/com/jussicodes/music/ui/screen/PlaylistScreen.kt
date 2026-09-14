@@ -93,6 +93,7 @@ import com.jussicodes.music.ui.components.PlayerComments
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.PlaylistThumbnailImage
 import com.jussicodes.music.ui.components.SongListItem
+import com.jussicodes.music.ui.components.ScrollJumpFab
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
 import com.jussicodes.music.ui.icons.LibraryAdd
 import com.jussicodes.music.ui.icons.LibraryAddCheck
@@ -293,6 +294,20 @@ fun PlaylistScreen(
                     it.playlist.creator?.userId == userId
                 val currentPlaylistId = it.playlist.id
                 val headerOffset = if (!searchActive || searchQuery.isBlank()) 1 else 0
+                val atTopOfList by remember {
+                    derivedStateOf { listState.firstVisibleItemIndex == 0 }
+                }
+                val atBottomOfList by remember {
+                    derivedStateOf {
+                        val layout = listState.layoutInfo
+                        layout.totalItemsCount > 0 &&
+                            layout.visibleItemsInfo.lastOrNull()?.index == layout.totalItemsCount - 1
+                    }
+                }
+                // 当前播放歌曲在可见列表中的 item 下标（不含页头）；
+                // 歌曲不在当前可见列表（如被搜索过滤掉）时为 null。
+                val visibleSongIndex = visibleTracks.indexOfFirst { song -> song.id == currentMediaId }
+                val currentSongIndex = if (visibleSongIndex >= 0) visibleSongIndex + headerOffset else null
                 val reorderableLazyListState =
                     rememberReorderableLazyListState(listState) { from, to ->
                         val fromIndex = from.index - headerOffset
@@ -321,9 +336,12 @@ fun PlaylistScreen(
                         songOrderChanged = false
                     }
                 }
-                LazyColumn(
-                    contentPadding = padding, state = listState,
+                Box(
+                    modifier = Modifier.fillMaxSize()
                 ) {
+                    LazyColumn(
+                        contentPadding = padding, state = listState,
+                    ) {
                     playlistTitle = it.playlist.name
                     if (!searchActive || searchQuery.isBlank()) {
                         item {
@@ -499,6 +517,15 @@ fun PlaylistScreen(
                             )
                         }
                     }
+                }
+                    ScrollJumpFab(
+                        listState = listState,
+                        showTop = !atTopOfList,
+                        showCurrentSong = currentSongIndex != null,
+                        showBottom = !atBottomOfList,
+                        currentSongIndex = currentSongIndex,
+                        modifier = Modifier.align(Alignment.BottomEnd)
+                    )
                 }
             }
         }
