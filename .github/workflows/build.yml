@@ -34,9 +34,13 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # 安装 Android SDK
+      # 安装 Android SDK（直接使用 runner 预装 SDK；
+      # 原 android-actions/setup-android@v3 会安装 legacy 'tools' 包，新版 cmdline-tools 已移除该包导致失败）
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          yes | sdkmanager --licenses >/dev/null || true
 
       # 安装 Android 平台工具
       - name: Install Android SDK packages
