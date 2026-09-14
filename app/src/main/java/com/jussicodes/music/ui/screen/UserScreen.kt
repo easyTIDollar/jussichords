@@ -186,7 +186,7 @@ fun UserScreen(
                             navController.navigate(
                                 PlaylistNav(
                                     playlistId = playlist.id,
-                                    noCache = true
+                                    noCache = isSelf
                                 )
                             )
                         }
