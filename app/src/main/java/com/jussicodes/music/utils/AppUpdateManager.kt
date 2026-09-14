@@ -41,10 +41,20 @@ object AppUpdateManager {
     private const val API_CONNECT_TIMEOUT_SECONDS = 6L
     private const val API_READ_TIMEOUT_SECONDS = 10L
     private const val API_CALL_TIMEOUT_SECONDS = 15L
+    private const val API_PING_CONNECT_TIMEOUT_SECONDS = 4L
+    private const val API_PING_READ_TIMEOUT_SECONDS = 6L
+    private const val API_PING_CALL_TIMEOUT_SECONDS = 8L
 
     val downloadSources = listOf(
         GitHubDownloadSource("direct", "GitHub 直连", ""),
         GitHubDownloadSource("gh-proxy", "gh-proxy.com", "https://gh-proxy.com/"),
+    )
+
+    /** 预设的 ncmapi 后端地址。点按「API 服务器」会并行 Ping 这三个，并把延迟最低的设为活动。 */
+    val apiServers = listOf(
+        "https://api.jussichords.indevs.in",
+        "http://8.134.163.111:3000",
+        "https://api.jussichords.kdns.fr",
     )
 
     /** 仅用于走代理拉 GitHub API（检查更新/测速）；下载 APK 仍复用 downloadSources。 */
@@ -72,6 +82,18 @@ object AppUpdateManager {
             .connectTimeout(SOURCE_TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(SOURCE_TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .callTimeout(SOURCE_TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(false)
+            .build()
+    }
+
+    /** 探测 ncmapi 后端用的短超时客户端：连接/读取都快失败，避免 Ping 卡住。 */
+    private val apiPingClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(API_PING_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(API_PING_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(API_PING_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .retryOnConnectionFailure(false)
@@ -278,6 +300,51 @@ object AppUpdateManager {
                 }.awaitAll()
             }
         }
+
+    /**
+     * 并行 Ping 预设的三个 ncmapi 后端，返回每个的延迟与可用性。
+     * 后端可能没有专用健康检查端点，只要 TCP/HTTP 层在短超时内通即记为可用
+     * （任何 2xx/3xx/4xx 都说明地址是活的，4xx 是「在但路径错」也接受）。
+     * 调用方拿到结果后取延迟最低且可用的那个设为活动 API。
+     */
+    suspend fun measureApiServers(): List<ApiServerStatus> =
+        withContext(Dispatchers.IO) {
+            supervisorScope {
+                apiServers.map { server ->
+                    async {
+                        runCatching {
+                            val elapsed = measureTimeMillis {
+                                val request = Request.Builder()
+                                    .url(server)
+                                    .head()
+                                    .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+                                    .build()
+                                apiPingClient.newCall(request).execute().use { response ->
+                                    // 任何 HTTP 响应（含 4xx/5xx）都代表地址可达；
+                                    // 真正不可达会走 catch 分支。
+                                    Unit
+                                }
+                            }
+                            ApiServerStatus(server, elapsed, true, "可用 · ${elapsed} ms")
+                        }.getOrElse { throwable ->
+                            ApiServerStatus(
+                                server = server,
+                                latencyMs = null,
+                                available = false,
+                                message = pingFailureDetail(throwable),
+                            )
+                        }
+                    }
+                }.awaitAll()
+            }
+        }
+
+    /** 取三个后端中「可用且延迟最低」的，全不可用时返回 null。 */
+    fun pickFastestApiServer(statuses: List<ApiServerStatus>): String? =
+        statuses
+            .filter { it.available && it.latencyMs != null }
+            .minByOrNull { it.latencyMs!! }
+            ?.server
 
     /**
      * 拉取 GitHub API 文本：apiSources（GitHub 直连 + gh-proxy.com）**并发竞速**，
@@ -495,6 +562,14 @@ object AppUpdateManager {
     private fun Throwable.isRetryableDownloadError(): Boolean =
         this is SocketTimeoutException || this is IOException
 
+    /** Ping 失败时的简短说明，给对话框里逐行展示用。 */
+    private fun pingFailureDetail(throwable: Throwable): String = when (throwable) {
+        is SocketTimeoutException -> "超时"
+        is java.net.UnknownHostException -> "无法解析"
+        is java.net.ConnectException -> "连接被拒"
+        else -> "不可用"
+    }
+
     private class HttpStatusException(val code: Int, val detail: String = "HTTP $code") :
         Exception(detail)
 }
@@ -510,6 +585,14 @@ data class GitHubDownloadSource(
 
 data class GitHubDownloadSourceStatus(
     val source: GitHubDownloadSource,
+    val latencyMs: Long?,
+    val available: Boolean,
+    val message: String,
+)
+
+/** 预设 ncmapi 后端的 Ping 结果：URL、延迟（ms）、是否可用、说明文案。 */
+data class ApiServerStatus(
+    val server: String,
     val latencyMs: Long?,
     val available: Boolean,
     val message: String,

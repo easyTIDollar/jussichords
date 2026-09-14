@@ -78,7 +78,7 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                 .distinctUntilChanged()
                 .collect { (apiUrl, unblockSource) ->
                     if (!apiUrl.isNullOrEmpty()) API_BASE_URL = apiUrl
-                    UNBLOCK_SOURCE = unblockSource ?: "AUTO"
+                    UNBLOCK_SOURCE = unblockSource ?: "pyncmd"
                 }
         }
     }

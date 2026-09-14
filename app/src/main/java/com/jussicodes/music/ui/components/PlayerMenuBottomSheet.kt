@@ -125,7 +125,7 @@ fun PlayerMenuBottomSheet(
 
     // Per-song unblock-source picker state.
     val scope = rememberCoroutineScope()
-    var globalSource by rememberPreference(unblockSourceKey, "AUTO")
+    var globalSource by rememberPreference(unblockSourceKey, "pyncmd")
     var showSourcePicker by rememberSaveable { mutableStateOf(false) }
     var perSongSourceOverride by remember { mutableStateOf<String?>(null) }
 
