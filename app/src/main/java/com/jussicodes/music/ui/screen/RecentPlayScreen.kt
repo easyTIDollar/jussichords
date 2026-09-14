@@ -94,12 +94,13 @@ fun RecentPlayScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullToRefreshState = rememberPullToRefreshState()
     val onRefresh: () -> Unit = {
-        if (isRefreshing) return@Unit
-        isRefreshing = true
-        coroutineScope.launch {
-            recentPlayViewModel.refresh()
-            delay(600)
-            isRefreshing = false
+        if (!isRefreshing) {
+            isRefreshing = true
+            coroutineScope.launch {
+                recentPlayViewModel.refresh()
+                delay(600)
+                isRefreshing = false
+            }
         }
     }
 
