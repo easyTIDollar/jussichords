@@ -21,7 +21,6 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
-import java.net.URL
 import kotlin.system.measureTimeMillis
 import java.util.concurrent.TimeUnit
 
@@ -280,56 +279,44 @@ object AppUpdateManager {
         }
 
     /**
-     * 拉取 GitHub API 文本：apiSources（GitHub 直连 + gh-proxy.com）**并发竞速**，
-     * 谁先成功立即返回；全部失败才抛错。OkHttp 短超时（connect 6s / read 10s / call 15s），
-     * 墙内直连 hang 也最多 6s 就快速放弃，因此检查更新通常 1~2s 出结果，不再逐个源串行拖慢。
+     * 拉取 GitHub API 文本：依次尝试 apiSources（GitHub 直连、gh-proxy.com），
+     * 每源短超时（connect 6s / read 10s / call 15s），命中第一个成功立即返回，
+     * 全失败才抛带说明的错。检查更新通常 1~2s 出结果，不再逐个源串行拖慢。
      */
-    private suspend fun requestText(baseApiUrl: String): String =
-        supervisorScope {
-            val results = apiSources.map { source ->
-                async {
-                    runCatching { requestTextOnce(source.apply(baseApiUrl)) }
-                }
+    private fun requestText(baseApiUrl: String): String {
+        var lastDetail = "无法连接 GitHub API"
+        for (source in apiSources) {
+            val body = requestTextOnce(source.apply(baseApiUrl))
+            if (body != null) {
+                return body
             }
-            var firstError: String? = null
-            for (deferred in results) {
-                val outcome = deferred.await()
-                if (outcome.isSuccess) {
-                    return@supervisorScope outcome.getOrThrow()
-                }
-                if (firstError == null) {
-                    firstError = outcome.exceptionOrNull()?.message
-                }
-            }
-            throw HttpStatusException(0, "无法连接 GitHub API：${firstError ?: "所有源均失败"}")
+            lastDetail = bodyDetail(source)
         }
+        throw HttpStatusException(0, "无法连接 GitHub API：$lastDetail")
+    }
 
-    /** 走单个源（可能带代理前缀）拉一次 GitHub API 文本；成功返回正文，失败抛带说明的异常。 */
-    private suspend fun requestTextOnce(url: String): String {
+    /** 走单个源（可能带代理前缀）拉一次 GitHub API 文本；成功返回正文，失败返回 null。 */
+    private fun requestTextOnce(url: String): String? {
         val request = Request.Builder()
             .url(url)
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "jussicodes.music/${BuildConfig.VERSION_NAME}")
             .build()
-        apiClient.newCall(request).execute().use { response ->
-            val code = response.code
-            if (code in 200..299) {
-                return response.body?.string()
-                    ?: throw HttpStatusException(0, "GitHub API 响应体为空")
+        return try {
+            apiClient.newCall(request).execute().use { response ->
+                if (response.code in 200..299) {
+                    response.body?.string()
+                } else {
+                    null
+                }
             }
-            val errBody = runCatching { response.body?.string() }.getOrNull().orEmpty()
-            val rateLimited = code in intArrayOf(403, 503) &&
-                (errBody.contains("rate limit", ignoreCase = true) ||
-                    errBody.contains("abuse", ignoreCase = true) ||
-                    response.header("X-RateLimit-Remaining") == "0")
-            val detail = when {
-                rateLimited -> "GitHub API 限流，稍后再试"
-                code == 403 -> "GitHub 拒绝请求（403）：网络代理/防火墙拦截，或限流"
-                else -> "GitHub 请求失败（$code）"
-            }
-            throw HttpStatusException(code, detail)
+        } catch (t: IOException) {
+            null
         }
     }
+
+    private fun bodyDetail(source: GitHubDownloadSource): String =
+        if (source.prefix.isBlank()) "GitHub 直连失败" else "代理 ${source.name} 失败"
 
     private fun fetchLatestRelease(): GitHubRelease {
         val latestResult = runCatching {
