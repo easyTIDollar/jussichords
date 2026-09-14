@@ -46,7 +46,7 @@ class ExploreScreenViewModel @Inject constructor(
         if (_refreshing.value) return
         viewModelScope.launch {
             _refreshing.value = true
-            ExplorePreloader.warmUp(context)
+            ExplorePreloader.warmUp(context, force = true)
             _refreshing.value = false
         }
     }

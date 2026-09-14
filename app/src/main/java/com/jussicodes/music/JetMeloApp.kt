@@ -42,7 +42,12 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         AppVisibilityTracker.register(this)
         SongSourceCache.init(this)
+        ExplorePreloader.init(this)
         UserAgentProvider.init(UserAgentUtil.DEFAULT_USER_AGENT)
+        // Fill the explore flows from disk cache immediately, so the explore
+        // tab renders content on first frame even while the cookie config
+        // and network fetch are still in flight.
+        applicationScope.launch { ExplorePreloader.loadCache() }
         applicationScope.launch {
             UserAgentProvider.init(UserAgentUtil.DEFAULT_USER_AGENT)
             dataStore.data
