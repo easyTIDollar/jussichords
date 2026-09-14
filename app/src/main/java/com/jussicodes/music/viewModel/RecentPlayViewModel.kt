@@ -28,20 +28,25 @@ class RecentPlayViewModel @Inject constructor() : ViewModel() {
     val albums: StateFlow<List<RecentAlbumResource>?> = _albums.asStateFlow()
 
     init {
+        refresh()
+    }
+
+    /** 重新拉取歌曲/歌单/专辑三块数据（进页面 & 下拉刷新共用）。 */
+    fun refresh() {
         viewModelScope.launch {
             RecentListenApi.recentSongs()
                 .onSuccess { _songs.value = it.data.list }
-                .onFailure { _songs.value = emptyList() }
+                .onFailure { if (_songs.value == null) _songs.value = emptyList() }
         }
         viewModelScope.launch {
             RecentListenApi.recentPlaylists()
                 .onSuccess { _playlists.value = it.data.list }
-                .onFailure { _playlists.value = emptyList() }
+                .onFailure { if (_playlists.value == null) _playlists.value = emptyList() }
         }
         viewModelScope.launch {
             RecentListenApi.recentAlbums()
                 .onSuccess { _albums.value = it.data.list }
-                .onFailure { _albums.value = emptyList() }
+                .onFailure { if (_albums.value == null) _albums.value = emptyList() }
         }
     }
 }

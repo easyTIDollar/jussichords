@@ -22,11 +22,16 @@ import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.Indicator
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +58,8 @@ import com.jussicodes.music.ui.navigation.PlaylistNav
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.RecentPlayViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -82,6 +89,20 @@ fun RecentPlayScreen(
     val isPlaying = playerState?.isPlaying == true
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
 
+    // 下拉刷新（重新拉取最近播放，让刚打卡的歌尽快显示）
+    val coroutineScope = rememberCoroutineScope()
+    var isRefreshing by remember { mutableStateOf(false) }
+    val pullToRefreshState = rememberPullToRefreshState()
+    val onRefresh: () -> Unit = {
+        if (isRefreshing) return@Unit
+        isRefreshing = true
+        coroutineScope.launch {
+            recentPlayViewModel.refresh()
+            delay(600)
+            isRefreshing = false
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -97,118 +118,133 @@ fun RecentPlayScreen(
             )
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = padding,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            item {
-                Column {
-                    SecondaryTabRow(selectedTabIndex = selectedTab) {
-                        titles.forEachIndexed { index, title ->
-                            Tab(
-                                selected = selectedTab == index,
-                                onClick = { selectedTab = index },
-                                text = { Text(title) }
-                            )
-                        }
-                    }
-                }
+        PullToRefreshBox(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            state = pullToRefreshState,
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            indicator = {
+                Indicator(
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    isRefreshing = isRefreshing,
+                    state = pullToRefreshState
+                )
             }
-            when (selectedTab) {
-                0 -> songs?.let { list ->
-                    if (list.isEmpty()) {
-                        item { EmptyRecentPlaceholder() }
-                    } else {
-                        itemsIndexed(list) { index, entry ->
-                            SongListItem(
-                                song = entry.data,
-                                songIndex = index + 1,
-                                isPlaying = isPlaying,
-                                isActive = currentMediaId == entry.data.id,
-                                modifier = Modifier.clickable {
-                                    mediaController?.setPlaylist(list.map { it.data })
-                                    mediaController?.playMediaAtId(entry.data.id)
-                                },
-                                trailingContent = {
-                                    Text(
-                                        text = formatRecentTime(entry.playTime),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                }
-                            )
+        ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                item {
+                    Column {
+                        SecondaryTabRow(selectedTabIndex = selectedTab) {
+                            titles.forEachIndexed { index, title ->
+                                Tab(
+                                    selected = selectedTab == index,
+                                    onClick = { selectedTab = index },
+                                    text = { Text(title) }
+                                )
+                            }
                         }
                     }
                 }
-                1 -> playlists?.let { list ->
-                    if (list.isEmpty()) {
-                        item { EmptyRecentPlaceholder() }
-                    } else {
-                        itemsIndexed(list) { _, entry ->
-                            val data = entry.data
-                            ListItem(
-                                title = data.name,
-                                subtitle = "上次播放 · ${data.lastSong.name.ifBlank { "-" }}",
-                                thumbnailContent = {
-                                    AsyncImage(
-                                        model = data.coverImgUrl.toCoverImageUrl(CoverImageSize.LIST),
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(ThumbnailCornerRadius))
-                                            .size(ListThumbnailSize)
-                                    )
-                                },
-                                trailingContent = {
-                                    Text(
-                                        text = formatRecentTime(entry.playTime),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                },
-                                modifier = Modifier.clickable {
-                                    navController.navigate(
-                                        PlaylistNav(
-                                            playlistId = data.id,
-                                            noCache = true
+                when (selectedTab) {
+                    0 -> songs?.let { list ->
+                        if (list.isEmpty()) {
+                            item { EmptyRecentPlaceholder() }
+                        } else {
+                            itemsIndexed(list) { index, entry ->
+                                SongListItem(
+                                    song = entry.data,
+                                    songIndex = index + 1,
+                                    isPlaying = isPlaying,
+                                    isActive = currentMediaId == entry.data.id,
+                                    modifier = Modifier.clickable {
+                                        mediaController?.setPlaylist(list.map { it.data })
+                                        mediaController?.playMediaAtId(entry.data.id)
+                                    },
+                                    trailingContent = {
+                                        Text(
+                                            text = formatRecentTime(entry.playTime),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.labelSmall
                                         )
-                                    )
-                                }
-                            )
+                                    }
+                                )
+                            }
                         }
                     }
-                }
-                else -> albums?.let { list ->
-                    if (list.isEmpty()) {
-                        item { EmptyRecentPlaceholder() }
-                    } else {
-                        itemsIndexed(list) { _, entry ->
-                            val data = entry.data
-                            ListItem(
-                                title = data.name,
-                                subtitle = "${data.size}首 · ${data.artists.joinToString("/") { it.name }.ifBlank { "-" }}",
-                                thumbnailContent = {
-                                    AsyncImage(
-                                        model = data.picUrl.toCoverImageUrl(CoverImageSize.LIST),
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(ThumbnailCornerRadius))
-                                            .size(ListThumbnailSize)
-                                    )
-                                },
-                                trailingContent = {
-                                    Text(
-                                        text = formatRecentTime(entry.playTime),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        style = MaterialTheme.typography.labelSmall
-                                    )
-                                },
-                                modifier = Modifier.clickable {
-                                    navController.navigate(AlbumNav(albumId = data.id))
-                                }
-                            )
+                    1 -> playlists?.let { list ->
+                        if (list.isEmpty()) {
+                            item { EmptyRecentPlaceholder() }
+                        } else {
+                            itemsIndexed(list) { _, entry ->
+                                val data = entry.data
+                                ListItem(
+                                    title = data.name,
+                                    subtitle = "上次播放 · ${data.lastSong.name.ifBlank { "-" }}",
+                                    thumbnailContent = {
+                                        AsyncImage(
+                                            model = data.coverImgUrl.toCoverImageUrl(CoverImageSize.LIST),
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                                .size(ListThumbnailSize)
+                                        )
+                                    },
+                                    trailingContent = {
+                                        Text(
+                                            text = formatRecentTime(entry.playTime),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    },
+                                    modifier = Modifier.clickable {
+                                        navController.navigate(
+                                            PlaylistNav(
+                                                playlistId = data.id,
+                                                noCache = true
+                                            )
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    else -> albums?.let { list ->
+                        if (list.isEmpty()) {
+                            item { EmptyRecentPlaceholder() }
+                        } else {
+                            itemsIndexed(list) { _, entry ->
+                                val data = entry.data
+                                ListItem(
+                                    title = data.name,
+                                    subtitle = "${data.size}首 · ${data.artists.joinToString("/") { it.name }.ifBlank { "-" }}",
+                                    thumbnailContent = {
+                                        AsyncImage(
+                                            model = data.picUrl.toCoverImageUrl(CoverImageSize.LIST),
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                                .size(ListThumbnailSize)
+                                        )
+                                    },
+                                    trailingContent = {
+                                        Text(
+                                            text = formatRecentTime(entry.playTime),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    },
+                                    modifier = Modifier.clickable {
+                                        navController.navigate(AlbumNav(albumId = data.id))
+                                    }
+                                )
+                            }
                         }
                     }
                 }
