@@ -36,6 +36,7 @@ import com.jussicodes.music.ui.screen.LibraryScreen
 import com.jussicodes.music.ui.screen.LoginScreen
 import com.jussicodes.music.ui.screen.PlaylistScreen
 import com.jussicodes.music.ui.screen.ProgramRadioScreen
+import com.jussicodes.music.ui.screen.RecentPlayScreen
 import com.jussicodes.music.ui.screen.RecordScreen
 import com.jussicodes.music.ui.screen.RoamScreen
 import com.jussicodes.music.ui.screen.SearchScreen
@@ -121,6 +122,9 @@ fun NavGraph(
                     navController = navController,
                     onBackPressed = { navController.popBackStack() }
                 )
+            }
+            composable(Screen.RecentPlay.route) {
+                RecentPlayScreen(navController = navController)
             }
             composable(Screen.Settings.route) { SettingsScreen(navController = navController) }
             composable(Screen.Login.route) { LoginScreen(navController = navController) }
