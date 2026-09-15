@@ -124,7 +124,7 @@ fun SettingsScreen(navController: NavHostController) {
         defaultValue = ThemeColorSource.WALLPAPER,
     )
     var ncmCookie by rememberPreference(ncmCookieKey, "")
-    var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://8.134.163.111:3000")
+    var apiBaseUrl by rememberPreference(apiBaseUrlKey, "https://api.jussichords.kdns.fr")
     var unblockSource by rememberPreference(unblockSourceKey, "pyncmd")
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     var playerGestureTutorialVersion by rememberPreference(
