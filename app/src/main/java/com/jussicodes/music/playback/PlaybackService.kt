@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.annotation.OptIn
@@ -97,6 +98,9 @@ class PlaybackService : MediaSessionService() {
     private var scrobbleState: ScrobbleState? = null
     private var playSessionId: String? = null
     private val TAG_SCROBBLE = "Scrobble"
+    // TEMP-DIAG: 临时诊断 toast，定位完成后可删
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var diagToastShown = false
 
     private val favoriteButton: CommandButton
         get() = CommandButton.Builder(ICON_UNDEFINED)
@@ -375,7 +379,16 @@ class PlaybackService : MediaSessionService() {
 
     private fun startScrobbleTicker(player: Player) {
         val mediaItem = player.currentMediaItem ?: return
-        if (!CookieProvider.isLoggedIn()) return
+        if (!CookieProvider.isLoggedIn()) {
+            // TEMP-DIAG
+            if (!diagToastShown) {
+                diagToastShown = true
+                mainHandler.post {
+                    Toast.makeText(applicationContext, "打卡未进行：未登录网易云", Toast.LENGTH_LONG).show()
+                }
+            }
+            return
+        }
         if (mediaItem.mediaId.toLongOrNull() == null) return
 
         val currentState = scrobbleState
@@ -493,13 +506,23 @@ class PlaybackService : MediaSessionService() {
                 songLevel = currentAudioQuality
             ).onSuccess { resp ->
                 Log.d(TAG_SCROBBLE, "scrobble success id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
+                // TEMP-DIAG: 成功也弹一次，确认链路通
+                mainHandler.post {
+                    Toast.makeText(
+                        applicationContext,
+                        "听歌打卡成功 #${songId}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }.onFailure { err ->
                 Log.e(TAG_SCROBBLE, "scrobble FAILED id=$songId api=$API_BASE_URL: ${err.message}", err)
-                Toast.makeText(
-                    applicationContext,
-                    "听歌打卡失败：${err.message}",
-                    Toast.LENGTH_LONG
-                ).show()
+                mainHandler.post {
+                    Toast.makeText(
+                        applicationContext,
+                        "听歌打卡失败：${err.message?.take(80)}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }
