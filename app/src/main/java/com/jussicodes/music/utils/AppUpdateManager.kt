@@ -49,11 +49,10 @@ object AppUpdateManager {
         GitHubDownloadSource("gh-proxy", "gh-proxy.com", "https://gh-proxy.com/"),
     )
 
-    /** 预设的 ncmapi 后端地址。点按「API 服务器」会并行 Ping 这两个，并把延迟最低的设为活动。
-     *  8.134.163.111 已移除：其 scrobble 上传通道不写入 NCM 最近列表（返回 200 假成功），
-     *  2026-09-15 对照实验确认。 */
+    /** 预设的 ncmapi 后端地址。点按「API 服务器」会并行 Ping 这三个，并把延迟最低的设为活动。 */
     val apiServers = listOf(
         "https://api.jussichords.indevs.in",
+        "http://8.134.163.111:3000",
         "https://api.jussichords.kdns.fr",
     )
 
