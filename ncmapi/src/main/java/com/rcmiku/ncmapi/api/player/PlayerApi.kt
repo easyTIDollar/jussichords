@@ -41,8 +41,10 @@ object PlayerApi {
             // global UNBLOCK_SOURCE behaviour.
             val unblockResult = tryUnblockUrl(realId, source)
             if (unblockResult.hasPlayableUrl()) return unblockResult
-            // Fall back to main API if unblock fails
-            apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = true))
+            // Unblock failed or returned a placeholder: fall back to the
+            // main API WITHOUT unblock so a regular NCM CDN URL can still
+            // be used (e.g. free songs that were misjudged as restricted).
+            apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
         } else {
             // Free song: use main API directly
             apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
@@ -63,6 +65,8 @@ object PlayerApi {
 
     private fun SongUrl.isPlayableFullUrl(): Boolean =
         !url.isNullOrEmpty() &&
+            // NCM 占位/外链（未真正解锁成功时返回），实测返回反爬 HTML 而非音频
+            !url.contains("outer/url") &&
             freeTrialInfo == null &&
             freeTrialPrivilege == null &&
             freeTimeTrialPrivilege == null &&

@@ -4,6 +4,8 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
@@ -62,6 +64,7 @@ import com.jussicodes.music.utils.enumPreference
 import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.preference
 import com.jussicodes.music.utils.toEnum
+import com.rcmiku.ncmapi.api.API_BASE_URL
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.Song
@@ -79,6 +82,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.runBlocking
+import kotlin.random.Random
 import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.json
 
@@ -92,6 +96,11 @@ class PlaybackService : MediaSessionService() {
     private val audioQuality by enumPreference(this, audioQualityKey, SongLevel.STANDARD)
     private var scrobbleJob: Job? = null
     private var scrobbleState: ScrobbleState? = null
+    private var playSessionId: String? = null
+    private val TAG_SCROBBLE = "Scrobble"
+    // TEMP-DIAG: 临时诊断 toast，定位完成后可删
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var diagToastShown = false
 
     private val favoriteButton: CommandButton
         get() = CommandButton.Builder(ICON_UNDEFINED)
@@ -304,14 +313,17 @@ class PlaybackService : MediaSessionService() {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) {
                     startScrobbleTicker(player)
+                    submitPlayState(player)
                 } else {
                     stopScrobbleTicker()
+                    submitPlayState(player)
                 }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
                     stopScrobbleTicker()
+                    submitPlayState(player)
                 }
             }
         })
@@ -324,11 +336,59 @@ class PlaybackService : MediaSessionService() {
                 mediaItemIndex = player.currentMediaItemIndex
             )
         }
+        startPlaySession(player)
+        submitPlayState(player)
+    }
+
+    /** 切换曲目时开一个新的 12 位播放会话（不切换则沿用同一会话）。 */
+    private fun startPlaySession(player: Player) {
+        val mediaId = player.currentMediaItem?.mediaId
+        if (mediaId == null) {
+            playSessionId = null
+            return
+        }
+        val alphabet = ('A'..'Z') + ('0'..'9')
+        playSessionId = (1..12).map { alphabet[Random.nextInt(alphabet.size)] }.toString()
+    }
+
+    /** 上报播放状态到 /relay/play/state/submit。 */
+    private fun submitPlayState(player: Player) {
+        val mediaItem = player.currentMediaItem ?: return
+        val songId = mediaItem.mediaId.toLongOrNull() ?: return
+        val progressSeconds = (player.currentPosition / 1000L).toInt()
+        val sessionId = playSessionId
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                AccountApi.playStateSubmit(
+                    songId = songId,
+                    sessionId = sessionId,
+                    progress = progressSeconds,
+                    playMode = resolvePlayMode(player)
+                ).getOrThrow()
+            }.onFailure {
+                // 网络/鉴权问题不影响播放；仅忽略
+            }
+        }
+    }
+
+    /** 映射到后端 playMode：单曲循环 / 列表循环 / 顺序（默认列表循环）。 */
+    private fun resolvePlayMode(player: Player): String = when {
+        player.repeatMode == Player.REPEAT_MODE_ONE -> "single_loop"
+        else -> "list_loop"
     }
 
     private fun startScrobbleTicker(player: Player) {
         val mediaItem = player.currentMediaItem ?: return
-        if (!CookieProvider.isLoggedIn()) return
+        if (!CookieProvider.isLoggedIn()) {
+            // TEMP-DIAG
+            if (!diagToastShown) {
+                diagToastShown = true
+                mainHandler.post {
+                    Toast.makeText(applicationContext, "打卡未进行：未登录网易云", Toast.LENGTH_LONG).show()
+                }
+            }
+            return
+        }
         if (mediaItem.mediaId.toLongOrNull() == null) return
 
         val currentState = scrobbleState
@@ -356,6 +416,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun tickScrobble(player: Player) {
         if (!CookieProvider.isLoggedIn()) {
+            Log.w(TAG_SCROBBLE, "skip: not logged in (no MUSIC_U in cookie) id=${player.currentMediaItem?.mediaId}")
             stopScrobbleTicker()
             return
         }
@@ -430,6 +491,10 @@ class PlaybackService : MediaSessionService() {
         } ?: playedSeconds
 
         scope.launch(Dispatchers.IO) {
+            Log.d(
+                TAG_SCROBBLE,
+                "submit scrobble id=$songId played=${reportedSeconds}s total=$totalSeconds api=$API_BASE_URL"
+            )
             AccountApi.scrobble(
                 songId = songId,
                 time = reportedSeconds,
@@ -439,7 +504,31 @@ class PlaybackService : MediaSessionService() {
                 songName = metadata.title?.toString(),
                 artistName = metadata.artist?.toString(),
                 songLevel = currentAudioQuality
-            )
+            ).onSuccess { resp ->
+                // 服务端 NCM 拒收时仍可能返回 HTTP 200 + code!=200（如 "PLV 上报失败"），
+                // 必须检查 body 里的 code，否则出现"假成功"。
+                if (resp.code == 200) {
+                    Log.d(TAG_SCROBBLE, "scrobble success id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
+                } else {
+                    Log.e(TAG_SCROBBLE, "scrobble rejected id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
+                    mainHandler.post {
+                        Toast.makeText(
+                            applicationContext,
+                            "打卡被服务端拒绝：${resp.msg ?: resp.message ?: "code=$${resp.code}"}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }.onFailure { err ->
+                Log.e(TAG_SCROBBLE, "scrobble FAILED id=$songId api=$API_BASE_URL: ${err.message}", err)
+                mainHandler.post {
+                    Toast.makeText(
+                        applicationContext,
+                        "听歌打卡失败：${err.message?.take(80)}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
         }
     }
 

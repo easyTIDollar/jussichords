@@ -215,6 +215,28 @@ object AccountApi {
             }
         )
 
+    /**
+     * 提交播放状态（会话追踪 + 播放模式）。未传 sessionId 时后端自动生成。
+     * 该接口无需 MUSIC_U 鉴权即可调用（与 scrobble 不同）。
+     */
+    suspend fun playStateSubmit(
+        songId: Long,
+        sessionId: String? = null,
+        progress: Int = 0,
+        playMode: String = "list_loop",
+        type: String = "song"
+    ): Result<ApiCodeResponse> =
+        apiGet(
+            "/relay/play/state/submit",
+            buildMap {
+                put("id", songId)
+                sessionId?.takeIf { it.isNotBlank() }?.let { put("sessionId", it) }
+                put("progress", progress.coerceAtLeast(0))
+                put("playMode", playMode)
+                put("type", type)
+            }
+        )
+
     @kotlinx.serialization.Serializable
     data class UserPlaylistRawResponse(
         val playlist: List<PlaylistRawItem> = emptyList()
