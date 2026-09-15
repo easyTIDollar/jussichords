@@ -505,14 +505,19 @@ class PlaybackService : MediaSessionService() {
                 artistName = metadata.artist?.toString(),
                 songLevel = currentAudioQuality
             ).onSuccess { resp ->
-                Log.d(TAG_SCROBBLE, "scrobble success id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
-                // TEMP-DIAG: 成功也弹一次，确认链路通
-                mainHandler.post {
-                    Toast.makeText(
-                        applicationContext,
-                        "听歌打卡成功 #${songId}",
-                        Toast.LENGTH_LONG
-                    ).show()
+                // 服务端 NCM 拒收时仍可能返回 HTTP 200 + code!=200（如 "PLV 上报失败"），
+                // 必须检查 body 里的 code，否则出现"假成功"。
+                if (resp.code == 200) {
+                    Log.d(TAG_SCROBBLE, "scrobble success id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
+                } else {
+                    Log.e(TAG_SCROBBLE, "scrobble rejected id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
+                    mainHandler.post {
+                        Toast.makeText(
+                            applicationContext,
+                            "打卡被服务端拒绝：${resp.msg ?: resp.message ?: "code=$${resp.code}"}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
             }.onFailure { err ->
                 Log.e(TAG_SCROBBLE, "scrobble FAILED id=$songId api=$API_BASE_URL: ${err.message}", err)
