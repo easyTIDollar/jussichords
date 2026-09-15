@@ -29,6 +29,9 @@ private const val LATEST_RELEASE_URL =
     "https://api.github.com/repos/easyTIDollar/jussichords/releases/latest"
 private const val RELEASES_URL =
     "https://api.github.com/repos/easyTIDollar/jussichords/releases"
+// Gitee 国内直连回退源：公开仓读取免 token，release 结构由 CI 与 GitHub 同步维护
+private const val GITEE_RELEASES_URL =
+    "https://gitee.com/api/v5/repos/easyTIDollar/jussichords/releases"
 
 object AppUpdateManager {
     private const val UPDATE_DIR = "updates"
@@ -43,15 +46,8 @@ object AppUpdateManager {
     private const val API_PING_CALL_TIMEOUT_SECONDS = 8L
 
     val downloadSources = listOf(
-        GitHubDownloadSource("direct", "GitHub 直连", ""),
-        GitHubDownloadSource("gh-proxy", "gh-proxy.com", "https://gh-proxy.com/"),
-        GitHubDownloadSource("gh-proxy-mirror", "ghproxy mirror", "https://mirror.ghproxy.com/"),
-        GitHubDownloadSource("ghproxy-cc", "ghproxy.cc", "https://ghproxy.cc/"),
-        GitHubDownloadSource("gh-llkk", "gh.llkk.cc", "https://gh.llkk.cc/"),
-        GitHubDownloadSource("ghproxy-net", "ghproxy.net", "https://ghproxy.net/"),
-        GitHubDownloadSource("ghfast", "ghfast.top", "https://ghfast.top/"),
-        GitHubDownloadSource("sishu", "sishu.dev", "https://hub.sishu.dev/"),
-        GitHubDownloadSource("acm-sh", "acm.sh", "https://gh.acm.sh/")
+        GitHubDownloadSource("direct", "GitHub 直连") { it },
+        GitHubDownloadSource("gitee", "Gitee 国内加速") { it.replace("github.com", "gitee.com") }
     )
 
     /** 预设的 ncmapi 后端地址。点按「API 服务器」会并行 Ping 这三个，并把延迟最低的设为活动。 */
@@ -154,10 +150,11 @@ object AppUpdateManager {
      * 渠道感知的更新检查：
      * - canary 构建（BuildConfig.BUILD_TYPE == "canary"）只跟踪 pre-release（canary 通道）
      * - 其他构建只跟踪正式 release
+     * 拉取顺序：先试 GitHub API，失败则回退 Gitee（国内直连可达，免 token 公开仓）。
      */
     suspend fun checkUpdate(): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
         runCatching {
-            val (latestStable, latestPre) = fetchLatestReleases()
+            val (latestStable, latestPre) = fetchLatestReleasesWithFallback()
             val release = if (BuildConfig.BUILD_TYPE == "canary") {
                 checkNotNull(latestPre) { "No pre-release found for canary channel" }
             } else {
@@ -168,12 +165,14 @@ object AppUpdateManager {
             val latestTag = release.tagName.trim().trimStart('v', 'V')
             // tag 不同即视为有更新（canary 每个构建 tag 都带 run 编号递增）
             if (latestTag == BuildConfig.VERSION_NAME) return@runCatching null
+            // Gitee 的 asset 不带 size，缺失时补一次 HEAD 探测，让进度条/大小显示正常
+            val apkSize = if (asset.size > 0L) asset.size else probeContentLength(asset.downloadUrl)
             UpdateInfo(
                 versionName = latestTag,
                 releaseName = release.name.takeIf { it.isNotBlank() } ?: release.tagName,
                 body = release.body,
                 apkName = asset.name,
-                apkSize = asset.size,
+                apkSize = apkSize,
                 downloadUrl = asset.downloadUrl
             )
         }
@@ -341,22 +340,18 @@ object AppUpdateManager {
         }
 
     /**
-     * 拉取 GitHub API 文本。直连不通（墙内 403/超时）时，逐个换代理源重试，
-     * 复用 downloadSources 的前缀列表；命中第一个能用的源即返回。
-     * 同一源内若遇限流（403 + X-RateLimit-Remaining:0 / 503），退避 30s 重试。
+     * 拉取 GitHub API 文本（直连）。代理镜像源已移除，故不再轮询代理前缀；
+     * 同一 URL 内若遇限流（403 + X-RateLimit-Remaining:0 / 503），退避 30s 重试。
      */
     private fun requestText(baseApiUrl: String): String {
-        val candidates = downloadSources.map { it.apply(baseApiUrl) }
         var lastDetail = "无法连接 GitHub API"
-        for (candidate in candidates) {
-            for (attempt in 0..DOWNLOAD_MAX_RETRIES) {
-                val detail = requestTextOnce(candidate)
-                if (detail.ok) return detail.body
-                lastDetail = detail.detail
-                // 限流/503：本源退避重试；连接失败、403 拦截等不可重试错误：换下一个代理源
-                if (!detail.retryable || attempt == DOWNLOAD_MAX_RETRIES) break
-                Thread.sleep(30_000L)
-            }
+        for (attempt in 0..DOWNLOAD_MAX_RETRIES) {
+            val detail = requestTextOnce(baseApiUrl)
+            if (detail.ok) return detail.body
+            lastDetail = detail.detail
+            // 限流/503：退避重试；连接失败、403 拦截等不可重试错误：直接抛出
+            if (!detail.retryable || attempt == DOWNLOAD_MAX_RETRIES) break
+            Thread.sleep(30_000L)
         }
         throw HttpStatusException(0, lastDetail)
     }
@@ -442,6 +437,73 @@ object AppUpdateManager {
         val latestPre = releases.firstOrNull { it.prerelease }
         return Pair(latestStable, latestPre)
     }
+
+    /**
+     * 检查更新用：先试 GitHub，完全失败（网络不通 / 限流无代理可用）再回退 Gitee。
+     * Gitee 公开仓读取免 token，国内直连可达；release 由 CI 与 GitHub 同步维护。
+     */
+    private fun fetchLatestReleasesWithFallback(): Pair<GitHubRelease?, GitHubRelease?> {
+        return runCatching { fetchLatestReleases() }.getOrElse { githubError ->
+            runCatching { fetchGiteeReleases() }.onFailure { giteeError ->
+                error("检查更新失败：GitHub 不可用（${describeError(githubError)}），" +
+                    "Gitee 回退亦不可用（${describeError(giteeError)}）")
+            }.getOrThrow()
+        }
+    }
+
+    /** 拉取 Gitee release 列表，按创建时间倒序取最新正式版 + 最新 pre-release。 */
+    private fun fetchGiteeReleases(): Pair<GitHubRelease?, GitHubRelease?> {
+        val listUrl = "$GITEE_RELEASES_URL?per_page=100"
+        val releases = json.decodeFromString<List<GitHubRelease>>(requestGiteeText(listUrl))
+            .filterNot { it.draft }
+            .sortedByDescending { it.createdAt }
+        val latestStable = releases.firstOrNull { !it.prerelease }
+        val latestPre = releases.firstOrNull { it.prerelease }
+        return Pair(latestStable, latestPre)
+    }
+
+    /** Gitee 是直连源，无需代理轮询；单次 GET 即可。 */
+    private fun requestGiteeText(url: String): String {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 15_000
+            readTimeout = 20_000
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+        }
+        return try {
+            val code = connection.responseCode
+            if (code in 200..299) {
+                connection.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                val errBody = runCatching {
+                    connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                }.getOrDefault("")
+                error("Gitee 请求失败（$code）" +
+                    (errBody.takeIf { it.isNotBlank() }?.let { " · ${it.lineSequence().first().take(160)}" } ?: ""))
+            }
+        } catch (e: IOException) {
+            error("连接 Gitee 失败：${e.message}")
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun describeError(e: Throwable): String = e.message ?: "未知错误"
+
+    /**
+     * Gitee 的 release asset 不带 size，回退到 Gitee 时 apkSize 会是 0。
+     * 用一次 HEAD 读 Content-Length 补全；失败则返回 0（下载进度条按未知大小降级显示）。
+     */
+    private fun probeContentLength(url: String): Long = runCatching {
+        sourceTestClient.newCall(
+            Request.Builder().url(url).head().build()
+        ).execute().use { response ->
+            if (response.isSuccessful) {
+                val len = response.header("Content-Length")?.toLongOrNull()
+                len?.takeIf { it > 0 } ?: 0L
+            } else 0L
+        }
+    }.getOrDefault(0L)
 
     private fun isNewerVersion(latest: String, current: String): Boolean {
         val latestParts = versionParts(latest)
@@ -581,13 +643,12 @@ object AppUpdateManager {
         Exception(detail)
 }
 
-@Serializable
 data class GitHubDownloadSource(
     val id: String,
     val name: String,
-    val prefix: String,
+    val transform: (String) -> String,
 ) {
-    fun apply(url: String): String = if (prefix.isBlank()) url else "$prefix$url"
+    fun apply(url: String): String = transform(url)
 }
 
 /** 预设 ncmapi 后端的 Ping 结果：URL、延迟（ms）、是否可用、说明文案。 */
@@ -630,6 +691,7 @@ private data class GitHubRelease(
     val draft: Boolean = false,
     val prerelease: Boolean = false,
     val assets: List<GitHubAsset> = emptyList(),
+    @SerialName("created_at") val createdAt: String = "",
 )
 
 @Serializable

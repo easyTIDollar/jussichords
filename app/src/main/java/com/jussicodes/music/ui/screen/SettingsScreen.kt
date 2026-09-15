@@ -645,7 +645,11 @@ private fun GitHubDownloadSourceDialog(
                             Text(
                                 text = when {
                                     testing && status == null -> "测速中..."
-                                    status == null -> if (source.prefix.isBlank()) "不使用加速源" else source.prefix
+                                    status == null -> when (source.id) {
+                                        "direct" -> "不使用加速源"
+                                        "gitee" -> "Gitee 国内加速"
+                                        else -> source.name
+                                    }
                                     status.available -> "可用 · ${status.latencyMs ?: 0} ms"
                                     else -> "不可用 · ${status.message}"
                                 },
