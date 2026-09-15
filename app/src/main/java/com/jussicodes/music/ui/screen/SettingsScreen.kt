@@ -124,7 +124,7 @@ fun SettingsScreen(navController: NavHostController) {
         defaultValue = ThemeColorSource.WALLPAPER,
     )
     var ncmCookie by rememberPreference(ncmCookieKey, "")
-    var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://119.23.64.141:3000")
+    var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://8.134.163.111:3000")
     var unblockSource by rememberPreference(unblockSourceKey, "pyncmd")
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     var playerGestureTutorialVersion by rememberPreference(
@@ -673,9 +673,9 @@ private fun GitHubDownloadSourceDialog(
 /**
  * 预设 ncmapi 后端的 Ping 对话框。
  *
- * 弹出时自动并行测一轮三个预设地址，把延迟最低且可用者设为活动（activate
- * 回调交给父级写偏好）。也可手动点某一地址直接激活它，或点「重新测速」再测一轮。
- * 测速进度条由对话框自管，避免和父级状态打架。
+ * 弹出时不再自动测速，改由用户点「重新测速」手动并行测一轮三个预设地址，
+ * 把延迟最低且可用者设为活动（activate 回调交给父级写偏好）；也可手动点某一
+ * 地址直接激活它。测速进度条由对话框自管，避免和父级状态打架。
  */
 @Composable
 private fun ApiServerPingDialog(
@@ -702,8 +702,7 @@ private fun ApiServerPingDialog(
         }
     }
 
-    // 弹出即自动测一轮并激活最快可用源。
-    LaunchedEffect(Unit) { runPing(activateFastest = true) }
+    // 弹出不再自动测速，交由用户点「重新测速」手动触发。
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -762,7 +761,7 @@ private fun ApiServerPingDialog(
                 OutlinedTextField(
                     value = customServer,
                     onValueChange = { customServer = it },
-                    label = { Text("自定义服务器（可填任意地址）") },
+                    label = { Text("自定义服务器") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
