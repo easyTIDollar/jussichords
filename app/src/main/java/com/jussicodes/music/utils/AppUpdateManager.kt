@@ -56,7 +56,8 @@ object AppUpdateManager {
             "gitee",
             "Gitee 国内加速",
             { it.replace("github.com", "gitee.com") },
-            "https://gitee.com/easyTIDollar/jussichords/releases"
+            "https://gitee.com/easyTIDollar/jussichords/releases",
+            probeAccept = "application/json"
         )
     )
 
@@ -326,7 +327,7 @@ object AppUpdateManager {
                                 val request = Request.Builder()
                                     .url(source.probeUrl)
                                     .head()
-                                    .header("Accept", "application/octet-stream")
+                                    .header("Accept", source.probeAccept)
                                     .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
                                     .build()
                                 sourceTestClient.newCall(request).execute().use { response ->
@@ -658,6 +659,9 @@ data class GitHubDownloadSource(
     val name: String,
     val transform: (String) -> String,
     val probeUrl: String,
+    // 探测用 Accept 头。Gitee 网页 releases 对 HEAD+octet-stream 直接 404，
+    // 只有 Accept: application/json 才返回 200；GitHub 直连保持 octet-stream。
+    val probeAccept: String = "application/octet-stream",
 ) {
     fun apply(url: String): String = transform(url)
 }
