@@ -353,9 +353,7 @@ fun SettingsScreen(navController: NavHostController) {
                 showGithubSourceDialog = true
                 testingGithubSources = true
                 coroutineScope.launch {
-                    githubSourceStatuses = AppUpdateManager.measureDownloadSources(
-                        "https://github.com/easyTIDollar/jussichords/releases/latest"
-                    )
+                    githubSourceStatuses = AppUpdateManager.measureDownloadSources()
                     testingGithubSources = false
                 }
             },
@@ -557,9 +555,7 @@ fun SettingsScreen(navController: NavHostController) {
             onRefresh = {
                 testingGithubSources = true
                 coroutineScope.launch {
-                    githubSourceStatuses = AppUpdateManager.measureDownloadSources(
-                        "https://github.com/easyTIDollar/jussichords/releases/latest"
-                    )
+                    githubSourceStatuses = AppUpdateManager.measureDownloadSources()
                     testingGithubSources = false
                 }
             },

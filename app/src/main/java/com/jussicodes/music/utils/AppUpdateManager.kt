@@ -46,8 +46,18 @@ object AppUpdateManager {
     private const val API_PING_CALL_TIMEOUT_SECONDS = 8L
 
     val downloadSources = listOf(
-        GitHubDownloadSource("direct", "GitHub 直连") { it },
-        GitHubDownloadSource("gitee", "Gitee 国内加速") { it.replace("github.com", "gitee.com") }
+        GitHubDownloadSource(
+            "direct",
+            "GitHub 直连",
+            { it },
+            "https://github.com/easyTIDollar/jussichords/releases/latest"
+        ),
+        GitHubDownloadSource(
+            "gitee",
+            "Gitee 国内加速",
+            { it.replace("github.com", "gitee.com") },
+            "https://gitee.com/easyTIDollar/jussichords/releases"
+        )
     )
 
     /** 预设的 ncmapi 后端地址。点按「API 服务器」会并行 Ping 这三个，并把延迟最低的设为活动。 */
@@ -306,7 +316,7 @@ object AppUpdateManager {
         }
     }
 
-    suspend fun measureDownloadSources(sourceUrl: String): List<GitHubDownloadSourceStatus> =
+    suspend fun measureDownloadSources(): List<GitHubDownloadSourceStatus> =
         withContext(Dispatchers.IO) {
             supervisorScope {
                 downloadSources.map { source ->
@@ -314,7 +324,7 @@ object AppUpdateManager {
                         runCatching {
                             val elapsed = measureTimeMillis {
                                 val request = Request.Builder()
-                                    .url(source.apply(sourceUrl))
+                                    .url(source.probeUrl)
                                     .head()
                                     .header("Accept", "application/octet-stream")
                                     .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
@@ -647,6 +657,7 @@ data class GitHubDownloadSource(
     val id: String,
     val name: String,
     val transform: (String) -> String,
+    val probeUrl: String,
 ) {
     fun apply(url: String): String = transform(url)
 }
