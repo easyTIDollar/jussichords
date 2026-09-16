@@ -170,6 +170,17 @@ fun MainScreen() {
         }
     }
 
+    LaunchedEffect(homePagerState.settledPage) {
+        // Keep the navigation route in sync with the settled home page: the
+        // pager can settle on 我的/探索 without the route changing, and a stale
+        // route made back/return from detail pages land on the wrong home tab.
+        if (!isTabRoute) return@LaunchedEffect
+        val tabRoute = tabs.getOrNull(homePagerState.settledPage)?.route ?: return@LaunchedEffect
+        if (currentDestination?.route != tabRoute) {
+            navigateRootTab(tabRoute)
+        }
+    }
+
     Scaffold(
         bottomBar = {
             Column {
