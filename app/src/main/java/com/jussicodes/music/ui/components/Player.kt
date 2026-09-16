@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.common.C
 import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
@@ -89,6 +90,11 @@ import com.jussicodes.music.ui.icons.SkipNextFill
 import com.jussicodes.music.ui.icons.SkipPreviousFill
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.ArtistNav
+import com.jussicodes.music.ui.navigation.CloudSongNav
+import com.jussicodes.music.ui.navigation.PlaylistNav
+import com.jussicodes.music.ui.navigation.RadioNav
+import com.jussicodes.music.ui.navigation.RecordNav
+import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.FavoriteSongAction
 import com.jussicodes.music.utils.getItemShape
@@ -162,6 +168,44 @@ fun Player(
             ?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME)
             ?.let(MediaSessionConstants::sourceLabel)
             ?.takeIf { it.isNotBlank() && it != "播放列表" }
+
+    // 点击来源标签跳回来源页：按 sourceType + navId 路由。私人 FM（带模式菜单）
+    // 与无任何来源标记的队列不跳。
+    val sourceExtras = playerState?.currentMediaItem?.mediaMetadata?.extras
+    val sourceType = sourceExtras?.getString(MediaSessionConstants.EXTRA_SOURCE_TYPE)
+    val sourceNavId = sourceExtras?.getLong(MediaSessionConstants.EXTRA_NAV_ID) ?: 0L
+    val canJumpToSource = sourceType != null &&
+        sourceType != MediaSessionConstants.SOURCE_TYPE_ROAM
+    fun navigateToSource() {
+        when (sourceType) {
+            MediaSessionConstants.SOURCE_TYPE_PLAYLIST ->
+                if (sourceNavId != 0L) navController.navigate(PlaylistNav(playlistId = sourceNavId))
+            MediaSessionConstants.SOURCE_TYPE_ALBUM ->
+                if (sourceNavId != 0L) navController.navigate(AlbumNav(albumId = sourceNavId))
+            MediaSessionConstants.SOURCE_TYPE_ARTIST ->
+                if (sourceNavId != 0L) navController.navigate(ArtistNav(artistId = sourceNavId))
+            MediaSessionConstants.SOURCE_TYPE_CLOUD ->
+                if (sourceNavId != 0L) navController.navigate(CloudSongNav(uid = sourceNavId))
+            MediaSessionConstants.SOURCE_TYPE_RADIO ->
+                if (sourceNavId != 0L) navController.navigate(RadioNav(radioId = sourceNavId))
+            MediaSessionConstants.SOURCE_TYPE_RECORD ->
+                if (sourceNavId != 0L) navController.navigate(RecordNav(uid = sourceNavId))
+            MediaSessionConstants.SOURCE_TYPE_RECENT ->
+                if (navController.currentDestination?.route != Screen.RecentPlay.route) {
+                    navController.navigate(Screen.RecentPlay.route)
+                }
+            MediaSessionConstants.SOURCE_TYPE_EXPLORE ->
+                navController.navigate(Screen.Explore.route) {
+                    popUpTo(navController.graph.findStartDestination().id) {
+                        saveState = true
+                    }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+        }
+        // 收起全屏播放器，露出来源页 + 迷你播放器
+        onBackPressed()
+    }
     var coverOffsetX by remember { mutableFloatStateOf(0f) }
     var coverOffsetY by remember { mutableFloatStateOf(0f) }
     var coverAnimationJob by remember { mutableStateOf<Job?>(null) }
@@ -278,8 +322,14 @@ fun Player(
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.clickable(
-                                enabled = playerLabelOptions.isNotEmpty()
-                            ) { playerLabelMenuExpanded = true }
+                                enabled = playerLabelOptions.isNotEmpty() || canJumpToSource
+                            ) {
+                                if (playerLabelOptions.isNotEmpty()) {
+                                    playerLabelMenuExpanded = true
+                                } else {
+                                    navigateToSource()
+                                }
+                            }
                         )
                         DropdownMenu(
                             expanded = playerLabelMenuExpanded,

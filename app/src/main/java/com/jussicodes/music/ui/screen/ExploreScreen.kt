@@ -50,6 +50,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.AlbumThumbnailSize
 import com.jussicodes.music.constants.ListItemHeight
@@ -186,7 +187,11 @@ fun ExploreScreen(
                                             .clip(MaterialTheme.shapes.small)
                                             .width(340.dp)
                                             .clickable {
-                                                mediaController?.setPlaylist(it.data.dailySongs, sourceName = "每日推荐")
+                                                mediaController?.setPlaylist(
+                                                    it.data.dailySongs,
+                                                    sourceName = "每日推荐",
+                                                    sourceType = MediaSessionConstants.SOURCE_TYPE_EXPLORE
+                                                )
                                                 mediaController?.playMediaAtId(song.id)
                                             },
                                         trailingContent = {

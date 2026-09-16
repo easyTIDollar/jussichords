@@ -37,6 +37,7 @@ import androidx.navigation.NavController
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.R
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.playMediaAtId
@@ -107,7 +108,12 @@ fun ProgramRadioScreen(
                                 modifier = Modifier.size(48.dp),
                                 onClick = {
                                     radioList.itemSnapshotList.items.let {
-                                        mediaController?.setRadioPlaylist(it, sourceName = radioInfo?.data?.name ?: "电台")
+                                        mediaController?.setRadioPlaylist(
+                                            it,
+                                            sourceName = radioInfo?.data?.name ?: "电台",
+                                            sourceType = MediaSessionConstants.SOURCE_TYPE_RADIO,
+                                            navId = radioInfo?.data?.id ?: 0L
+                                        )
                                         mediaController?.playMediaAt()
                                     }
                                 },
@@ -163,7 +169,12 @@ fun ProgramRadioScreen(
                             isActive = currentMediaId == item.mainSong.id,
                             modifier = Modifier.clickable {
                                 radioList.itemSnapshotList.items.let {
-                                    mediaController?.setRadioPlaylist(it, sourceName = radioInfo?.data?.name ?: "电台")
+                                    mediaController?.setRadioPlaylist(
+                                        it,
+                                        sourceName = radioInfo?.data?.name ?: "电台",
+                                        sourceType = MediaSessionConstants.SOURCE_TYPE_RADIO,
+                                        navId = radioInfo?.data?.id ?: 0L
+                                    )
                                     mediaController?.playMediaAtId(item.mainSong.id)
                                 }
                             })

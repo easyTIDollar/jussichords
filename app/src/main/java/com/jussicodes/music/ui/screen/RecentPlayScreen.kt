@@ -45,6 +45,7 @@ import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.ListThumbnailSize
 import com.jussicodes.music.constants.ThumbnailCornerRadius
@@ -163,7 +164,11 @@ fun RecentPlayScreen(
                                     isPlaying = isPlaying,
                                     isActive = currentMediaId == entry.data.id,
                                     modifier = Modifier.clickable {
-                                        mediaController?.setPlaylist(list.map { it.data }, sourceName = "最近播放")
+                                        mediaController?.setPlaylist(
+                                            list.map { it.data },
+                                            sourceName = "最近播放",
+                                            sourceType = MediaSessionConstants.SOURCE_TYPE_RECENT
+                                        )
                                         mediaController?.playMediaAtId(entry.data.id)
                                     },
                                     trailingContent = {

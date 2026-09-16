@@ -23,7 +23,12 @@ private fun Song.encodeUri(source: String? = null): String {
     return "$base?fee=$fee&pl=$pl$srcParam"
 }
 
-fun Song.toMediaItem(sourceId: Long = 0L, sourceName: String = "list") =
+fun Song.toMediaItem(
+    sourceId: Long = 0L,
+    sourceName: String = "list",
+    sourceType: String? = null,
+    navId: Long = 0L
+) =
     MediaItem.Builder()
         .setUri(this.encodeUri())
         .setMediaId(this.id.toString())
@@ -39,6 +44,8 @@ fun Song.toMediaItem(sourceId: Long = 0L, sourceName: String = "list") =
                     )
                     putLong(MediaSessionConstants.EXTRA_SOURCE_ID, sourceId)
                     putString(MediaSessionConstants.EXTRA_SOURCE_NAME, sourceName)
+                    sourceType?.let { putString(MediaSessionConstants.EXTRA_SOURCE_TYPE, it) }
+                    if (navId != 0L) putLong(MediaSessionConstants.EXTRA_NAV_ID, navId)
                     putLong(MediaSessionConstants.EXTRA_DURATION_MS, dt)
                 })
                 .build()
@@ -46,12 +53,19 @@ fun Song.toMediaItem(sourceId: Long = 0L, sourceName: String = "list") =
         .build()
 
 
-fun List<Song>.toMediaItemList(sourceId: Long = 0L, sourceName: String = "list") =
+fun List<Song>.toMediaItemList(
+    sourceId: Long = 0L,
+    sourceName: String = "list",
+    sourceType: String? = null,
+    navId: Long = 0L
+) =
     this.map { song ->
         val extras = Bundle().apply {
             putString("song", json.encodeToString(song))
             putLong(MediaSessionConstants.EXTRA_SOURCE_ID, sourceId)
             putString(MediaSessionConstants.EXTRA_SOURCE_NAME, sourceName)
+            sourceType?.let { putString(MediaSessionConstants.EXTRA_SOURCE_TYPE, it) }
+            if (navId != 0L) putLong(MediaSessionConstants.EXTRA_NAV_ID, navId)
             putLong(MediaSessionConstants.EXTRA_DURATION_MS, song.dt)
         }
         MediaItem.Builder()
@@ -69,7 +83,12 @@ fun List<Song>.toMediaItemList(sourceId: Long = 0L, sourceName: String = "list")
     }
 
 
-fun List<CloudSong>.toCloudSongMediaItemList(uid: Long, sourceName: String = "cloud") =
+fun List<CloudSong>.toCloudSongMediaItemList(
+    uid: Long,
+    sourceName: String = "cloud",
+    sourceType: String? = null,
+    navId: Long = 0L
+) =
     this.map { cloudSong ->
         MediaItem.Builder()
             .setUri("${cloudSong.simpleSong.id}_$uid")
@@ -83,6 +102,8 @@ fun List<CloudSong>.toCloudSongMediaItemList(uid: Long, sourceName: String = "cl
                     )
                     .setExtras(Bundle().apply {
                         putString(MediaSessionConstants.EXTRA_SOURCE_NAME, sourceName)
+                        sourceType?.let { putString(MediaSessionConstants.EXTRA_SOURCE_TYPE, it) }
+                        if (navId != 0L) putLong(MediaSessionConstants.EXTRA_NAV_ID, navId)
                         putLong(MediaSessionConstants.EXTRA_DURATION_MS, cloudSong.simpleSong.dt)
                     })
                     .build()
@@ -90,7 +111,11 @@ fun List<CloudSong>.toCloudSongMediaItemList(uid: Long, sourceName: String = "cl
             .build()
     }
 
-fun List<Radio>.toRadioMediaItemList(sourceName: String = "radio") =
+fun List<Radio>.toRadioMediaItemList(
+    sourceName: String = "radio",
+    sourceType: String? = null,
+    navId: Long = 0L
+) =
     this.map { radio ->
         MediaItem.Builder()
             .setUri(radio.mainSong.id.toString())
@@ -103,6 +128,8 @@ fun List<Radio>.toRadioMediaItemList(sourceName: String = "radio") =
                     .setExtras(Bundle().apply {
                         putLong(MediaSessionConstants.EXTRA_SOURCE_ID, radio.id)
                         putString(MediaSessionConstants.EXTRA_SOURCE_NAME, sourceName)
+                        sourceType?.let { putString(MediaSessionConstants.EXTRA_SOURCE_TYPE, it) }
+                        if (navId != 0L) putLong(MediaSessionConstants.EXTRA_NAV_ID, navId)
                         putLong(MediaSessionConstants.EXTRA_DURATION_MS, radio.mainSong.duration)
                     })
                     .build()

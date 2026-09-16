@@ -55,6 +55,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.R
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
@@ -125,7 +126,12 @@ fun RecordScreen(
                         isActive = currentMediaId == item.song.id,
                         songIndex = index + 1,
                         modifier = Modifier.clickable {
-                            mediaController?.setPlaylist(data.map { it.song }, sourceName = "听歌排行")
+                            mediaController?.setPlaylist(
+                                data.map { it.song },
+                                sourceName = "听歌排行",
+                                sourceType = MediaSessionConstants.SOURCE_TYPE_RECORD,
+                                navId = recordScreenViewModel.navUid ?: 0L
+                            )
                             mediaController?.playMediaAtId(item.song.id)
                         },
                         trailingContent = {

@@ -84,6 +84,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.R
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.playMediaAt
@@ -412,7 +413,9 @@ fun PlaylistScreen(
                                             mediaController?.setPlaylist(
                                                 tracks,
                                                 sourceId = it.playlist.id,
-                                                sourceName = it.playlist.name
+                                                sourceName = it.playlist.name,
+                                                sourceType = MediaSessionConstants.SOURCE_TYPE_PLAYLIST,
+                                                navId = it.playlist.id
                                             )
                                             mediaController?.playMediaAt()
                                         },
@@ -484,7 +487,9 @@ fun PlaylistScreen(
                                         mediaController?.setPlaylist(
                                             tracks,
                                             sourceId = currentPlaylistId,
-                                            sourceName = currentPlaylistName
+                                            sourceName = currentPlaylistName,
+                                            sourceType = MediaSessionConstants.SOURCE_TYPE_PLAYLIST,
+                                            navId = currentPlaylistId
                                         )
                                         mediaController?.playMediaAtId(song.id)
                                     },
