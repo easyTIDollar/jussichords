@@ -201,12 +201,12 @@ jobs:
           draft: false
           prerelease: false
           body: |
-            - 新增播放状态上报：切歌生成 12 位会话 ID，进度与播放模式经 /relay/play/state/submit 上报
-            - 最近播放页新增下拉刷新
-            - 修复免费歌曲播放：unblock 失败/返回占位时回退不带 unblock 的主 API
-            - 修复识别 NCM outer/url 占位外链，不再把反爬 HTML 当可播链接
-            - 打卡（scrobble）被服务端拒绝/失败时 toast 提示
-            - 默认 API 服务器改为 8.134.163.111:3000
+            - 播放页顶部来源标签可点击跳回来源（歌单/专辑/歌手/云盘/电台/每日推荐/听歌排行/最近播放/私人FM）
+            - 小播放器进全屏后私人FM模式菜单自动挂载，修复顶部FM不可点
+            - 更新源系统重构：Gitee 为主源（国内直连），GitHub 直连 / gh-proxy 兜底；Gitee 源不预知总大小时进度条改不确定态
+            - 设置页「GitHub 下载源」更名为「更新源」，默认更新源 Gitee
+            - 首页 我的/探索 tab 切换改即时，消除白闪与缩放动画
+            - 从详情页返回时落在正确的首页 tab
 
       # 同步 release 到 Gitee（国内下载加速）：
       # 1) 删同名旧 release（stable 固定 tag 重建会撞 Gitee「该标签已存在发行版」）
