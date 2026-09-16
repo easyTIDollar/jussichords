@@ -50,6 +50,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -95,6 +96,11 @@ import com.jussicodes.music.ui.navigation.PlaylistNav
 import com.jussicodes.music.ui.navigation.RadioNav
 import com.jussicodes.music.ui.navigation.RecordNav
 import com.jussicodes.music.ui.navigation.Screen
+import com.jussicodes.music.ui.screen.PERSONAL_FM_SOURCE
+import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
+import com.jussicodes.music.ui.screen.personalFmModeOptions
+import com.jussicodes.music.extensions.playMediaAt
+import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.FavoriteSongAction
 import com.jussicodes.music.utils.getItemShape
@@ -176,6 +182,43 @@ fun Player(
     val sourceNavId = sourceExtras?.getLong(MediaSessionConstants.EXTRA_NAV_ID) ?: 0L
     val canJumpToSource = sourceType != null &&
         sourceType != MediaSessionConstants.SOURCE_TYPE_ROAM
+
+    // 调用方未传模式选项、且当前队列是私人 FM 时，自动挂上 FM 模式菜单
+    // （覆盖「退出 FM 页后从小播放器进全屏」这条没传选项的路径）。
+    val autoFmActive = playerLabelOptions.isEmpty() &&
+        sourceType == MediaSessionConstants.SOURCE_TYPE_ROAM
+    var autoFmMenuIndex by rememberSaveable {
+        mutableIntStateOf(personalFmModeOptions.indexOf(PersonalFmQueueLoader.selectedMode).coerceAtLeast(0))
+    }
+    val fmLabelOptions = if (playerLabelOptions.isNotEmpty()) {
+        playerLabelOptions
+    } else if (autoFmActive) {
+        personalFmModeOptions.map { it.title }
+    } else {
+        emptyList<String>()
+    }
+    val fmSelectedOption = if (playerLabelOptions.isNotEmpty()) selectedPlayerLabelOption else autoFmMenuIndex
+
+    fun onFmOptionPicked(index: Int) {
+        if (playerLabelOptions.isNotEmpty()) {
+            onPlayerLabelOptionSelected(index)
+        } else if (autoFmActive) {
+            autoFmMenuIndex = index
+            scope.launch {
+                PersonalFmQueueLoader.load(personalFmModeOptions[index])
+                    .onSuccess { songs ->
+                        if (songs.isNotEmpty()) {
+                            mediaController?.setPlaylist(
+                                songs,
+                                sourceName = PERSONAL_FM_SOURCE,
+                                sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM
+                            )
+                            mediaController?.playMediaAt(0)
+                        }
+                    }
+            }
+        }
+    }
     fun navigateToSource() {
         when (sourceType) {
             MediaSessionConstants.SOURCE_TYPE_PLAYLIST ->
@@ -322,9 +365,9 @@ fun Player(
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.clickable(
-                                enabled = playerLabelOptions.isNotEmpty() || canJumpToSource
+                                enabled = fmLabelOptions.isNotEmpty() || canJumpToSource
                             ) {
-                                if (playerLabelOptions.isNotEmpty()) {
+                                if (fmLabelOptions.isNotEmpty()) {
                                     playerLabelMenuExpanded = true
                                 } else {
                                     navigateToSource()
@@ -335,11 +378,11 @@ fun Player(
                             expanded = playerLabelMenuExpanded,
                             onDismissRequest = { playerLabelMenuExpanded = false }
                         ) {
-                            playerLabelOptions.forEachIndexed { index, option ->
+                            fmLabelOptions.forEachIndexed { index, option ->
                                 DropdownMenuItem(
                                     text = {
                                         Text(
-                                            if (index == selectedPlayerLabelOption) {
+                                            if (index == fmSelectedOption) {
                                                 "$option · 当前"
                                             } else {
                                                 option
@@ -348,7 +391,7 @@ fun Player(
                                     },
                                     onClick = {
                                         playerLabelMenuExpanded = false
-                                        onPlayerLabelOptionSelected(index)
+                                        onFmOptionPicked(index)
                                     }
                                 )
                             }

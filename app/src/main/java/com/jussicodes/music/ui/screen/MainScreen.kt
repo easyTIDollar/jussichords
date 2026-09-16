@@ -119,7 +119,10 @@ fun MainScreen() {
             val newSongs = songs.filter { it.id.toString() !in existingIds }
             if (newSongs.isNotEmpty()) {
                 player.addMediaItems(
-                    newSongs.toMediaItemList(sourceName = PERSONAL_FM_SOURCE)
+                    newSongs.toMediaItemList(
+                        sourceName = PERSONAL_FM_SOURCE,
+                        sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM
+                    )
                 )
             }
         }

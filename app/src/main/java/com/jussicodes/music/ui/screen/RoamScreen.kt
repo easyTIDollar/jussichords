@@ -183,7 +183,8 @@ fun RoamScreen(
     fun playSongs(songs: List<Song>) {
         player?.setPlaylist(
             songs = songs,
-            sourceName = PERSONAL_FM_SOURCE
+            sourceName = PERSONAL_FM_SOURCE,
+            sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM
         )
         player?.playMediaAt(0)
     }
