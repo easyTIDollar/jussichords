@@ -21,17 +21,157 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
-import java.net.URL
-import kotlin.system.measureTimeMillis
 import java.util.concurrent.TimeUnit
+import kotlin.system.measureTimeMillis
 
-private const val LATEST_RELEASE_URL =
-    "https://api.github.com/repos/easyTIDollar/jussichords/releases/latest"
-private const val RELEASES_URL =
-    "https://api.github.com/repos/easyTIDollar/jussichords/releases"
-// Gitee 国内直连回退源：公开仓读取免 token，release 结构由 CI 与 GitHub 同步维护
-private const val GITEE_RELEASES_URL =
-    "https://gitee.com/api/v5/repos/easyTIDollar/jussichords/releases"
+/** 预设的 ncmapi 后端地址。点按「API 服务器」会并行 Ping 这三个，并把延迟最低的设为活动。 */
+val apiServers = listOf(
+    "https://api.jussichords.indevs.in",
+    "http://8.134.163.111:3000",
+    "https://api.jussichords.kdns.fr",
+)
+
+/** 应用仓库固定坐标（Gitee 镜像与 GitHub 同源 tag，可用于跨源换算下载地址）。 */
+const val REPO_OWNER = "easyTIDollar"
+const val REPO_NAME = "jussichords"
+const val GITHUB_RELEASES_URL =
+    "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases"
+const val GITHUB_CANONICAL_DOWNLOAD_BASE =
+    "https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download"
+const val GITHUB_RELEASES_LATEST_PAGE =
+    "https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/latest"
+
+/**
+ * 更新源。用户可在「设置 · 检查更新」与开屏更新弹窗里自由选择，下载时首选所选源、
+ * 失败自动回落到其余源。Gitee 为主源（国内 CDN 快），GitHub 直连 / gh-proxy 兜底。
+ *
+ * 各源各自声明：如何拉 release 列表（fetchReleasesText）、如何把「GitHub 规范下载链接」
+ * 换算成自己可直连的 URL（toDownloadUrl）、以及测速探测（probeRequest）。GitHub 系与
+ * Gitee 系 URL 结构不同，不可互套前缀，故按 family 隔离。
+ */
+sealed class UpdateSource {
+    abstract val id: String
+    abstract val name: String
+    /** 给选择器 UI 展示的一行小字提示（如「国内直连」「gh-proxy.com」）。 */
+    abstract val detail: String
+    /** github / gitee：同一族的下载链接可互相对照，跨族不行。 */
+    abstract val family: String
+
+    /** 阻塞拉取 release 列表 JSON（按 created 倒序）；失败抛 IOException/HttpStatusException。 */
+    abstract fun fetchReleasesText(apiClient: OkHttpClient): String
+
+    /** 把 GitHub 规范的 release 下载链接换算成本源可直连的 URL（默认原样透传）。 */
+    open fun toDownloadUrl(canonicalGithubDownloadUrl: String): String = canonicalGithubDownloadUrl
+
+    /** 测速探测请求（短超时；Gitee 必须 GET+Accept:json，HEAD 会 401）。 */
+    abstract fun probeRequest(): Request
+}
+
+class GiteeUpdateSource : UpdateSource() {
+    override val id = "gitee"
+    override val name = "Gitee"
+    override val detail = "国内直连 · CDN"
+    override val family = "gitee"
+
+    private val releasesUrl =
+        "https://gitee.com/api/v5/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=30&sort=created&direction=desc"
+    private val probeUrl =
+        "https://gitee.com/api/v5/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=1"
+
+    override fun fetchReleasesText(apiClient: OkHttpClient): String {
+        val response = apiClient.newCall(
+            Request.Builder()
+                .url(releasesUrl)
+                .header("Accept", "application/json")
+                .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+                .build()
+        ).execute().use { resp ->
+            if (resp.code !in 200..299) throw HttpStatusException(resp.code, "Gitee API HTTP ${resp.code}")
+            resp.body?.string() ?: throw IOException("Empty Gitee API response")
+        }
+        return response
+    }
+
+    /** GitHub 规范下载链接形如 https://github.com/{o}/{r}/releases/download/{tag}/{name}，
+     *  把 {tag}/{name} 抽出来拼到 Gitee 下载端点。 */
+    override fun toDownloadUrl(canonicalGithubDownloadUrl: String): String {
+        if (canonicalGithubDownloadUrl.startsWith("https://gitee.com/")) {
+            return canonicalGithubDownloadUrl
+        }
+        val marker = "/releases/download/"
+        val idx = canonicalGithubDownloadUrl.indexOf(marker)
+        return if (idx >= 0) {
+            val rel = canonicalGithubDownloadUrl.substring(idx + marker.length)
+            "https://gitee.com/${REPO_OWNER}/${REPO_NAME}/releases/download/$rel"
+        } else {
+            canonicalGithubDownloadUrl
+        }
+    }
+
+    override fun probeRequest(): Request =
+        Request.Builder()
+            .url(probeUrl)
+            .header("Accept", "application/json")
+            .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+            .build()
+}
+
+class GitHubUpdateSource(
+    override val id: String,
+    override val name: String,
+    override val detail: String,
+    private val prefix: String,
+) : UpdateSource() {
+    override val family = "github"
+
+    override fun fetchReleasesText(apiClient: OkHttpClient): String {
+        val response = apiClient.newCall(
+            Request.Builder()
+                .url(prefix + GITHUB_RELEASES_URL)
+                .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+                .build()
+        ).execute().use { resp ->
+            if (resp.code !in 200..299) throw HttpStatusException(resp.code, "GitHub API HTTP ${resp.code}")
+            resp.body?.string() ?: throw IOException("Empty GitHub API response")
+        }
+        return response
+    }
+
+    override fun toDownloadUrl(canonicalGithubDownloadUrl: String): String =
+        if (prefix.isBlank()) canonicalGithubDownloadUrl else "$prefix$canonicalGithubDownloadUrl"
+
+    override fun probeRequest(): Request =
+        Request.Builder()
+            .url(prefix + GITHUB_RELEASES_LATEST_PAGE)
+            .head()
+            .header("Accept", "application/octet-stream")
+            .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+            .build()
+}
+
+/** 全局下载源列表：Gitee 优先，GitHub 直连 / gh-proxy 兜底。 */
+val downloadSources = listOf(
+    GiteeUpdateSource(),
+    GitHubUpdateSource("direct", "GitHub 直连", "直连", ""),
+    GitHubUpdateSource("gh-proxy", "gh-proxy.com", "gh-proxy.com", "https://gh-proxy.com/"),
+)
+
+fun sourceById(sourceId: String?): UpdateSource? =
+    downloadSources.firstOrNull { it.id == sourceId }
+
+/** 首选源在前、其余按固定序排后（用于下载回退）；preferred 为 null 时返回固定序。 */
+fun orderedSources(preferredSourceId: String?): List<UpdateSource> {
+    val preferred = sourceById(preferredSourceId) ?: return downloadSources
+    return listOf(preferred) + downloadSources.filterNot { it === preferred }
+}
+
+/** 把 GitHub 规范下载链接拼出来（checkUpdate 统一产出，各源再换算成自己的直连地址）。 */
+fun canonicalGitHubDownloadUrl(tag: String, apkName: String): String =
+    "$GITHUB_CANONICAL_DOWNLOAD_BASE/$tag/$apkName"
+
+private class HttpStatusException(val code: Int, val detail: String = "HTTP $code") :
+    Exception(detail)
 
 object AppUpdateManager {
     private const val UPDATE_DIR = "updates"
@@ -41,32 +181,12 @@ object AppUpdateManager {
     private const val DOWNLOAD_CALL_TIMEOUT_SECONDS = 300L
     private const val DOWNLOAD_MAX_RETRIES = 2
     private const val SOURCE_TEST_TIMEOUT_SECONDS = 3L
+    private const val API_CONNECT_TIMEOUT_SECONDS = 6L
+    private const val API_READ_TIMEOUT_SECONDS = 10L
+    private const val API_CALL_TIMEOUT_SECONDS = 15L
     private const val API_PING_CONNECT_TIMEOUT_SECONDS = 4L
     private const val API_PING_READ_TIMEOUT_SECONDS = 6L
     private const val API_PING_CALL_TIMEOUT_SECONDS = 8L
-
-    val downloadSources = listOf(
-        GitHubDownloadSource(
-            "direct",
-            "GitHub 直连",
-            { it },
-            "https://github.com/easyTIDollar/jussichords/releases/latest"
-        ),
-        GitHubDownloadSource(
-            "gitee",
-            "Gitee 国内加速",
-            { it.replace("github.com", "gitee.com") },
-            "https://gitee.com/easyTIDollar/jussichords/releases",
-            probeAccept = "application/json"
-        )
-    )
-
-    /** 预设的 ncmapi 后端地址。点按「API 服务器」会并行 Ping 这三个，并把延迟最低的设为活动。 */
-    val apiServers = listOf(
-        "https://api.jussichords.indevs.in",
-        "http://8.134.163.111:3000",
-        "https://api.jussichords.kdns.fr",
-    )
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -108,107 +228,64 @@ object AppUpdateManager {
             .build()
     }
 
-    /**
-     * 并行 Ping 预设的三个 ncmapi 后端，返回每个的延迟与可用性。
-     * 后端可能没有专用健康检查端点，只要 TCP/HTTP 层在短超时内通即记为可用
-     * （任何 2xx/3xx/4xx 都说明地址是活的，4xx 是「在但路径错」也接受）。
-     * 调用方拿到结果后取延迟最低且可用的那个设为活动 API。
-     */
-    suspend fun measureApiServers(): List<ApiServerStatus> =
-        withContext(Dispatchers.IO) {
-            supervisorScope {
-                apiServers.map { server ->
-                    async {
-                        runCatching {
-                            val elapsed = measureTimeMillis {
-                                val request = Request.Builder()
-                                    .url(server)
-                                    .head()
-                                    .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
-                                    .build()
-                                apiPingClient.newCall(request).execute().use { response ->
-                                    // 任何 HTTP 响应（含 4xx/5xx）都代表地址可达；
-                                    // 真正不可达会走 catch 分支。
-                                    Unit
-                                }
-                            }
-                            ApiServerStatus(server, elapsed, true, "可用 · ${elapsed} ms")
-                        }.getOrElse { throwable ->
-                            ApiServerStatus(
-                                server = server,
-                                latencyMs = null,
-                                available = false,
-                                message = pingFailureDetail(throwable),
-                            )
-                        }
-                    }
-                }.awaitAll()
-            }
-        }
-
-    /** 取三个后端中「可用且延迟最低」的，全不可用时返回 null。 */
-    fun pickFastestApiServer(statuses: List<ApiServerStatus>): String? =
-        statuses
-            .filter { it.available && it.latencyMs != null }
-            .minByOrNull { it.latencyMs!! }
-            ?.server
-
-    /** 判断某个 URL 是否为预设后端之一（用于区分「预设」与「自定义」。 */
-    fun isPresetApiServer(server: String): Boolean =
-        server.trim().let { it.isNotEmpty() && apiServers.any { p -> p.trim() == it } }
-
-    /**
-     * 渠道感知的更新检查：
-     * - canary 构建（BuildConfig.BUILD_TYPE == "canary"）只跟踪 pre-release（canary 通道）
-     * - 其他构建只跟踪正式 release
-     * 拉取顺序：先试 GitHub API，失败则回退 Gitee（国内直连可达，免 token 公开仓）。
-     */
-    suspend fun checkUpdate(): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
-        runCatching {
-            val (latestStable, latestPre) = fetchLatestReleasesWithFallback()
-            val release = if (BuildConfig.BUILD_TYPE == "canary") {
-                checkNotNull(latestPre) { "No pre-release found for canary channel" }
-            } else {
-                checkNotNull(latestStable) { "No published release found" }
-            }
-            val asset = release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
-                ?: error("Release ${release.tagName} does not contain an APK asset")
-            val latestTag = release.tagName.trim().trimStart('v', 'V')
-            // tag 不同即视为有更新（canary 每个构建 tag 都带 run 编号递增）
-            if (latestTag == BuildConfig.VERSION_NAME) return@runCatching null
-            // Gitee 的 asset 不带 size，缺失时补一次 HEAD 探测，让进度条/大小显示正常
-            val apkSize = if (asset.size > 0L) asset.size else probeContentLength(asset.downloadUrl)
-            UpdateInfo(
-                versionName = latestTag,
-                releaseName = release.name.takeIf { it.isNotBlank() } ?: release.tagName,
-                body = release.body,
-                apkName = asset.name,
-                apkSize = apkSize,
-                downloadUrl = asset.downloadUrl
-            )
-        }
+    private val apiClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(API_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(API_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(API_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .build()
     }
 
-    /** 旧版检查入口，保留以兼容既有调用 */
-    @Deprecated("Replaced by checkUpdate(context) which is channel-aware", ReplaceWith("checkUpdate(context)"))
-    suspend fun checkLatestRelease(): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
-        runCatching {
-            val release = fetchLatestRelease()
-            val asset = release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
-                ?: error("Latest release does not contain an APK asset")
-            val latestVersion = release.tagName.trim().trimStart('v', 'V')
-            if (!isNewerVersion(latestVersion, BuildConfig.VERSION_NAME)) {
-                return@runCatching null
+    /**
+     * 渠道感知的更新检查（源无关：按 Gitee→GitHub 固定序逐个源拉列表，取首个成功者）。
+     * - canary 构建（BuildConfig.BUILD_TYPE == "canary"）只跟踪 pre-release（canary 通道）
+     * - 其他构建只跟踪正式 release
+     * 返回 null 表示已最新。
+     */
+    suspend fun checkUpdate(): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
+        runCatching { resolveUpdate() }
+    }
+
+    private fun resolveUpdate(): UpdateInfo? {
+        var lastError: Throwable? = null
+        for (source in downloadSources) {
+            try {
+                return fetchLatestReleases(source).let { (latestStable, latestPre) ->
+                    val release = if (BuildConfig.BUILD_TYPE == "canary") {
+                        checkNotNull(latestPre) { "No pre-release found for canary channel" }
+                    } else {
+                        checkNotNull(latestStable) { "No published release found" }
+                    }
+                    val asset = release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
+                        ?: error("Release ${release.tagName} does not contain an APK asset")
+                    val latestTag = release.tagName.trim().trimStart('v', 'V')
+                    if (latestTag == BuildConfig.VERSION_NAME) return null
+                    UpdateInfo(
+                        versionName = latestTag,
+                        releaseName = release.name.takeIf { it.isNotBlank() } ?: release.tagName,
+                        body = release.body,
+                        apkName = asset.name,
+                        apkSize = asset.size,
+                        downloadUrl = canonicalGitHubDownloadUrl(release.tagName, asset.name),
+                    )
+                }
+            } catch (e: Throwable) {
+                lastError = e
             }
-            UpdateInfo(
-                versionName = latestVersion,
-                releaseName = release.name.takeIf { it.isNotBlank() } ?: release.tagName,
-                body = release.body,
-                apkName = asset.name,
-                apkSize = asset.size,
-                downloadUrl = asset.downloadUrl
-            )
         }
+        throw lastError ?: error("Failed to check update")
+    }
+
+    /** 拉取某个源的 release 列表并解析；返回 (最新正式版, 最新 pre-release)。 */
+    private fun fetchLatestReleases(source: UpdateSource): Pair<GitHubRelease?, GitHubRelease?> {
+        val raw = source.fetchReleasesText(apiClient)
+        val releases = json.decodeFromString<List<GitHubRelease>>(raw).filterNot { it.draft }
+        val latestStable = releases.firstOrNull { !it.prerelease }
+        val latestPre = releases.firstOrNull { it.prerelease }
+        return Pair(latestStable, latestPre)
     }
 
     suspend fun downloadApk(
@@ -317,32 +394,27 @@ object AppUpdateManager {
         }
     }
 
-    suspend fun measureDownloadSources(): List<GitHubDownloadSourceStatus> =
+    /** 并行探测全部下载源（各源自探测），返回延迟与可用性，供「测速」弹窗展示。 */
+    suspend fun measureDownloadSources(): List<UpdateSourceStatus> =
         withContext(Dispatchers.IO) {
             supervisorScope {
                 downloadSources.map { source ->
                     async {
                         runCatching {
                             val elapsed = measureTimeMillis {
-                                val request = Request.Builder()
-                                    .url(source.probeUrl)
-                                    .head()
-                                    .header("Accept", source.probeAccept)
-                                    .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
-                                    .build()
-                                sourceTestClient.newCall(request).execute().use { response ->
+                                sourceTestClient.newCall(source.probeRequest()).execute().use { response ->
                                     if (!response.isSuccessful && response.code !in 300..399) {
                                         throw HttpStatusException(response.code)
                                     }
                                 }
                             }
-                            GitHubDownloadSourceStatus(source, elapsed, true, "可用")
+                            UpdateSourceStatus(source, elapsed, true, "可用")
                         }.getOrElse { throwable ->
-                            GitHubDownloadSourceStatus(
+                            UpdateSourceStatus(
                                 source = source,
                                 latencyMs = null,
                                 available = false,
-                                message = throwable.message ?: "不可用",
+                                message = pingFailureDetail(throwable),
                             )
                         }
                     }
@@ -351,192 +423,57 @@ object AppUpdateManager {
         }
 
     /**
-     * 拉取 GitHub API 文本（直连）。代理镜像源已移除，故不再轮询代理前缀；
-     * 同一 URL 内若遇限流（403 + X-RateLimit-Remaining:0 / 503），退避 30s 重试。
+     * 并行 Ping 预设的三个 ncmapi 后端，返回每个的延迟与可用性。
+     * 后端可能没有专用健康检查端点，只要 TCP/HTTP 层在短超时内通即记为可用
+     * （任何 2xx/3xx/4xx 都说明地址是活的，4xx 是「在但路径错」也接受）。
+     * 调用方拿到结果后取延迟最低且可用的那个设为活动 API。
      */
-    private fun requestText(baseApiUrl: String): String {
-        var lastDetail = "无法连接 GitHub API"
-        for (attempt in 0..DOWNLOAD_MAX_RETRIES) {
-            val detail = requestTextOnce(baseApiUrl)
-            if (detail.ok) return detail.body
-            lastDetail = detail.detail
-            // 限流/503：退避重试；连接失败、403 拦截等不可重试错误：直接抛出
-            if (!detail.retryable || attempt == DOWNLOAD_MAX_RETRIES) break
-            Thread.sleep(30_000L)
-        }
-        throw HttpStatusException(0, lastDetail)
-    }
-
-    private class HttpTextResult(val ok: Boolean, val body: String, val code: Int, val detail: String, val retryable: Boolean)
-
-    private fun requestTextOnce(url: String): HttpTextResult {
-        val connection = try {
-            (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15_000
-                readTimeout = 20_000
-                setRequestProperty("Accept", "application/vnd.github+json")
-                setRequestProperty("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+    suspend fun measureApiServers(): List<ApiServerStatus> =
+        withContext(Dispatchers.IO) {
+            supervisorScope {
+                apiServers.map { server ->
+                    async {
+                        runCatching {
+                            val elapsed = measureTimeMillis {
+                                val request = Request.Builder()
+                                    .url(server)
+                                    .head()
+                                    .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+                                    .build()
+                                apiPingClient.newCall(request).execute().use { response ->
+                                    Unit
+                                }
+                            }
+                            ApiServerStatus(server, elapsed, true, "可用 · ${elapsed} ms")
+                        }.getOrElse { throwable ->
+                            ApiServerStatus(
+                                server = server,
+                                latencyMs = null,
+                                available = false,
+                                message = pingFailureDetail(throwable),
+                            )
+                        }
+                    }
+                }.awaitAll()
             }
-        } catch (e: IOException) {
-            return HttpTextResult(false, "", 0, "连接失败：${url}（${e.message}）", false)
-        }
-        return try {
-            val code = connection.responseCode
-            if (code in 200..299) {
-                HttpTextResult(true, connection.inputStream.bufferedReader().use { it.readText() }, code, "", false)
-            } else {
-                val errBody = runCatching {
-                    connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                }.getOrDefault("")
-                // GitHub 403/503 时正文带 "rate limit" 说明限流
-                val rateLimited = code in intArrayOf(403, 503) &&
-                    (errBody.contains("rate limit", ignoreCase = true) ||
-                        errBody.contains("abuse") ||
-                        connection.getHeaderField("X-RateLimit-Remaining") == "0")
-                val retryAfter = connection.getHeaderField("Retry-After")
-                val resetIn = connection.getHeaderField("X-RateLimit-Reset")
-                val detail = when {
-                    rateLimited -> "GitHub API 限流，稍后再试" +
-                        (retryAfter?.let { "（约 ${it}s 后可重试）" } ?: (resetIn?.let { "（${(it.toLong() - System.currentTimeMillis() / 1000).coerceAtLeast(0)}s 后重置）" } ?: ""))
-                    code == 403 -> "GitHub 拒绝请求（403）：网络代理/防火墙拦截，或限流。${errBody.takeIf { it.isNotBlank() }?.let { " · 原文：${it.lineSequence().first().take(160)}" } ?: ""}"
-                    else -> "GitHub 请求失败（$code）" +
-                        (errBody.takeIf { it.isNotBlank() }?.let { " · ${it.lineSequence().first().take(160)}" } ?: "")
-                }
-                HttpTextResult(false, "", code, detail, rateLimited || code == 503)
-            }
-        } catch (e: IOException) {
-            HttpTextResult(false, "", 0, "读取失败：${url}（${e.message}）", false)
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    private fun fetchLatestRelease(): GitHubRelease {
-        val latestResult = runCatching {
-            json.decodeFromString<GitHubRelease>(requestText(LATEST_RELEASE_URL))
-        }
-        latestResult.onSuccess { return it }
-
-        val exception = latestResult.exceptionOrNull()
-        if (exception !is HttpStatusException || exception.code != HttpURLConnection.HTTP_NOT_FOUND) {
-            throw exception ?: error("Failed to check update")
         }
 
-        val releasesUrl = LATEST_RELEASE_URL.removeSuffix("/latest")
-        val releases = json.decodeFromString<List<GitHubRelease>>(requestText(releasesUrl))
-            .filterNot { it.draft || it.prerelease }
-        return releases.firstOrNull()
-            ?: error("No published release with APK was found")
-    }
+    /** 取三个后端中「可用且延迟最低」的，全不可用时返回 null。 */
+    fun pickFastestApiServer(statuses: List<ApiServerStatus>): String? =
+        statuses
+            .filter { it.available && it.latencyMs != null }
+            .minByOrNull { it.latencyMs!! }
+            ?.server
 
-    /**
-     * 一次拉取全部（非 draft）release，返回 (最新正式版, 最新 pre-release)。
-     * canary 通道用后者，正式通道用前者；列表拉取失败时回退到 /releases/latest 拿正式版。
-     */
-    private fun fetchLatestReleases(): Pair<GitHubRelease?, GitHubRelease?> {
-        val releases = runCatching {
-            json.decodeFromString<List<GitHubRelease>>(requestText(RELEASES_URL))
-                .filterNot { it.draft }
-        }.getOrElse { t ->
-            // 列表接口异常（403 限流等）时，至少保证正式通道还能工作
-            val stable = runCatching {
-                json.decodeFromString<GitHubRelease>(requestText(LATEST_RELEASE_URL))
-            }.getOrNull()
-            return if (stable == null) throw t else Pair(stable, null)
-        }
-        val latestStable = releases.firstOrNull { !it.prerelease }
-        val latestPre = releases.firstOrNull { it.prerelease }
-        return Pair(latestStable, latestPre)
-    }
+    /** 判断某个 URL 是否为预设后端之一（用于区分「预设」与「自定义」。 */
+    fun isPresetApiServer(server: String): Boolean =
+        server.trim().let { it.isNotEmpty() && apiServers.any { p -> p.trim() == it } }
 
-    /**
-     * 检查更新用：先试 GitHub，完全失败（网络不通 / 限流无代理可用）再回退 Gitee。
-     * Gitee 公开仓读取免 token，国内直连可达；release 由 CI 与 GitHub 同步维护。
-     */
-    private fun fetchLatestReleasesWithFallback(): Pair<GitHubRelease?, GitHubRelease?> {
-        return runCatching { fetchLatestReleases() }.getOrElse { githubError ->
-            runCatching { fetchGiteeReleases() }.onFailure { giteeError ->
-                error("检查更新失败：GitHub 不可用（${describeError(githubError)}），" +
-                    "Gitee 回退亦不可用（${describeError(giteeError)}）")
-            }.getOrThrow()
-        }
-    }
-
-    /** 拉取 Gitee release 列表，按创建时间倒序取最新正式版 + 最新 pre-release。 */
-    private fun fetchGiteeReleases(): Pair<GitHubRelease?, GitHubRelease?> {
-        val listUrl = "$GITEE_RELEASES_URL?per_page=100"
-        val releases = json.decodeFromString<List<GitHubRelease>>(requestGiteeText(listUrl))
-            .filterNot { it.draft }
-            .sortedByDescending { it.createdAt }
-        val latestStable = releases.firstOrNull { !it.prerelease }
-        val latestPre = releases.firstOrNull { it.prerelease }
-        return Pair(latestStable, latestPre)
-    }
-
-    /** Gitee 是直连源，无需代理轮询；单次 GET 即可。 */
-    private fun requestGiteeText(url: String): String {
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000
-            readTimeout = 20_000
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
-        }
-        return try {
-            val code = connection.responseCode
-            if (code in 200..299) {
-                connection.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                val errBody = runCatching {
-                    connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                }.getOrDefault("")
-                error("Gitee 请求失败（$code）" +
-                    (errBody.takeIf { it.isNotBlank() }?.let { " · ${it.lineSequence().first().take(160)}" } ?: ""))
-            }
-        } catch (e: IOException) {
-            error("连接 Gitee 失败：${e.message}")
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    private fun describeError(e: Throwable): String = e.message ?: "未知错误"
-
-    /**
-     * Gitee 的 release asset 不带 size，回退到 Gitee 时 apkSize 会是 0。
-     * 用一次 HEAD 读 Content-Length 补全；失败则返回 0（下载进度条按未知大小降级显示）。
-     */
-    private fun probeContentLength(url: String): Long = runCatching {
-        sourceTestClient.newCall(
-            Request.Builder().url(url).head().build()
-        ).execute().use { response ->
-            if (response.isSuccessful) {
-                val len = response.header("Content-Length")?.toLongOrNull()
-                len?.takeIf { it > 0 } ?: 0L
-            } else 0L
-        }
-    }.getOrDefault(0L)
-
-    private fun isNewerVersion(latest: String, current: String): Boolean {
-        val latestParts = versionParts(latest)
-        val currentParts = versionParts(current)
-        val maxSize = maxOf(latestParts.size, currentParts.size)
-        for (index in 0 until maxSize) {
-            val latestPart = latestParts.getOrElse(index) { 0 }
-            val currentPart = currentParts.getOrElse(index) { 0 }
-            if (latestPart != currentPart) return latestPart > currentPart
-        }
-        return false
-    }
-
-    private fun versionParts(version: String): List<Int> =
-        Regex("\\d+").findAll(version).map { it.value.toIntOrNull() ?: 0 }.toList()
-
-    private fun buildCandidateUrls(url: String, preferredSourceId: String): List<String> {
-        val preferred = downloadSources.firstOrNull { it.id == preferredSourceId }
-        return (listOfNotNull(preferred) + downloadSources)
-            .map { it.apply(url) }
+    /** 构造下载候选 URL：所选源在前，其余源回落，各自把 GitHub 规范链接换算成自己的直连地址。 */
+    private fun buildCandidateUrls(updateInfo: UpdateInfo, preferredSourceId: String): List<String> =
+        orderedSources(preferredSourceId)
+            .map { it.toDownloadUrl(updateInfo.downloadUrl) }
             .distinct()
-    }
 
     private fun downloadWithRetry(
         updateInfo: UpdateInfo,
@@ -544,7 +481,7 @@ object AppUpdateManager {
         sourceId: String,
         onProgress: (DownloadProgress) -> Unit,
     ) {
-        val candidateUrls = buildCandidateUrls(updateInfo.downloadUrl, sourceId)
+        val candidateUrls = buildCandidateUrls(updateInfo, sourceId)
         var lastException: Throwable? = null
 
         repeat(DOWNLOAD_MAX_RETRIES + 1) { attempt ->
@@ -642,40 +579,25 @@ object AppUpdateManager {
     private fun Throwable.isRetryableDownloadError(): Boolean =
         this is SocketTimeoutException || this is IOException
 
-    /** Ping 失败时的简短说明，给对话框里逐行展示用。 */
+    /** Ping/探测失败时的简短说明，给对话框里逐行展示用。 */
     private fun pingFailureDetail(throwable: Throwable): String = when (throwable) {
         is SocketTimeoutException -> "超时"
         is java.net.UnknownHostException -> "无法解析"
         is java.net.ConnectException -> "连接被拒"
         else -> "不可用"
     }
-
-    private class HttpStatusException(val code: Int, val detail: String = "HTTP $code") :
-        Exception(detail)
 }
 
-data class GitHubDownloadSource(
-    val id: String,
-    val name: String,
-    val transform: (String) -> String,
-    val probeUrl: String,
-    // 探测用 Accept 头。Gitee 网页 releases 对 HEAD+octet-stream 直接 404，
-    // 只有 Accept: application/json 才返回 200；GitHub 直连保持 octet-stream。
-    val probeAccept: String = "application/octet-stream",
-) {
-    fun apply(url: String): String = transform(url)
-}
-
-/** 预设 ncmapi 后端的 Ping 结果：URL、延迟（ms）、是否可用、说明文案。 */
-data class ApiServerStatus(
-    val server: String,
+data class UpdateSourceStatus(
+    val source: UpdateSource,
     val latencyMs: Long?,
     val available: Boolean,
     val message: String,
 )
 
-data class GitHubDownloadSourceStatus(
-    val source: GitHubDownloadSource,
+/** 预设 ncmapi 后端的 Ping 结果：URL、延迟（ms）、是否可用、说明文案。 */
+data class ApiServerStatus(
+    val server: String,
     val latencyMs: Long?,
     val available: Boolean,
     val message: String,
@@ -706,7 +628,6 @@ private data class GitHubRelease(
     val draft: Boolean = false,
     val prerelease: Boolean = false,
     val assets: List<GitHubAsset> = emptyList(),
-    @SerialName("created_at") val createdAt: String = "",
 )
 
 @Serializable

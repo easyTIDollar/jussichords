@@ -36,6 +36,7 @@ import com.jussicodes.music.utils.UpdateDownloadPhase
 import com.jussicodes.music.utils.UpdateDownloadService
 import com.jussicodes.music.utils.UpdateDownloadStateStore
 import com.jussicodes.music.utils.UpdateInfo
+import com.jussicodes.music.utils.downloadSources
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.utils.FileProvider
@@ -65,13 +66,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
             var isDownloadingUpdate by remember { mutableStateOf(false) }
-            var downloadProgress by remember { mutableFloatStateOf(0f) }
+            var downloadProgress by remember { mutableStateOf<Float?>(0f) }
             var downloadProgressText by remember { mutableStateOf<String?>(null) }
             var uiScale by rememberPreference(uiScaleKey, 1f)
             var liveUiScale by remember { mutableFloatStateOf(uiScale) }
             var githubDownloadSource by rememberPreference(
                 githubDownloadSourceKey,
-                AppUpdateManager.downloadSources.first().id
+                downloadSources.first().id
             )
 
             LaunchedEffect(uiScale) {
@@ -105,14 +106,19 @@ class MainActivity : ComponentActivity() {
                         UpdateDownloadPhase.IDLE -> Unit
                         UpdateDownloadPhase.DOWNLOADING -> {
                             isDownloadingUpdate = true
+                            // Gitee 源拿不到 apkSize（totalBytes=0）时给不确定进度条（progress=null）
                             downloadProgress =
                                 if (snapshot.totalBytes > 0L) {
                                     snapshot.downloadedBytes.toFloat() / snapshot.totalBytes
                                 } else {
-                                    0f
+                                    null
                                 }
                             downloadProgressText =
-                                "${formatFileSize(snapshot.downloadedBytes)} / ${formatFileSize(snapshot.totalBytes)}"
+                                if (snapshot.totalBytes > 0L) {
+                                    "${formatFileSize(snapshot.downloadedBytes)} / ${formatFileSize(snapshot.totalBytes)}"
+                                } else {
+                                    "已下载 ${formatFileSize(snapshot.downloadedBytes)}（Gitee 源不预知总大小）"
+                                }
                         }
                         UpdateDownloadPhase.COMPLETED -> {
                             isDownloadingUpdate = false

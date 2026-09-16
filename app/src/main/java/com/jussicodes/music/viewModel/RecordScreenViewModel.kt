@@ -17,6 +17,7 @@ import javax.inject.Inject
 @HiltViewModel
 class RecordScreenViewModel @Inject constructor(savedStateHandle: SavedStateHandle) : ViewModel() {
     private val uid = savedStateHandle.get<Long>("uid")
+    val navUid: Long? = uid
     private val _songRecord = MutableStateFlow<RecordResponse?>(null)
     private val _songRecordType = MutableStateFlow(SongRecordType.WEEK)
     private val songRecordType: StateFlow<SongRecordType> = _songRecordType.asStateFlow()

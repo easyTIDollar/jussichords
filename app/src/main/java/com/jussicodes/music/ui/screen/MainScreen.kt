@@ -119,7 +119,10 @@ fun MainScreen() {
             val newSongs = songs.filter { it.id.toString() !in existingIds }
             if (newSongs.isNotEmpty()) {
                 player.addMediaItems(
-                    newSongs.toMediaItemList(sourceName = PERSONAL_FM_SOURCE)
+                    newSongs.toMediaItemList(
+                        sourceName = PERSONAL_FM_SOURCE,
+                        sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM
+                    )
                 )
             }
         }
@@ -167,6 +170,17 @@ fun MainScreen() {
             }
             launchSingleTop = true
             restoreState = true
+        }
+    }
+
+    LaunchedEffect(homePagerState.settledPage) {
+        // Keep the navigation route in sync with the settled home page: the
+        // pager can settle on 我的/探索 without the route changing, and a stale
+        // route made back/return from detail pages land on the wrong home tab.
+        if (!isTabRoute) return@LaunchedEffect
+        val tabRoute = tabs.getOrNull(homePagerState.settledPage)?.route ?: return@LaunchedEffect
+        if (currentDestination?.route != tabRoute) {
+            navigateRootTab(tabRoute)
         }
     }
 

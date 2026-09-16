@@ -45,7 +45,7 @@ class UpdateDownloadService : Service() {
             return START_NOT_STICKY
         }
         val sourceId = intent.getStringExtra(EXTRA_DOWNLOAD_SOURCE_ID)
-            ?: AppUpdateManager.downloadSources.first().id
+            ?: downloadSources.first().id
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildProgressNotification(updateInfo, 0L, updateInfo.apkSize))
@@ -188,7 +188,7 @@ class UpdateDownloadService : Service() {
         fun start(
             context: Context,
             updateInfo: UpdateInfo,
-            sourceId: String = AppUpdateManager.downloadSources.first().id,
+            sourceId: String = downloadSources.first().id,
         ) {
             UpdateDownloadStateStore.reset()
             val intent = Intent(context, UpdateDownloadService::class.java).apply {

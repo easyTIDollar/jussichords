@@ -21,6 +21,8 @@ internal val Player.currentMediaItems: List<MediaItem>
 internal val cacheSongs: MutableStateFlow<List<Song>?> = MutableStateFlow(null)
 private var cacheSourceId: Long = 0L
 private var cacheSourceName: String = "list"
+private var cacheSourceType: String? = null
+private var cacheSourceNavId: Long = 0L
 
 fun Player.init(context: Context) {
     val currentPlayMediaId = context.dataStore[currentPlayMediaIdKey]
@@ -36,28 +38,51 @@ fun Player.init(context: Context) {
     }
 }
 
-fun Player.setPlaylist(songs: List<Song>, sourceId: Long = 0L, sourceName: String = "list") {
-    if (cacheSongs.value != songs || cacheSourceId != sourceId || cacheSourceName != sourceName) {
+fun Player.setPlaylist(
+    songs: List<Song>,
+    sourceId: Long = 0L,
+    sourceName: String = "list",
+    sourceType: String? = null,
+    navId: Long = 0L
+) {
+    if (cacheSongs.value != songs || cacheSourceId != sourceId || cacheSourceName != sourceName || cacheSourceType != sourceType || cacheSourceNavId != navId) {
         cacheSongs.value = songs
         cacheSourceId = sourceId
         cacheSourceName = sourceName
-        setMediaItems(songs.toMediaItemList(sourceId = sourceId, sourceName = sourceName))
+        cacheSourceType = sourceType
+        cacheSourceNavId = navId
+        setMediaItems(songs.toMediaItemList(sourceId = sourceId, sourceName = sourceName, sourceType = sourceType, navId = navId))
         SongListUtil.saveSongList(songs)
     }
 }
 
-fun Player.setCloudSongPlaylist(uid: Long, cloudSongs: List<CloudSong>) {
+fun Player.setCloudSongPlaylist(
+    uid: Long,
+    cloudSongs: List<CloudSong>,
+    sourceName: String = "云盘音乐",
+    sourceType: String? = null,
+    navId: Long = 0L
+) {
     cacheSongs.value = null
     cacheSourceId = 0L
-    cacheSourceName = "cloud"
-    setMediaItems(cloudSongs.toCloudSongMediaItemList(uid = uid))
+    cacheSourceName = sourceName
+    cacheSourceType = sourceType
+    cacheSourceNavId = navId
+    setMediaItems(cloudSongs.toCloudSongMediaItemList(uid = uid, sourceName = sourceName, sourceType = sourceType, navId = navId))
 }
 
-fun Player.setRadioPlaylist(radio: List<Radio>) {
+fun Player.setRadioPlaylist(
+    radio: List<Radio>,
+    sourceName: String = "电台",
+    sourceType: String? = null,
+    navId: Long = 0L
+) {
     cacheSongs.value = null
     cacheSourceId = 0L
-    cacheSourceName = "radio"
-    setMediaItems(radio.toRadioMediaItemList())
+    cacheSourceName = sourceName
+    cacheSourceType = sourceType
+    cacheSourceNavId = navId
+    setMediaItems(radio.toRadioMediaItemList(sourceName = sourceName, sourceType = sourceType, navId = navId))
 }
 
 fun Player.addSong(song: Song) {

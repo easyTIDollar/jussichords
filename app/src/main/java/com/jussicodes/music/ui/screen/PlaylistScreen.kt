@@ -84,6 +84,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.R
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.playMediaAt
@@ -292,6 +293,7 @@ fun PlaylistScreen(
                     searchQuery.isBlank() &&
                     it.playlist.creator?.userId == userId
                 val currentPlaylistId = it.playlist.id
+                val currentPlaylistName = it.playlist.name
                 val headerOffset = if (!searchActive || searchQuery.isBlank()) 1 else 0
                 val reorderableLazyListState =
                     rememberReorderableLazyListState(listState) { from, to ->
@@ -410,7 +412,10 @@ fun PlaylistScreen(
                                         onClick = {
                                             mediaController?.setPlaylist(
                                                 tracks,
-                                                sourceId = it.playlist.id
+                                                sourceId = it.playlist.id,
+                                                sourceName = it.playlist.name,
+                                                sourceType = MediaSessionConstants.SOURCE_TYPE_PLAYLIST,
+                                                navId = it.playlist.id
                                             )
                                             mediaController?.playMediaAt()
                                         },
@@ -481,7 +486,10 @@ fun PlaylistScreen(
                                     .clickable {
                                         mediaController?.setPlaylist(
                                             tracks,
-                                            sourceId = currentPlaylistId
+                                            sourceId = currentPlaylistId,
+                                            sourceName = currentPlaylistName,
+                                            sourceType = MediaSessionConstants.SOURCE_TYPE_PLAYLIST,
+                                            navId = currentPlaylistId
                                         )
                                         mediaController?.playMediaAtId(song.id)
                                     },

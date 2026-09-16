@@ -19,6 +19,7 @@ import androidx.navigation.NavHostController
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.R
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setCloudSongPlaylist
@@ -75,7 +76,10 @@ fun CloudSongScreen(
                                 if (uid != null)
                                     mediaController?.setCloudSongPlaylist(
                                         uid = uid,
-                                        cloudSongs = it
+                                        cloudSongs = it,
+                                        sourceName = "云盘音乐",
+                                        sourceType = MediaSessionConstants.SOURCE_TYPE_CLOUD,
+                                        navId = uid
                                     )
                                 mediaController?.playMediaAtId(item.simpleSong.id)
                             }

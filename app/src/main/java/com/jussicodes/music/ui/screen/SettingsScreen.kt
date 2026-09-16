@@ -96,8 +96,10 @@ import com.jussicodes.music.utils.ApiServerStatus
 import com.jussicodes.music.utils.UpdateDownloadPhase
 import com.jussicodes.music.utils.UpdateDownloadService
 import com.jussicodes.music.utils.UpdateDownloadStateStore
-import com.jussicodes.music.utils.GitHubDownloadSourceStatus
+import com.jussicodes.music.utils.UpdateSourceStatus
 import com.jussicodes.music.utils.UpdateInfo
+import com.jussicodes.music.utils.apiServers
+import com.jussicodes.music.utils.downloadSources
 import com.jussicodes.music.utils.getItemShape
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
@@ -134,14 +136,14 @@ fun SettingsScreen(navController: NavHostController) {
     val uiScaleController = LocalUiScaleController.current
     var githubDownloadSource by rememberPreference(
         githubDownloadSourceKey,
-        AppUpdateManager.downloadSources.first().id
+        downloadSources.first().id
     )
     var showQualityDialog by remember { mutableStateOf(false) }
     var showThemeColorSourceDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
     var showCookieDialog by remember { mutableStateOf(false) }
     var showGithubSourceDialog by remember { mutableStateOf(false) }
-    var githubSourceStatuses by remember { mutableStateOf<List<GitHubDownloadSourceStatus>>(emptyList()) }
+    var githubSourceStatuses by remember { mutableStateOf<List<UpdateSourceStatus>>(emptyList()) }
     var testingGithubSources by remember { mutableStateOf(false) }
     var showApiServerDialog by remember { mutableStateOf(false) }
     var apiServerStatuses by remember { mutableStateOf<List<ApiServerStatus>>(emptyList()) }
@@ -345,7 +347,7 @@ fun SettingsScreen(navController: NavHostController) {
         SettingItemData(
             title = if (updating) "正在检查" else "检查版本更新",
             subtitle = when {
-                updating -> "正在检查 GitHub Release"
+                updating -> "正在检查更新"
                 else -> "当前版本：${BuildConfig.VERSION_NAME} · 点按检查更新 · 长按切换更新源"
             },
             imageVector = Github,
@@ -604,7 +606,7 @@ fun SettingsScreen(navController: NavHostController) {
 @Composable
 private fun GitHubDownloadSourceDialog(
     currentSourceId: String,
-    statuses: List<GitHubDownloadSourceStatus>,
+    statuses: List<UpdateSourceStatus>,
     testing: Boolean,
     onDismiss: () -> Unit,
     onRefresh: () -> Unit,
@@ -612,7 +614,7 @@ private fun GitHubDownloadSourceDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("GitHub 下载源") },
+        title = { Text("更新源") },
         text = {
             Column {
                 if (testing) {
@@ -622,7 +624,7 @@ private fun GitHubDownloadSourceDialog(
                             .padding(bottom = 8.dp)
                     )
                 }
-                AppUpdateManager.downloadSources.forEach { source ->
+                downloadSources.forEach { source ->
                     val status = statuses.firstOrNull { it.source.id == source.id }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -641,11 +643,7 @@ private fun GitHubDownloadSourceDialog(
                             Text(
                                 text = when {
                                     testing && status == null -> "测速中..."
-                                    status == null -> when (source.id) {
-                                        "direct" -> "不使用加速源"
-                                        "gitee" -> "Gitee 国内加速"
-                                        else -> source.name
-                                    }
+                                    status == null -> source.detail
                                     status.available -> "可用 · ${status.latencyMs ?: 0} ms"
                                     else -> "不可用 · ${status.message}"
                                 },
@@ -716,7 +714,7 @@ private fun ApiServerPingDialog(
                             .padding(bottom = 8.dp)
                     )
                 }
-                AppUpdateManager.apiServers.forEach { server ->
+                apiServers.forEach { server ->
                     val status = statuses.firstOrNull { it.server == server }
                     Row(
                         modifier = Modifier

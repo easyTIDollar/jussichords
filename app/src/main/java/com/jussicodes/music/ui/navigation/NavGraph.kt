@@ -1,6 +1,8 @@
 package com.jussicodes.music.ui.navigation
 
+import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -56,6 +58,14 @@ fun NavGraph(
     onHomePageChange: (Int) -> Unit,
     onHomePageScroll: (Float) -> Unit
 ) {
+    // The two home destinations (library/explore) render the same HorizontalPager;
+    // switching between them is route bookkeeping only (driven by MainScreen's
+    // navigateRootTab when the settled page changes). Animating that switch
+    // crossfades two identical pagers and scales 0.985->1, which reads as a
+    // white flash + press-down. Keep home<->home switches instant; only animate
+    // pushes/pops into detail screens.
+    val homeRoutes = setOf(Screen.Library.route, Screen.Explore.route)
+
     SharedTransitionLayout {
         NavHost(
             navController = navController,
@@ -63,42 +73,58 @@ fun NavGraph(
             Modifier
                 .windowInsetsPadding(WindowInsets(bottom = bottomPadding + if (showMiniPlayer) MiniPlayerHeight else 0.dp)),
             enterTransition = {
-                fadeIn(
-                    animationSpec = tween(
-                        durationMillis = DURATION_ENTER,
-                        easing = EmphasizedDecelerateEasing
+                if (targetState.destination.route in homeRoutes) {
+                    EnterTransition.None
+                } else {
+                    fadeIn(
+                        animationSpec = tween(
+                            durationMillis = DURATION_ENTER,
+                            easing = EmphasizedDecelerateEasing
+                        )
+                    ) + scaleIn(
+                        initialScale = 0.985f,
+                        animationSpec = tween(
+                            durationMillis = DURATION_ENTER,
+                            easing = EmphasizedDecelerateEasing
+                        )
                     )
-                ) + scaleIn(
-                    initialScale = 0.985f,
-                    animationSpec = tween(
-                        durationMillis = DURATION_ENTER,
-                        easing = EmphasizedDecelerateEasing
-                    )
-                )
+                }
             },
             exitTransition = {
-                fadeOut(animationSpec = tween(durationMillis = DURATION_EXIT))
+                if (initialState.destination.route in homeRoutes) {
+                    ExitTransition.None
+                } else {
+                    fadeOut(animationSpec = tween(durationMillis = DURATION_EXIT))
+                }
             },
             popEnterTransition = {
-                fadeIn(
-                    animationSpec = tween(
-                        durationMillis = DURATION_ENTER,
-                        easing = EmphasizedDecelerateEasing
+                if (targetState.destination.route in homeRoutes) {
+                    EnterTransition.None
+                } else {
+                    fadeIn(
+                        animationSpec = tween(
+                            durationMillis = DURATION_ENTER,
+                            easing = EmphasizedDecelerateEasing
+                        )
+                    ) + scaleIn(
+                        initialScale = 0.985f,
+                        animationSpec = tween(
+                            durationMillis = DURATION_ENTER,
+                            easing = EmphasizedDecelerateEasing
+                        )
                     )
-                ) + scaleIn(
-                    initialScale = 0.985f,
-                    animationSpec = tween(
-                        durationMillis = DURATION_ENTER,
-                        easing = EmphasizedDecelerateEasing
-                    )
-                )
+                }
             },
             popExitTransition = {
-                fadeOut(animationSpec = tween(durationMillis = DURATION_EXIT)) +
-                    scaleOut(
-                        targetScale = 0.985f,
-                        animationSpec = tween(durationMillis = DURATION_EXIT)
-                    )
+                if (initialState.destination.route in homeRoutes) {
+                    ExitTransition.None
+                } else {
+                    fadeOut(animationSpec = tween(durationMillis = DURATION_EXIT)) +
+                        scaleOut(
+                            targetScale = 0.985f,
+                            animationSpec = tween(durationMillis = DURATION_EXIT)
+                        )
+                }
             }
         ) {
             composable(Screen.Library.route) {

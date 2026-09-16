@@ -12,9 +12,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.jussicodes.music.utils.AppUpdateManager
-import com.jussicodes.music.utils.GitHubDownloadSourceStatus
+import com.jussicodes.music.utils.UpdateSourceStatus
 import com.jussicodes.music.utils.UpdateInfo
+import com.jussicodes.music.utils.downloadSources
 import kotlin.math.ln
 import kotlin.math.pow
 
@@ -24,8 +24,8 @@ fun UpdateDialog(
     isDownloading: Boolean,
     downloadProgress: Float?,
     progressText: String?,
-    selectedSourceId: String = AppUpdateManager.downloadSources.first().id,
-    sourceStatuses: List<GitHubDownloadSourceStatus> = emptyList(),
+    selectedSourceId: String = downloadSources.first().id,
+    sourceStatuses: List<UpdateSourceStatus> = emptyList(),
     onSourceSelected: (String) -> Unit = {},
     onDismiss: () -> Unit,
     onIgnoreVersion: () -> Unit,
@@ -53,7 +53,7 @@ fun UpdateDialog(
                     text = "下载源",
                     modifier = Modifier.padding(top = 12.dp)
                 )
-                AppUpdateManager.downloadSources.forEach { source ->
+                downloadSources.forEach { source ->
                     val status = sourceStatuses.firstOrNull { it.source.id == source.id }
                     Row(modifier = Modifier.fillMaxWidth()) {
                         RadioButton(
@@ -73,13 +73,21 @@ fun UpdateDialog(
                         )
                     }
                 }
-                if (isDownloading && downloadProgress != null) {
-                    LinearProgressIndicator(
-                        progress = { downloadProgress.coerceIn(0f, 1f) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 16.dp)
-                    )
+                if (isDownloading) {
+                    if (downloadProgress != null) {
+                        LinearProgressIndicator(
+                            progress = { (downloadProgress ?: 0f).coerceIn(0f, 1f) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 16.dp)
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 16.dp)
+                        )
+                    }
                     progressText?.let {
                         Text(
                             text = it,

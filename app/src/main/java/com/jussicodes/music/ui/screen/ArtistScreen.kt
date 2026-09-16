@@ -59,6 +59,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.R
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
@@ -258,7 +259,12 @@ fun ArtistScreen(
                             modifier = Modifier
                                 .animateItem(placementSpec = null)
                                 .clickable {
-                                    mediaController?.setPlaylist(songs)
+                                    mediaController?.setPlaylist(
+                                        songs,
+                                        sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                                        sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                                        navId = artistHeadInfoState?.data?.artist?.id ?: 0L
+                                    )
                                     mediaController?.playMediaAtId(song.id)
                                 },
                             trailingContent = {
@@ -292,7 +298,12 @@ fun ArtistScreen(
                                 modifier = Modifier
                                     .animateItem(placementSpec = null)
                                     .clickable {
-                                        mediaController?.setPlaylist(songs)
+                                        mediaController?.setPlaylist(
+                                            songs,
+                                            sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                                            sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                                            navId = artistHeadInfoState?.data?.artist?.id ?: 0L
+                                        )
                                         mediaController?.playMediaAtId(song.id)
                                     }
                             )
