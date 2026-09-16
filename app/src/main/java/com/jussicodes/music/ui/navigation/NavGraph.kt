@@ -1,6 +1,8 @@
 package com.jussicodes.music.ui.navigation
 
+import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -72,7 +74,7 @@ fun NavGraph(
                 .windowInsetsPadding(WindowInsets(bottom = bottomPadding + if (showMiniPlayer) MiniPlayerHeight else 0.dp)),
             enterTransition = {
                 if (targetState.destination.route in homeRoutes) {
-                    null
+                    EnterTransition.None
                 } else {
                     fadeIn(
                         animationSpec = tween(
@@ -90,14 +92,14 @@ fun NavGraph(
             },
             exitTransition = {
                 if (initialState.destination.route in homeRoutes) {
-                    null
+                    ExitTransition.None
                 } else {
                     fadeOut(animationSpec = tween(durationMillis = DURATION_EXIT))
                 }
             },
             popEnterTransition = {
                 if (targetState.destination.route in homeRoutes) {
-                    null
+                    EnterTransition.None
                 } else {
                     fadeIn(
                         animationSpec = tween(
@@ -115,7 +117,7 @@ fun NavGraph(
             },
             popExitTransition = {
                 if (initialState.destination.route in homeRoutes) {
-                    null
+                    ExitTransition.None
                 } else {
                     fadeOut(animationSpec = tween(durationMillis = DURATION_EXIT)) +
                         scaleOut(
