@@ -74,12 +74,12 @@ class GiteeUpdateSource : UpdateSource() {
     override val family = "gitee"
 
     private val releasesUrl =
-        "https://gitee.com/api/v5/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=10&sort=created&direction=desc"
+        "https://gitee.com/api/v5/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=30&sort=created&direction=desc"
     private val probeUrl =
         "https://gitee.com/api/v5/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=1"
 
     override fun fetchReleasesText(apiClient: OkHttpClient): String {
-        apiClient.newCall(
+        val response = apiClient.newCall(
             Request.Builder()
                 .url(releasesUrl)
                 .header("Accept", "application/json")
@@ -89,6 +89,7 @@ class GiteeUpdateSource : UpdateSource() {
             if (resp.code !in 200..299) throw HttpStatusException(resp.code, "Gitee API HTTP ${resp.code}")
             resp.body?.string() ?: throw IOException("Empty Gitee API response")
         }
+        return response
     }
 
     /** GitHub 规范下载链接形如 https://github.com/{o}/{r}/releases/download/{tag}/{name}，
@@ -124,7 +125,7 @@ class GitHubUpdateSource(
     override val family = "github"
 
     override fun fetchReleasesText(apiClient: OkHttpClient): String {
-        apiClient.newCall(
+        val response = apiClient.newCall(
             Request.Builder()
                 .url(prefix + GITHUB_RELEASES_URL)
                 .header("Accept", "application/vnd.github+json")
@@ -134,6 +135,7 @@ class GitHubUpdateSource(
             if (resp.code !in 200..299) throw HttpStatusException(resp.code, "GitHub API HTTP ${resp.code}")
             resp.body?.string() ?: throw IOException("Empty GitHub API response")
         }
+        return response
     }
 
     override fun toDownloadUrl(canonicalGithubDownloadUrl: String): String =

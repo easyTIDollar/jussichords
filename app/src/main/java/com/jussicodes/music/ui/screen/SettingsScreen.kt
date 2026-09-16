@@ -98,6 +98,7 @@ import com.jussicodes.music.utils.UpdateDownloadService
 import com.jussicodes.music.utils.UpdateDownloadStateStore
 import com.jussicodes.music.utils.UpdateSourceStatus
 import com.jussicodes.music.utils.UpdateInfo
+import com.jussicodes.music.utils.apiServers
 import com.jussicodes.music.utils.downloadSources
 import com.jussicodes.music.utils.getItemShape
 import com.jussicodes.music.utils.rememberEnumPreference
@@ -713,7 +714,7 @@ private fun ApiServerPingDialog(
                             .padding(bottom = 8.dp)
                     )
                 }
-                AppUpdateManager.apiServers.forEach { server ->
+                apiServers.forEach { server ->
                     val status = statuses.firstOrNull { it.server == server }
                     Row(
                         modifier = Modifier
