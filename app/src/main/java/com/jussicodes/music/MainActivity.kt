@@ -36,6 +36,7 @@ import com.jussicodes.music.utils.UpdateDownloadPhase
 import com.jussicodes.music.utils.UpdateDownloadService
 import com.jussicodes.music.utils.UpdateDownloadStateStore
 import com.jussicodes.music.utils.UpdateInfo
+import com.jussicodes.music.utils.UpdateSourceStatus
 import com.jussicodes.music.utils.downloadSources
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.rememberPreference
@@ -68,6 +69,10 @@ class MainActivity : ComponentActivity() {
             var isDownloadingUpdate by remember { mutableStateOf(false) }
             var downloadProgress by remember { mutableStateOf<Float?>(0f) }
             var downloadProgressText by remember { mutableStateOf<String?>(null) }
+            var updateSourceStatuses by remember {
+                mutableStateOf<List<UpdateSourceStatus>>(emptyList())
+            }
+            var isMeasuringUpdateSources by remember { mutableStateOf(false) }
             var uiScale by rememberPreference(uiScaleKey, 1f)
             var liveUiScale by remember { mutableFloatStateOf(uiScale) }
             var githubDownloadSource by rememberPreference(
@@ -187,6 +192,17 @@ class MainActivity : ComponentActivity() {
                             downloadProgress = if (isDownloadingUpdate) downloadProgress else null,
                             progressText = downloadProgressText,
                             selectedSourceId = githubDownloadSource,
+                            sourceStatuses = updateSourceStatuses,
+                            isMeasuringSources = isMeasuringUpdateSources,
+                            onMeasureSources = {
+                                if (isMeasuringUpdateSources) return@onMeasureSources
+                                isMeasuringUpdateSources = true
+                                lifecycleScope.launch {
+                                    updateSourceStatuses =
+                                        AppUpdateManager.measureDownloadSources()
+                                    isMeasuringUpdateSources = false
+                                }
+                            },
                             onSourceSelected = { githubDownloadSource = it },
                             onDismiss = { pendingUpdateInfo = null },
                             onIgnoreVersion = {

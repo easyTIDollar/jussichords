@@ -263,12 +263,18 @@ object AppUpdateManager {
                         ?: error("Release ${release.tagName} does not contain an APK asset")
                     val latestTag = release.tagName.trim().trimStart('v', 'V')
                     if (latestTag == BuildConfig.VERSION_NAME) return null
+                    // Gitee 源的 asset 不带 size 字段（API 只返回 name + url）；
+                    // 为 0 时从 GitHub 列表按同 tag 补一次字节大小，补不到保持 0。
+                    var apkSize = asset.size
+                    if (apkSize <= 0L) {
+                        apkSize = fetchApkSizeFromGitHub(release.tagName) ?: 0L
+                    }
                     UpdateInfo(
                         versionName = latestTag,
                         releaseName = release.name.takeIf { it.isNotBlank() } ?: release.tagName,
                         body = release.body,
                         apkName = asset.name,
-                        apkSize = asset.size,
+                        apkSize = apkSize,
                         downloadUrl = canonicalGitHubDownloadUrl(release.tagName, asset.name),
                     )
                 }
@@ -286,6 +292,30 @@ object AppUpdateManager {
         val latestStable = releases.firstOrNull { !it.prerelease }
         val latestPre = releases.firstOrNull { it.prerelease }
         return Pair(latestStable, latestPre)
+    }
+
+    /**
+     * 从 GitHub 按 tag 取单个 release，返回 APK asset 的字节大小；找不到 / 请求失败返回 null。
+     * 用于 Gitee 源（asset 不带 size）场景下补齐「安装包大小」。Gitee 的 APK 与 GitHub 同名，
+     * 字节数一致，故跨源取 size 是可靠的。
+     */
+    private fun fetchApkSizeFromGitHub(tagName: String): Long? {
+        return runCatching {
+            val url = "$GITHUB_RELEASES_URL/tags/$tagName"
+            val body = apiClient.newCall(
+                Request.Builder()
+                    .url(url)
+                    .header("Accept", "application/vnd.github+json")
+                    .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+                    .build()
+            ).execute().use { resp ->
+                if (resp.code !in 200..299) throw HttpStatusException(resp.code, "GitHub by-tag API HTTP ${resp.code}")
+                resp.body?.string() ?: throw IOException("Empty GitHub by-tag response")
+            }
+            val release = json.decodeFromString<GitHubRelease>(body)
+            release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }?.size?.takeIf { it > 0 }
+        }.onFailure { /* size 补齐是尽力而为，失败静默，不影响主流程 */ }
+            .getOrNull()
     }
 
     suspend fun downloadApk(
