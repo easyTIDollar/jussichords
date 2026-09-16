@@ -265,7 +265,7 @@ fun AlbumScreen(
                             }
                             Button(
                                 onClick = {
-                                    mediaController?.setPlaylist(detail.songs, sourceId = detail.album.id, sourceName = "album")
+                                    mediaController?.setPlaylist(detail.songs, sourceId = detail.album.id, sourceName = detail.album.name)
                                     mediaController?.playMediaAt()
                                 },
                                 contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
@@ -300,7 +300,7 @@ fun AlbumScreen(
                         song = song,
                         albumIndex = index + 1,
                         modifier = Modifier.clickable {
-                            mediaController?.setPlaylist(detail.songs, sourceId = detail.album.id, sourceName = "album")
+                            mediaController?.setPlaylist(detail.songs, sourceId = detail.album.id, sourceName = detail.album.name)
                             mediaController?.playMediaAtId(song.id)
                         },
                         trailingContent = {

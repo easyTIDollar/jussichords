@@ -69,7 +69,7 @@ fun List<Song>.toMediaItemList(sourceId: Long = 0L, sourceName: String = "list")
     }
 
 
-fun List<CloudSong>.toCloudSongMediaItemList(uid: Long) =
+fun List<CloudSong>.toCloudSongMediaItemList(uid: Long, sourceName: String = "cloud") =
     this.map { cloudSong ->
         MediaItem.Builder()
             .setUri("${cloudSong.simpleSong.id}_$uid")
@@ -82,7 +82,7 @@ fun List<CloudSong>.toCloudSongMediaItemList(uid: Long) =
                         cloudSong.simpleSong.al?.picUrl.toCoverImageUrl(CoverImageSize.DETAIL)?.toUri()
                     )
                     .setExtras(Bundle().apply {
-                        putString(MediaSessionConstants.EXTRA_SOURCE_NAME, "cloud")
+                        putString(MediaSessionConstants.EXTRA_SOURCE_NAME, sourceName)
                         putLong(MediaSessionConstants.EXTRA_DURATION_MS, cloudSong.simpleSong.dt)
                     })
                     .build()
@@ -90,7 +90,7 @@ fun List<CloudSong>.toCloudSongMediaItemList(uid: Long) =
             .build()
     }
 
-fun List<Radio>.toRadioMediaItemList() =
+fun List<Radio>.toRadioMediaItemList(sourceName: String = "radio") =
     this.map { radio ->
         MediaItem.Builder()
             .setUri(radio.mainSong.id.toString())
@@ -102,7 +102,7 @@ fun List<Radio>.toRadioMediaItemList() =
                     .setArtworkUri(radio.coverUrl.toCoverImageUrl(CoverImageSize.DETAIL)?.toUri())
                     .setExtras(Bundle().apply {
                         putLong(MediaSessionConstants.EXTRA_SOURCE_ID, radio.id)
-                        putString(MediaSessionConstants.EXTRA_SOURCE_NAME, "radio")
+                        putString(MediaSessionConstants.EXTRA_SOURCE_NAME, sourceName)
                         putLong(MediaSessionConstants.EXTRA_DURATION_MS, radio.mainSong.duration)
                     })
                     .build()

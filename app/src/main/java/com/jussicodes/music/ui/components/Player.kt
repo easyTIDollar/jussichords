@@ -78,6 +78,7 @@ import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
+import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.Artist
 import com.jussicodes.music.ui.icons.ChevronDown
@@ -153,6 +154,14 @@ fun Player(
     val showGestureTutorial = gestureTutorialVersion < PLAYER_GESTURE_TUTORIAL_VERSION
     var gestureTutorialActionCompleted by rememberSaveable { mutableStateOf(false) }
     var coverPreviewUrl by remember { mutableStateOf<Any?>(null) }
+
+    // 顶部来源标签：优先用调用方显式传入的 playerLabel（私人 FM 用它带模式切换），
+    // 否则从当前 media item 的 sourceName 自动推导，做到「从哪里点的就显示什么来源」。
+    val resolvedPlayerLabel = playerLabel
+        ?: playerState?.currentMediaItem?.mediaMetadata?.extras
+            ?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME)
+            ?.let(MediaSessionConstants::sourceLabel)
+            ?.takeIf { it.isNotBlank() && it != "播放列表" }
     var coverOffsetX by remember { mutableFloatStateOf(0f) }
     var coverOffsetY by remember { mutableFloatStateOf(0f) }
     var coverAnimationJob by remember { mutableStateOf<Job?>(null) }
@@ -262,7 +271,7 @@ fun Player(
                         )
                     }
                 }
-                playerLabel?.let {
+                resolvedPlayerLabel?.let {
                     Box(modifier = Modifier.align(Alignment.Center)) {
                         Text(
                             text = it,

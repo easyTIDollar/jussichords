@@ -258,7 +258,7 @@ fun ArtistScreen(
                             modifier = Modifier
                                 .animateItem(placementSpec = null)
                                 .clickable {
-                                    mediaController?.setPlaylist(songs)
+                                    mediaController?.setPlaylist(songs, sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手")
                                     mediaController?.playMediaAtId(song.id)
                                 },
                             trailingContent = {
@@ -292,7 +292,7 @@ fun ArtistScreen(
                                 modifier = Modifier
                                     .animateItem(placementSpec = null)
                                     .clickable {
-                                        mediaController?.setPlaylist(songs)
+                                        mediaController?.setPlaylist(songs, sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手")
                                         mediaController?.playMediaAtId(song.id)
                                     }
                             )

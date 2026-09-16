@@ -46,18 +46,18 @@ fun Player.setPlaylist(songs: List<Song>, sourceId: Long = 0L, sourceName: Strin
     }
 }
 
-fun Player.setCloudSongPlaylist(uid: Long, cloudSongs: List<CloudSong>) {
+fun Player.setCloudSongPlaylist(uid: Long, cloudSongs: List<CloudSong>, sourceName: String = "云盘音乐") {
     cacheSongs.value = null
     cacheSourceId = 0L
-    cacheSourceName = "cloud"
-    setMediaItems(cloudSongs.toCloudSongMediaItemList(uid = uid))
+    cacheSourceName = sourceName
+    setMediaItems(cloudSongs.toCloudSongMediaItemList(uid = uid, sourceName = sourceName))
 }
 
-fun Player.setRadioPlaylist(radio: List<Radio>) {
+fun Player.setRadioPlaylist(radio: List<Radio>, sourceName: String = "电台") {
     cacheSongs.value = null
     cacheSourceId = 0L
-    cacheSourceName = "radio"
-    setMediaItems(radio.toRadioMediaItemList())
+    cacheSourceName = sourceName
+    setMediaItems(radio.toRadioMediaItemList(sourceName = sourceName))
 }
 
 fun Player.addSong(song: Song) {

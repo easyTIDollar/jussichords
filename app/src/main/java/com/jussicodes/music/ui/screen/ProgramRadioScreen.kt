@@ -107,7 +107,7 @@ fun ProgramRadioScreen(
                                 modifier = Modifier.size(48.dp),
                                 onClick = {
                                     radioList.itemSnapshotList.items.let {
-                                        mediaController?.setRadioPlaylist(it)
+                                        mediaController?.setRadioPlaylist(it, sourceName = radioInfo?.data?.name ?: "电台")
                                         mediaController?.playMediaAt()
                                     }
                                 },
@@ -163,7 +163,7 @@ fun ProgramRadioScreen(
                             isActive = currentMediaId == item.mainSong.id,
                             modifier = Modifier.clickable {
                                 radioList.itemSnapshotList.items.let {
-                                    mediaController?.setRadioPlaylist(it)
+                                    mediaController?.setRadioPlaylist(it, sourceName = radioInfo?.data?.name ?: "电台")
                                     mediaController?.playMediaAtId(item.mainSong.id)
                                 }
                             })

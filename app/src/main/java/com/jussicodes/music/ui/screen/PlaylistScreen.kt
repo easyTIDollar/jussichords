@@ -292,6 +292,7 @@ fun PlaylistScreen(
                     searchQuery.isBlank() &&
                     it.playlist.creator?.userId == userId
                 val currentPlaylistId = it.playlist.id
+                val currentPlaylistName = it.playlist.name
                 val headerOffset = if (!searchActive || searchQuery.isBlank()) 1 else 0
                 val reorderableLazyListState =
                     rememberReorderableLazyListState(listState) { from, to ->
@@ -410,7 +411,8 @@ fun PlaylistScreen(
                                         onClick = {
                                             mediaController?.setPlaylist(
                                                 tracks,
-                                                sourceId = it.playlist.id
+                                                sourceId = it.playlist.id,
+                                                sourceName = it.playlist.name
                                             )
                                             mediaController?.playMediaAt()
                                         },
@@ -481,7 +483,8 @@ fun PlaylistScreen(
                                     .clickable {
                                         mediaController?.setPlaylist(
                                             tracks,
-                                            sourceId = currentPlaylistId
+                                            sourceId = currentPlaylistId,
+                                            sourceName = currentPlaylistName
                                         )
                                         mediaController?.playMediaAtId(song.id)
                                     },

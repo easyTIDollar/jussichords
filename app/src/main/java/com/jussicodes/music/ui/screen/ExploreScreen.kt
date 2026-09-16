@@ -186,7 +186,7 @@ fun ExploreScreen(
                                             .clip(MaterialTheme.shapes.small)
                                             .width(340.dp)
                                             .clickable {
-                                                mediaController?.setPlaylist(it.data.dailySongs)
+                                                mediaController?.setPlaylist(it.data.dailySongs, sourceName = "每日推荐")
                                                 mediaController?.playMediaAtId(song.id)
                                             },
                                         trailingContent = {

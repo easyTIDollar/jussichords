@@ -125,7 +125,7 @@ fun RecordScreen(
                         isActive = currentMediaId == item.song.id,
                         songIndex = index + 1,
                         modifier = Modifier.clickable {
-                            mediaController?.setPlaylist(data.map { it.song })
+                            mediaController?.setPlaylist(data.map { it.song }, sourceName = "听歌排行")
                             mediaController?.playMediaAtId(item.song.id)
                         },
                         trailingContent = {

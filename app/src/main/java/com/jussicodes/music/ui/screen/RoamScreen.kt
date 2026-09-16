@@ -287,7 +287,6 @@ fun RoamScreen(
                         selectedModeIndex = index
                         playPersonalFm(personalFmModeOptions[index])
                     },
-                    metadataClickEnabled = false,
                 )
             } else {
                 RoamPlayerContent(

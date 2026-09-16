@@ -13,4 +13,22 @@ object MediaSessionConstants {
     val CommandToggleLike = SessionCommand(ACTION_TOGGLE_LIKE, Bundle.EMPTY)
     val CommandToggleShuffle = SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY)
     val CommandToggleDesktopLyric = SessionCommand(ACTION_TOGGLE_DESKTOP_LYRIC, Bundle.EMPTY)
+
+    /**
+     * 把写进 MediaItem extras 的 sourceName 映射成播放页顶部可读的来源文案。
+     * 新队列写的是人类可读名（歌单/专辑/歌手/云盘等），直接透传；
+     * 旧队列写的还是内部 key，做一次映射兜底，避免顶部显示 "list"/"album"。
+     */
+    const val SOURCE_PERSONAL_FM = "personal_fm"
+    const val SOURCE_CLOUD = "cloud"
+    const val SOURCE_RADIO = "radio"
+
+    fun sourceLabel(sourceName: String?): String = when (sourceName) {
+        null, "", "list" -> "播放列表"
+        "album" -> "专辑"
+        SOURCE_CLOUD -> "云盘音乐"
+        SOURCE_RADIO -> "电台"
+        SOURCE_PERSONAL_FM -> "私人 FM"
+        else -> sourceName
+    }
 }

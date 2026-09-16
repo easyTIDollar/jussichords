@@ -163,7 +163,7 @@ fun RecentPlayScreen(
                                     isPlaying = isPlaying,
                                     isActive = currentMediaId == entry.data.id,
                                     modifier = Modifier.clickable {
-                                        mediaController?.setPlaylist(list.map { it.data })
+                                        mediaController?.setPlaylist(list.map { it.data }, sourceName = "最近播放")
                                         mediaController?.playMediaAtId(entry.data.id)
                                     },
                                     trailingContent = {
