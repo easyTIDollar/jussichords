@@ -132,10 +132,10 @@ jobs:
       - name: Build canary APK
         if: env.BUILD_TYPE == 'canary'
         run: |
-          # 每次 canary 构建注入唯一版本后缀：UTC「月日-时分秒」尾号（可读、唯一到秒、
-          # 无竞态），保证 tag 永不冲突、可逐个追踪，且与 App 检查更新
+          # 每次 canary 构建注入唯一版本后缀：UTC「年月日-时分秒」全日期时间戳尾号
+          #（可读、唯一到秒、无竞态），保证 tag 永不冲突、可逐个追踪，且与 App 检查更新
           # 的 latestTag==VERSION_NAME 判断自洽（不同构建必提示、同构建不提示）。
-          TS="$(date -u +%m%d-%H%M%S)"
+          TS="$(date -u +%Y%m%d-%H%M%S)"
           SUFFIX="-canary.${TS}"
           echo "CANARY_VERSION_SUFFIX=$SUFFIX" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=v${APP_VERSION}${SUFFIX}" >> "$GITHUB_ENV"
