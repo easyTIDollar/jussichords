@@ -576,11 +576,12 @@ fun SettingsScreen(navController: NavHostController) {
             sourceStatuses = githubSourceStatuses,
             isMeasuringSources = isMeasuringUpdateSources,
             onMeasureSources = {
-                if (isMeasuringUpdateSources) return@onMeasureSources
-                isMeasuringUpdateSources = true
-                coroutineScope.launch {
-                    githubSourceStatuses = AppUpdateManager.measureDownloadSources()
-                    isMeasuringUpdateSources = false
+                if (!isMeasuringUpdateSources) {
+                    isMeasuringUpdateSources = true
+                    coroutineScope.launch {
+                        githubSourceStatuses = AppUpdateManager.measureDownloadSources()
+                        isMeasuringUpdateSources = false
+                    }
                 }
             },
             onSourceSelected = { githubDownloadSource = it },

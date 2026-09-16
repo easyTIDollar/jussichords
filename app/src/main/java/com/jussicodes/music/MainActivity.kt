@@ -195,12 +195,13 @@ class MainActivity : ComponentActivity() {
                             sourceStatuses = updateSourceStatuses,
                             isMeasuringSources = isMeasuringUpdateSources,
                             onMeasureSources = {
-                                if (isMeasuringUpdateSources) return@onMeasureSources
-                                isMeasuringUpdateSources = true
-                                lifecycleScope.launch {
-                                    updateSourceStatuses =
-                                        AppUpdateManager.measureDownloadSources()
-                                    isMeasuringUpdateSources = false
+                                if (!isMeasuringUpdateSources) {
+                                    isMeasuringUpdateSources = true
+                                    lifecycleScope.launch {
+                                        updateSourceStatuses =
+                                            AppUpdateManager.measureDownloadSources()
+                                        isMeasuringUpdateSources = false
+                                    }
                                 }
                             },
                             onSourceSelected = { githubDownloadSource = it },
