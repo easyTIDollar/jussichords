@@ -22,6 +22,12 @@ jobs:
     env:
       BUILD_TYPE: ${{ inputs.build_type || 'release' }}
       APP_VERSION: ''
+      # 稳定版 changelog 单一来源：GitHub release 与 Gitee 镜像共用这一段，
+      # 每次发版只改这里一处，避免两边文案分叉 / Gitee 占位 body 带双 v 的问题。
+      CHANGELOG: |
+        - 更新弹窗加「测速对比」按钮，Gitee 源自动补齐安装包大小
+        - 转场节奏统一：详情页纯交叉淡入淡出，评论/私人FM面板曲线对齐
+        - 迷你播放器切歌/暂停按钮改实心字形
     steps:
       # 拉取仓库
       - name: Checkout repository
@@ -200,10 +206,7 @@ jobs:
           name: ${{ env.RELEASE_NAME }}
           draft: false
           prerelease: false
-          body: |
-            - 更新弹窗加「测速对比」按钮，Gitee 源自动补齐安装包大小
-            - 转场节奏统一：详情页纯交叉淡入淡出，评论/私人FM面板曲线对齐
-            - 迷你播放器切歌/暂停按钮改实心字形
+          body: ${{ env.CHANGELOG }}
 
       # 同步 release 到 Gitee（国内下载加速）：
       # 1) 删同名旧 release（stable 固定 tag 重建会撞 Gitee「该标签已存在发行版」）
@@ -233,7 +236,8 @@ jobs:
             *)
               APK="app/build/outputs/apk/release/jussichords-${GITHUB_REF_NAME}.apk"
               PRERELEASE="false"
-              BODY="- Gitee mirror of stable release (v${GITHUB_REF_NAME})"
+              # 与 GitHub 共用同一份 changelog（job env 的 CHANGELOG），不再用占位/双 v 文案
+              BODY="${CHANGELOG}"
               ;;
           esac
           echo "Gitee APK: $APK"
@@ -262,10 +266,16 @@ jobs:
           fi
 
           # 2) 建 release（target_commitish=master；缺失 tag 会自动补）
+          JSON_PAYLOAD=$(python3 - "$RELEASE_TAG" "$RELEASE_NAME" "$BODY" "$PRERELEASE" <<'PY'
+          import sys, json
+          tag, name, body, prerelease = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+          print(json.dumps({"tag_name": tag, "target_commitish": "master", "name": name, "body": body, "prerelease": prerelease == "true"}, ensure_ascii=False))
+          PY
+          )
           NEW_ID=$(curl -fsS -X POST -H "Authorization: Bearer ${GITEE_TOKEN}" \
             -H "Content-Type: application/json" \
             "${BASE}/releases?access_token=${GITEE_TOKEN}" \
-            -d "{\"tag_name\":\"${RELEASE_TAG}\",\"target_commitish\":\"master\",\"name\":\"${RELEASE_NAME}\",\"body\":\"$(printf '%s' "$BODY" | sed 's/"/\\"/g')\",\"prerelease\":${PRERELEASE}}" \
+            -d "$JSON_PAYLOAD" \
             | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))')
           echo "已建 Gitee release id=${NEW_ID} tag=${RELEASE_TAG}"
           [ -n "$NEW_ID" ] || { echo "Gitee 创建 release 未返回 id"; exit 1; }
