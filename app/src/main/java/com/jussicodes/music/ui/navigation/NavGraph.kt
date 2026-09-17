@@ -4,11 +4,10 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.DecelerateEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -27,7 +26,6 @@ import androidx.navigation.toRoute
 import kotlinx.coroutines.flow.distinctUntilChanged
 import com.jussicodes.music.constants.DURATION_ENTER
 import com.jussicodes.music.constants.DURATION_EXIT
-import com.jussicodes.music.constants.EmphasizedDecelerateEasing
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.screen.AlbumScreen
 import com.jussicodes.music.ui.screen.AlbumSublistScreen
@@ -61,9 +59,12 @@ fun NavGraph(
     // The two home destinations (library/explore) render the same HorizontalPager;
     // switching between them is route bookkeeping only (driven by MainScreen's
     // navigateRootTab when the settled page changes). Animating that switch
-    // crossfades two identical pagers and scales 0.985->1, which reads as a
-    // white flash + press-down. Keep home<->home switches instant; only animate
-    // pushes/pops into detail screens.
+    // crossfades two identical pagers, which reads as a flash + press-down.
+    // Keep home<->home switches instant; only animate pushes/pops into detail
+    // screens. Detail pushes use a soft crossfade only — the earlier
+    // scaleIn(0.985) + EmphasizedDecelerate combo read as a stiff "press down"
+    // (search / personal-FM / artist pushes especially). Pure fade with a
+    // gentle decelerate feels like a Material-style page reveal.
     val homeRoutes = setOf(Screen.Library.route, Screen.Explore.route)
 
     SharedTransitionLayout {
@@ -79,13 +80,7 @@ fun NavGraph(
                     fadeIn(
                         animationSpec = tween(
                             durationMillis = DURATION_ENTER,
-                            easing = EmphasizedDecelerateEasing
-                        )
-                    ) + scaleIn(
-                        initialScale = 0.985f,
-                        animationSpec = tween(
-                            durationMillis = DURATION_ENTER,
-                            easing = EmphasizedDecelerateEasing
+                            easing = DecelerateEasing
                         )
                     )
                 }
@@ -104,13 +99,7 @@ fun NavGraph(
                     fadeIn(
                         animationSpec = tween(
                             durationMillis = DURATION_ENTER,
-                            easing = EmphasizedDecelerateEasing
-                        )
-                    ) + scaleIn(
-                        initialScale = 0.985f,
-                        animationSpec = tween(
-                            durationMillis = DURATION_ENTER,
-                            easing = EmphasizedDecelerateEasing
+                            easing = DecelerateEasing
                         )
                     )
                 }
@@ -119,11 +108,12 @@ fun NavGraph(
                 if (initialState.destination.route in homeRoutes) {
                     ExitTransition.None
                 } else {
-                    fadeOut(animationSpec = tween(durationMillis = DURATION_EXIT)) +
-                        scaleOut(
-                            targetScale = 0.985f,
-                            animationSpec = tween(durationMillis = DURATION_EXIT)
+                    fadeOut(
+                        animationSpec = tween(
+                            durationMillis = DURATION_EXIT,
+                            easing = DecelerateEasing
                         )
+                    )
                 }
             }
         ) {
