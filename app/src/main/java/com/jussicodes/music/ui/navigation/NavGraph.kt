@@ -7,8 +7,6 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -17,6 +15,8 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.foundation.background
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -26,7 +26,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import kotlinx.coroutines.flow.distinctUntilChanged
 import com.jussicodes.music.constants.DURATION_ENTER
-import com.jussicodes.music.constants.DURATION_EXIT
+import com.jussicodes.music.constants.DURATION_EXIT_SHORT
+import com.jussicodes.music.constants.EmphasizedAccelerateEasing
 import com.jussicodes.music.constants.EmphasizedDecelerateEasing
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.screen.AlbumScreen
@@ -61,9 +62,12 @@ fun NavGraph(
     // The two home destinations (library/explore) render the same HorizontalPager;
     // switching between them is route bookkeeping only (driven by MainScreen's
     // navigateRootTab when the settled page changes). Animating that switch
-    // crossfades two identical pagers and scales 0.985->1, which reads as a
-    // white flash + press-down. Keep home<->home switches instant; only animate
-    // pushes/pops into detail screens.
+    // crossfades two identical pagers, which reads as a flash + press-down.
+    // Keep home<->home switches instant; only animate pushes/pops into detail
+    // screens. Detail pushes use a soft crossfade only — the earlier
+    // scaleIn(0.985) + EmphasizedDecelerate combo read as a stiff "press down"
+    // (search / personal-FM / artist pushes especially). Pure fade with a
+    // gentle decelerate feels like a Material-style page reveal.
     val homeRoutes = setOf(Screen.Library.route, Screen.Explore.route)
 
     SharedTransitionLayout {
@@ -71,6 +75,7 @@ fun NavGraph(
             navController = navController,
             startDestination = Screen.Library.route,
             Modifier
+                .background(MaterialTheme.colorScheme.background)
                 .windowInsetsPadding(WindowInsets(bottom = bottomPadding + if (showMiniPlayer) MiniPlayerHeight else 0.dp)),
             enterTransition = {
                 if (targetState.destination.route in homeRoutes) {
@@ -81,20 +86,23 @@ fun NavGraph(
                             durationMillis = DURATION_ENTER,
                             easing = EmphasizedDecelerateEasing
                         )
-                    ) + scaleIn(
-                        initialScale = 0.985f,
-                        animationSpec = tween(
-                            durationMillis = DURATION_ENTER,
-                            easing = EmphasizedDecelerateEasing
-                        )
                     )
                 }
             },
             exitTransition = {
-                if (initialState.destination.route in homeRoutes) {
+                if (targetState.destination.route in homeRoutes) {
+                    // home <-> home is pager bookkeeping only: instant switch,
+                    // crossfading two identical pagers reads as a flash.
                     ExitTransition.None
                 } else {
-                    fadeOut(animationSpec = tween(durationMillis = DURATION_EXIT))
+                    // push into a detail page: crossfade the home out under it
+                    // instead of letting it vanish to a blank window.
+                    fadeOut(
+                        animationSpec = tween(
+                            durationMillis = DURATION_EXIT_SHORT,
+                            easing = EmphasizedAccelerateEasing
+                        )
+                    )
                 }
             },
             popEnterTransition = {
@@ -106,12 +114,6 @@ fun NavGraph(
                             durationMillis = DURATION_ENTER,
                             easing = EmphasizedDecelerateEasing
                         )
-                    ) + scaleIn(
-                        initialScale = 0.985f,
-                        animationSpec = tween(
-                            durationMillis = DURATION_ENTER,
-                            easing = EmphasizedDecelerateEasing
-                        )
                     )
                 }
             },
@@ -119,11 +121,12 @@ fun NavGraph(
                 if (initialState.destination.route in homeRoutes) {
                     ExitTransition.None
                 } else {
-                    fadeOut(animationSpec = tween(durationMillis = DURATION_EXIT)) +
-                        scaleOut(
-                            targetScale = 0.985f,
-                            animationSpec = tween(durationMillis = DURATION_EXIT)
+                    fadeOut(
+                        animationSpec = tween(
+                            durationMillis = DURATION_EXIT_SHORT,
+                            easing = EmphasizedAccelerateEasing
                         )
+                    )
                 }
             }
         ) {

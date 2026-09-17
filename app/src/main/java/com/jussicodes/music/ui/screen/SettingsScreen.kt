@@ -144,6 +144,7 @@ fun SettingsScreen(navController: NavHostController) {
     var showCookieDialog by remember { mutableStateOf(false) }
     var showGithubSourceDialog by remember { mutableStateOf(false) }
     var githubSourceStatuses by remember { mutableStateOf<List<UpdateSourceStatus>>(emptyList()) }
+    var isMeasuringUpdateSources by remember { mutableStateOf(false) }
     var testingGithubSources by remember { mutableStateOf(false) }
     var showApiServerDialog by remember { mutableStateOf(false) }
     var apiServerStatuses by remember { mutableStateOf<List<ApiServerStatus>>(emptyList()) }
@@ -573,6 +574,16 @@ fun SettingsScreen(navController: NavHostController) {
             progressText = updateDownloadText,
             selectedSourceId = githubDownloadSource,
             sourceStatuses = githubSourceStatuses,
+            isMeasuringSources = isMeasuringUpdateSources,
+            onMeasureSources = {
+                if (!isMeasuringUpdateSources) {
+                    isMeasuringUpdateSources = true
+                    coroutineScope.launch {
+                        githubSourceStatuses = AppUpdateManager.measureDownloadSources()
+                        isMeasuringUpdateSources = false
+                    }
+                }
+            },
             onSourceSelected = { githubDownloadSource = it },
             onDismiss = {
                 pendingUpdateInfo = null

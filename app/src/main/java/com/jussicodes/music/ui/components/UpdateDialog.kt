@@ -5,11 +5,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.utils.UpdateSourceStatus
@@ -26,6 +28,8 @@ fun UpdateDialog(
     progressText: String?,
     selectedSourceId: String = downloadSources.first().id,
     sourceStatuses: List<UpdateSourceStatus> = emptyList(),
+    isMeasuringSources: Boolean = false,
+    onMeasureSources: () -> Unit = {},
     onSourceSelected: (String) -> Unit = {},
     onDismiss: () -> Unit,
     onIgnoreVersion: () -> Unit,
@@ -41,7 +45,9 @@ fun UpdateDialog(
                 Text(
                     text = buildString {
                         appendLine(updateInfo.releaseName)
-                        appendLine("安装包大小: ${formatFileSize(updateInfo.apkSize)}")
+                        if (updateInfo.apkSize > 0L) {
+                            appendLine("安装包大小: ${formatFileSize(updateInfo.apkSize)}")
+                        }
                         val notes = updateInfo.body.trim()
                         if (notes.isNotEmpty()) {
                             appendLine()
@@ -70,6 +76,29 @@ fun UpdateDialog(
                                 }
                             },
                             modifier = Modifier.padding(top = 12.dp)
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = { if (!isMeasuringSources) onMeasureSources() },
+                        enabled = !isDownloading && !isMeasuringSources
+                    ) {
+                        Text("测速对比")
+                    }
+                    if (isMeasuringSources) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.padding(start = 4.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Text(
+                            text = " 对比中…",
+                            modifier = Modifier.padding(start = 4.dp)
                         )
                     }
                 }
