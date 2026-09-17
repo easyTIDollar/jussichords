@@ -4,7 +4,7 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.core.DecelerateEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -80,7 +80,7 @@ fun NavGraph(
                     fadeIn(
                         animationSpec = tween(
                             durationMillis = DURATION_ENTER,
-                            easing = DecelerateEasing
+                            easing = FastOutSlowInEasing
                         )
                     )
                 }
@@ -99,7 +99,7 @@ fun NavGraph(
                     fadeIn(
                         animationSpec = tween(
                             durationMillis = DURATION_ENTER,
-                            easing = DecelerateEasing
+                            easing = FastOutSlowInEasing
                         )
                     )
                 }
@@ -111,7 +111,7 @@ fun NavGraph(
                     fadeOut(
                         animationSpec = tween(
                             durationMillis = DURATION_EXIT,
-                            easing = DecelerateEasing
+                            easing = FastOutSlowInEasing
                         )
                     )
                 }
