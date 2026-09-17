@@ -22,8 +22,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -53,9 +56,8 @@ import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.icons.ChevronDown
-import com.jussicodes.music.ui.icons.Pause
-import com.jussicodes.music.ui.icons.PlayArrow
-import com.jussicodes.music.ui.icons.SkipNext
+import com.jussicodes.music.ui.icons.PauseFill
+import com.jussicodes.music.ui.icons.SkipNextFill
 import kotlin.math.abs
 
 @Composable
@@ -289,8 +291,9 @@ fun MiniPlayer(
                     )
                 }
 
-                IconButton(
+                FilledIconButton(
                     enabled = true,
+                    modifier = Modifier.size(40.dp),
                     onClick = {
                         if (playerState?.isPlaying == true)
                             mediaController?.pause()
@@ -299,17 +302,19 @@ fun MiniPlayer(
                     }
                 ) {
                     Icon(
-                        imageVector = if (playerState?.isPlaying == true) Pause else PlayArrow,
-                        contentDescription = null
+                        imageVector = if (playerState?.isPlaying == true) PauseFill else Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
-                IconButton(
+                FilledTonalIconButton(
                     enabled = true,
+                    modifier = Modifier.size(40.dp),
                     onClick = {
                         mediaController?.seekToNext()
                     }
                 ) {
-                    Icon(imageVector = SkipNext, contentDescription = null)
+                    Icon(imageVector = SkipNextFill, contentDescription = null, modifier = Modifier.size(20.dp))
                 }
             }
         }
