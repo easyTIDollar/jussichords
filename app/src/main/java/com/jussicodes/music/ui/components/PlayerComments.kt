@@ -70,6 +70,9 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.DURATION_ENTER
 import com.jussicodes.music.constants.DURATION_EXIT
+import com.jussicodes.music.constants.DURATION_EXIT_SHORT
+import com.jussicodes.music.constants.EmphasizedAccelerateEasing
+import com.jussicodes.music.constants.EmphasizedDecelerateEasing
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.FavoriteFill
 import com.jussicodes.music.ui.icons.FilterList
@@ -120,7 +123,10 @@ fun PlayerComments(
     val sheetHeight = if (isFullScreen) fullSheetHeight else halfSheetHeight
     val animatedSheetHeight by animateDpAsState(
         targetValue = sheetHeight,
-        animationSpec = tween(durationMillis = DURATION_ENTER),
+        animationSpec = tween(
+            durationMillis = DURATION_ENTER,
+            easing = EmphasizedDecelerateEasing
+        ),
         label = "CommentSheetHeight"
     )
     val expandThresholdPx = with(density) { 36.dp.toPx() }
@@ -230,11 +236,17 @@ fun PlayerComments(
             visible = sheetVisible,
             enter = slideInVertically(
                 initialOffsetY = { it },
-                animationSpec = tween(durationMillis = DURATION_ENTER)
+                animationSpec = tween(
+                    durationMillis = DURATION_ENTER,
+                    easing = EmphasizedDecelerateEasing
+                )
             ),
             exit = slideOutVertically(
                 targetOffsetY = { it },
-                animationSpec = tween(durationMillis = DURATION_EXIT)
+                animationSpec = tween(
+                    durationMillis = DURATION_EXIT_SHORT,
+                    easing = EmphasizedAccelerateEasing
+                )
             )
         ) {
             Surface(

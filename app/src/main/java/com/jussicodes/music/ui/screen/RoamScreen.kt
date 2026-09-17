@@ -240,8 +240,7 @@ fun RoamScreen(
         AnimatedContent(
             targetState = if (metadata == null) ROAM_PLAYER else shownPanel,
             transitionSpec = {
-                fadeIn(tweenEnter(delayMillis = DURATION_EXIT_SHORT)) togetherWith
-                    fadeOut(tweenExit(durationMillis = DURATION_EXIT_SHORT))
+                fadeIn(tweenEnter()) togetherWith fadeOut(tweenExit())
             }
         ) { target ->
             if (target == ROAM_LYRIC && metadata != null) {

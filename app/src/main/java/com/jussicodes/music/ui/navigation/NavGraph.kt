@@ -4,7 +4,6 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -16,6 +15,8 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.foundation.background
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -25,7 +26,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import kotlinx.coroutines.flow.distinctUntilChanged
 import com.jussicodes.music.constants.DURATION_ENTER
-import com.jussicodes.music.constants.DURATION_EXIT
+import com.jussicodes.music.constants.DURATION_EXIT_SHORT
+import com.jussicodes.music.constants.EmphasizedAccelerateEasing
+import com.jussicodes.music.constants.EmphasizedDecelerateEasing
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.screen.AlbumScreen
 import com.jussicodes.music.ui.screen.AlbumSublistScreen
@@ -72,6 +75,7 @@ fun NavGraph(
             navController = navController,
             startDestination = Screen.Library.route,
             Modifier
+                .background(MaterialTheme.colorScheme.background)
                 .windowInsetsPadding(WindowInsets(bottom = bottomPadding + if (showMiniPlayer) MiniPlayerHeight else 0.dp)),
             enterTransition = {
                 if (targetState.destination.route in homeRoutes) {
@@ -80,16 +84,25 @@ fun NavGraph(
                     fadeIn(
                         animationSpec = tween(
                             durationMillis = DURATION_ENTER,
-                            easing = FastOutSlowInEasing
+                            easing = EmphasizedDecelerateEasing
                         )
                     )
                 }
             },
             exitTransition = {
-                if (initialState.destination.route in homeRoutes) {
+                if (targetState.destination.route in homeRoutes) {
+                    // home <-> home is pager bookkeeping only: instant switch,
+                    // crossfading two identical pagers reads as a flash.
                     ExitTransition.None
                 } else {
-                    fadeOut(animationSpec = tween(durationMillis = DURATION_EXIT))
+                    // push into a detail page: crossfade the home out under it
+                    // instead of letting it vanish to a blank window.
+                    fadeOut(
+                        animationSpec = tween(
+                            durationMillis = DURATION_EXIT_SHORT,
+                            easing = EmphasizedAccelerateEasing
+                        )
+                    )
                 }
             },
             popEnterTransition = {
@@ -99,7 +112,7 @@ fun NavGraph(
                     fadeIn(
                         animationSpec = tween(
                             durationMillis = DURATION_ENTER,
-                            easing = FastOutSlowInEasing
+                            easing = EmphasizedDecelerateEasing
                         )
                     )
                 }
@@ -110,8 +123,8 @@ fun NavGraph(
                 } else {
                     fadeOut(
                         animationSpec = tween(
-                            durationMillis = DURATION_EXIT,
-                            easing = FastOutSlowInEasing
+                            durationMillis = DURATION_EXIT_SHORT,
+                            easing = EmphasizedAccelerateEasing
                         )
                     )
                 }
