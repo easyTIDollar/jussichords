@@ -24,9 +24,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -291,9 +290,8 @@ fun MiniPlayer(
                     )
                 }
 
-                FilledIconButton(
+                IconButton(
                     enabled = true,
-                    modifier = Modifier.size(40.dp),
                     onClick = {
                         if (playerState?.isPlaying == true)
                             mediaController?.pause()
@@ -304,17 +302,16 @@ fun MiniPlayer(
                     Icon(
                         imageVector = if (playerState?.isPlaying == true) PauseFill else Icons.Filled.PlayArrow,
                         contentDescription = null,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
-                FilledTonalIconButton(
+                IconButton(
                     enabled = true,
-                    modifier = Modifier.size(40.dp),
                     onClick = {
                         mediaController?.seekToNext()
                     }
                 ) {
-                    Icon(imageVector = SkipNextFill, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Icon(imageVector = SkipNextFill, contentDescription = null, modifier = Modifier.size(24.dp))
                 }
             }
         }
