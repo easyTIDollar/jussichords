@@ -157,7 +157,7 @@ class ArtistScreenViewModel @Inject constructor(
                             is JsonPrimitive -> {
                                 element.longOrNull?.let { out += it }
                                 if (element.longOrNull == null) {
-                                    element.contentOrNull?.toLongOrNull()?.let { out += it }
+                                    element.content.toLongOrNull()?.let { out += it }
                                 }
                             }
                             is JsonObject -> out += extractLikedIds(element, depth + 1)
