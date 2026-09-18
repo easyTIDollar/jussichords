@@ -155,7 +155,8 @@ fun Player(
     val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
         .collectAsState(emptyList())
     var currentSong by remember { mutableStateOf<Song?>(null) }
-    var openBottomSheet by rememberSaveable { mutableStateOf(false) }
+    var openAlbumSheet by rememberSaveable { mutableStateOf(false) }
+    var openArtistSheet by rememberSaveable { mutableStateOf(false) }
     var openPlayerBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openComments by rememberSaveable { mutableStateOf(false) }
     var playerLabelMenuExpanded by rememberSaveable { mutableStateOf(false) }
@@ -440,7 +441,8 @@ fun Player(
                     }
                     .pointerInput(
                         mediaId,
-                        openBottomSheet,
+                        openAlbumSheet,
+                        openArtistSheet,
                         openPlayerBottomSheet,
                         dismissThresholdPx
                     ) {
@@ -473,7 +475,8 @@ fun Player(
                                 }
 
                                 if (isVerticalDrag == true &&
-                                    !openBottomSheet &&
+                                    !openAlbumSheet &&
+                                    !openArtistSheet &&
                                     !openPlayerBottomSheet
                                 ) {
                                     coverOffsetY = (coverOffsetY + positionChange.y).coerceIn(
@@ -562,7 +565,7 @@ fun Player(
                                     modifier = Modifier
                                         .basicMarquee()
                                         .clickable(enabled = metadataClickEnabled) {
-                                            openBottomSheet = true
+                                            openAlbumSheet = true
                                         }
                                 )
                             }
@@ -575,7 +578,15 @@ fun Player(
                                     modifier = Modifier
                                         .basicMarquee()
                                         .clickable(enabled = metadataClickEnabled) {
-                                            openBottomSheet = true
+                                            // 只有一个音乐人直接跳转，多个才弹二级选项
+                                            val artists = currentSong?.ar.orEmpty()
+                                            when {
+                                                artists.size == 1 -> {
+                                                    navController.navigate(ArtistNav(artistId = artists.first().id))
+                                                    onBackPressed()
+                                                }
+                                                artists.size > 1 -> openArtistSheet = true
+                                            }
                                         }
                                 )
                             }
@@ -668,7 +679,8 @@ fun Player(
                             }
                         }
                         .pointerInput(
-                            openBottomSheet,
+                            openAlbumSheet,
+                            openArtistSheet,
                             openPlayerBottomSheet,
                             queueOpenThresholdPx
                         ) {
@@ -705,7 +717,8 @@ fun Player(
 
                                     if (isVerticalDrag == true &&
                                         totalDragY <= -queueOpenThresholdPx &&
-                                        !openBottomSheet &&
+                                        !openAlbumSheet &&
+                                        !openArtistSheet &&
                                         !openPlayerBottomSheet
                                     ) {
                                         gestureTutorialActionCompleted = true
@@ -757,7 +770,7 @@ fun Player(
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
-                                    enabled = !openBottomSheet && !openPlayerBottomSheet
+                                    enabled = !openAlbumSheet && !openArtistSheet && !openPlayerBottomSheet
                                 ) {
                                     gestureTutorialActionCompleted = true
                                     onContainerClick()
@@ -812,17 +825,20 @@ fun Player(
 
 
         currentSong?.let {
-            ArtistBottomSheet(
+            AlbumBottomSheet(
                 currentSong = it,
-                onClick = { artist ->
-                    navController.navigate(ArtistNav(artistId = artist.id))
-                    onBackPressed()
-                }, onDismiss = {
-                    openBottomSheet = false
-                },
-                openBottomSheet = openBottomSheet,
+                openBottomSheet = openAlbumSheet,
+                onDismiss = { openAlbumSheet = false },
                 onAlbumClick = { album ->
                     navController.navigate(AlbumNav(albumId = album.id))
+                    onBackPressed()
+                })
+            ArtistBottomSheet(
+                currentSong = it,
+                openBottomSheet = openArtistSheet,
+                onDismiss = { openArtistSheet = false },
+                onClick = { artist ->
+                    navController.navigate(ArtistNav(artistId = artist.id))
                     onBackPressed()
                 })
         }
@@ -856,12 +872,73 @@ private const val PLAYER_GESTURE_TUTORIAL_VERSION = 1
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ArtistBottomSheet(
+fun AlbumBottomSheet(
     currentSong: Song,
-    onClick: (Artist) -> Unit,
     openBottomSheet: Boolean,
     onDismiss: () -> Unit,
     onAlbumClick: (SongAlbum) -> Unit,
+) {
+    val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    LaunchedEffect(openBottomSheet) {
+        if (openBottomSheet) {
+            bottomSheetState.show()
+        } else {
+            bottomSheetState.hide()
+        }
+    }
+
+    if (openBottomSheet) {
+        ModalBottomSheet(
+            modifier = Modifier.statusBarsPadding(),
+            onDismissRequest = onDismiss,
+            sheetState = bottomSheetState
+        ) {
+            LazyColumn(
+                Modifier.padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                item {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(64.dp)
+                                .clickable {
+                                    onDismiss()
+                                    onAlbumClick(currentSong.al)
+                                },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Album,
+                                contentDescription = null,
+                                Modifier.padding(horizontal = 12.dp)
+                            )
+                            Text(
+                                text = currentSong.al.name,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+                    }
+                }
+                item {
+                    Spacer(Modifier.height(12.dp))
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ArtistBottomSheet(
+    currentSong: Song,
+    openBottomSheet: Boolean,
+    onDismiss: () -> Unit,
+    onClick: (Artist) -> Unit,
 ) {
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     LaunchedEffect(openBottomSheet) {
@@ -909,36 +986,6 @@ fun ArtistBottomSheet(
                                 Modifier.padding(horizontal = 12.dp)
                             )
                             Text(text = artist.name, style = MaterialTheme.typography.titleMedium)
-                        }
-                    }
-                }
-                item {
-                    Spacer(Modifier.height(4.dp))
-                }
-                item {
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(64.dp)
-                                .clickable {
-                                    onDismiss()
-                                    onAlbumClick(currentSong.al)
-                                },
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Album,
-                                contentDescription = null,
-                                Modifier.padding(horizontal = 12.dp)
-                            )
-                            Text(
-                                text = currentSong.al.name,
-                                style = MaterialTheme.typography.titleMedium
-                            )
                         }
                     }
                 }
