@@ -96,6 +96,7 @@ fun ArtistScreen(
     val simiArtists by artistScreenViewModel.simiArtists.collectAsState()
     val isArtistSubscribed by artistScreenViewModel.isArtistSubscribed.collectAsState()
     val isArtistSubUpdating by artistScreenViewModel.isArtistSubUpdating.collectAsState()
+    val likedSongIds by artistScreenViewModel.likedSongIds.collectAsState()
     val artistAlbumList = artistScreenViewModel.artistAlbumList.collectAsLazyPagingItems()
     val listState = rememberLazyListState()
     val showTitle by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
@@ -322,6 +323,7 @@ fun ArtistScreen(
                             SongListItem(
                                 song = song,
                                 isPlaying = isPlaying,
+                                showLikedIcon = song.id in likedSongIds,
                                 isActive = currentMediaId == song.id,
                                 songIndex = index + 1,
                                 modifier = Modifier
@@ -360,6 +362,7 @@ fun ArtistScreen(
                             SongListItem(
                                 song = song,
                                 isPlaying = isPlaying,
+                                showLikedIcon = song.id in likedSongIds,
                                 isActive = currentMediaId == song.id,
                                 songIndex = index + 1,
                                 modifier = Modifier
