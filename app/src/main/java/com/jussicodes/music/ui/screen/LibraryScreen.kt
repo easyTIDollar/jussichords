@@ -286,6 +286,7 @@ fun LibraryScreen(
                             title = stringResource(R.string.create_playlist),
                             playlists = createdPlaylists,
                             coverVersions = playlistCoverVersions,
+                            showDividers = false,
                             onPlaylistClick = { playlist ->
                                 navController.navigate(
                                     PlaylistNav(
@@ -333,6 +334,10 @@ fun LibraryScreen(
                             playlists = collectedPlaylists,
                             coverVersions = playlistCoverVersions,
                             showDividers = false,
+                            reorderEnabled = true,
+                            onPlaylistOrderChanged = { playlists ->
+                                libraryScreenViewModel.reorderCollectedPlaylists(playlists)
+                            },
                             onPlaylistClick = { playlist ->
                                 navController.navigate(
                                     PlaylistNav(

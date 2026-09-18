@@ -274,6 +274,17 @@ class LibraryScreenViewModel @Inject constructor(
         }
     }
 
+    fun reorderCollectedPlaylists(orderedCollectedPlaylists: List<Playlist>, onResult: (Boolean) -> Unit = {}) {
+        // NCM 没有重排"收藏歌单"的接口，这里只做本地内存重排，
+        // 不写缓存、不调 NCM API：重启 App 后恢复 NCM 原始顺序。
+        val orderedIds = orderedCollectedPlaylists.map { it.id }
+        val orderedById = orderedCollectedPlaylists.associateBy { it.id }
+        val others = baseUserPlaylists.filterNot { it.id in orderedIds }
+        baseUserPlaylists = others + orderedIds.mapNotNull(orderedById::get)
+        _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+        onResult(true)
+    }
+
     private fun invalidateUserPlaylistCache() {
         AccountApi.invalidateUserPlaylistCache(_userInfo.value?.account?.profile?.userId)
     }
