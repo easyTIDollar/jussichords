@@ -253,7 +253,7 @@ object AppUpdateManager {
         var lastError: Throwable? = null
         for (source in downloadSources) {
             try {
-                return fetchLatestReleases(source).let { (latestStable, latestPre) ->
+                val result = fetchLatestReleases(source).let { (latestStable, latestPre) ->
                     val release = if (BuildConfig.BUILD_TYPE == "canary") {
                         checkNotNull(latestPre) { "No pre-release found for canary channel" }
                     } else {
@@ -278,6 +278,12 @@ object AppUpdateManager {
                         downloadUrl = canonicalGitHubDownloadUrl(release.tagName, asset.name),
                     )
                 }
+                // canary 通道：若该源（如 Gitee）落后于已安装版本（最新 tag 的时间戳后缀
+                // 比本机旧，通常是新构建的 APK 尚未上传到该源），跳过此源回落下一个源。
+                if (isStaleCanaryTag(result.versionName, BuildConfig.VERSION_NAME)) {
+                    continue
+                }
+                return result
             } catch (e: Throwable) {
                 lastError = e
             }
@@ -285,10 +291,21 @@ object AppUpdateManager {
         throw lastError ?: error("Failed to check update")
     }
 
-    /** 拉取某个源的 release 列表并解析；返回 (最新正式版, 最新 pre-release)。 */
+    /** 比较 tag 里 "canary." 后的时间戳后缀（YYYYMMDD-HHMMSS，定长可直接字典序比较）：
+     *  found 比 installed 旧 → 该源滞后，返回 true。stable 构建无 canary 后缀，恒为 false。 */
+    private fun isStaleCanaryTag(foundTag: String, installedTag: String): Boolean {
+        val foundTs = foundTag.substringAfterLast("canary.", "").trim()
+        val installedTs = installedTag.substringAfterLast("canary.", "").trim()
+        return foundTs.isNotEmpty() && installedTs.isNotEmpty() && foundTs < installedTs
+    }
+
+    /** 拉取某个源的 release 列表并解析；返回 (最新正式版, 最新 pre-release)。
+     *  跳过没有 APK 资产的 release（如 Gitee 镜像壳），保证返回的 release 实际可下载。 */
     private fun fetchLatestReleases(source: UpdateSource): Pair<GitHubRelease?, GitHubRelease?> {
         val raw = source.fetchReleasesText(apiClient)
-        val releases = json.decodeFromString<List<GitHubRelease>>(raw).filterNot { it.draft }
+        val releases = json.decodeFromString<List<GitHubRelease>>(raw)
+            .filterNot { it.draft }
+            .filter { r -> r.assets.any { a -> a.name.endsWith(".apk", ignoreCase = true) } }
         val latestStable = releases.firstOrNull { !it.prerelease }
         val latestPre = releases.firstOrNull { it.prerelease }
         return Pair(latestStable, latestPre)
