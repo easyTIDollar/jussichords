@@ -147,21 +147,16 @@ class ArtistScreenViewModel @Inject constructor(
         when (root) {
             is JsonArray -> root.forEach { out += extractLikedIds(it, depth + 1) }
             is JsonObject -> {
-                (root["id"] as? JsonPrimitive)?.longOrNull?.let { out += it }
-                (root["songId"] as? JsonPrimitive)?.longOrNull?.let { out += it }
+                (root["id"] as? JsonPrimitive)?.content?.toLongOrNull()?.let { out += it }
+                (root["songId"] as? JsonPrimitive)?.content?.toLongOrNull()?.let { out += it }
                 val container =
                     root["ids"] ?: root["list"] ?: root["result"] ?: root["data"] ?: root["songs"]
                 when (container) {
                     is JsonArray -> container.forEach { element ->
-                        when (element) {
-                            is JsonPrimitive -> {
-                                element.longOrNull?.let { out += it }
-                                if (element.longOrNull == null) {
-                                    element.content.toLongOrNull()?.let { out += it }
-                                }
-                            }
-                            is JsonObject -> out += extractLikedIds(element, depth + 1)
-                            else -> {}
+                        if (element is JsonPrimitive) {
+                            element.content.toLongOrNull()?.let { out += it }
+                        } else if (element is JsonObject) {
+                            out += extractLikedIds(element, depth + 1)
                         }
                     }
                     is JsonObject -> out += extractLikedIds(container, depth + 1)
