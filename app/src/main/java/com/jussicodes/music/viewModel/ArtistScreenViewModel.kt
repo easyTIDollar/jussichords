@@ -7,21 +7,25 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
+import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.jussicodes.music.paging.ArtistAlbumPagingSource
+import com.jussicodes.music.paging.ArtistSongsPagingSource
 import com.jussicodes.music.utils.ArtistCollectionSyncBus
 import com.rcmiku.ncmapi.api.artist.ArtistApi
 import com.rcmiku.ncmapi.model.ArtistHeadInfoResponse
-import com.rcmiku.ncmapi.model.ArtistSongsResponse
 import com.rcmiku.ncmapi.model.ArtistTopSong
+import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.ArtistUser
 import com.rcmiku.ncmapi.model.SearchArtist
 import com.rcmiku.ncmapi.model.SimiArtistResponse
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -39,8 +43,27 @@ class ArtistScreenViewModel @Inject constructor(
     private val _artistTopSong = MutableStateFlow<ArtistTopSong?>(null)
     val artistTopSong: StateFlow<ArtistTopSong?> = _artistTopSong.asStateFlow()
 
-    private val _artistAllSongs = MutableStateFlow<ArtistSongsResponse?>(null)
-    val artistAllSongs: StateFlow<ArtistSongsResponse?> = _artistAllSongs.asStateFlow()
+    private val _songMode = MutableStateFlow("top")
+    val songMode: StateFlow<String> = _songMode.asStateFlow()
+
+    private val _sortOrder = MutableStateFlow("hot")
+    val sortOrder: StateFlow<String> = _sortOrder.asStateFlow()
+
+    private val _allSongsForQueue = MutableStateFlow<List<Song>?>(null)
+    val allSongsForQueue: StateFlow<List<Song>?> = _allSongsForQueue.asStateFlow()
+
+    val artistAllSongs: Flow<PagingData<Song>> = _sortOrder.flatMapLatest { order ->
+        artistId?.let { id ->
+            Pager(
+                config = PagingConfig(
+                    pageSize = 100,
+                    prefetchDistance = 50,
+                    enablePlaceholders = false
+                ),
+                pagingSourceFactory = { ArtistSongsPagingSource(id, order) }
+            ).flow.cachedIn(viewModelScope)
+        } ?: flowOf()
+    }
 
     private val _simiArtists = MutableStateFlow<List<SearchArtist>>(emptyList())
     val simiArtists: StateFlow<List<SearchArtist>> = _simiArtists.asStateFlow()
@@ -60,9 +83,42 @@ class ArtistScreenViewModel @Inject constructor(
                     ?: ArtistApi.artistFollowCount(it).getOrNull()?.data?.followed
                     ?: (headInfo?.data?.user?.followed == true)
                 _artistTopSong.value = ArtistApi.artistTopSong(it).getOrNull()
-                _artistAllSongs.value = ArtistApi.artistSongs(it).getOrNull()
                 _simiArtists.value = ArtistApi.simiArtist(it).getOrNull()?.artists.orEmpty()
             }
+        }
+    }
+
+    fun setSongMode(mode: String) {
+        if (mode == _songMode.value) return
+        _songMode.value = mode
+        if (mode == "all") {
+            loadAllSongsForQueue()
+        }
+    }
+
+    fun setSortOrder(order: String) {
+        if (order == _sortOrder.value) return
+        _sortOrder.value = order
+        _allSongsForQueue.value = null
+        loadAllSongsForQueue()
+    }
+
+    private fun loadAllSongsForQueue() {
+        val id = artistId ?: return
+        val order = _sortOrder.value
+        viewModelScope.launch {
+            _allSongsForQueue.value = null
+            val songs = mutableListOf<Song>()
+            var offset = 0
+            val page = 100
+            while (true) {
+                val resp = ArtistApi.artistSongs(id, order = order, limit = page, offset = offset).getOrNull()
+                    ?: break
+                songs += resp.songs
+                if (!resp.more || resp.songs.isEmpty()) break
+                offset += page
+            }
+            _allSongsForQueue.value = songs
         }
     }
 

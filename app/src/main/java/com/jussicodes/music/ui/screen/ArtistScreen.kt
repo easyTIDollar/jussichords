@@ -6,6 +6,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.size
@@ -21,8 +22,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -71,6 +75,7 @@ import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.ArtistNav
+import com.jussicodes.music.ui.icons.ChevronDown
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.ArtistScreenViewModel
@@ -84,7 +89,10 @@ fun ArtistScreen(
 ) {
     val artistHeadInfoState by artistScreenViewModel.artistHeadInfo.collectAsState()
     val artistTopSongState by artistScreenViewModel.artistTopSong.collectAsState()
-    val artistAllSongs by artistScreenViewModel.artistAllSongs.collectAsState()
+    val songMode by artistScreenViewModel.songMode.collectAsState()
+    val sortOrder by artistScreenViewModel.sortOrder.collectAsState()
+    val allSongsForQueue by artistScreenViewModel.allSongsForQueue.collectAsState()
+    val artistAllSongs = artistScreenViewModel.artistAllSongs.collectAsLazyPagingItems()
     val simiArtists by artistScreenViewModel.simiArtists.collectAsState()
     val isArtistSubscribed by artistScreenViewModel.isArtistSubscribed.collectAsState()
     val isArtistSubUpdating by artistScreenViewModel.isArtistSubUpdating.collectAsState()
@@ -98,6 +106,7 @@ fun ArtistScreen(
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
     var openBottomSheet by rememberSaveable { mutableStateOf(false) }
     var selectSong by remember { mutableStateOf<Song?>(null) }
+    var sortMenuExpanded by remember { mutableStateOf(false) }
     var previewArtistImageUrl by remember { mutableStateOf<String?>(null) }
     var horizontalDragAmount = 0f
 
@@ -246,49 +255,68 @@ fun ArtistScreen(
             }
 
             1 -> {
-                artistTopSongState?.songs?.let { songs ->
-                    itemsIndexed(
-                        items = songs,
-                        key = { _, song -> "top-song-${song.id}" }
-                    ) { index, song ->
-                        SongListItem(
-                            song = song,
-                            isPlaying = isPlaying,
-                            isActive = currentMediaId == song.id,
-                            songIndex = index + 1,
-                            modifier = Modifier
-                                .animateItem(placementSpec = null)
-                                .clickable {
-                                    mediaController?.setPlaylist(
-                                        songs,
-                                        sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
-                                        sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
-                                        navId = artistHeadInfoState?.data?.artist?.id ?: 0L
-                                    )
-                                    mediaController?.playMediaAtId(song.id)
-                                },
-                            trailingContent = {
-                                IconButton(onClick = {
-                                    selectSong = song
-                                    openBottomSheet = true
-                                }) {
+                item(key = "song-toolbar") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        FilterChip(
+                            selected = songMode == "top",
+                            onClick = { artistScreenViewModel.setSongMode("top") },
+                            label = { Text(stringResource(R.string.artist_song_top50)) }
+                        )
+                        FilterChip(
+                            selected = songMode == "all",
+                            onClick = { artistScreenViewModel.setSongMode("all") },
+                            label = { Text(stringResource(R.string.artist_song_all)) }
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Box {
+                            FilterChip(
+                                enabled = songMode == "all",
+                                onClick = { sortMenuExpanded = true },
+                                label = { Text(stringResource(R.string.artist_sort)) },
+                                trailingIcon = {
                                     Icon(
-                                        imageVector = Icons.Default.MoreVert,
-                                        contentDescription = stringResource(R.string.more)
+                                        imageVector = ChevronDown,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            )
+                            DropdownMenu(
+                                expanded = sortMenuExpanded,
+                                onDismissRequest = { sortMenuExpanded = false }
+                            ) {
+                                listOf("hot" to stringResource(R.string.artist_sort_hot),
+                                    "time" to stringResource(R.string.artist_sort_time)
+                                ).forEach { (order, label) ->
+                                    val checked = sortOrder == order
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        leadingIcon = {
+                                            Checkbox(checked = checked, onCheckedChange = null)
+                                        },
+                                        onClick = {
+                                            artistScreenViewModel.setSortOrder(order)
+                                            sortMenuExpanded = false
+                                        }
                                     )
                                 }
                             }
-                        )
+                        }
                     }
                 }
-                artistAllSongs?.songs?.let { songs ->
-                    if (songs.isNotEmpty()) {
-                        item {
-                            NavigationTitle(title = "全部歌曲")
-                        }
+
+                if (songMode == "top") {
+                    artistTopSongState?.songs?.let { songs ->
                         itemsIndexed(
                             items = songs,
-                            key = { _, song -> "all-song-${song.id}" }
+                            key = { _, song -> "top-song-${song.id}" }
                         ) { index, song ->
                             SongListItem(
                                 song = song,
@@ -305,11 +333,57 @@ fun ArtistScreen(
                                             navId = artistHeadInfoState?.data?.artist?.id ?: 0L
                                         )
                                         mediaController?.playMediaAtId(song.id)
+                                    },
+                                trailingContent = {
+                                    IconButton(onClick = {
+                                        selectSong = song
+                                        openBottomSheet = true
+                                    }) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = stringResource(R.string.more)
+                                        )
                                     }
+                                }
                             )
-                            if (index != songs.lastIndex) {
-                                HorizontalDivider()
-                            }
+                        }
+                    }
+                } else {
+                    items(
+                        count = artistAllSongs.itemCount,
+                        key = { index -> "all-song-${artistAllSongs.peek(index)?.id ?: index}" }
+                    ) { index ->
+                        artistAllSongs[index]?.let { song ->
+                            val queueSongs = allSongsForQueue
+                                ?: artistAllSongs.itemSnapshotList.items
+                            SongListItem(
+                                song = song,
+                                isPlaying = isPlaying,
+                                isActive = currentMediaId == song.id,
+                                songIndex = index + 1,
+                                modifier = Modifier
+                                    .animateItem(placementSpec = null)
+                                    .clickable {
+                                        mediaController?.setPlaylist(
+                                            queueSongs,
+                                            sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                                            sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                                            navId = artistHeadInfoState?.data?.artist?.id ?: 0L
+                                        )
+                                        mediaController?.playMediaAtId(song.id)
+                                    },
+                                trailingContent = {
+                                    IconButton(onClick = {
+                                        selectSong = song
+                                        openBottomSheet = true
+                                    }) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = stringResource(R.string.more)
+                                        )
+                                    }
+                                }
+                            )
                         }
                     }
                 }

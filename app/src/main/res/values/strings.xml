@@ -48,6 +48,11 @@
     <string name="all_record">所有时间</string>
     <string name="play_count">%d次</string>
     <string name="artist_info">艺人简介</string>
+    <string name="artist_song_top50">热门 Top 50</string>
+    <string name="artist_song_all">全部歌曲</string>
+    <string name="artist_sort">排序</string>
+    <string name="artist_sort_hot">按热度</string>
+    <string name="artist_sort_time">按最新</string>
     <string name="album_size">%d首</string>
     <string name="library_add_check">已收藏</string>
     <string name="cancel">取消</string>
