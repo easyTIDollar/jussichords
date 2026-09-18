@@ -60,6 +60,7 @@ import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.searchTopListFilterIdsKey
+import com.jussicodes.music.constants.topListEnabledKey
 import com.jussicodes.music.extensions.addSong
 import com.jussicodes.music.ui.components.AlbumListItem
 import com.jussicodes.music.ui.components.ArtistListItem
@@ -122,6 +123,7 @@ fun SearchScreen(
     var selectSong by remember { mutableStateOf<Song?>(null) }
     val showTopLists = searchValue.isBlank()
     var topListMenuExpanded by rememberSaveable { mutableStateOf(false) }
+    var topListEnabled by rememberPreference(topListEnabledKey, true)
     var selectedTopListIdsText by rememberPreference(searchTopListFilterIdsKey, "")
     val selectedTopListIds = remember(selectedTopListIdsText) {
         selectedTopListIdsText.toTopListIdSet()
@@ -247,6 +249,7 @@ fun SearchScreen(
 
         Column(Modifier.padding(top = 100.dp)) {
             if (showTopLists) {
+                if (topListEnabled) {
                 LazyColumn(
                     modifier = Modifier.semantics { traversalIndex = 1f }
                 ) {
@@ -275,6 +278,19 @@ fun SearchScreen(
                                     expanded = topListMenuExpanded,
                                     onDismissRequest = { topListMenuExpanded = false }
                                 ) {
+                                    DropdownMenuItem(
+                                        text = { Text(text = "关闭排行榜") },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Remove,
+                                                contentDescription = null
+                                            )
+                                        },
+                                        onClick = {
+                                            topListEnabled = false
+                                            topListMenuExpanded = false
+                                        }
+                                    )
                                     topLists.forEach { playlist ->
                                         val selectedIds = selectedTopListIds.ifEmpty {
                                             defaultTopLists.map { it.id }.toSet()
@@ -325,6 +341,25 @@ fun SearchScreen(
 
                     item {
                         Spacer(Modifier.navigationBarsPadding())
+                    }
+                }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "排行榜已关闭",
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = {
+                            topListEnabled = true
+                        }) {
+                            Text(text = "开启")
+                        }
                     }
                 }
             } else {
