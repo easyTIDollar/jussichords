@@ -277,6 +277,7 @@ fun ArtistScreen(
                         Spacer(Modifier.weight(1f))
                         Box {
                             FilterChip(
+                                selected = sortMenuExpanded,
                                 enabled = songMode == "all",
                                 onClick = { sortMenuExpanded = true },
                                 label = { Text(stringResource(R.string.artist_sort)) },
