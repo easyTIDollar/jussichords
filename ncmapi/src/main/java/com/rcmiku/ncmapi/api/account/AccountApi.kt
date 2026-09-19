@@ -193,25 +193,14 @@ object AccountApi {
     suspend fun scrobble(
         songId: Long,
         time: Int,
-        total: Int? = null,
-        sourceId: Long? = null,
-        sourceName: String? = null,
-        songName: String? = null,
-        artistName: String? = null,
-        songLevel: SongLevel? = null
+        sourceId: Long? = null
     ): Result<ApiCodeResponse> =
         apiGet(
-            "/scrobble/v1",
+            "/scrobble",
             buildMap {
                 put("id", songId)
                 put("time", time.coerceAtLeast(1))
-                total?.takeIf { it > 0 }?.let { put("total", it) }
                 sourceId?.takeIf { it > 0 }?.let { put("sourceid", it) }
-                sourceName?.takeIf { it.isNotBlank() }?.let { put("source", it) }
-                songName?.takeIf { it.isNotBlank() }?.let { put("name", it) }
-                artistName?.takeIf { it.isNotBlank() }?.let { put("artist", it) }
-                songLevel?.let { put("level", it.value) }
-                put("timestamp", System.currentTimeMillis())
             }
         )
 

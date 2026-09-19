@@ -477,15 +477,10 @@ class PlaybackService : MediaSessionService() {
     ) {
         if (!CookieProvider.isLoggedIn()) return
 
-        val metadata = mediaItem.mediaMetadata
-        val extras = metadata.extras
+        val extras = mediaItem.mediaMetadata.extras
         val sourceId = extras
             ?.getLong(MediaSessionConstants.EXTRA_SOURCE_ID)
             ?.takeIf { it > 0 }
-        val sourceName = extras
-            ?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME)
-            ?.takeIf { it.isNotBlank() }
-        val currentAudioQuality = audioQuality
         val reportedSeconds = totalSeconds?.let {
             minOf(playedSeconds, it)
         } ?: playedSeconds
@@ -498,15 +493,9 @@ class PlaybackService : MediaSessionService() {
             AccountApi.scrobble(
                 songId = songId,
                 time = reportedSeconds,
-                total = totalSeconds,
-                sourceId = sourceId,
-                sourceName = sourceName,
-                songName = metadata.title?.toString(),
-                artistName = metadata.artist?.toString(),
-                songLevel = currentAudioQuality
+                sourceId = sourceId
             ).onSuccess { resp ->
-                // 服务端 NCM 拒收时仍可能返回 HTTP 200 + code!=200（如 "PLV 上报失败"），
-                // 必须检查 body 里的 code，否则出现"假成功"。
+                // 原版 /scrobble 直接透传 NCM webhook 结果，code!=200 表示未落库
                 if (resp.code == 200) {
                     Log.d(TAG_SCROBBLE, "scrobble success id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
                 } else {
