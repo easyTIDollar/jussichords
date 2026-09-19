@@ -190,6 +190,10 @@ object AccountApi {
     suspend fun songRecord(uid: Long, type: SongRecordType): Result<RecordResponse> =
         apiGet("/user/record", mapOf("uid" to uid, "type" to type.type))
 
+    /**
+     * 提交听歌打卡（原版 eapi /scrobble）。
+     * sourceId 缺失时按参考实现 fallback 成歌曲自身 ID——NCM 对 content="id=" 拒绝落库。
+     */
     suspend fun scrobble(
         songId: Long,
         time: Int,
@@ -200,7 +204,8 @@ object AccountApi {
             buildMap {
                 put("id", songId)
                 put("time", time.coerceAtLeast(1))
-                sourceId?.takeIf { it > 0 }?.let { put("sourceid", it) }
+                put("sourceid", sourceId?.takeIf { it > 0 } ?: songId)
+                put("timestamp", System.currentTimeMillis())
             }
         )
 
