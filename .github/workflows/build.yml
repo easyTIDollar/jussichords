@@ -71,15 +71,6 @@ jobs:
           fi
           echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > release-keystore.jks
 
-      - name: Generate canary keystore
-        if: env.BUILD_TYPE == 'canary'
-        run: |
-          keytool -genkeypair \
-            -keystore canary-keystore.jks -storetype JKS \
-            -storepass jussichords-canary -keypass jussichords-canary \
-            -alias jussichords-canary -keyalg RSA -keysize 2048 -validity 7200 \
-            -dname "CN=Jussichords Canary, OU=CI, O=Jussichords, C=US"
-
       # 修复 Linux 无执行权限
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -209,7 +200,8 @@ jobs:
             - 默认 API 服务器改为 8.134.163.111:3000
 
       # 同步 release 到 Gitee（国内下载加速）：
-      # 1) 删同名旧 release（stable 固定 tag 重建会撞 Gitee「该标签已存在发行版」）
+      # 1) 删同名旧 release（仅 stable：固定 tag 重建会撞 Gitee「该标签已存在发行版」；
+      #    canary tag 带时间戳、每次唯一，永不撞车，跳过删旧省一次全量 list 调用）
       # 2) 建 release（canary=pre-release，stable=正式）
       # 3) 上传 APK（Gitee 单文件上限 500MB；国内 CDN 下载快）
       - name: Push to Gitee
@@ -229,7 +221,6 @@ jobs:
           OWNER="easyTIDollar"
           REPO="jussichords"
           BASE="https://gitee.com/api/v5/repos/${OWNER}/${REPO}"
-          echo "$RELEASE_TAG" > /tmp/gitee_tag
 
           case "$BUILD_TYPE" in
             canary)
@@ -246,26 +237,29 @@ jobs:
           echo "Gitee APK: $APK"
           [ -f "$APK" ] || { echo "APK not found: $APK"; exit 1; }
 
-          # 1) 找同名旧 release 并删除
-          curl -fsS -H "Authorization: Bearer ${GITEE_TOKEN}" \
-            "${BASE}/releases?per_page=100&access_token=${GITEE_TOKEN}" -o /tmp/grels.json || true
-          EXISTING_ID=$(python3 -c '
-          import json
-          tag = open("/tmp/gitee_tag").read().strip()
-          try:
-              rels = json.load(open("/tmp/grels.json"))
-          except Exception:
-              rels = []
-          if isinstance(rels, dict):
-              rels = []
-          m = [str(r["id"]) for r in rels if r.get("tag_name") == tag]
-          print(m[0] if m else "")
-          ')
-          if [ -n "$EXISTING_ID" ]; then
-            echo "删除 Gitee 旧 release id=${EXISTING_ID}（tag=${RELEASE_TAG}）"
-            curl -fsS -X DELETE -H "Authorization: Bearer ${GITEE_TOKEN}" \
-              "${BASE}/releases/${EXISTING_ID}?access_token=${GITEE_TOKEN}" -o /dev/null
-            sleep 2
+          # 1) 找同名旧 release 并删除（仅 stable：固定 tag 重建会撞车；
+          #    canary tag 带时间戳唯一，跳过，省一次全量 list 调用 + 删除 + sleep 2）
+          if [ "$BUILD_TYPE" != "canary" ]; then
+            curl -fsS -H "Authorization: Bearer ***" \
+              "${BASE}/releases?per_page=100&access_token=${GITEE_TOKEN}" -o /tmp/grels.json || true
+            EXISTING_ID=$(RELEASE_TAG="$RELEASE_TAG" python3 -c '
+            import json, os
+            tag = os.environ.get("RELEASE_TAG", "").strip()
+            try:
+                rels = json.load(open("/tmp/grels.json"))
+            except Exception:
+                rels = []
+            if isinstance(rels, dict):
+                rels = []
+            m = [str(r["id"]) for r in rels if r.get("tag_name") == tag]
+            print(m[0] if m else "")
+            ')
+            if [ -n "$EXISTING_ID" ]; then
+              echo "删除 Gitee 旧 release id=${EXISTING_ID}（tag=${RELEASE_TAG}）"
+              curl -fsS -X DELETE -H "Authorization: Bearer ***" \
+                "${BASE}/releases/${EXISTING_ID}?access_token=${GITEE_TOKEN}" -o /dev/null
+              sleep 2
+            fi
           fi
 
           # 2) 建 release（target_commitish=master；缺失 tag 会自动补）
