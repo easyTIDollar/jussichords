@@ -482,7 +482,7 @@ class PlaybackService : MediaSessionService() {
         }
         val reachedSeconds = currentState.maxPositionMs / 1000
         val thresholdSeconds = scrobbleThreshold(currentState.totalSeconds)
-        if (reachedSeconds >= thresholdSeconds) {
+        if (reachedSeconds >= thresholdSeconds && !currentState.reached) {
             currentState.reached = true
             Log.d(TAG_SCROBBLE, "reached threshold id=${mediaItem.mediaId} reached=${reachedSeconds}s threshold=${thresholdSeconds}s total=${currentState.totalSeconds}")
         }
