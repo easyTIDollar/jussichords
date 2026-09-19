@@ -481,6 +481,8 @@ class PlaybackService : MediaSessionService() {
         val sourceId = extras
             ?.getLong(MediaSessionConstants.EXTRA_SOURCE_ID)
             ?.takeIf { it > 0 }
+        // 跟 AccountApi.scrobble 的 fallback 逻辑保持一致：sourceId 缺失时用歌曲自身 id
+        val effectiveSourceId = sourceId ?: songId
         val reportedSeconds = totalSeconds?.let {
             minOf(playedSeconds, it)
         } ?: playedSeconds
@@ -488,7 +490,8 @@ class PlaybackService : MediaSessionService() {
         scope.launch(Dispatchers.IO) {
             Log.d(
                 TAG_SCROBBLE,
-                "submit scrobble id=$songId played=${reportedSeconds}s total=$totalSeconds api=$API_BASE_URL"
+                "submit scrobble id=$songId sourceid=$effectiveSourceId (fallback=${sourceId == null}) " +
+                    "played=${reportedSeconds}s total=$totalSeconds api=$API_BASE_URL"
             )
             AccountApi.scrobble(
                 songId = songId,
