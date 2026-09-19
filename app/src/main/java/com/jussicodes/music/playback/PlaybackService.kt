@@ -296,16 +296,29 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * 每首歌的打卡状态。end-only 触发：播放期间用 [maxPositionMs] 记录最大位置（含 seek），
+     * [reached] 标记是否达到时长阈值；真正提交发生在「离开这首歌」时（自然播完 STATE_ENDED
+     * 或切到下一首 onMediaItemTransition）。[totalSeconds]/[sourceId]/[songName]/[songArtist]
+     * 在离开前从当前 MediaItem 缓存，供 leave 时（原 item 已不在 currentMediaItem 上）使用。
+     */
     private data class ScrobbleState(
         val mediaId: String,
         val mediaItemIndex: Int,
-        var playedSeconds: Int = 0,
-        var reported: Boolean = false
+        var maxPositionMs: Long = 0,
+        var reached: Boolean = false,
+        var submitted: Boolean = false,
+        var totalSeconds: Int? = null,
+        var sourceId: Long? = null,
+        var songName: String? = null,
+        var songArtist: String? = null
     )
 
     private fun observeScrobble(player: Player) {
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                // 离开上一首：先提交被打卡标记的那首（自然切歌 / seek / 手动切歌）
+                if (mediaItem != null) submitScrobbleForState(scrobbleState)
                 resetScrobble(player)
                 if (player.isPlaying) startScrobbleTicker(player)
             }
@@ -322,18 +335,26 @@ class PlaybackService : MediaSessionService() {
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
+                    // 最后一首自然播完：提交本首
                     stopScrobbleTicker()
                     submitPlayState(player)
+                    submitScrobbleForState(scrobbleState)
                 }
             }
         })
     }
 
     private fun resetScrobble(player: Player) {
-        scrobbleState = player.currentMediaItem?.let {
+        val item = player.currentMediaItem
+        scrobbleState = item?.let {
             ScrobbleState(
                 mediaId = it.mediaId,
-                mediaItemIndex = player.currentMediaItemIndex
+                mediaItemIndex = player.currentMediaItemIndex,
+                totalSeconds = resolveTotalSeconds(player, it),
+                sourceId = it.mediaMetadata.extras
+                    ?.getLong(MediaSessionConstants.EXTRA_SOURCE_ID)?.takeIf { v -> v > 0 },
+                songName = it.mediaMetadata.title?.toString(),
+                songArtist = it.mediaMetadata.artist?.toString()
             )
         }
         startPlaySession(player)
@@ -394,7 +415,7 @@ class PlaybackService : MediaSessionService() {
         val currentState = scrobbleState
         if (currentState?.mediaId == mediaItem.mediaId &&
             currentState.mediaItemIndex == player.currentMediaItemIndex &&
-            currentState.reported
+            currentState.submitted
         ) {
             return
         }
@@ -425,7 +446,7 @@ class PlaybackService : MediaSessionService() {
             stopScrobbleTicker()
             return
         }
-        val songId = mediaItem.mediaId.toLongOrNull() ?: run {
+        if (mediaItem.mediaId.toLongOrNull() == null) {
             stopScrobbleTicker()
             return
         }
@@ -434,28 +455,47 @@ class PlaybackService : MediaSessionService() {
                 it.mediaId == mediaItem.mediaId &&
                     it.mediaItemIndex == player.currentMediaItemIndex
             }
-            ?: ScrobbleState(
+            ?: run {
+            // 正常路径下 resetScrobble 已建好 state；此处兜底重建并补缓存元数据
+            val fresh = ScrobbleState(
                 mediaId = mediaItem.mediaId,
-                mediaItemIndex = player.currentMediaItemIndex
-            ).also { scrobbleState = it }
+                mediaItemIndex = player.currentMediaItemIndex,
+                totalSeconds = resolveTotalSeconds(player, mediaItem),
+                sourceId = mediaItem.mediaMetadata.extras
+                    ?.getLong(MediaSessionConstants.EXTRA_SOURCE_ID)?.takeIf { v -> v > 0 },
+                songName = mediaItem.mediaMetadata.title?.toString(),
+                songArtist = mediaItem.mediaMetadata.artist?.toString()
+            )
+            scrobbleState = fresh
+            fresh
+            }
 
-        if (currentState.reported) {
+        if (currentState.submitted) {
             stopScrobbleTicker()
             return
         }
 
-        currentState.playedSeconds += 1
-        val totalSeconds = resolveTotalSeconds(player, mediaItem)
-        val thresholdSeconds = totalSeconds?.let {
-            if (it < 60) maxOf(5, it / 2) else 30
-        } ?: 30
-
-        if (currentState.playedSeconds >= thresholdSeconds) {
-            currentState.reported = true
-            submitScrobble(mediaItem, songId, currentState.playedSeconds, totalSeconds)
-            stopScrobbleTicker()
+        // 记录最大位置（含向后 seek），达到时长阈值时置位（真正提交在「离开本曲」时）
+        val positionMs = player.currentPosition
+        if (positionMs > currentState.maxPositionMs) {
+            currentState.maxPositionMs = positionMs
+        }
+        val reachedSeconds = currentState.maxPositionMs / 1000
+        val thresholdSeconds = scrobbleThreshold(currentState.totalSeconds)
+        if (reachedSeconds >= thresholdSeconds) {
+            currentState.reached = true
+            Log.d(TAG_SCROBBLE, "reached threshold id=${mediaItem.mediaId} reached=${reachedSeconds}s threshold=${thresholdSeconds}s total=${currentState.totalSeconds}")
         }
     }
+
+    /**
+     * 播放时长阈值（对齐 Vutron）：最早达标时间 = min(总时长/2, 30)。
+     * 等价于 Vutron 的 `position >= duration/2 || position >= 30`：长歌 30 秒即算，
+     * 短歌听到总时长一半即算。总时长未知时按 30 秒。
+     */
+    private fun scrobbleThreshold(totalSeconds: Int?): Int = totalSeconds?.let {
+        minOf(maxOf(1, it / 2), 30)
+    } ?: 30
 
     private fun resolveTotalSeconds(player: Player, mediaItem: MediaItem): Int? {
         val playerDuration = player.duration
@@ -469,36 +509,35 @@ class PlaybackService : MediaSessionService() {
             ?.toInt()
     }
 
-    private fun submitScrobble(
-        mediaItem: MediaItem,
-        songId: Long,
-        playedSeconds: Int,
-        totalSeconds: Int?
-    ) {
+    /**
+     * 离开某首歌（切歌 / 自然播完）时，若该歌已达到时长阈值且未提交，则提交打卡。
+     * time 上报实际听到的秒数（已封顶到总时长），并带上 total / name / artist（v1 上报所需）。
+     */
+    private fun submitScrobbleForState(state: ScrobbleState?) {
+        if (state == null || !state.reached || state.submitted) return
+        val songId = state.mediaId.toLongOrNull() ?: return
         if (!CookieProvider.isLoggedIn()) return
+        state.submitted = true
 
-        val extras = mediaItem.mediaMetadata.extras
-        val sourceId = extras
-            ?.getLong(MediaSessionConstants.EXTRA_SOURCE_ID)
-            ?.takeIf { it > 0 }
-        // 跟 AccountApi.scrobble 的 fallback 逻辑保持一致：sourceId 缺失时用歌曲自身 id
-        val effectiveSourceId = sourceId ?: songId
-        val reportedSeconds = totalSeconds?.let {
-            minOf(playedSeconds, it)
-        } ?: playedSeconds
+        val playedSeconds = (state.maxPositionMs / 1000).toInt()
+        val reportedSeconds = state.totalSeconds?.let { minOf(playedSeconds, it) } ?: playedSeconds
+        val effectiveSourceId = state.sourceId ?: songId
 
         scope.launch(Dispatchers.IO) {
             Log.d(
                 TAG_SCROBBLE,
-                "submit scrobble id=$songId sourceid=$effectiveSourceId (fallback=${sourceId == null}) " +
-                    "played=${reportedSeconds}s total=$totalSeconds api=$API_BASE_URL"
+                "submit scrobble/v1 id=$songId sourceid=$effectiveSourceId (fallback=${state.sourceId == null}) " +
+                    "played=${reportedSeconds}s total=${state.totalSeconds} api=$API_BASE_URL"
             )
             AccountApi.scrobble(
                 songId = songId,
                 time = reportedSeconds,
-                sourceId = sourceId
+                sourceId = state.sourceId,
+                total = state.totalSeconds,
+                name = state.songName,
+                artist = state.songArtist
             ).onSuccess { resp ->
-                // 原版 /scrobble 直接透传 NCM webhook 结果，code!=200 表示未落库
+                // /scrobble/v1 透传 NCBL 上报结果，code!=200 表示未落库
                 if (resp.code == 200) {
                     Log.d(TAG_SCROBBLE, "scrobble success id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
                 } else {
@@ -506,7 +545,7 @@ class PlaybackService : MediaSessionService() {
                     mainHandler.post {
                         Toast.makeText(
                             applicationContext,
-                            "打卡被服务端拒绝：${resp.msg ?: resp.message ?: "code=$${resp.code}"}",
+                            "打卡被服务端拒绝：" + (resp.msg ?: resp.message ?: "code=" + resp.code),
                             Toast.LENGTH_LONG
                         ).show()
                     }
@@ -516,7 +555,7 @@ class PlaybackService : MediaSessionService() {
                 mainHandler.post {
                     Toast.makeText(
                         applicationContext,
-                        "听歌打卡失败：${err.message?.take(80)}",
+                        "听歌打卡失败：" + err.message?.take(80),
                         Toast.LENGTH_LONG
                     ).show()
                 }

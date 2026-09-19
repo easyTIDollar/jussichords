@@ -191,20 +191,29 @@ object AccountApi {
         apiGet("/user/record", mapOf("uid" to uid, "type" to type.type))
 
     /**
-     * 提交听歌打卡（原版 eapi /scrobble）。
-     * sourceId 缺失时按参考实现 fallback 成歌曲自身 ID——NCM 对 content="id=" 拒绝落库。
+     * 提交听歌打卡（NCM 桌面端 NCBL 加密上报 /scrobble/v1）。
+     * 相比旧版 /scrobble（feedback/weblog）落库更稳、鉴权更严格（未登录明确 401，
+     * 不再假成功 200）。v1 需要 time 为已听秒数、total 为歌曲总秒数（缺省用 time）。
+     * sourceId 缺失时按参考实现 fallback 成歌曲自身 ID（v1 本身亦如此处理）。
+     * name/artist 用于上报歌曲信息，缺失时由服务端按歌曲 id 补全。
      */
     suspend fun scrobble(
         songId: Long,
         time: Int,
-        sourceId: Long? = null
+        sourceId: Long? = null,
+        total: Int? = null,
+        name: String? = null,
+        artist: String? = null
     ): Result<ApiCodeResponse> =
         apiGet(
-            "/scrobble",
+            "/scrobble/v1",
             buildMap {
                 put("id", songId)
                 put("time", time.coerceAtLeast(1))
                 put("sourceid", sourceId?.takeIf { it > 0 } ?: songId)
+                total?.takeIf { it >= time }?.let { put("total", it) }
+                name?.takeIf { it.isNotBlank() }?.let { put("name", it) }
+                artist?.takeIf { it.isNotBlank() }?.let { put("artist", it) }
                 put("timestamp", System.currentTimeMillis())
             }
         )
