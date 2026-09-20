@@ -25,17 +25,12 @@ data class UnblockSourceOption(
     val label: String,
 )
 
-val unblockSourceOptions = listOf(
-    UnblockSourceOption("AUTO", "自动选择音源"),
-    UnblockSourceOption("baka", "Baka"),
-    UnblockSourceOption("bikoo", "Bikoo"),
-    UnblockSourceOption("bytedance", "Byfuns"),
-    UnblockSourceOption("kuwo", "Gdmusic"),
-    UnblockSourceOption("migu", "Msls"),
-    UnblockSourceOption("pyncmd", "pyncmd"),
-    UnblockSourceOption("qq", "Uhm"),
-    UnblockSourceOption("youtube", "Whitisnot"),
-)
+// 单一来源：ncmapi 模块的 UnblockSources（服务端新旧两套引擎的并集 + 标注），
+// PlayerApi 的回退链引用同一份，避免 UI 与回退链漂移。
+val unblockSourceOptions: List<UnblockSourceOption> =
+    com.rcmiku.ncmapi.api.UnblockSources.ALL_OPTIONS.map {
+        UnblockSourceOption(it.value, it.label)
+    }
 
 @Composable
 fun UnblockSourceDialog(

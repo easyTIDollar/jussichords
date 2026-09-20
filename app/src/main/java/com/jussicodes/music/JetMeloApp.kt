@@ -81,7 +81,7 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                 .distinctUntilChanged()
                 .collect { (apiUrl, unblockSource) ->
                     if (!apiUrl.isNullOrEmpty()) API_BASE_URL = apiUrl
-                    UNBLOCK_SOURCE = unblockSource ?: "pyncmd"
+                    UNBLOCK_SOURCE = unblockSource ?: "AUTO"
                 }
         }
         // First launch (no API server ever configured): auto-select the fastest

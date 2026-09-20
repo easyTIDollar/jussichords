@@ -127,7 +127,7 @@ fun SettingsScreen(navController: NavHostController) {
     )
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://8.134.163.111:3000")
-    var unblockSource by rememberPreference(unblockSourceKey, "pyncmd")
+    var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     var playerGestureTutorialVersion by rememberPreference(
         playerGestureTutorialVersionKey,
