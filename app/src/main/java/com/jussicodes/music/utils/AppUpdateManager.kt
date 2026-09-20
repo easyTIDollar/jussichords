@@ -24,7 +24,7 @@ import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 import kotlin.system.measureTimeMillis
 
-/** 预设的 ncmapi 后端地址。点按「API 服务器」会并行 Ping 这三个，并把延迟最低的设为活动。 */
+/** 默认的 ncmapi 后端地址列表。用户可在设置页的 API 服务器对话框增删（DataStore apiServerListKey）。 */
 val apiServers = listOf(
     "https://api.jussichords.indevs.in",
     "http://8.134.163.111:3000",
@@ -387,15 +387,16 @@ object AppUpdateManager {
         }
 
     /**
-     * 并行 Ping 预设的三个 ncmapi 后端，返回每个的延迟与可用性。
+     * 并行 Ping 给定的 ncmapi 后端地址，返回每个的延迟与可用性。
+     * 默认测预设三个；设置页的服务器列表对话框会传入用户自定义列表。
      * 后端可能没有专用健康检查端点，只要 TCP/HTTP 层在短超时内通即记为可用
      * （任何 2xx/3xx/4xx 都说明地址是活的，4xx 是「在但路径错」也接受）。
      * 调用方拿到结果后取延迟最低且可用的那个设为活动 API。
      */
-    suspend fun measureApiServers(): List<ApiServerStatus> =
+    suspend fun measureApiServers(servers: List<String> = apiServers): List<ApiServerStatus> =
         withContext(Dispatchers.IO) {
             supervisorScope {
-                apiServers.map { server ->
+                servers.map { server ->
                     async {
                         runCatching {
                             val elapsed = measureTimeMillis {
@@ -428,10 +429,6 @@ object AppUpdateManager {
             .filter { it.available && it.latencyMs != null }
             .minByOrNull { it.latencyMs!! }
             ?.server
-
-    /** 判断某个 URL 是否为预设后端之一（用于区分「预设」与「自定义」。 */
-    fun isPresetApiServer(server: String): Boolean =
-        server.trim().let { it.isNotEmpty() && apiServers.any { p -> p.trim() == it } }
 
     /** 构造下载候选 URL：所选源在前，其余源回落，各自把 GitHub 规范链接换算成自己的直连地址。 */
     private fun buildCandidateUrls(updateInfo: UpdateInfo, preferredSourceId: String): List<String> =
