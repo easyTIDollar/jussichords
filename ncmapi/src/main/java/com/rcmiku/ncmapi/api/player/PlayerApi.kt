@@ -121,11 +121,11 @@ object PlayerApi {
 
     /**
      * Fallback chain for unblock sources, mirroring the order of the app's
-     * source picker (UnblockSourceOption list in the app module).
+     * source picker (shared in ncmapi's UnblockSources so UI and fallback
+     * never drift).
      */
-    private val KNOWN_UNBLOCK_SOURCES = listOf(
-        "baka", "bikoo", "bytedance", "kuwo", "migu", "pyncmd", "qq", "youtube"
-    )
+    private val KNOWN_UNBLOCK_SOURCES: List<String> =
+        com.rcmiku.ncmapi.api.UnblockSources.FALLBACK_VALUES
 
     private suspend fun requestUnblockUrl(url: String, songId: String, source: String?): Result<SongUrlResponse> {
         return try {

@@ -31,6 +31,7 @@ val libraryPlaylistRefreshTokenKey = longPreferencesKey("libraryPlaylistRefreshT
 val searchTopListFilterIdsKey = stringPreferencesKey("searchTopListFilterIds")
 val topListEnabledKey = booleanPreferencesKey("topListEnabled")
 val apiBaseUrlKey = stringPreferencesKey("apiBaseUrl")
+val apiServerListKey = stringPreferencesKey("apiServerList")
 val unblockSourceKey = stringPreferencesKey("unblockSource")
 val ignoredUpdateVersionKey = stringPreferencesKey("ignoredUpdateVersion")
 val uiScaleKey = floatPreferencesKey("uiScale")

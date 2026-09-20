@@ -9,11 +9,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -65,6 +68,7 @@ import com.jussicodes.music.constants.SettingItemCorner
 import com.jussicodes.music.constants.SettingItemHeight
 import com.jussicodes.music.constants.SettingItemSubCorner
 import com.jussicodes.music.constants.apiBaseUrlKey
+import com.jussicodes.music.constants.apiServerListKey
 import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
@@ -87,6 +91,7 @@ import com.jussicodes.music.ui.icons.Login
 import com.jussicodes.music.ui.icons.Logout
 import com.jussicodes.music.ui.icons.PlayPause
 import com.jussicodes.music.ui.icons.ModeComment
+import com.jussicodes.music.ui.icons.Remove
 import com.jussicodes.music.ui.icons.Star
 import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
@@ -127,7 +132,7 @@ fun SettingsScreen(navController: NavHostController) {
     )
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://8.134.163.111:3000")
-    var unblockSource by rememberPreference(unblockSourceKey, "pyncmd")
+    var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     var playerGestureTutorialVersion by rememberPreference(
         playerGestureTutorialVersionKey,
@@ -148,6 +153,14 @@ fun SettingsScreen(navController: NavHostController) {
     var testingGithubSources by remember { mutableStateOf(false) }
     var showApiServerDialog by remember { mutableStateOf(false) }
     var apiServerStatuses by remember { mutableStateOf<List<ApiServerStatus>>(emptyList()) }
+    var apiServerListJson by rememberPreference(
+        apiServerListKey,
+        json.encodeToString(apiServers.toList())
+    )
+    val apiServerList = remember(apiServerListJson) {
+        runCatching { json.decodeFromString<List<String>>(apiServerListJson) }
+            .getOrElse { apiServers.toList() }
+    }
     var updating by rememberSaveable { mutableStateOf(false) }
     var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var downloadingUpdate by remember { mutableStateOf(false) }
@@ -340,7 +353,7 @@ fun SettingsScreen(navController: NavHostController) {
         ),
         SettingItemData(
             title = stringResource(R.string.api_server),
-            subtitle = apiBaseUrl,
+            subtitle = "当前：$apiBaseUrl · 点按更换API服务器 · 长按更换音乐源",
             imageVector = Dns,
             onClick = { showApiServerDialog = true },
             onLongClick = { showUnblockSourceDialog = true }
@@ -513,7 +526,11 @@ fun SettingsScreen(navController: NavHostController) {
     if (showApiServerDialog) {
         ApiServerPingDialog(
             currentServer = apiBaseUrl,
+            servers = apiServerList,
             statuses = apiServerStatuses,
+            onServersChanged = { list ->
+                apiServerListJson = json.encodeToString(list)
+            },
             onMeasured = { statuses, activateFastest ->
                 apiServerStatuses = statuses
                 if (activateFastest) {
@@ -680,44 +697,58 @@ private fun GitHubDownloadSourceDialog(
 }
 
 /**
- * 预设 ncmapi 后端的 Ping 对话框。
+ * 可增删的 ncmapi 后端列表对话框。
  *
- * 弹出时不再自动测速，改由用户点「重新测速」手动并行测一轮三个预设地址，
- * 把延迟最低且可用者设为活动（activate 回调交给父级写偏好）；也可手动点某一
- * 地址直接激活它。测速进度条由对话框自管，避免和父级状态打架。
+ * 列表持久化在 DataStore（apiServerListKey）：可添加/删除自定义地址。点行或单选
+ * 即激活该服务器；「重新测速」并行 Ping 列表全部地址。当前活动服务器若不在列表
+ * 中，会置顶显示为系统行（不可删除）。
  */
 @Composable
 private fun ApiServerPingDialog(
     currentServer: String,
+    servers: List<String>,
     statuses: List<ApiServerStatus>,
+    onServersChanged: (List<String>) -> Unit,
     onMeasured: (List<ApiServerStatus>, activateFastest: Boolean) -> Unit,
     onActivate: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var testing by remember { mutableStateOf(false) }
-    // 自定义服务器输入框：默认回填当前非预设的活动地址，否则空。
-    var customServer by remember {
-        mutableStateOf(currentServer.takeIf { !AppUpdateManager.isPresetApiServer(it) } ?: "")
-    }
+    var newServer by remember { mutableStateOf("") }
+    val currentNotListed = currentServer !in servers
 
     fun runPing(activateFastest: Boolean) {
         if (testing) return
         testing = true
         scope.launch {
-            val result = AppUpdateManager.measureApiServers()
+            val result = AppUpdateManager.measureApiServers(servers)
             testing = false
             onMeasured(result, activateFastest)
         }
     }
 
-    // 弹出不再自动测速，交由用户点「重新测速」手动触发。
+    fun addServer() {
+        val trimmed = newServer.trim()
+        if (trimmed.isEmpty()) return
+        if (trimmed in servers || trimmed == currentServer) {
+            Toast.makeText(context, "该地址已在列表中", Toast.LENGTH_SHORT).show()
+            return
+        }
+        onServersChanged(servers + trimmed)
+        newServer = ""
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("API 服务器") },
         text = {
-            Column {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 280.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
                 if (testing) {
                     LinearProgressIndicator(
                         modifier = Modifier
@@ -725,66 +756,113 @@ private fun ApiServerPingDialog(
                             .padding(bottom = 8.dp)
                     )
                 }
-                apiServers.forEach { server ->
-                    val status = statuses.firstOrNull { it.server == server }
+                if (currentNotListed) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                if (!testing) onActivate(server)
+                                if (!testing) onActivate(currentServer)
                             },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
-                            selected = server == currentServer,
-                            onClick = { if (!testing) onActivate(server) }
+                            selected = true,
+                            onClick = {
+                                if (!testing) onActivate(currentServer)
+                            }
                         )
                         Column(
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(vertical = 8.dp)
                         ) {
-                            Text(server, style = MaterialTheme.typography.titleMedium)
                             Text(
-                                text = when {
-                                    testing && status == null -> "测速中..."
-                                    status == null -> if (server == currentServer) "当前" else "未测"
-                                    status.available -> "可用 · ${status.latencyMs ?: 0} ms"
-                                    else -> "不可用 · ${status.message}"
-                                },
+                                currentServer,
+                                style = MaterialTheme.typography.titleMedium,
+                                overflow = TextOverflow.Ellipsis,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "当前 · 未在列表中",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        if (server == currentServer) {
-                            Text(
-                                text = "活动",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(end = 8.dp)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
+                servers.forEach { server ->
+                    val status = statuses.firstOrNull { it.server == server }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    if (!testing) onActivate(server)
+                                },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = server == currentServer,
+                                onClick = {
+                                    if (!testing) onActivate(server)
+                                }
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(vertical = 8.dp)
+                            ) {
+                                Text(
+                                    server,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    overflow = TextOverflow.Ellipsis,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = when {
+                                        testing && status == null -> "测速中..."
+                                        status == null ->
+                                            if (server == currentServer) "当前" else "未测"
+                                        status.available -> "可用 · ${status.latencyMs ?: 0} ms"
+                                        else -> "不可用 · ${status.message}"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = { onServersChanged(servers - server) },
+                            enabled = !testing,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Remove,
+                                contentDescription = "删除",
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
-                    value = customServer,
-                    onValueChange = { customServer = it },
-                    label = { Text("自定义服务器") },
+                    value = newServer,
+                    onValueChange = { newServer = it },
+                    label = { Text("添加服务器") },
+                    placeholder = { Text("http://host:3000") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 TextButton(
-                    onClick = {
-                        val trimmed = customServer.trim()
-                        if (trimmed.isNotEmpty()) {
-                            onActivate(trimmed)
-                        }
-                    },
+                    onClick = { addServer() },
                     enabled = !testing,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("保存为当前服务器")
+                    Text("添加到列表")
                 }
             }
         },

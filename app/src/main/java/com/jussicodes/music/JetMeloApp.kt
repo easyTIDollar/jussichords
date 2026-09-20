@@ -12,6 +12,7 @@ import coil3.memory.MemoryCache
 import coil3.request.CachePolicy
 import coil3.request.crossfade
 import com.jussicodes.music.constants.apiBaseUrlKey
+import com.jussicodes.music.constants.apiServerListKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.data.ExplorePreloader
@@ -19,6 +20,7 @@ import com.jussicodes.music.data.SongSourceCache
 import com.jussicodes.music.utils.AppVisibilityTracker
 import com.jussicodes.music.utils.AppUpdateManager
 import com.jussicodes.music.utils.UserAgentUtil
+import com.jussicodes.music.utils.apiServers
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.API_BASE_URL
 import com.rcmiku.ncmapi.api.UNBLOCK_SOURCE
@@ -81,16 +83,21 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                 .distinctUntilChanged()
                 .collect { (apiUrl, unblockSource) ->
                     if (!apiUrl.isNullOrEmpty()) API_BASE_URL = apiUrl
-                    UNBLOCK_SOURCE = unblockSource ?: "pyncmd"
+                    UNBLOCK_SOURCE = unblockSource ?: "AUTO"
                 }
         }
         // First launch (no API server ever configured): auto-select the fastest
-        // of the three preset backends so the app's default is the lowest-latency
+        // of the user's server list so the app's default is the lowest-latency
         // one instead of a hardcoded address. A user-set server always wins.
         applicationScope.launch {
             val configured = runCatching { dataStore.data.first()[apiBaseUrlKey] }.getOrNull()
             if (configured != null) return@launch
-            val fastest = AppUpdateManager.measureApiServers().let { statuses ->
+            val servers = runCatching {
+                json.decodeFromString<List<String>>(
+                    dataStore.data.first()[apiServerListKey] ?: ""
+                )
+            }.getOrNull()?.takeIf { it.isNotEmpty() } ?: apiServers
+            val fastest = AppUpdateManager.measureApiServers(servers).let { statuses ->
                 AppUpdateManager.pickFastestApiServer(statuses)
             }
             if (fastest != null) {
