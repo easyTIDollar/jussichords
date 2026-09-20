@@ -43,7 +43,7 @@ const val GITHUB_RELEASES_LATEST_PAGE =
 
 /**
  * 更新源。用户可在「设置 · 检查更新」与开屏更新弹窗里自由选择，下载时首选所选源、
- * 失败自动回落到其余源。当前仅 GitHub 直连一个源。
+ * 失败自动回落到其余源。gh-proxy 为主源（国内直连 GitHub release），GitHub 直连兜底。
  *
  * 各源各自声明：如何拉 release 列表（fetchReleasesText）、如何把「GitHub 规范下载链接」
  * 换算成自己可直连的 URL（toDownloadUrl）、以及测速探测（probeRequest）。
@@ -51,7 +51,7 @@ const val GITHUB_RELEASES_LATEST_PAGE =
 sealed class UpdateSource {
     abstract val id: String
     abstract val name: String
-    /** 给选择器 UI 展示的一行小字提示（如「直连」）。 */
+    /** 给选择器 UI 展示的一行小字提示（如「直连」「gh-proxy.com」）。 */
     abstract val detail: String
 
     /** 阻塞拉取 release 列表 JSON（按 created 倒序）；失败抛 IOException/HttpStatusException。 */
@@ -97,8 +97,9 @@ class GitHubUpdateSource(
             .build()
 }
 
-/** 全局下载源列表：当前仅 GitHub 直连一个源。 */
+/** 全局下载源列表：gh-proxy 为主源，GitHub 直连兜底。 */
 val downloadSources = listOf(
+    GitHubUpdateSource("gh-proxy", "gh-proxy.com", "gh-proxy.com", "https://gh-proxy.com/"),
     GitHubUpdateSource("direct", "GitHub 直连", "直连", ""),
 )
 
