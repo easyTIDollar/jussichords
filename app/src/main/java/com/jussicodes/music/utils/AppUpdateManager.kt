@@ -31,7 +31,7 @@ val apiServers = listOf(
     "https://api.jussichords.kdns.fr",
 )
 
-/** 应用仓库固定坐标（Gitee 镜像与 GitHub 同源 tag，可用于跨源换算下载地址）。 */
+/** 应用仓库固定坐标（GitHub 系下载链接与 API 的公共前缀）。 */
 const val REPO_OWNER = "easyTIDollar"
 const val REPO_NAME = "jussichords"
 const val GITHUB_RELEASES_URL =
@@ -43,77 +43,25 @@ const val GITHUB_RELEASES_LATEST_PAGE =
 
 /**
  * 更新源。用户可在「设置 · 检查更新」与开屏更新弹窗里自由选择，下载时首选所选源、
- * 失败自动回落到其余源。Gitee 为主源（国内 CDN 快），GitHub 直连 / gh-proxy 兜底。
+ * 失败自动回落到其余源。gh-proxy 为主源（国内直连 GitHub release），GitHub 直连兜底。
  *
  * 各源各自声明：如何拉 release 列表（fetchReleasesText）、如何把「GitHub 规范下载链接」
- * 换算成自己可直连的 URL（toDownloadUrl）、以及测速探测（probeRequest）。GitHub 系与
- * Gitee 系 URL 结构不同，不可互套前缀，故按 family 隔离。
+ * 换算成自己可直连的 URL（toDownloadUrl）、以及测速探测（probeRequest）。
  */
 sealed class UpdateSource {
     abstract val id: String
     abstract val name: String
-    /** 给选择器 UI 展示的一行小字提示（如「国内直连」「gh-proxy.com」）。 */
+    /** 给选择器 UI 展示的一行小字提示（如「直连」「gh-proxy.com」）。 */
     abstract val detail: String
-    /** github / gitee：同一族的下载链接可互相对照，跨族不行。 */
-    abstract val family: String
 
     /** 阻塞拉取 release 列表 JSON（按 created 倒序）；失败抛 IOException/HttpStatusException。 */
     abstract fun fetchReleasesText(apiClient: OkHttpClient): String
 
-    /** 把 GitHub 规范的 release 下载链接换算成本源可直连的 URL（默认原样透传）。 */
+    /** 把 GitHub 规范下载链接换算成本源可直连的 URL（默认原样透传）。 */
     open fun toDownloadUrl(canonicalGithubDownloadUrl: String): String = canonicalGithubDownloadUrl
 
-    /** 测速探测请求（短超时；Gitee 必须 GET+Accept:json，HEAD 会 401）。 */
+    /** 测速探测请求（短超时）。 */
     abstract fun probeRequest(): Request
-}
-
-class GiteeUpdateSource : UpdateSource() {
-    override val id = "gitee"
-    override val name = "Gitee"
-    override val detail = "国内直连 · CDN"
-    override val family = "gitee"
-
-    private val releasesUrl =
-        "https://gitee.com/api/v5/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=30&sort=created&direction=desc"
-    private val probeUrl =
-        "https://gitee.com/api/v5/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=1"
-
-    override fun fetchReleasesText(apiClient: OkHttpClient): String {
-        val response = apiClient.newCall(
-            Request.Builder()
-                .url(releasesUrl)
-                .header("Accept", "application/json")
-                .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
-                .build()
-        ).execute().use { resp ->
-            if (resp.code !in 200..299) throw HttpStatusException(resp.code, "Gitee API HTTP ${resp.code}")
-            resp.body?.string() ?: throw IOException("Empty Gitee API response")
-        }
-        return response
-    }
-
-    /** GitHub 规范下载链接形如 https://github.com/{o}/{r}/releases/download/{tag}/{name}，
-     *  把 {tag}/{name} 抽出来拼到 Gitee 下载端点。 */
-    override fun toDownloadUrl(canonicalGithubDownloadUrl: String): String {
-        if (canonicalGithubDownloadUrl.startsWith("https://gitee.com/")) {
-            return canonicalGithubDownloadUrl
-        }
-        val marker = "/releases/download/"
-        val idx = canonicalGithubDownloadUrl.indexOf(marker)
-        return if (idx >= 0) {
-            val rel = canonicalGithubDownloadUrl.substring(idx + marker.length)
-            "https://gitee.com/${REPO_OWNER}/${REPO_NAME}/releases/download/$rel"
-        } else {
-            canonicalGithubDownloadUrl
-        }
-    }
-
-    override fun probeRequest(): Request =
-        Request.Builder()
-            .url(probeUrl)
-            .header("Accept", "application/json")
-            .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
-            .build()
 }
 
 class GitHubUpdateSource(
@@ -122,7 +70,6 @@ class GitHubUpdateSource(
     override val detail: String,
     private val prefix: String,
 ) : UpdateSource() {
-    override val family = "github"
 
     override fun fetchReleasesText(apiClient: OkHttpClient): String {
         val response = apiClient.newCall(
@@ -150,11 +97,10 @@ class GitHubUpdateSource(
             .build()
 }
 
-/** 全局下载源列表：Gitee 优先，GitHub 直连 / gh-proxy 兜底。 */
+/** 全局下载源列表：gh-proxy 为主源，GitHub 直连兜底。 */
 val downloadSources = listOf(
-    GiteeUpdateSource(),
-    GitHubUpdateSource("direct", "GitHub 直连", "直连", ""),
     GitHubUpdateSource("gh-proxy", "gh-proxy.com", "gh-proxy.com", "https://gh-proxy.com/"),
+    GitHubUpdateSource("direct", "GitHub 直连", "直连", ""),
 )
 
 fun sourceById(sourceId: String?): UpdateSource? =
@@ -240,7 +186,7 @@ object AppUpdateManager {
     }
 
     /**
-     * 渠道感知的更新检查（源无关：按 Gitee→GitHub 固定序逐个源拉列表，取首个成功者）。
+     * 渠道感知的更新检查（源无关：按固定序逐个源拉列表，取首个成功者）。
      * - canary 构建（BuildConfig.BUILD_TYPE == "canary"）只跟踪 pre-release（canary 通道）
      * - 其他构建只跟踪正式 release
      * 返回 null 表示已最新。
@@ -263,12 +209,7 @@ object AppUpdateManager {
                         ?: error("Release ${release.tagName} does not contain an APK asset")
                     val latestTag = release.tagName.trim().trimStart('v', 'V')
                     if (latestTag == BuildConfig.VERSION_NAME) return null
-                    // Gitee 源的 asset 不带 size 字段（API 只返回 name + url）；
-                    // 为 0 时从 GitHub 列表按同 tag 补一次字节大小，补不到保持 0。
-                    var apkSize = asset.size
-                    if (apkSize <= 0L) {
-                        apkSize = fetchApkSizeFromGitHub(release.tagName) ?: 0L
-                    }
+                    val apkSize = asset.size
                     UpdateInfo(
                         versionName = latestTag,
                         releaseName = release.name.takeIf { it.isNotBlank() } ?: release.tagName,
@@ -278,8 +219,8 @@ object AppUpdateManager {
                         downloadUrl = canonicalGitHubDownloadUrl(release.tagName, asset.name),
                     )
                 }
-                // canary 通道：若该源（如 Gitee）落后于已安装版本（最新 tag 的时间戳后缀
-                // 比本机旧，通常是新构建的 APK 尚未上传到该源），跳过此源回落下一个源。
+                // canary 通道：若该源（gh-proxy 缓存滞后）落后于已安装版本（最新 tag 的时间戳后缀
+                // 比本机旧，通常是新构建的 APK 尚未同步到该源），跳过此源回落下一个源。
                 if (isStaleCanaryTag(result.versionName, BuildConfig.VERSION_NAME)) {
                     continue
                 }
@@ -300,7 +241,7 @@ object AppUpdateManager {
     }
 
     /** 拉取某个源的 release 列表并解析；返回 (最新正式版, 最新 pre-release)。
-     *  跳过没有 APK 资产的 release（如 Gitee 镜像壳），保证返回的 release 实际可下载。 */
+     *  跳过没有 APK 资产的 release，保证返回的 release 实际可下载。 */
     private fun fetchLatestReleases(source: UpdateSource): Pair<GitHubRelease?, GitHubRelease?> {
         val raw = source.fetchReleasesText(apiClient)
         val releases = json.decodeFromString<List<GitHubRelease>>(raw)
@@ -309,30 +250,6 @@ object AppUpdateManager {
         val latestStable = releases.firstOrNull { !it.prerelease }
         val latestPre = releases.firstOrNull { it.prerelease }
         return Pair(latestStable, latestPre)
-    }
-
-    /**
-     * 从 GitHub 按 tag 取单个 release，返回 APK asset 的字节大小；找不到 / 请求失败返回 null。
-     * 用于 Gitee 源（asset 不带 size）场景下补齐「安装包大小」。Gitee 的 APK 与 GitHub 同名，
-     * 字节数一致，故跨源取 size 是可靠的。
-     */
-    private fun fetchApkSizeFromGitHub(tagName: String): Long? {
-        return runCatching {
-            val url = "$GITHUB_RELEASES_URL/tags/$tagName"
-            val body = apiClient.newCall(
-                Request.Builder()
-                    .url(url)
-                    .header("Accept", "application/vnd.github+json")
-                    .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
-                    .build()
-            ).execute().use { resp ->
-                if (resp.code !in 200..299) throw HttpStatusException(resp.code, "GitHub by-tag API HTTP ${resp.code}")
-                resp.body?.string() ?: throw IOException("Empty GitHub by-tag response")
-            }
-            val release = json.decodeFromString<GitHubRelease>(body)
-            release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }?.size?.takeIf { it > 0 }
-        }.onFailure { /* size 补齐是尽力而为，失败静默，不影响主流程 */ }
-            .getOrNull()
     }
 
     suspend fun downloadApk(

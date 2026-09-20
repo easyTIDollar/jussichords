@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity() {
                         UpdateDownloadPhase.IDLE -> Unit
                         UpdateDownloadPhase.DOWNLOADING -> {
                             isDownloadingUpdate = true
-                            // Gitee 源拿不到 apkSize（totalBytes=0）时给不确定进度条（progress=null）
+                            // 拿不到 apkSize（totalBytes=0）时给不确定进度条（progress=null）
                             downloadProgress =
                                 if (snapshot.totalBytes > 0L) {
                                     snapshot.downloadedBytes.toFloat() / snapshot.totalBytes
@@ -122,7 +122,7 @@ class MainActivity : ComponentActivity() {
                                 if (snapshot.totalBytes > 0L) {
                                     "${formatFileSize(snapshot.downloadedBytes)} / ${formatFileSize(snapshot.totalBytes)}"
                                 } else {
-                                    "已下载 ${formatFileSize(snapshot.downloadedBytes)}（Gitee 源不预知总大小）"
+                                    "已下载 ${formatFileSize(snapshot.downloadedBytes)}"
                                 }
                         }
                         UpdateDownloadPhase.COMPLETED -> {
