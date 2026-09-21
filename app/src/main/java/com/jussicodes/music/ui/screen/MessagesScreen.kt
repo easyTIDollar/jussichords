@@ -1,6 +1,8 @@
 package com.jussicodes.music.ui.screen
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -41,13 +44,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.ListThumbnailSize
 import com.jussicodes.music.constants.ThumbnailCornerRadius
-import com.jussicodes.music.ui.navigation.PlaylistNav
+import com.jussicodes.music.data.MsgRecentContact
+import com.jussicodes.music.ui.navigation.PrivateChatNav
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.formatTimestamp
 import com.jussicodes.music.utils.toCoverImageUrl
@@ -56,8 +61,6 @@ import com.rcmiku.ncmapi.model.MsgComment
 import com.rcmiku.ncmapi.model.MsgForward
 import com.rcmiku.ncmapi.model.MsgNotice
 import com.rcmiku.ncmapi.model.MsgNoticeInner
-import com.rcmiku.ncmapi.model.MsgPrivateInner
-import com.rcmiku.ncmapi.model.MsgPrivateMessage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -77,15 +80,15 @@ fun MessagesScreen(
     val comments by viewModel.comments.collectAsState()
     val forwards by viewModel.forwards.collectAsState()
     val notices by viewModel.notices.collectAsState()
-    val privateMsgs by viewModel.privateMsgs.collectAsState()
+    val contacts by viewModel.contacts.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) }
     val titles = listOf(
+        stringResource(R.string.msg_tab_private),
         stringResource(R.string.msg_tab_comments),
         stringResource(R.string.msg_tab_mentions),
-        stringResource(R.string.msg_tab_notices),
-        stringResource(R.string.msg_tab_private)
+        stringResource(R.string.msg_tab_notices)
     )
 
     Scaffold(
@@ -131,6 +134,26 @@ fun MessagesScreen(
 
                 when (selectedTab) {
                     0 -> {
+                        if (contacts.isEmpty()) {
+                            item { MsgEmptyRow(stringResource(R.string.msg_empty_contacts)) }
+                        } else {
+                            items(contacts.size, key = { contacts[it].userId }) { index ->
+                                MsgContactRow(
+                                    contact = contacts[index],
+                                    onClick = {
+                                        navController.navigate(
+                                            PrivateChatNav(
+                                                userId = contacts[index].userId,
+                                                nickname = contacts[index].nickname,
+                                                avatarUrl = contacts[index].avatarUrl
+                                            )
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    1 -> {
                         if (comments.isEmpty()) {
                             item { MsgEmptyRow(stringResource(R.string.msg_empty_comments)) }
                         } else {
@@ -139,7 +162,7 @@ fun MessagesScreen(
                             }
                         }
                     }
-                    1 -> {
+                    2 -> {
                         if (forwards.isEmpty()) {
                             item { MsgEmptyRow(stringResource(R.string.msg_empty_mentions)) }
                         } else {
@@ -148,28 +171,12 @@ fun MessagesScreen(
                             }
                         }
                     }
-                    2 -> {
+                    3 -> {
                         if (notices.isEmpty()) {
                             item { MsgEmptyRow(stringResource(R.string.msg_empty_notices)) }
                         } else {
                             items(notices.size, key = { notices[it].id }) { index ->
                                 MsgNoticeRow(notices[index])
-                            }
-                        }
-                    }
-                    else -> {
-                        if (privateMsgs.isEmpty()) {
-                            item { MsgEmptyRow(stringResource(R.string.msg_empty_private)) }
-                        } else {
-                            items(privateMsgs.size, key = { it }) { index ->
-                                MsgPrivateRow(
-                                    msg = privateMsgs[index],
-                                    onClickPlaylist = { playlistId ->
-                                        navController.navigate(
-                                            PlaylistNav(playlistId = playlistId, noCache = true)
-                                        )
-                                    }
-                                )
                             }
                         }
                     }
@@ -247,40 +254,29 @@ private fun MsgNoticeRow(notice: MsgNotice) {
     )
 }
 
-/** 私信：小秘书对话；内层 JSON 携带歌单时可点击跳转。 */
+/** 私信联系人：头像 + 昵称 + VIP 标记；头像右下角互关角标、左下角在线点。 */
 @Composable
-private fun MsgPrivateRow(
-    msg: MsgPrivateMessage,
-    onClickPlaylist: (Long) -> Unit
+private fun MsgContactRow(
+    contact: MsgRecentContact,
+    onClick: () -> Unit
 ) {
-    val inner = msg.msg
-        .takeIf { it.isNotBlank() }
-        ?.let { runCatching { innerJson.decodeFromString<MsgPrivateInner>(it) }.getOrNull() }
-    val playlistId = inner?.playlist?.id?.takeIf { it > 0 }
-    val coverUrl = (inner?.song?.picUrl.orEmpty()).ifBlank {
-        inner?.playlist?.coverImgUrl.orEmpty()
-    }
-    // 正文优先取内层 JSON 的 msg 字段；解析不到（如纯文本私信）则回退原始文本。
-    val body = inner?.msg.orEmpty().ifBlank { msg.msg }
-    val nickname = msg.fromUser?.nickname.orEmpty()
-    val from = nickname.ifBlank { stringResource(R.string.msg_secretary) }
-    val emptyText = stringResource(R.string.msg_no_content)
+    val isVip = contact.vipType != 0
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = playlistId != null) { onClickPlaylist(playlistId!!) }
+            .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.Top
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
                 .size(ListThumbnailSize)
                 .clip(RoundedCornerShape(ThumbnailCornerRadius))
         ) {
-            if (coverUrl.isNotBlank()) {
+            if (contact.avatarUrl.isNotBlank()) {
                 AsyncImage(
-                    model = coverUrl.toCoverImageUrl(CoverImageSize.LIST),
+                    model = contact.avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
@@ -288,32 +284,62 @@ private fun MsgPrivateRow(
                         .clip(RoundedCornerShape(ThumbnailCornerRadius))
                 )
             }
+            // 互关角标（右下角）
+            if (contact.mutual) {
+                Box(
+                    modifier = Modifier
+                        .size(16.dp)
+                        .align(Alignment.BottomEnd)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = stringResource(R.string.msg_contact_mutual),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontSize = 10.sp
+                    )
+                }
+            }
+            // 在线点（左下角）
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .align(Alignment.BottomStart)
+                    .clip(CircleShape)
+                    .background(
+                        if (contact.onlined) Color(0xFF4CAF50) else Color.Gray,
+                        contentDescription = null
+                    )
+                    .padding(1.dp)
+            )
         }
         Column(
             modifier = Modifier
                 .weight(1f)
-                .padding(start = 10.dp, top = 2.dp),
+                .padding(start = 10.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(
-                text = from,
+                text = contact.nickname,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(
-                text = body.ifBlank { emptyText },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = formatTimestamp(msg.time),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            // VIP 标记：头像下方（昵称行下方）
+            if (isVip) {
+                Text(
+                    text = stringResource(R.string.msg_contact_vip),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                        .padding(horizontal = 6.dp, vertical = 1.dp)
+                )
+            }
         }
     }
 }

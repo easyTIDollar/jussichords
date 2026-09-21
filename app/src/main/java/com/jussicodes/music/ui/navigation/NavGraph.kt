@@ -39,6 +39,7 @@ import com.jussicodes.music.ui.screen.LibraryScreen
 import com.jussicodes.music.ui.screen.LoginScreen
 import com.jussicodes.music.ui.screen.MessagesScreen
 import com.jussicodes.music.ui.screen.PlaylistScreen
+import com.jussicodes.music.ui.screen.PrivateChatScreen
 import com.jussicodes.music.ui.screen.ProgramRadioScreen
 import com.jussicodes.music.ui.screen.RecentPlayScreen
 import com.jussicodes.music.ui.screen.RecordScreen
@@ -207,6 +208,9 @@ fun NavGraph(
             }
             composable<UserNav> {
                 UserScreen(navController = navController)
+            }
+            composable<PrivateChatNav> {
+                PrivateChatScreen(navController = navController)
             }
             composable<RadioNav> {
                 ProgramRadioScreen(

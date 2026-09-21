@@ -110,4 +110,10 @@
     <string name="msg_system_notice">系统通知</string>
     <string name="msg_quote_prefix">回复「%s」</string>
     <string name="msg_secretary">云音乐小秘书</string>
+    <string name="msg_empty_contacts">暂无联系人</string>
+    <string name="msg_contact_vip">VIP</string>
+    <string name="msg_contact_mutual">互</string>
+    <string name="msg_chat_input_hint">说点什么…</string>
+    <string name="msg_chat_send">发送</string>
+    <string name="msg_chat_empty">还没有私信，发一条吧</string>
 </resources>
