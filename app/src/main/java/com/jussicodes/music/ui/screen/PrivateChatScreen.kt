@@ -85,12 +85,12 @@ fun PrivateChatScreen(
     val listState = rememberLazyListState()
 
     LaunchedEffect(refreshTick) {
-        if (chatList.isNotEmpty()) listState.scrollToIndex(chatList.lastIndex)
+        if (chatList.isNotEmpty()) listState.scrollToItem(chatList.lastIndex)
     }
 
     // 首次加载完成也滚到底（isLoading 由 true→false）
     LaunchedEffect(isLoading) {
-        if (!isLoading && chatList.isNotEmpty()) listState.scrollToIndex(chatList.lastIndex)
+        if (!isLoading && chatList.isNotEmpty()) listState.scrollToItem(chatList.lastIndex)
     }
 
     fun onSend() {
@@ -152,7 +152,7 @@ fun PrivateChatScreen(
                     keyboardActions = KeyboardActions(onSend = { onSend() })
                 )
                 IconButton(
-                    onClick = onSend,
+                    onClick = { onSend() },
                     enabled = !isSending && draft.isNotBlank()
                 ) {
                     Icon(
@@ -225,10 +225,10 @@ private fun ChatBubble(msg: MsgPrivateMessage, contactId: Long) {
         ?.let { runCatching { chatInnerJson.decodeFromString<MsgPrivateInner>(it) }.getOrNull() }
     val body = inner?.msg.orEmpty().ifBlank { msg.msg }
     val song = inner?.song
-    val songLine = if (!song.name.isNullOrBlank()) {
-        val artist = song.artists.firstOrNull()?.name
+    val songLine = if (!song?.name.isNullOrBlank()) {
+        val artist = song?.artists?.firstOrNull()?.name
         buildString {
-            append("♪ ").append(song.name)
+            append("♪ ").append(song?.name.orEmpty())
             if (!artist.isNullOrBlank()) append(" - ").append(artist)
         }
     } else null
@@ -279,7 +279,7 @@ private fun ChatBubble(msg: MsgPrivateMessage, contactId: Long) {
                 text = formatTimestamp(msg.time),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp, horizontal = 4.dp)
+                modifier = Modifier.padding(top = 2.dp).padding(horizontal = 4.dp)
             )
         }
     }

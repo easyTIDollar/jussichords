@@ -308,11 +308,7 @@ private fun MsgContactRow(
                     .size(10.dp)
                     .align(Alignment.BottomStart)
                     .clip(CircleShape)
-                    .background(
-                        if (contact.onlined) Color(0xFF4CAF50) else Color.Gray,
-                        contentDescription = null
-                    )
-                    .padding(1.dp)
+                    .background(if (contact.onlined) Color(0xFF4CAF50) else Color.Gray)
             )
         }
         Column(
