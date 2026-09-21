@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -58,7 +59,16 @@ import com.rcmiku.ncmapi.model.MsgNoticeInner
 import com.rcmiku.ncmapi.model.MsgPrivateInner
 import com.rcmiku.ncmapi.model.MsgPrivateMessage
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
+/** 内层 JSON（私信 msg / 通知 notice 都是字符串 JSON）容错解析。 */
+private val innerJson = Json {
+    ignoreUnknownKeys = true
+    isLenient = true
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MessagesScreen(
     navController: NavHostController,
@@ -169,13 +179,13 @@ fun MessagesScreen(
     }
 }
 
-/** 评论：谁回复了你的评论，引用被回复的内容。 */
+/** 评论：谁评论/回复了你的评论，引用被回复的内容。 */
 @Composable
 private fun MsgCommentRow(comment: MsgComment) {
-    val author = comment.user?.nickname.ifBlank { null } ?: "未知用户"
-    val subtitle = comment.content.ifBlank {
-        comment.beRepliedContent
-    }.ifBlank { stringResource(R.string.msg_no_content) }
+    val nickname = comment.user?.nickname.orEmpty()
+    val author = nickname.ifBlank { "未知用户" }
+    val emptyText = stringResource(R.string.msg_no_content)
+    val subtitle = comment.content.ifBlank { comment.beRepliedContent }.ifBlank { emptyText }
 
     MsgRow(
         avatarUrl = comment.user?.avatarUrl.orEmpty(),
@@ -188,18 +198,21 @@ private fun MsgCommentRow(comment: MsgComment) {
 /** @我：字段 NCM 未完全公开，尽力从 msg JSON 提取文本，解析不到则只显示来源用户。 */
 @Composable
 private fun MsgForwardRow(forward: MsgForward) {
-    val rawText = forward.msg?.let { element ->
-        runCatching {
-            val obj = element as? kotlinx.serialization.json.JsonObject ?: return@runCatching null
-            obj["msg"]?.jsonPrimitive?.content
-                ?: obj["content"]?.jsonPrimitive?.content
-        }.getOrNull()
+    val rawText = forward.msg?.let { el ->
+        val obj = el as? JsonObject
+        val m = (obj?.get("msg") as? JsonPrimitive)?.content
+        val c = (obj?.get("content") as? JsonPrimitive)?.content
+        if (!m.isNullOrBlank()) m else c
     }
+    val nickname = forward.fromUser?.nickname.orEmpty()
+    val title = nickname.ifBlank { stringResource(R.string.msg_mention_unknown) }
+    val fallback = stringResource(R.string.msg_empty_mentions)
+    val subtitle = rawText?.ifBlank { fallback } ?: fallback
+
     MsgRow(
         avatarUrl = forward.fromUser?.avatarUrl.orEmpty(),
-        title = forward.fromUser?.nickname.ifBlank { null }
-            ?: stringResource(R.string.msg_mention_unknown),
-        subtitle = rawText.ifBlank { stringResource(R.string.msg_empty_mentions) },
+        title = title,
+        subtitle = subtitle,
         time = forward.time
     )
 }
@@ -209,13 +222,13 @@ private fun MsgForwardRow(forward: MsgForward) {
 private fun MsgNoticeRow(notice: MsgNotice) {
     val inner = notice.notice
         .takeIf { it.isNotBlank() }
-        ?.let { runCatching { Json.decodeFromString(MsgNoticeInner::class, it) }.getOrNull() }
+        ?.let { runCatching { innerJson.decodeFromString<MsgNoticeInner>(it) }.getOrNull() }
     val innerUser = inner?.user
     val quotedUser = inner?.comment?.user
     val quoted = inner?.comment?.content
 
+    val emptyText = stringResource(R.string.msg_no_content)
     val title: String = when {
-        inner?.type == 6 && !innerUser?.nickname.isNullOrBlank() -> innerUser.nickname
         !innerUser?.nickname.isNullOrBlank() -> innerUser.nickname
         else -> stringResource(R.string.msg_system_notice)
     }
@@ -223,7 +236,7 @@ private fun MsgNoticeRow(notice: MsgNotice) {
         inner?.type == 6 && !quoted.isNullOrBlank() ->
             stringResource(R.string.msg_quote_prefix, quoted)
         !quoted.isNullOrBlank() -> quoted
-        else -> stringResource(R.string.msg_no_content)
+        else -> emptyText
     }
 
     MsgRow(
@@ -242,13 +255,16 @@ private fun MsgPrivateRow(
 ) {
     val inner = msg.msg
         .takeIf { it.isNotBlank() }
-        ?.let { runCatching { Json.decodeFromString(MsgPrivateInner::class, it) }.getOrNull() }
+        ?.let { runCatching { innerJson.decodeFromString<MsgPrivateInner>(it) }.getOrNull() }
     val playlistId = inner?.playlist?.id?.takeIf { it > 0 }
-    val coverUrl = inner?.song?.picUrl.orEmpty().ifBlank {
+    val coverUrl = (inner?.song?.picUrl.orEmpty()).ifBlank {
         inner?.playlist?.coverImgUrl.orEmpty()
     }
-    // 正文优先取内层 JSON 的 msg 字段；解析失败（如纯文本私信）则回退原始文本。
+    // 正文优先取内层 JSON 的 msg 字段；解析不到（如纯文本私信）则回退原始文本。
     val body = inner?.msg.orEmpty().ifBlank { msg.msg }
+    val nickname = msg.fromUser?.nickname.orEmpty()
+    val from = nickname.ifBlank { stringResource(R.string.msg_secretary) }
+    val emptyText = stringResource(R.string.msg_no_content)
 
     Row(
         modifier = Modifier
@@ -280,14 +296,14 @@ private fun MsgPrivateRow(
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(
-                text = msg.fromUser?.nickname.ifBlank { null } ?: stringResource(R.string.msg_secretary),
+                text = from,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = body.ifBlank { stringResource(R.string.msg_no_content) },
+                text = body.ifBlank { emptyText },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
