@@ -37,6 +37,7 @@ import com.jussicodes.music.ui.screen.CloudSongScreen
 import com.jussicodes.music.ui.screen.ExploreScreen
 import com.jussicodes.music.ui.screen.LibraryScreen
 import com.jussicodes.music.ui.screen.LoginScreen
+import com.jussicodes.music.ui.screen.MessagesScreen
 import com.jussicodes.music.ui.screen.PlaylistScreen
 import com.jussicodes.music.ui.screen.ProgramRadioScreen
 import com.jussicodes.music.ui.screen.RecentPlayScreen
@@ -157,6 +158,7 @@ fun NavGraph(
             }
             composable(Screen.Settings.route) { SettingsScreen(navController = navController) }
             composable(Screen.Login.route) { LoginScreen(navController = navController) }
+            composable(Screen.Messages.route) { MessagesScreen(navController = navController) }
             composable(Screen.Search.route) { SearchScreen(navController = navController) }
             composable<PlaylistNav> {
                 PlaylistScreen(

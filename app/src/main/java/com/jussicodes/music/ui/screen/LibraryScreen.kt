@@ -82,6 +82,7 @@ import com.jussicodes.music.ui.components.TopBar
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.History
 import com.jussicodes.music.ui.icons.Login
+import com.jussicodes.music.ui.icons.Message
 import com.jussicodes.music.ui.icons.MoreVert
 import com.jussicodes.music.ui.icons.PersonalRadio
 import com.jussicodes.music.ui.icons.PlaylistAdd
@@ -254,6 +255,7 @@ fun LibraryScreen(
                             avatarCacheVersion = avatarCacheVersion,
                             onRoamClick = { navController.navigate(Screen.Roam.route) },
                             onRecentPlayClick = { navController.navigate(Screen.RecentPlay.route) },
+                            onMessagesClick = { navController.navigate(Screen.Messages.route) },
                             onAvatarClick = {
                                 libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie, force = true)
                                 showAvatarDialog = true
@@ -654,6 +656,7 @@ private fun LibraryUserCard(
     avatarCacheVersion: Long,
     onRoamClick: () -> Unit,
     onRecentPlayClick: () -> Unit,
+    onMessagesClick: () -> Unit,
     onAvatarClick: () -> Unit
 ) {
     val profile = userInfo.account.profile
@@ -669,6 +672,15 @@ private fun LibraryUserCard(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
+                FilledTonalIconButton(
+                    onClick = onMessagesClick,
+                    modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp)
+                ) {
+                    androidx.compose.material3.Icon(
+                        imageVector = Message,
+                        contentDescription = stringResource(R.string.messages)
+                    )
+                }
                 Row(
                     modifier = Modifier.align(Alignment.CenterEnd).padding(end = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
