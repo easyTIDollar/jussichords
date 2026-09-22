@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -129,20 +128,19 @@ object MsgSessionCache {
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
-     * Application.onCreate 调一次：读 DataStore 快照铺列表（冷启动 0 网络），
-     * 顺带恢复删除集合与手动排序。主线程 runBlocking 读，毫秒级。
+     * Application.onCreate 调一次：IO 线程读 DataStore 快照铺列表（冷启动 0 网络），
+     * 顺带恢复删除集合与手动排序。若 live 数据（ensureLoaded/refresh）已先到位则不覆盖。
      */
     fun init(context: Context) {
         if (initialized) return
         initialized = true
-        val ds = context.applicationContext.dataStore
-        store = ds
-        runBlocking {
+        store = context.applicationContext.dataStore
+        ioScope.launch {
+            val ds = store ?: return@launch
             val prefs = ds.data.first()
             val raw = prefs[KEY_SNAPSHOT]?.let {
                 runCatching { json.decodeFromString<List<Item>>(it) }.getOrNull()
             }.orEmpty()
-            _allItems.value = raw
             deletedSet = runCatching {
                 json.decodeFromString<List<Long>>(prefs[KEY_DELETED] ?: "[]")
             }.getOrNull().orEmpty().toSet()
@@ -150,9 +148,13 @@ object MsgSessionCache {
             manualOrder = runCatching {
                 json.decodeFromString<List<Long>>(prefs[KEY_ORDER] ?: "[]")
             }.getOrNull().orEmpty()
-            // 快照里的未读总数：求和近似（冷启动观感），live 刷新后以服务端顶层值为准
-            _unread.value = raw.sumOf { it.newMsgCount }
             _manualOrderActive.value = manualOrder.isNotEmpty()
+            // 只有 live 数据还没到位时才用磁盘快照铺（快照可能过期，live 优先）
+            if (_allItems.value == null && !liveFetched) {
+                _allItems.value = raw
+                // 快照里的未读总数：求和近似（冷启动观感），live 刷新后以服务端顶层值为准
+                _unread.value = raw.sumOf { it.newMsgCount }
+            }
             recomputeDisplay()
         }
     }

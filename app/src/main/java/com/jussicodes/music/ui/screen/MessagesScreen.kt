@@ -1,5 +1,6 @@
 package com.jussicodes.music.ui.screen
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
@@ -13,15 +14,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberLazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -178,7 +177,8 @@ fun MessagesScreen(
 
             when (selectedTab) {
                 0 -> {
-                    if (sessionsLoading) {
+                    // 冷启动：磁盘快照已有数据时直接铺列表（后台静默刷新），只有"无数据且加载中"才转圈
+                    if (sessionsLoading && sessions.isEmpty()) {
                         item { MsgLoadingRow() }
                     } else if (sessions.isEmpty()) {
                         item { MsgEmptyRow(stringResource(R.string.msg_empty_sessions)) }
@@ -362,6 +362,7 @@ private fun MsgNoticeRow(notice: MsgNotice) {
 
 /** 私信会话行：头像（右下角在线点，绿在线/灰离线）；首行昵称；次行 [VIP]/[互关] + 预览；
  * 右侧定宽列放未读角标 + 时间（严格右对齐成列）；grip 手柄长按拖拽排序（松手落盘）。 */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MsgSessionRow(
     session: MsgSessionCache.Item,
