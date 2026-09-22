@@ -315,7 +315,7 @@ private fun ChatBubble(
                             onClick = {
                                 mediaController?.setPlaylist(
                                     listOf(song.toPlayableSong()),
-                                    sourceName = stringResource(R.string.msg_tab_private)
+                                    sourceName = "私信"
                                 )
                                 mediaController?.playMediaAtId(song.id)
                             }
