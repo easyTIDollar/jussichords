@@ -1,5 +1,7 @@
 package com.jussicodes.music.ui.screen
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -56,6 +59,7 @@ import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
+import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.PlaylistNav
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.formatTimestamp
@@ -103,6 +107,14 @@ private fun songCoverFromRaw(rawSong: JsonObject?): String {
         ?: blur?.takeIf { it.isNotBlank() }
         ?: ""
 }
+
+/** 原始 JsonObject 取字符串字段（容错：缺失/null 返回空）。 */
+private fun JsonObject?.jStr(key: String): String? =
+    (this?.get(key) as? JsonPrimitive)?.content
+
+/** 原始 JsonObject 取 long 字段（容错）。 */
+private fun JsonObject?.jLong(key: String): Long =
+    (this?.get(key) as? JsonPrimitive)?.content?.toLongOrNull() ?: 0L
 
 /** 私信内层的歌单小模型。 */
 private fun playlistCardName(p: MsgPrivatePlaylist): String =
@@ -261,6 +273,9 @@ fun PrivateChatScreen(
                                     navController.navigate(
                                         PlaylistNav(playlistId = playlistId, noCache = true)
                                     )
+                                },
+                                onOpenAlbum = { albumId ->
+                                    navController.navigate(AlbumNav(albumId = albumId))
                                 }
                             )
                         }
@@ -277,7 +292,8 @@ private fun ChatBubble(
     msg: MsgPrivateMessage,
     contactId: Long,
     mediaController: androidx.media3.session.MediaController?,
-    onOpenPlaylist: (Long) -> Unit
+    onOpenPlaylist: (Long) -> Unit,
+    onOpenAlbum: (Long) -> Unit
 ) {
     val isMine = msg.toUser?.userId == contactId
     val inner = msg.msg
@@ -291,6 +307,20 @@ private fun ChatBubble(
         .takeIf { it.isNotBlank() }
         ?.let { runCatching { chatInnerJson.parseToJsonElement(it) }.getOrNull() as? JsonObject }
     val songCover = if (song != null) songCoverFromRaw(rawObj?.get("song") as? JsonObject) else ""
+    // 专辑 / MV / 一起听(generalMsg) 的卡片数据：ncmapi 模型只有 song/playlist，一律从原始 JSON 取
+    val album = (rawObj?.get("album") as? JsonObject)?.takeIf { it.jLong("id") > 0 }
+    val mv = (rawObj?.get("mv") as? JsonObject)?.takeIf { it.jLong("id") > 0 }
+    val general = rawObj?.get("generalMsg") as? JsonObject
+    val showGeneralCard = general != null &&
+        (general.jStr("title").isNotBlank() || general.jStr("cover").isNotBlank())
+    // 正文兜底：msg 文本为空时用 generalMsg.inboxBriefContent（"一起听"邀请的文案）
+    val textBody = body.ifBlank { general?.jStr("inboxBriefContent").orEmpty() }
+
+    val ctx = LocalContext.current
+    fun openExternal(url: String) {
+        if (url.isBlank()) return
+        runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+    }
     val cardColor = if (isMine) MaterialTheme.colorScheme.onPrimary
         else MaterialTheme.colorScheme.onSurface
 
@@ -323,9 +353,9 @@ private fun ChatBubble(
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Column(modifier = Modifier.widthIn(max = 264.dp)) {
-                    if (body.isNotBlank()) {
+                    if (textBody.isNotBlank()) {
                         Text(
-                            text = body,
+                            text = textBody,
                             style = MaterialTheme.typography.bodyMedium,
                             color = cardColor
                         )
@@ -355,6 +385,49 @@ private fun ChatBubble(
                             accent = cardColor,
                             cardBg = cardBg,
                             onClick = { onOpenPlaylist(playlist.id) }
+                        )
+                    }
+                    // 专辑卡片：封面 + 专辑名/歌手，点击进专辑详情
+                    if (album != null) {
+                        Spacer(Modifier.size(6.dp))
+                        MsgResourceCard(
+                            title = album.jStr("name") ?: "",
+                            subtitle = (album?.get("artist") as? JsonObject)?.jStr("name") ?: "",
+                            tag = stringResource(R.string.msg_chat_album_title),
+                            cover = album.jStr("picUrl")
+                                ?.ifBlank { album.jStr("blurPicUrl") }
+                                ?: "",
+                            accent = cardColor,
+                            cardBg = cardBg,
+                            onClick = { onOpenAlbum(album.jLong("id")) }
+                        )
+                    }
+                    // MV 卡片：封面 + 歌名/歌手，点击开网易云 MV 页
+                    if (mv != null) {
+                        Spacer(Modifier.size(6.dp))
+                        MsgResourceCard(
+                            title = mv.jStr("name") ?: "",
+                            subtitle = mv.jStr("artistName") ?: "",
+                            tag = stringResource(R.string.msg_chat_mv_title),
+                            cover = mv.jStr("imgurl")
+                                ?.ifBlank { mv.jStr("imgurl16v9") }
+                                ?: "",
+                            accent = cardColor,
+                            cardBg = cardBg,
+                            onClick = { openExternal("https://music.163.com/mv/${mv.jLong("id")}") }
+                        )
+                    }
+                    // 一起听 / 运营通知卡片：generalMsg（封面 + 标题，文案兜底在正文）
+                    if (showGeneralCard) {
+                        Spacer(Modifier.size(6.dp))
+                        MsgResourceCard(
+                            title = general?.jStr("title") ?: "",
+                            subtitle = "",
+                            tag = stringResource(R.string.msg_chat_general_hint),
+                            cover = general?.jStr("cover") ?: "",
+                            accent = cardColor,
+                            cardBg = cardBg,
+                            clickable = false
                         )
                     }
                 }
@@ -488,6 +561,73 @@ private fun PlaylistCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = accent.copy(alpha = 0.7f)
             )
+        }
+    }
+}
+
+/** 资源小卡片（专辑 / MV / 一起听等）：封面 + 名称 + 副标题（类型 · 歌手），点击进详情/外链。 */
+@Composable
+private fun MsgResourceCard(
+    title: String,
+    tag: String,
+    subtitle: String,
+    cover: String,
+    accent: androidx.compose.ui.graphics.Color,
+    cardBg: androidx.compose.ui.graphics.Color,
+    onClick: () -> Unit = {},
+    clickable: Boolean = true
+) {
+    val secondLine = listOf(tag, subtitle).filter { it.isNotBlank() }.joinToString(" · ")
+    val clickableModifier = if (clickable) Modifier.clickable(onClick = onClick) else Modifier
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(cardBg)
+            .then(clickableModifier)
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(6.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (cover.isNotBlank()) {
+                AsyncImage(
+                    model = cover.toCoverImageUrl(CoverImageSize.LIST),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp))
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title.ifBlank { stringResource(R.string.msg_no_content) },
+                style = MaterialTheme.typography.bodyMedium,
+                color = accent,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+            if (secondLine.isNotBlank()) {
+                Text(
+                    text = secondLine,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = accent.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
