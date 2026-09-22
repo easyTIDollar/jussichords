@@ -93,7 +93,7 @@ private fun MsgPrivateSong.toPlayableSong(cover: String): Song = Song(
  */
 private fun songCoverFromRaw(rawSong: JsonObject?): String {
     fun str(obj: JsonObject?, key: String): String? =
-        (obj?.get(key) as? JsonPrimitive)?.takeIf { !it.isJsonNull }?.content
+        (obj?.get(key) as? JsonPrimitive)?.content
     val top = str(rawSong, "picUrl")
     val album = rawSong?.get("album") as? JsonObject
     val albumPic = str(album, "picUrl")
