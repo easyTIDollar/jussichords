@@ -129,28 +129,6 @@ data class MsgPrivatePlaylist(
     @SerialName("picUrl") val picUrl: String = ""
 )
 
-/** 最近联系人（/msg/recentcontact）单项；userType 0=普通用户 207=带身份标识账号，其余（如 10 官方号）不可私信。 */
-@Serializable
-data class MsgRecentContact(
-    @SerialName("userId") val userId: Long = 0,
-    val nickname: String = "",
-    @SerialName("avatarUrl") val avatarUrl: String = "",
-    val userType: Int = 0,
-    val onlined: Boolean = false
-)
-
-@Serializable
-data class MsgRecentContactsData(
-    val follow: List<MsgRecentContact> = emptyList()
-)
-
-/** 最近联系人响应；count 参数被 NCM 忽略，follow 为全量列表（按最近私信时间排序）。 */
-@Serializable
-data class MsgRecentContactsResponse(
-    val code: Int = 0,
-    val data: MsgRecentContactsData? = null
-)
-
 /** 发送私信响应（/send 系列）：code 200=成功，301=需登录；重复歌单等失败原因在 msg。 */
 @Serializable
 data class MsgSendResponse(

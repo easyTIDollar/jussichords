@@ -39,16 +39,7 @@ object MsgApi {
             before?.let { put("before", it) }
         })
 
-    /** 最近联系人（/msg/recentcontact，需登录）。NCM 忽略 count 参数，返回全量 follow 列表；
-     *  客户端取前 N 个、过滤自己与官方号（userType 非 0/207）。 */
-    suspend fun recentContacts(): Result<MsgRecentContactsResponse> =
-        apiGet("/msg/recentcontact")
-
-    /** 发送文本私信（/send/text，需登录）。userIds 多个用逗号隔开。 */
-    suspend fun sendText(userIds: String, msg: String): Result<MsgSendResponse> =
-        apiGet("/send/text", mapOf("user_ids" to userIds, "msg" to msg))
-
-    /** 发送歌曲私信（/send/song，需登录）。 */
+    /** 发送歌曲私信（/send/song，需登录）；msg 为附言，可留空。 */
     suspend fun sendSong(userIds: String, songId: Long, msg: String = ""): Result<MsgSendResponse> =
         apiGet("/send/song", buildMap {
             put("user_ids", userIds)

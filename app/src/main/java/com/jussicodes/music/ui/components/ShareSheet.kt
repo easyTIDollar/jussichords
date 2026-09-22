@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,12 +44,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.jussicodes.music.R
+import com.jussicodes.music.data.MsgContactCache
+import com.jussicodes.music.data.MsgRecentContact
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.toCoverImageUrl
-import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.msg.MsgApi
 import com.rcmiku.ncmapi.model.Album
-import com.rcmiku.ncmapi.model.MsgRecentContact
 import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.Song
 import kotlinx.coroutines.launch
@@ -75,8 +76,7 @@ sealed interface SharePayload {
         }
 }
 
-/** 最近联系人可私信的 userType：0=普通用户，207=带身份标识账号；官方号（如 10）不可私信。 */
-private val DM_USER_TYPES = setOf(0, 207)
+/** 分享菜单上排展示的联系人数量上限。 */
 private const val MAX_CONTACTS = 5
 
 /**
@@ -93,23 +93,20 @@ fun ShareSheet(
 ) {
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val context = LocalContext.current
-    var loading by remember { mutableStateOf(true) }
-    var contacts by remember { mutableStateOf<List<MsgRecentContact>>(emptyList()) }
+    val scope = rememberCoroutineScope()
     var selectedContact by remember { mutableStateOf<MsgRecentContact?>(null) }
+    // 复用消息页私信列表的联系人缓存（/msg/recentcontact），分享入口不再自发起请求
+    val cachedContacts by MsgContactCache.contacts.collectAsState()
+    val loading = cachedContacts == null
 
     LaunchedEffect(openBottomSheet, payload) {
         if (openBottomSheet) {
             bottomSheetState.show()
-            loading = true
             selectedContact = null
-            val mineUid = AccountApi.account().getOrNull()?.account?.profile?.userId ?: 0L
-            contacts = MsgApi.recentContacts().getOrNull()?.data?.follow.orEmpty()
-                .filter { it.userId != mineUid && it.userType in DM_USER_TYPES }
-                .distinctBy { it.userId }
-                .take(MAX_CONTACTS)
-            loading = false
+            MsgContactCache.ensureLoaded(scope)
         }
     }
+    val contacts = (cachedContacts.orEmpty()).take(MAX_CONTACTS)
 
     if (openBottomSheet) {
         ModalBottomSheet(

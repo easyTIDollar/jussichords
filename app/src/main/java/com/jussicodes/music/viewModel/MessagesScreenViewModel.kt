@@ -8,6 +8,7 @@ import com.rcmiku.ncmapi.model.MsgComment
 import com.rcmiku.ncmapi.model.MsgForward
 import com.rcmiku.ncmapi.model.MsgNotice
 import com.rcmiku.ncmapi.model.MsgPrivateMessage
+import com.jussicodes.music.data.MsgContactCache
 import com.jussicodes.music.data.MsgRecentContact
 import com.jussicodes.music.data.MsgRecentContactsResponse
 import com.rcmiku.ncmapi.api.apiGet
@@ -72,7 +73,11 @@ class MessagesScreenViewModel @Inject constructor() : ViewModel() {
             launch {
                 _contactsLoading.value = true
                 apiGet<MsgRecentContactsResponse>("/msg/recentcontact")
-                    .onSuccess { _contacts.value = it.follow.filter { c -> c.userType in CONTACT_ALLOWED_USER_TYPES } }
+                    .onSuccess {
+                        val filtered = it.follow.filter { c -> c.userType in CONTACT_ALLOWED_USER_TYPES }
+                        _contacts.value = filtered
+                        MsgContactCache.publish(filtered, uid)
+                    }
                 _contactsLoading.value = false
             }
             launch {
