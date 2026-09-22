@@ -92,10 +92,12 @@ private fun MsgPrivateSong.toPlayableSong(cover: String): Song = Song(
  * MsgPrivateSong 没带 album 字段，故直接对原始 JSON 取值。
  */
 private fun songCoverFromRaw(rawSong: JsonObject?): String {
-    val top = (rawSong?.get("picUrl") as? JsonPrimitive)?.contentOrNull
+    fun str(obj: JsonObject?, key: String): String? =
+        (obj?.get(key) as? JsonPrimitive)?.takeIf { !it.isJsonNull }?.content
+    val top = str(rawSong, "picUrl")
     val album = rawSong?.get("album") as? JsonObject
-    val albumPic = (album?.get("picUrl") as? JsonPrimitive)?.contentOrNull
-    val blur = (album?.get("blurPicUrl") as? JsonPrimitive)?.contentOrNull
+    val albumPic = str(album, "picUrl")
+    val blur = str(album, "blurPicUrl")
     return top?.takeIf { it.isNotBlank() }
         ?: albumPic?.takeIf { it.isNotBlank() }
         ?: blur?.takeIf { it.isNotBlank() }
