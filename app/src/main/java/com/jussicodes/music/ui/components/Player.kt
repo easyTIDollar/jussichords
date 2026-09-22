@@ -135,6 +135,9 @@ fun Player(
     selectedPlayerLabelOption: Int = 0,
     onPlayerLabelOptionSelected: (Int) -> Unit = {},
     metadataClickEnabled: Boolean = true,
+    // 跳到 音乐人/专辑 页后的收尾动作；null 时回退到 onBackPressed()。
+    // 小播放器路径默认收起全屏；私人 FM 传空实现，FM 页留在返回栈里，back 可回到 FM。
+    onAfterNavigate: (() -> Unit)? = null,
 ) {
 
     BackHandler {
@@ -583,7 +586,7 @@ fun Player(
                                             when {
                                                 artists.size == 1 -> {
                                                     navController.navigate(ArtistNav(artistId = artists.first().id))
-                                                    onBackPressed()
+                                                    onAfterNavigate?.invoke() ?: onBackPressed()
                                                 }
                                                 artists.size > 1 -> openArtistSheet = true
                                             }
@@ -831,7 +834,7 @@ fun Player(
                 onDismiss = { openAlbumSheet = false },
                 onAlbumClick = { album ->
                     navController.navigate(AlbumNav(albumId = album.id))
-                    onBackPressed()
+                    onAfterNavigate?.invoke() ?: onBackPressed()
                 })
             ArtistBottomSheet(
                 currentSong = it,
@@ -839,7 +842,7 @@ fun Player(
                 onDismiss = { openArtistSheet = false },
                 onClick = { artist ->
                     navController.navigate(ArtistNav(artistId = artist.id))
-                    onBackPressed()
+                    onAfterNavigate?.invoke() ?: onBackPressed()
                 })
         }
 
