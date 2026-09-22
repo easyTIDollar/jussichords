@@ -57,6 +57,7 @@ import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.navigation.AlbumNav
@@ -141,6 +142,11 @@ fun PrivateChatScreen(
     var draft by remember { mutableStateOf("") }
     val chatList = remember(history) { history.asReversed() }
     val listState = rememberLazyListState()
+
+    // 进入聊天即视为已读：本地清掉该会话未读（NCM 无私信已读标记 API，服务端不受控）
+    LaunchedEffect(Unit) {
+        MsgSessionCache.markRead(viewModel.contactUserId)
+    }
 
     LaunchedEffect(refreshTick) {
         if (chatList.isNotEmpty()) listState.scrollToItem(chatList.lastIndex)
