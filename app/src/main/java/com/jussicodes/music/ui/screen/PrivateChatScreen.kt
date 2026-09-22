@@ -85,7 +85,6 @@ private fun MsgPrivateSong.toPlayableSong(): Song = Song(
 )
 
 /** 私信内层的歌单小模型。 */
-@Suppress("UNUSED_PARAMETER")
 private fun playlistCardName(p: MsgPrivatePlaylist): String =
     p.name.ifBlank { p.coverImgUrl.takeIf { it.isNotBlank() } ?: "歌单" }
 
@@ -311,7 +310,6 @@ private fun ChatBubble(
                         Spacer(Modifier.size(6.dp))
                         SongCard(
                             song = song,
-                            mine = isMine,
                             accent = cardColor,
                             cardBg = cardBg,
                             onClick = {
@@ -328,7 +326,6 @@ private fun ChatBubble(
                         Spacer(Modifier.size(6.dp))
                         PlaylistCard(
                             playlist = playlist,
-                            mine = isMine,
                             accent = cardColor,
                             cardBg = cardBg,
                             onClick = { onOpenPlaylist(playlist.id) }
@@ -350,7 +347,6 @@ private fun ChatBubble(
 @Composable
 private fun SongCard(
     song: MsgPrivateSong,
-    mine: Boolean,
     accent: androidx.compose.ui.graphics.Color,
     cardBg: androidx.compose.ui.graphics.Color,
     onClick: () -> Unit
@@ -415,7 +411,6 @@ private fun SongCard(
 @Composable
 private fun PlaylistCard(
     playlist: MsgPrivatePlaylist,
-    mine: Boolean,
     accent: androidx.compose.ui.graphics.Color,
     cardBg: androidx.compose.ui.graphics.Color,
     onClick: () -> Unit
