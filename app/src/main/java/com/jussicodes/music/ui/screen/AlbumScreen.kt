@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -71,6 +72,8 @@ import com.jussicodes.music.ui.components.PlayerComments
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
+import com.jussicodes.music.ui.components.SharePayload
+import com.jussicodes.music.ui.components.ShareSheet
 import com.jussicodes.music.ui.icons.LibraryAdd
 import com.jussicodes.music.ui.icons.LibraryAddCheck
 import com.jussicodes.music.ui.icons.ModeComment
@@ -108,6 +111,7 @@ fun AlbumScreen(
     val albumInfoState by albumScreenViewModel.albumInfo.collectAsState()
     var openBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openAlbumComments by rememberSaveable { mutableStateOf(false) }
+    var sharePayload by remember { mutableStateOf<SharePayload?>(null) }
     var selectSong by remember { mutableStateOf<Song?>(null) }
     var previewCoverUrl by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
@@ -182,6 +186,12 @@ fun AlbumScreen(
                                     contentDescription = "固定到主页"
                                 )
                             }
+                        }
+                        IconButton(onClick = { sharePayload = SharePayload.AlbumShare(album) }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Share,
+                                contentDescription = stringResource(R.string.share)
+                            )
                         }
                     }
                 }
@@ -336,6 +346,14 @@ fun AlbumScreen(
         onDismiss = { openBottomSheet = false },
         openBottomSheet = openBottomSheet
     )
+
+    sharePayload?.let { payload ->
+        ShareSheet(
+            payload = payload,
+            openBottomSheet = true,
+            onDismiss = { sharePayload = null }
+        )
+    }
 
     previewCoverUrl?.let { imageUrl ->
         LargeImageDialog(

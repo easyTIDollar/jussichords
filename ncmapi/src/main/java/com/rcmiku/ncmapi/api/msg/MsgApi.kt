@@ -38,4 +38,37 @@ object MsgApi {
             put("limit", limit)
             before?.let { put("before", it) }
         })
+
+    /** 最近联系人（/msg/recentcontact，需登录）。NCM 忽略 count 参数，返回全量 follow 列表；
+     *  客户端取前 N 个、过滤自己与官方号（userType 非 0/207）。 */
+    suspend fun recentContacts(): Result<MsgRecentContactsResponse> =
+        apiGet("/msg/recentcontact")
+
+    /** 发送文本私信（/send/text，需登录）。userIds 多个用逗号隔开。 */
+    suspend fun sendText(userIds: String, msg: String): Result<MsgSendResponse> =
+        apiGet("/send/text", mapOf("user_ids" to userIds, "msg" to msg))
+
+    /** 发送歌曲私信（/send/song，需登录）。 */
+    suspend fun sendSong(userIds: String, songId: Long, msg: String = ""): Result<MsgSendResponse> =
+        apiGet("/send/song", buildMap {
+            put("user_ids", userIds)
+            put("id", songId)
+            if (msg.isNotBlank()) put("msg", msg)
+        })
+
+    /** 发送专辑私信（/send/album，需登录）。 */
+    suspend fun sendAlbum(userIds: String, albumId: Long, msg: String = ""): Result<MsgSendResponse> =
+        apiGet("/send/album", buildMap {
+            put("user_ids", userIds)
+            put("id", albumId)
+            if (msg.isNotBlank()) put("msg", msg)
+        })
+
+    /** 发送歌单私信（/send/playlist，需登录）；不能发重复歌单。 */
+    suspend fun sendPlaylist(userIds: String, playlistId: Long, msg: String = ""): Result<MsgSendResponse> =
+        apiGet("/send/playlist", buildMap {
+            put("user_ids", userIds)
+            put("playlist", playlistId)
+            if (msg.isNotBlank()) put("msg", msg)
+        })
 }

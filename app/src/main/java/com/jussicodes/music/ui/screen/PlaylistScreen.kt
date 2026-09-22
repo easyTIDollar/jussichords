@@ -95,6 +95,8 @@ import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.PlaylistThumbnailImage
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
+import com.jussicodes.music.ui.components.SharePayload
+import com.jussicodes.music.ui.components.ShareSheet
 import com.jussicodes.music.ui.icons.LibraryAdd
 import com.jussicodes.music.ui.icons.LibraryAddCheck
 import com.jussicodes.music.ui.icons.ModeComment
@@ -140,6 +142,7 @@ fun PlaylistScreen(
     var openBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openPlaylistComments by rememberSaveable { mutableStateOf(false) }
     var playlistMenuExpanded by remember { mutableStateOf(false) }
+    var sharePayload by remember { mutableStateOf<SharePayload?>(null) }
     var showEditPlaylistDialog by remember { mutableStateOf(false) }
     var editPlaylistName by remember { mutableStateOf("") }
     var editPlaylistDescription by remember { mutableStateOf("") }
@@ -262,6 +265,16 @@ fun PlaylistScreen(
                                     onClick = {
                                         playlistMenuExpanded = false
                                         coverPicker.launch("image/*")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("分享歌单") },
+                                    onClick = {
+                                        val playlist = playlistDetailState?.playlist
+                                        playlistMenuExpanded = false
+                                        if (playlist != null) {
+                                            sharePayload = SharePayload.PlaylistShare(playlist)
+                                        }
                                     }
                                 )
                             }
@@ -518,6 +531,14 @@ fun PlaylistScreen(
         onDismiss = { openBottomSheet = false },
         openBottomSheet = openBottomSheet
     )
+
+    sharePayload?.let { payload ->
+        ShareSheet(
+            payload = payload,
+            openBottomSheet = true,
+            onDismiss = { sharePayload = null }
+        )
+    }
 
     previewCoverUrl?.let { imageUrl ->
         LargeImageDialog(

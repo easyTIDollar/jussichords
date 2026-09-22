@@ -1,6 +1,5 @@
 package com.jussicodes.music.ui.components
 
-import android.content.Intent
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -80,6 +79,7 @@ fun SongMenuBottomSheet(
     var openArtistPickerBottomSheet by rememberSaveable { mutableStateOf(false) }
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var openSongListBottomSheet by rememberSaveable { mutableStateOf(false) }
+    var openShareSheet by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val mediaController = LocalPlayerController.current.controller
     val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
@@ -354,21 +354,8 @@ fun SongMenuBottomSheet(
                                 .fillMaxWidth()
                                 .height(64.dp)
                                 .clickable(onClick = {
-                                    song?.id?.let {
-                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/plain"
-                                            putExtra(
-                                                Intent.EXTRA_TEXT,
-                                                "https://music.163.com/#/song?id=${it}"
-                                            )
-                                        }
-                                        context.startActivity(
-                                            Intent.createChooser(
-                                                shareIntent,
-                                                context.getString(R.string.share_link)
-                                            )
-                                        )
-                                    }
+                                    openShareSheet = true
+                                    onDismiss()
                                 }), verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
@@ -391,18 +378,23 @@ fun SongMenuBottomSheet(
         }
     }
 
-    song?.let {
+    song?.let { song ->
         ArtistPickerBottomSheet(
-            artists = it.ar,
+            artists = song.ar,
             openBottomSheet = openArtistPickerBottomSheet,
             onDismiss = { openArtistPickerBottomSheet = false },
             onClick = { artist ->
                 navController.navigate(ArtistNav(artistId = artist.id))
             }
         )
-        SongListBottomSheet(song = it, onDismiss = {
+        SongListBottomSheet(song = song, onDismiss = {
             openSongListBottomSheet = false
         }, openBottomSheet = openSongListBottomSheet)
+        ShareSheet(
+            payload = SharePayload.SongShare(song),
+            openBottomSheet = openShareSheet,
+            onDismiss = { openShareSheet = false }
+        )
     }
 }
 
