@@ -312,7 +312,7 @@ private fun ChatBubble(
     val mv = (rawObj?.get("mv") as? JsonObject)?.takeIf { it.jLong("id") > 0 }
     val general = rawObj?.get("generalMsg") as? JsonObject
     val showGeneralCard = general != null &&
-        (general.jStr("title").isNotBlank() || general.jStr("cover").isNotBlank())
+        (general.jStr("title").orEmpty().isNotBlank() || general.jStr("cover").orEmpty().isNotBlank())
     // 正文兜底：msg 文本为空时用 generalMsg.inboxBriefContent（"一起听"邀请的文案）
     val textBody = body.ifBlank { general?.jStr("inboxBriefContent").orEmpty() }
 
