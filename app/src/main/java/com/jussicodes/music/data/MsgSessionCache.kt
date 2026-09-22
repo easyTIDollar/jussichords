@@ -1,22 +1,34 @@
 package com.jussicodes.music.data
 
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.apiGet
+import com.rcmiku.ncmapi.utils.json
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Collections
 import java.util.HashSet
-import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 
@@ -24,18 +36,26 @@ import java.util.TimeZone
  * 私信会话列表的应用级缓存：/msg/private 为骨架（会话+预览+未读），
  * /msg/recentcontact 补皮肤（在线 / VIP / 互关），按 userId 合并。
  *
- * 写入路径：[publish]（消息页 ViewModel 拉取成功后回写）、
- * [markRead]（进聊天页本地清未读——NCM 无已读标记 API，见实测 /msg/private/read 404）。
- * 读取路径：[ensureLoaded]（App 启动预热 / 分享菜单打开时若缓存为空则并行懒加载一次，失败不重试）。
+ * 列表不再按 userType 过滤——所有会话（普通/官方/系统号/商家）全量放出，
+ * 过滤只发生在分享菜单（本地按 [allowedUserTypes] 筛，避免给系统号发私信）。
+ *
+ * 持久化（DataStore，重启生效）：
+ * - 全量快照（JSON）：冷启动先铺列表，0 网络；随后 [ensureLoaded] 静默并行刷新；
+ * - 已删除会话 uid 集合（本地隐藏，NCM 无私信会话删除 API）；
+ * - 手动拖拽排序（uid 数组；空 = 按最后消息时间倒序）。
+ *
+ * 写入路径：[publish]（消息页 ViewModel 全量刷新回写）、[append]（分页/预热追加）、
+ * [markRead]（进聊天页本地清未读——NCM 无已读标记 API，见实测 /msg/private/read 404）、
+ * [deleteSession] / [setManualOrder]（用户操作）。
  */
 object MsgSessionCache {
 
-    /** 可私信的对象：普通用户(0) 与 207；音乐人/商家/系统号一律过滤。 */
+    /** 可私信的对象：普通用户(0) 与 207；分享菜单本地过滤用，私信列表不过滤。 */
     val allowedUserTypes = setOf(0, 207)
 
     private val lenientJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    /** 合并后的会话行：对方资料 + 预览 + 时间 + 未读 + 在线 + VIP/互关。 */
+    @Serializable
     data class Item(
         val user: MsgSessionUser,
         val preview: String,
@@ -70,9 +90,19 @@ object MsgSessionCache {
             }
     }
 
-    /** null = 未加载；空列表 = 已加载但无可发会话。 */
+    private val KEY_SNAPSHOT = stringPreferencesKey("msgSessionsCache")
+    private val KEY_DELETED = stringPreferencesKey("msgDeletedUids")
+    private val KEY_ORDER = stringPreferencesKey("msgManualOrder")
+
+    /** 服务端原始数据（全类型、未删、未排序）；null = 尚无磁盘快照且未拉取过。 */
+    private val _allItems = MutableStateFlow<List<Item>?>(null)
+
+    /** 展示列表 = 全量 − 已删除 + 手动序（无手动序则按时间倒序）。null 仅在 init 前。 */
     private val _items = MutableStateFlow<List<Item>?>(null)
     val items: StateFlow<List<Item>?> = _items.asStateFlow()
+
+    private val _deletedUids = MutableStateFlow<Set<Long>>(emptySet())
+    val deletedUids: StateFlow<Set<Long>> = _deletedUids.asStateFlow()
 
     /** 全账号未读总数（/msg/private 顶层 newMsgCount，markRead 后本地递减），>0 时消息入口显红点。 */
     private val _unread = MutableStateFlow(0)
@@ -82,17 +112,57 @@ object MsgSessionCache {
     private val readUids = Collections.synchronizedSet(HashSet<Long>())
 
     @Volatile
+    private var deletedSet: Set<Long> = emptySet()          // 仅主线程读写
+    @Volatile
+    private var manualOrder: List<Long> = emptyList()       // 仅主线程读写；空 = 时间倒序
+    private val _manualOrderActive = MutableStateFlow(false)
+    val manualOrderActive: StateFlow<Boolean> = _manualOrderActive.asStateFlow()
+
+    @Volatile
+    private var store: DataStore<Preferences>? = null
+    @Volatile
+    private var initialized = false
+    @Volatile
     private var loading = false
     @Volatile
-    private var fetchFailed = false
+    private var liveFetched = false
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
-     * 纯转换：单条会话 → 缓存 Item（过滤 userType 0/207、排除自己、解析预览）。
+     * Application.onCreate 调一次：读 DataStore 快照铺列表（冷启动 0 网络），
+     * 顺带恢复删除集合与手动排序。主线程 runBlocking 读，毫秒级。
+     */
+    fun init(context: Context) {
+        if (initialized) return
+        initialized = true
+        val ds = context.applicationContext.dataStore
+        store = ds
+        runBlocking {
+            val prefs = ds.data.first()
+            val raw = prefs[KEY_SNAPSHOT]?.let {
+                runCatching { json.decodeFromString<List<Item>>(it) }.getOrNull()
+            }.orEmpty()
+            _allItems.value = raw
+            deletedSet = runCatching {
+                json.decodeFromString<List<Long>>(prefs[KEY_DELETED] ?: "[]")
+            }.getOrNull().orEmpty().toSet()
+            _deletedUids.value = deletedSet
+            manualOrder = runCatching {
+                json.decodeFromString<List<Long>>(prefs[KEY_ORDER] ?: "[]")
+            }.getOrNull().orEmpty()
+            // 快照里的未读总数：求和近似（冷启动观感），live 刷新后以服务端顶层值为准
+            _unread.value = raw.sumOf { it.newMsgCount }
+            _manualOrderActive.value = manualOrder.isNotEmpty()
+            recomputeDisplay()
+        }
+    }
+
+    /**
+     * 纯转换：单条会话 → 缓存 Item（排除自己、解析预览）。**不过滤 userType**（列表全量展示）。
      * VIP/互关优先取会话自带字段，缺失时回退 [rc]（recentcontact 快照）；不触碰缓存状态。
      */
     fun toItem(s: MsgPrivateSession, myUid: Long, online: Boolean, rc: MsgRecentContact? = null): Item? {
         val other = s.otherUser(myUid) ?: return null
-        if (other.userType !in allowedUserTypes) return null
         if (other.userId == myUid) return null
         val vipType = if (other.vipType != 0) other.vipType else (rc?.vipType ?: 0)
         val mutual = other.mutual || rc?.mutual == true
@@ -107,36 +177,124 @@ object MsgSessionCache {
         )
     }
 
-    /** 消息页 ViewModel 拉取成功后回写（已转成 Item、已过滤；本地已读清零同步套用，刷新后以服务端值为准）。 */
-    fun publish(items: List<Item>, totalUnread: Int = 0) {
-        val (cleaned, removed) = synchronized(readUids) {
-            val removedTotal = items.sumOf {
+    /** 消息页 ViewModel 刷新/分页回写：**upsert 合并**（不截断已分页数据，重复 uid 以新数据为准）；
+     * [totalUnread] 传值时按本地已读清零重算全局未读。 */
+    fun upsert(items: List<Item>, totalUnread: Int? = null) {
+        val cleaned = items.map {
+            if (it.user.userId in readUids) it.copy(newMsgCount = 0) else it
+        }
+        // 新数据优先：同 uid 以本次拉取为准；旧数据里未出现的 uid 追加在后（不截断已分页数据）
+        val newUids = cleaned.mapTo(HashSet()) { it.user.userId }
+        _allItems.value = cleaned + (_allItems.value.orEmpty().filter { it.user.userId !in newUids })
+        if (totalUnread != null) {
+            val removed = _allItems.value!!.sumOf {
                 if (it.user.userId in readUids) it.newMsgCount else 0
             }
-            val cleanedList = items.map {
-                if (it.user.userId in readUids) it.copy(newMsgCount = 0) else it
-            }
-            cleanedList to removedTotal
+            _unread.value = (totalUnread - removed).coerceAtLeast(0)
+            liveFetched = true
         }
-        _items.value = cleaned.distinctBy { it.user.userId }
-        _unread.value = (totalUnread - removed).coerceAtLeast(0)
-        fetchFailed = false
+        recomputeDisplay()
+        saveSnapshot()
     }
 
-    /** 分页追加（offset>0）：把新一页 Item 拼到已有列表，按 uid 去重。 */
-    fun append(items: List<Item>) {
-        val merged = (_items.value ?: emptyList()) + items
-        _items.value = merged.distinctBy { it.user.userId }
-        fetchFailed = false
+    /** 长按删除：本地隐藏该会话（NCM 无私信会话删除 API），持久化，重启保留。 */
+    fun deleteSession(userId: Long) {
+        if (userId <= 0) return
+        if (userId in deletedSet) return
+        val orderBefore = manualOrder
+        deletedSet = deletedSet + userId
+        _deletedUids.value = deletedSet
+        manualOrder = orderBefore.filterNot { it == userId }
+        _manualOrderActive.value = manualOrder.isNotEmpty()
+        recomputeDisplay()
+        saveDeleted()
+        if (manualOrder.size != orderBefore.size) saveOrder()
+    }
+
+    /** 拖拽排序：传入当前完整展示序的 uid 数组；空列表 = 恢复时间倒序。持久化。 */
+    fun setManualOrder(uids: List<Long>) {
+        manualOrder = uids.distinct()
+        _manualOrderActive.value = manualOrder.isNotEmpty()
+        recomputeDisplay()
+        saveOrder()
+    }
+
+    /** 恢复已删除的会话（顶栏"排序"按钮长按 / 会话恢复入口用）：从全量集合移除。 */
+    fun restoreDeleted(userId: Long) {
+        if (userId <= 0) return
+        val before = manualOrder.size
+        deletedSet = deletedSet - userId
+        _deletedUids.value = deletedSet
+        manualOrder = manualOrder.filterNot { it == userId }
+        _manualOrderActive.value = manualOrder.isNotEmpty()
+        recomputeDisplay()
+        saveDeleted()
+        if (manualOrder.size != before) saveOrder()
+    }
+
+    /** 清除手动排序，回到时间倒序（持久化）。 */
+    fun resetManualOrder() {
+        if (manualOrder.isEmpty()) return
+        manualOrder = emptyList()
+        _manualOrderActive.value = false
+        recomputeDisplay()
+        saveOrder()
+    }
+
+    /** 拖拽排序（松手前，每次跨项调用一次）：只改内存 + 重算展示，不触发 IO。 */
+    fun applyManualOrderLive(uids: List<Long>) {
+        manualOrder = uids.distinct()
+        _manualOrderActive.value = manualOrder.isNotEmpty()
+        recomputeDisplay()
+    }
+
+    /** 拖拽松手：把当前 manualOrder 落盘（配合 [applyManualOrderLive]）。 */
+    fun flushManualOrder() {
+        if (manualOrder.isEmpty()) return
+        saveOrder()
+    }
+
+    /** 拖拽排序（每次跨项触发）：在当前展示序里把 [fromUid] 移到 [toUid] 位置；只改内存，松手 [flushManualOrder] 落盘。 */
+    fun moveItem(fromUid: Long, toUid: Long) {
+        val current = _items.value ?: return
+        val uids = current.map { it.user.userId }
+        val f = uids.indexOf(fromUid)
+        val t = uids.indexOf(toUid)
+        if (f < 0 || t < 0 || f == t) return
+        val list = uids.toMutableList()
+        list.add(t, list.removeAt(f))
+        applyManualOrderLive(list)
+    }
+
+    /** 一键恢复全部已删除会话（顶栏菜单用）：清空删除集合，持久化。 */
+    fun restoreAllDeleted() {
+        if (deletedSet.isEmpty()) return
+        deletedSet = emptySet()
+        _deletedUids.value = emptySet()
+        recomputeDisplay()
+        saveDeleted()
+    }
+
+    /** 进入聊天页：本地清掉该会话未读（NCM 无私信已读标记 API；刷新恢复服务端值，纯本地观感）。 */
+    fun markRead(userId: Long) {
+        if (userId <= 0) return
+        val current = _allItems.value ?: return
+        val target = current.firstOrNull { it.user.userId == userId } ?: return
+        if (target.newMsgCount <= 0) return
+        readUids.add(userId)
+        _allItems.value = current.map { if (it.user.userId == userId) it.copy(newMsgCount = 0) else it }
+        _unread.value = (_unread.value - target.newMsgCount).coerceAtLeast(0)
+        recomputeDisplay()
+        saveSnapshot()
     }
 
     /**
-     * 分享菜单打开 / App 启动预热时调用：缓存已有则直接读；否则**并行**拉
-     * 账号 uid（5s）+ /msg/private（主数据，10s）+ /msg/recentcontact（VIP/互关/在线 best-effort，5s），
-     * 总时延 = 三路最慢者（旧实现是三段串行，最坏 20s——分享菜单首次打开"转很久"的根因）；失败不重试。
+     * 分享菜单打开 / App 启动预热时调用：已有 live 数据则跳过；否则**并行**拉
+     * 账号 uid（5s）+ /msg/private（主数据，8s）+ /msg/recentcontact（在线/VIP/互关，5s），
+     * 总时延 = 三路最慢者；成功后 [append]（不截断 VM 已分页出的数据），失败保留磁盘快照。
      */
     fun ensureLoaded(scope: CoroutineScope) {
-        if (_items.value != null || loading || fetchFailed) return
+        if (liveFetched || loading) return
         loading = true
         scope.launch {
             val a = async {
@@ -145,7 +303,7 @@ object MsgSessionCache {
                 } ?: 0L
             }
             val p = async {
-                withTimeoutOrNull(10_000) {
+                withTimeoutOrNull(8_000) {
                     apiGet<MsgPrivateSessionsResponse>(
                         "/msg/private",
                         mapOf("limit" to 30, "offset" to 0)
@@ -162,34 +320,50 @@ object MsgSessionCache {
             val rcList = r.await()?.follow.orEmpty()
             val rcMap = rcList.associateBy { it.userId }
             val onlineUids = rcList.filter { it.onlined }.mapTo(HashSet()) { it.userId }
-            if (resp != null && _items.value == null) {
-                // _items 已被消息页 ViewModel 的分页逻辑填充（refresh/loadMore 先跑完）时
-                // 放弃本次预热发布，避免"首屏一页"覆盖掉 ViewModel 已追加的多页数据造成重复
+            if (resp != null) {
                 val items = resp.msgs.mapNotNull { s ->
                     val other = s.otherUser(meUid) ?: return@mapNotNull null
-                    if (other.userType !in allowedUserTypes) return@mapNotNull null
                     if (other.userId == meUid) return@mapNotNull null
                     toItem(s, meUid, onlineUids.contains(other.userId), rcMap[other.userId])
                 }
-                publish(items, resp.newMsgCount)
-            } else if (resp == null && _items.value == null) {
-                // 只有缓存还没被消息页 ViewModel 填充过时才写空态，避免冲掉已分页出的数据
-                _items.value = emptyList()
-                fetchFailed = true
+                upsert(items, resp.newMsgCount)
             }
             loading = false
         }
     }
 
-    /** 进入聊天页：本地清掉该会话未读（NCM 无私信已读标记 API；刷新恢复服务端值，纯本地观感）。 */
-    fun markRead(userId: Long) {
-        if (userId <= 0) return
-        val current = _items.value ?: return
-        val target = current.firstOrNull { it.user.userId == userId } ?: return
-        if (target.newMsgCount <= 0) return
-        readUids.add(userId)
-        _items.value = current.map { if (it.user.userId == userId) it.copy(newMsgCount = 0) else it }
-        _unread.value = (_unread.value - target.newMsgCount).coerceAtLeast(0)
+    /** 展示列表 = 全量 − 删除 + 手动序（无手动序按最后消息时间倒序）。 */
+    private fun recomputeDisplay() {
+        val all = _allItems.value ?: return
+        val visible = all.filter { it.user.userId !in deletedSet }
+        _items.value = if (manualOrder.isEmpty()) {
+            visible.sortedByDescending { it.lastMsgTime }
+        } else {
+            val byUid = visible.associateBy { it.user.userId }
+            val pinned = manualOrder.mapNotNull { byUid[it] }
+            val pinnedSet = pinned.mapTo(HashSet()) { it.user.userId }
+            val rest = visible.filter { it.user.userId !in pinnedSet }
+                .sortedByDescending { it.lastMsgTime }
+            pinned + rest
+        }
+    }
+
+    private fun saveSnapshot() {
+        val s = store ?: return
+        val payload = json.encodeToString(_allItems.value ?: emptyList())
+        ioScope.launch { s.edit { it[KEY_SNAPSHOT] = payload } }
+    }
+
+    private fun saveDeleted() {
+        val s = store ?: return
+        val payload = json.encodeToString(deletedSet.toList())
+        ioScope.launch { s.edit { it[KEY_DELETED] = payload } }
+    }
+
+    private fun saveOrder() {
+        val s = store ?: return
+        val payload = json.encodeToString(manualOrder)
+        ioScope.launch { s.edit { it[KEY_ORDER] = payload } }
     }
 
     /**

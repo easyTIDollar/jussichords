@@ -1,7 +1,9 @@
 package com.jussicodes.music.ui.screen
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,15 +13,24 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,11 +40,13 @@ import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,6 +70,7 @@ import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.formatTimestamp
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.MessagesScreenViewModel
+import com.jussicodes.music.ui.icons.DragHandle
 import com.rcmiku.ncmapi.model.MsgComment
 import com.rcmiku.ncmapi.model.MsgForward
 import com.rcmiku.ncmapi.model.MsgNotice
@@ -64,6 +78,8 @@ import com.rcmiku.ncmapi.model.MsgNoticeInner
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 /** 内层 JSON（私信 msg / 通知 notice 都是字符串 JSON）容错解析。 */
 private val innerJson = Json {
@@ -80,15 +96,33 @@ fun MessagesScreen(
     val comments by viewModel.comments.collectAsState()
     val forwards by viewModel.forwards.collectAsState()
     val notices by viewModel.notices.collectAsState()
-    // 会话列表读缓存（单一数据源）：loadMore/refresh/markRead 都回写缓存，
+    // 会话列表读缓存（单一数据源）：loadMore/refresh/markRead/拖拽/删除都回写缓存，
     // 进聊天页本地已读后角标自动消；viewModel 仅负责 loading / hasMore / loadMore。
     val cacheSessions by MsgSessionCache.items.collectAsState()
     val sessions = cacheSessions.orEmpty()
     val sessionsLoading by viewModel.sessionsLoading.collectAsState()
     val sessionsHasMore by viewModel.sessionsHasMore.collectAsState()
+    val sessionsMoreFailed by viewModel.sessionsMoreFailed.collectAsState()
     val commentsLoading by viewModel.commentsLoading.collectAsState()
     val forwardsLoading by viewModel.forwardsLoading.collectAsState()
     val noticesLoading by viewModel.noticesLoading.collectAsState()
+    // 顶栏菜单状态（持久化在缓存：重启生效）
+    val manualOrderActive by MsgSessionCache.manualOrderActive.collectAsState()
+    val deletedUids by MsgSessionCache.deletedUids.collectAsState()
+    var deleteTarget by remember { mutableStateOf<MsgSessionCache.Item?>(null) }
+
+    val listState = rememberLazyListState()
+    val reorderableState = rememberReorderableLazyListState(listState) { from, to ->
+        // key = userId（Long）；缓存层按当前展示序移动并只改内存，松手再落盘
+        (from.key as? Long)?.let { f -> (to.key as? Long)?.let { t ->
+            if (f != t) MsgSessionCache.moveItem(f, t)
+        } }
+    }
+    // 拖拽松手 → 落盘（applyManualOrderLive 只改内存，flush 才写 DataStore）
+    val dragging = reorderableState.isAnyItemDragging
+    LaunchedEffect(dragging) {
+        if (!dragging) MsgSessionCache.flushManualOrder()
+    }
 
     var selectedTab by remember { mutableIntStateOf(0) }
     val titles = listOf(
@@ -109,11 +143,22 @@ fun MessagesScreen(
                             contentDescription = null
                         )
                     }
+                },
+                actions = {
+                    if (selectedTab == 0) {
+                        SessionsTopMenu(
+                            manualOrderActive = manualOrderActive,
+                            hasDeleted = deletedUids.isNotEmpty(),
+                            onResetOrder = { MsgSessionCache.resetManualOrder() },
+                            onRestoreAllDeleted = { MsgSessionCache.restoreAllDeleted() }
+                        )
+                    }
                 }
             )
         }
     ) { padding ->
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -138,27 +183,39 @@ fun MessagesScreen(
                     } else if (sessions.isEmpty()) {
                         item { MsgEmptyRow(stringResource(R.string.msg_empty_sessions)) }
                     } else {
-                        // 接近底部（倒数第 2 行进入视口）自动加载下一页；
-                        // 短列表（全部可见）也立即补拉，直到 hasMore=false
-                        items(sessions.size, key = { sessions[it].user.userId }) { index ->
-                            val item = sessions[index]
-                            MsgSessionRow(
-                                session = item,
-                                autoLoadMore = index >= sessions.size - 2,
-                                onLoadMore = { viewModel.loadMoreSessions() },
-                                onClick = {
-                                    navController.navigate(
-                                        PrivateChatNav(
-                                            userId = item.user.userId,
-                                            nickname = item.user.nickname,
-                                            avatarUrl = item.user.avatarUrl
+                        // 私信会话：全量（不过滤 userType）− 本地已删除 + 手动序；
+                        // 拖拽手柄排序（reorderable 库，长按 DragHandle 起拖）、长按弹删除确认、
+                        // 接近底部（倒数第 4 行）自动补拉下一页、仅加载失败时显"点击重试"尾行。
+                        itemsIndexed(
+                            sessions,
+                            key = { _, item -> item.user.userId }
+                        ) { index, item ->
+                            val autoLoadMore = index >= sessions.size - 4
+                            ReorderableItem(
+                                state = reorderableState,
+                                key = item.user.userId,
+                            ) { isDragging ->
+                                MsgSessionRow(
+                                    session = item,
+                                    isDragging = isDragging,
+                                    autoLoadMore = autoLoadMore,
+                                    onLoadMore = { viewModel.loadMoreSessions() },
+                                    onLongClick = { deleteTarget = item },
+                                    onClick = {
+                                        navController.navigate(
+                                            PrivateChatNav(
+                                                userId = item.user.userId,
+                                                nickname = item.user.nickname,
+                                                avatarUrl = item.user.avatarUrl
+                                            )
                                         )
-                                    )
-                                }
-                            )
+                                    },
+                                    handleModifier = Modifier.longPressDraggableHandle()
+                                )
+                            }
                         }
-                        if (sessionsHasMore) {
-                            item { MsgMoreLoadingRow() }
+                        if (sessionsMoreFailed) {
+                            item { MsgRetryRow(onClick = { viewModel.loadMoreSessions() }) }
                         }
                     }
                 }
@@ -196,6 +253,28 @@ fun MessagesScreen(
                     }
                 }
             }
+        }
+
+        // 长按会话行 → 删除确认框（本地隐藏该会话，持久化；顶栏 ⋮ 可一键恢复）
+        deleteTarget?.let { target ->
+            AlertDialog(
+                onDismissRequest = { deleteTarget = null },
+                title = { Text(stringResource(R.string.msg_session_delete_title)) },
+                text = { Text(stringResource(R.string.msg_session_delete_text, target.user.nickname)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        MsgSessionCache.deleteSession(target.user.userId)
+                        deleteTarget = null
+                    }) {
+                        Text(stringResource(R.string.confirm))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { deleteTarget = null }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                }
+            )
         }
     }
 }
@@ -281,17 +360,21 @@ private fun MsgNoticeRow(notice: MsgNotice) {
     )
 }
 
-/** 私信会话行：头像；首行 昵称 + 在线点/[VIP]/[互关]（左）+ 未读角标/时间（右）；次行预览。 */
+/** 私信会话行：头像（右下角在线点，绿在线/灰离线）；首行昵称；次行 [VIP]/[互关] + 预览；
+ * 右侧定宽列放未读角标 + 时间（严格右对齐成列）；grip 手柄长按拖拽排序（松手落盘）。 */
 @Composable
 private fun MsgSessionRow(
     session: MsgSessionCache.Item,
+    isDragging: Boolean,
     autoLoadMore: Boolean,
+    handleModifier: Modifier,
     onLoadMore: () -> Unit,
+    onLongClick: () -> Unit,
     onClick: () -> Unit
 ) {
     val other = session.user
 
-    // 接近底部 / 短列表全可见时自动补拉下一页（loadMoreSessions 内部已有防抖/去重）
+    // 接近底部（倒数第 4 行进入视口）自动补拉下一页（loadMoreSessions 内部防抖/去重）
     LaunchedEffect(autoLoadMore) {
         if (autoLoadMore) onLoadMore()
     }
@@ -299,75 +382,98 @@ private fun MsgSessionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .background(
+                if (isDragging) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent
+            )
+            .clip(RoundedCornerShape(8.dp))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AsyncImage(
-            model = other.avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(ListThumbnailSize)
-                .clip(RoundedCornerShape(ThumbnailCornerRadius))
-        )
+        Box(modifier = Modifier.size(ListThumbnailSize)) {
+            AsyncImage(
+                model = other.avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(RoundedCornerShape(ThumbnailCornerRadius))
+            )
+            // 在线状态点：头像右下角（绿 = 在线，灰 = 离线）
+            Box(
+                modifier = Modifier
+                    .size(10.dp)
+                    .align(Alignment.BottomEnd)
+                    .clip(CircleShape)
+                    .background(if (session.onlined) Color(0xFF4CAF50) else Color(0xFF9E9E9E))
+                    .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
+            )
+        }
         Column(
             modifier = Modifier
                 .weight(1f)
                 .padding(start = 10.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            // 首行：昵称 + 状态标签（在线/VIP/互关）左，未读角标 + 时间右
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = other.nickname,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            // 次行：[VIP] [互关] 标签 + 预览（标签统一从次行行首开始，不受昵称长度影响）
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                val hasTags = session.vipType != 0 || session.mutual
+                if (session.vipType != 0) MsgStateTag(stringResource(R.string.msg_contact_vip))
+                if (session.mutual) MsgStateTag(stringResource(R.string.msg_contact_mutual))
+                if (hasTags) Spacer(Modifier.width(4.dp))
                 Text(
-                    text = other.nickname,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
+                    text = session.preview,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                if (session.onlined) {
-                    // 在线绿点（昵称旁）
-                    Box(
-                        modifier = Modifier
-                            .padding(start = 6.dp)
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF4CAF50))
-                    )
-                }
-                if (session.vipType != 0) {
-                    MsgStateTag("VIP")
-                }
-                if (session.mutual) {
-                    MsgStateTag("互关")
-                }
-                Spacer(Modifier.weight(1f))
-                if (session.newMsgCount > 0) {
-                    // 未读角标
-                    Text(
-                        text = if (session.newMsgCount > 99) "99+" else session.newMsgCount.toString(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.error)
-                            .padding(horizontal = 5.dp, vertical = 1.dp)
-                    )
-                }
+            }
+        }
+        // 拖拽手柄：长按 grip 起拖排序（长按行体 = 删除确认框，两手势互不冲突）
+        Icon(
+            imageVector = DragHandle,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = handleModifier
+                .size(20.dp)
+                .padding(start = 4.dp)
+        )
+        // 右侧定宽列：未读角标 + 时间戳（End 对齐，所有行严格成一条竖线）
+        Column(
+            modifier = Modifier
+                .width(64.dp)
+                .padding(start = 4.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            if (session.newMsgCount > 0) {
                 Text(
-                    text = session.displayTime,
+                    text = if (session.newMsgCount > 99) "99+" else session.newMsgCount.toString(),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 6.dp)
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.error)
+                        .padding(horizontal = 5.dp, vertical = 1.dp)
                 )
             }
-            // 次行：最后一条消息预览（灰、单行省略）
             Text(
-                text = session.preview,
+                text = session.displayTime,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -375,7 +481,7 @@ private fun MsgSessionRow(
     }
 }
 
-/** 昵称旁的小状态标签（VIP / 互关）：灰底圆角，紧跟昵称。 */
+/** 小状态标签（VIP / 互关）：灰底圆角，次行行首并排。 */
 @Composable
 private fun MsgStateTag(text: String) {
     Text(
@@ -390,17 +496,53 @@ private fun MsgStateTag(text: String) {
     )
 }
 
-/** 会话列表分页：尾部小转圈（自动加载时显示，非按钮）。 */
+/** 顶栏 ⋮ 菜单（仅私信 tab）：手动排序生效时可"恢复按时间排序"；有被删会话时可一键恢复。 */
 @Composable
-private fun MsgMoreLoadingRow() {
-    Box(
+private fun SessionsTopMenu(
+    manualOrderActive: Boolean,
+    hasDeleted: Boolean,
+    onResetOrder: () -> Unit,
+    onRestoreAllDeleted: () -> Unit
+) {
+    if (!manualOrderActive && !hasDeleted) return
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(Icons.Outlined.MoreVert, contentDescription = null)
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            if (manualOrderActive) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.msg_menu_reset_order)) },
+                    onClick = { onResetOrder(); expanded = false }
+                )
+            }
+            if (hasDeleted) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.msg_menu_restore_deleted)) },
+                    onClick = { onRestoreAllDeleted(); expanded = false }
+                )
+            }
+        }
+    }
+}
+
+/** 分页加载失败尾行（无缝加载：正常时不显示任何尾行，仅失败时给"点击重试"）。 */
+@Composable
+private fun MsgRetryRow(onClick: () -> Unit) {
+    Text(
+        text = stringResource(R.string.msg_more_load_failed),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.error,
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(onClick = onClick)
             .padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        CircularProgressIndicator(Modifier.size(24.dp))
-    }
+        textAlign = TextAlign.Center
+    )
 }
 
 /** 通用消息行：头像 + 标题 + 副文本 + 时间。 */

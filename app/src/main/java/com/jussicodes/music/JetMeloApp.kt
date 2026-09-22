@@ -16,6 +16,7 @@ import com.jussicodes.music.constants.apiServerListKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.data.ExplorePreloader
+import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.data.SongSourceCache
 import com.jussicodes.music.utils.AppVisibilityTracker
 import com.jussicodes.music.utils.AppUpdateManager
@@ -48,6 +49,7 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         AppVisibilityTracker.register(this)
         SongSourceCache.init(this)
         ExplorePreloader.init(this)
+        MsgSessionCache.init(this)
         UserAgentProvider.init(UserAgentUtil.DEFAULT_USER_AGENT)
         // Fill the explore flows from disk cache immediately, so the explore
         // tab renders content on first frame even while the cookie config

@@ -107,7 +107,10 @@ fun ShareSheet(
             MsgSessionCache.ensureLoaded(scope)
         }
     }
-    val contacts = (cachedItems.orEmpty()).take(MAX_CONTACTS)
+    // 列表全量不过滤（含系统号/商家），分享联系人本地只留可私信类型，避免给系统号发私信
+    val contacts = (cachedItems.orEmpty())
+        .filter { it.user.userType in MsgSessionCache.allowedUserTypes }
+        .take(MAX_CONTACTS)
 
     if (openBottomSheet) {
         ModalBottomSheet(

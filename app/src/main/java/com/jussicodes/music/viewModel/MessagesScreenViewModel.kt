@@ -50,6 +50,9 @@ class MessagesScreenViewModel @Inject constructor() : ViewModel() {
     /** 分页追加进行中标记（与首屏 _sessionsLoading 分开，追加时不重触发整表转圈）。 */
     private val _sessionsMoreLoading = MutableStateFlow(false)
     val sessionsMoreLoading: StateFlow<Boolean> = _sessionsMoreLoading.asStateFlow()
+    /** 最近一次分页拉取失败（无缝加载：不显示尾部转圈，只在失败时给一行"点击重试"）。 */
+    private val _sessionsMoreFailed = MutableStateFlow(false)
+    val sessionsMoreFailed: StateFlow<Boolean> = _sessionsMoreFailed.asStateFlow()
     @Volatile
     private var moreLoading = false
     // NCM 视角的原始返回条数（未过滤前）。分页 offset 必须用它，
@@ -110,7 +113,7 @@ class MessagesScreenViewModel @Inject constructor() : ViewModel() {
                     rawFetched = resp.msgs.size
                     val items = mergeSessions(resp.msgs, uid)
                     _sessionsHasMore.value = resp.more
-                    MsgSessionCache.publish(items, resp.newMsgCount)
+                    MsgSessionCache.upsert(items, resp.newMsgCount)
                 }
                 _sessionsLoading.value = false
             }
@@ -148,6 +151,7 @@ class MessagesScreenViewModel @Inject constructor() : ViewModel() {
         if (!_sessionsHasMore.value || _sessionsLoading.value || moreLoading) return
         moreLoading = true
         _sessionsMoreLoading.value = true
+        _sessionsMoreFailed.value = false
         viewModelScope.launch {
             val uid = _myUid.value
             val offset = rawFetched
@@ -155,14 +159,14 @@ class MessagesScreenViewModel @Inject constructor() : ViewModel() {
                 "/msg/private",
                 mapOf("limit" to PAGE_SIZE, "offset" to offset)
             ).getOrNull()
+            _sessionsMoreFailed.value = resp == null
             if (resp != null) {
                 rawFetched += resp.msgs.size
                 val appended = resp.msgs.mapNotNull { s -> mergeOne(s, uid) }
-                MsgSessionCache.append(appended)
+                MsgSessionCache.upsert(appended)
                 _sessionsHasMore.value = resp.more
-                // 这一页全被过滤掉时 hasMore 仍可能为 true，但无新内容可展示：
-                // 停掉以避免"滑到底部一直转圈"的死循环观感
-                if (appended.isEmpty()) _sessionsHasMore.value = false
+                // 本页 0 条（服务端到底）：停掉避免"滑到底部一直重试"
+                if (resp.msgs.isEmpty()) _sessionsHasMore.value = false
             }
             moreLoading = false
             _sessionsMoreLoading.value = false
