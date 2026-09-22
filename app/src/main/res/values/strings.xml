@@ -116,4 +116,5 @@
     <string name="msg_chat_input_hint">说点什么…</string>
     <string name="msg_chat_send">发送</string>
     <string name="msg_chat_empty">还没有私信，发一条吧</string>
+    <string name="msg_chat_playlist_hint">点击查看歌单</string>
 </resources>

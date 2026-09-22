@@ -81,7 +81,10 @@ fun MessagesScreen(
     val forwards by viewModel.forwards.collectAsState()
     val notices by viewModel.notices.collectAsState()
     val contacts by viewModel.contacts.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
+    val contactsLoading by viewModel.contactsLoading.collectAsState()
+    val commentsLoading by viewModel.commentsLoading.collectAsState()
+    val forwardsLoading by viewModel.forwardsLoading.collectAsState()
+    val noticesLoading by viewModel.noticesLoading.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) }
     val titles = listOf(
@@ -106,83 +109,95 @@ fun MessagesScreen(
             )
         }
     ) { padding ->
-        if (isLoading) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            item {
+                SecondaryTabRow(selectedTabIndex = selectedTab) {
+                    titles.forEachIndexed { index, title ->
+                        Tab(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            text = { Text(title) }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.size(8.dp))
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                item {
-                    SecondaryTabRow(selectedTabIndex = selectedTab) {
-                        titles.forEachIndexed { index, title ->
-                            Tab(
-                                selected = selectedTab == index,
-                                onClick = { selectedTab = index },
-                                text = { Text(title) }
+
+            when (selectedTab) {
+                0 -> {
+                    if (contactsLoading) {
+                        item { MsgLoadingRow() }
+                    } else if (contacts.isEmpty()) {
+                        item { MsgEmptyRow(stringResource(R.string.msg_empty_contacts)) }
+                    } else {
+                        items(contacts.size, key = { contacts[it].userId }) { index ->
+                            MsgContactRow(
+                                contact = contacts[index],
+                                onClick = {
+                                    navController.navigate(
+                                        PrivateChatNav(
+                                            userId = contacts[index].userId,
+                                            nickname = contacts[index].nickname,
+                                            avatarUrl = contacts[index].avatarUrl
+                                        )
+                                    )
+                                }
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.size(8.dp))
                 }
-
-                when (selectedTab) {
-                    0 -> {
-                        if (contacts.isEmpty()) {
-                            item { MsgEmptyRow(stringResource(R.string.msg_empty_contacts)) }
-                        } else {
-                            items(contacts.size, key = { contacts[it].userId }) { index ->
-                                MsgContactRow(
-                                    contact = contacts[index],
-                                    onClick = {
-                                        navController.navigate(
-                                            PrivateChatNav(
-                                                userId = contacts[index].userId,
-                                                nickname = contacts[index].nickname,
-                                                avatarUrl = contacts[index].avatarUrl
-                                            )
-                                        )
-                                    }
-                                )
-                            }
+                1 -> {
+                    if (commentsLoading) {
+                        item { MsgLoadingRow() }
+                    } else if (comments.isEmpty()) {
+                        item { MsgEmptyRow(stringResource(R.string.msg_empty_comments)) }
+                    } else {
+                        items(comments.size, key = { comments[it].commentId }) { index ->
+                            MsgCommentRow(comments[index])
                         }
                     }
-                    1 -> {
-                        if (comments.isEmpty()) {
-                            item { MsgEmptyRow(stringResource(R.string.msg_empty_comments)) }
-                        } else {
-                            items(comments.size, key = { comments[it].commentId }) { index ->
-                                MsgCommentRow(comments[index])
-                            }
+                }
+                2 -> {
+                    if (forwardsLoading) {
+                        item { MsgLoadingRow() }
+                    } else if (forwards.isEmpty()) {
+                        item { MsgEmptyRow(stringResource(R.string.msg_empty_mentions)) }
+                    } else {
+                        items(forwards.size, key = { it }) { index ->
+                            MsgForwardRow(forwards[index])
                         }
                     }
-                    2 -> {
-                        if (forwards.isEmpty()) {
-                            item { MsgEmptyRow(stringResource(R.string.msg_empty_mentions)) }
-                        } else {
-                            items(forwards.size, key = { it }) { index ->
-                                MsgForwardRow(forwards[index])
-                            }
-                        }
-                    }
-                    3 -> {
-                        if (notices.isEmpty()) {
-                            item { MsgEmptyRow(stringResource(R.string.msg_empty_notices)) }
-                        } else {
-                            items(notices.size, key = { notices[it].id }) { index ->
-                                MsgNoticeRow(notices[index])
-                            }
+                }
+                3 -> {
+                    if (noticesLoading) {
+                        item { MsgLoadingRow() }
+                    } else if (notices.isEmpty()) {
+                        item { MsgEmptyRow(stringResource(R.string.msg_empty_notices)) }
+                    } else {
+                        items(notices.size, key = { notices[it].id }) { index ->
+                            MsgNoticeRow(notices[index])
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/** 单个区块尚未加载完成时，列表位转圈（不挡住 tab 切换）。 */
+@Composable
+private fun MsgLoadingRow() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator(Modifier.size(28.dp))
     }
 }
 
