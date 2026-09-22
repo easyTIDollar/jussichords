@@ -3,12 +3,14 @@ package com.jussicodes.music.ui.components
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.align
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -37,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -44,8 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.jussicodes.music.R
-import com.jussicodes.music.data.MsgContactCache
-import com.jussicodes.music.data.MsgRecentContact
+import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.rcmiku.ncmapi.api.msg.MsgApi
@@ -94,19 +96,19 @@ fun ShareSheet(
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var selectedContact by remember { mutableStateOf<MsgRecentContact?>(null) }
-    // 复用消息页私信列表的联系人缓存（/msg/recentcontact），分享入口不再自发起请求
-    val cachedContacts by MsgContactCache.contacts.collectAsState()
-    val loading = cachedContacts == null
+    var selectedContact by remember { mutableStateOf<MsgSessionCache.Item?>(null) }
+    // 复用消息页私信会话缓存（/msg/private + /msg/recentcontact 在线状态），分享入口不再自发起请求
+    val cachedItems by MsgSessionCache.items.collectAsState()
+    val loading = cachedItems == null
 
     LaunchedEffect(openBottomSheet, payload) {
         if (openBottomSheet) {
             bottomSheetState.show()
             selectedContact = null
-            MsgContactCache.ensureLoaded(scope)
+            MsgSessionCache.ensureLoaded(scope)
         }
     }
-    val contacts = (cachedContacts.orEmpty()).take(MAX_CONTACTS)
+    val contacts = (cachedItems.orEmpty()).take(MAX_CONTACTS)
 
     if (openBottomSheet) {
         ModalBottomSheet(
@@ -158,7 +160,7 @@ fun ShareSheet(
                                     ContactAvatar(contact)
                                     Spacer(Modifier.height(6.dp))
                                     Text(
-                                        text = contact.nickname.ifBlank { "用户${contact.userId}" },
+                                        text = contact.user.nickname.ifBlank { "用户${contact.user.userId}" },
                                         style = MaterialTheme.typography.labelSmall,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
@@ -194,7 +196,7 @@ fun ShareSheet(
 /** 联系人私信输入框：发送按钮在右；不输入直接发卡片，有文字则一并带出。 */
 @Composable
 private fun NcmMsgSendRow(
-    contact: MsgRecentContact,
+    contact: MsgSessionCache.Item,
     payload: SharePayload,
     onBack: () -> Unit,
     onClose: () -> Unit,
@@ -204,20 +206,21 @@ private fun NcmMsgSendRow(
     var msg by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    val other = contact.user
 
     fun send(text: String) {
         scope.launch {
             sending = true
             error = null
             val result = when (payload) {
-                is SharePayload.SongShare -> MsgApi.sendSong(contact.userId.toString(), payload.song.id, text)
-                is SharePayload.PlaylistShare -> MsgApi.sendPlaylist(contact.userId.toString(), payload.playlist.id, text)
-                is SharePayload.AlbumShare -> MsgApi.sendAlbum(contact.userId.toString(), payload.album.id, text)
+                is SharePayload.SongShare -> MsgApi.sendSong(other.userId.toString(), payload.song.id, text)
+                is SharePayload.PlaylistShare -> MsgApi.sendPlaylist(other.userId.toString(), payload.playlist.id, text)
+                is SharePayload.AlbumShare -> MsgApi.sendAlbum(other.userId.toString(), payload.album.id, text)
             }
             sending = false
             val resp = result.getOrNull()
             if (resp != null && resp.code == 200) {
-                Toast.makeText(context, "已发送给 ${contact.nickname.ifBlank { "对方" }}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "已发送给 ${other.nickname.ifBlank { "对方" }}", Toast.LENGTH_SHORT).show()
                 onClose()
             } else {
                 error = resp?.msg?.takeIf { it.isNotBlank() } ?: "发送失败，请稍后重试"
@@ -242,7 +245,7 @@ private fun NcmMsgSendRow(
             Spacer(Modifier.size(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = contact.nickname.ifBlank { "用户${contact.userId}" },
+                    text = other.nickname.ifBlank { "用户${other.userId}" },
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -287,16 +290,29 @@ private fun NcmMsgSendRow(
     }
 }
 
+/** 分享联系人头像：圆形 + 在线绿点（recentcontact.onlined）。 */
 @Composable
-private fun ContactAvatar(contact: MsgRecentContact) {
-    AsyncImage(
-        model = contact.avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
-        contentDescription = contact.nickname,
-        modifier = Modifier
-            .size(56.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-    )
+private fun ContactAvatar(contact: MsgSessionCache.Item) {
+    val other = contact.user
+    Box(modifier = Modifier.size(56.dp)) {
+        AsyncImage(
+            model = other.avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
+            contentDescription = other.nickname,
+            modifier = Modifier
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        )
+        // 在线点（右下角）
+        Box(
+            modifier = Modifier
+                .size(12.dp)
+                .align(Alignment.BottomEnd)
+                .clip(CircleShape)
+                .background(if (contact.onlined) Color(0xFF4CAF50) else Color.Gray)
+                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+        )
+    }
 }
 
 /** 下排应用格：系统分享兜底（“更多…”语义，复用现有 R.string.share_link 文案）。 */

@@ -8,8 +8,9 @@ import com.rcmiku.ncmapi.model.MsgComment
 import com.rcmiku.ncmapi.model.MsgForward
 import com.rcmiku.ncmapi.model.MsgNotice
 import com.rcmiku.ncmapi.model.MsgPrivateMessage
-import com.jussicodes.music.data.MsgContactCache
-import com.jussicodes.music.data.MsgRecentContact
+import com.jussicodes.music.data.MsgSessionCache
+import com.jussicodes.music.data.MsgPrivateSession
+import com.jussicodes.music.data.MsgPrivateSessionsResponse
 import com.jussicodes.music.data.MsgRecentContactsResponse
 import com.rcmiku.ncmapi.api.apiGet
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,10 +22,13 @@ import kotlinx.coroutines.launch
 
 /**
  * 消息中心页。
- * 提速：去掉「全屏 isLoading」，各区块（私信联系人 / 评论 / @我 / 通知 / 小秘书私信）
- * 并行且独立 loading——私信 tab 是默认首位，只等 /msg/recentcontact 一个请求，
+ * 提速：去掉「全屏 isLoading」，各区块（私信会话 / 评论 / @我 / 通知 / 小秘书私信）
+ * 并行且独立 loading——私信 tab 是默认首位，只等 /msg/private 一个请求，
  * 不再被最慢的区块拖住首屏；未就绪的区块在各自列表上方转圈，就绪即显示。
- * 最近联系（/msg/recentcontact）：按最近私信时间排序的联系人快照（约 43 人封顶），客户端仅保留 userType 0/207。
+ *
+ * 私信 tab（/msg/private）：会话列表（预览 + 未读 + 时间），按 lastMsgTime 倒序；
+ * /msg/recentcontact 仅作「在线状态」补丁（onlined），不进列表。
+ * 客户端仅保留 userType 0/207 的会话（音乐人/商家/系统号过滤）。
  */
 @HiltViewModel
 class MessagesScreenViewModel @Inject constructor() : ViewModel() {
@@ -33,11 +37,19 @@ class MessagesScreenViewModel @Inject constructor() : ViewModel() {
     private val _myUid = MutableStateFlow(0L)
     val myUid: StateFlow<Long> = _myUid.asStateFlow()
 
-    // —— 私信联系人（默认 tab，数据源 /msg/recentcontact）——
-    private val _contacts = MutableStateFlow(emptyList<MsgRecentContact>())
-    val contacts: StateFlow<List<MsgRecentContact>> = _contacts.asStateFlow()
-    private val _contactsLoading = MutableStateFlow(true)
-    val contactsLoading: StateFlow<Boolean> = _contactsLoading.asStateFlow()
+    // —— 私信会话（默认 tab，数据源 /msg/private + /msg/recentcontact 在线状态合并）——
+    private val _sessions = MutableStateFlow(emptyList<MsgSessionCache.Item>())
+    val sessions: StateFlow<List<MsgSessionCache.Item>> = _sessions.asStateFlow()
+    private val _sessionsLoading = MutableStateFlow(true)
+    val sessionsLoading: StateFlow<Boolean> = _sessionsLoading.asStateFlow()
+    private val _sessionsHasMore = MutableStateFlow(false)
+    val sessionsHasMore: StateFlow<Boolean> = _sessionsHasMore.asStateFlow()
+    /** 分页追加进行中标记（与首屏 _sessionsLoading 分开，追加时不重触发整表转圈）。 */
+    @Volatile
+    private var moreLoading = false
+    // NCM 视角的原始返回条数（未过滤前）。分页 offset 必须用它，
+    // 否则客户端过滤掉音乐人/系统号后列表变短，下一页 offset 错位、漏拉或重拉。
+    private var rawFetched = 0
 
     private val _comments = MutableStateFlow(emptyList<MsgComment>())
     val comments: StateFlow<List<MsgComment>> = _comments.asStateFlow()
@@ -69,16 +81,28 @@ class MessagesScreenViewModel @Inject constructor() : ViewModel() {
             val uid = AccountApi.account().getOrNull()?.account?.profile?.userId ?: 0L
             _myUid.value = uid
 
-            // 私信联系人：独立请求，默认 tab 只等它
+            // 私信会话：/msg/private 为主，/msg/recentcontact 仅补在线状态
             launch {
-                _contactsLoading.value = true
-                apiGet<MsgRecentContactsResponse>("/msg/recentcontact")
-                    .onSuccess {
-                        val filtered = it.follow.filter { c -> c.userType in CONTACT_ALLOWED_USER_TYPES }
-                        _contacts.value = filtered
-                        MsgContactCache.publish(filtered, uid)
-                    }
-                _contactsLoading.value = false
+                _sessionsLoading.value = true
+                _sessionsHasMore.value = false
+                rawFetched = 0
+                val resp = apiGet<MsgPrivateSessionsResponse>(
+                    "/msg/private",
+                    mapOf("limit" to PAGE_SIZE, "offset" to 0)
+                ).getOrNull()
+                if (resp != null) {
+                    rawFetched = resp.msgs.size
+                    val online = apiGet<MsgRecentContactsResponse>("/msg/recentcontact")
+                        .getOrNull()?.follow?.filter { it.onlined }?.mapTo(HashSet()) { it.userId }
+                        ?: emptySet()
+                    val items = mergeSessions(resp.msgs, uid, online)
+                    _sessions.value = items
+                    _sessionsHasMore.value = resp.more
+                    MsgSessionCache.publish(items, resp.newMsgCount)
+                } else {
+                    _sessions.value = emptyList()
+                }
+                _sessionsLoading.value = false
             }
             launch {
                 _forwardsLoading.value = true
@@ -109,8 +133,44 @@ class MessagesScreenViewModel @Inject constructor() : ViewModel() {
         }
     }
 
+    /** 会话列表分页加载（more=true 时）。offset = NCM 视角原始返回条数 rawFetched。 */
+    fun loadMoreSessions() {
+        val current = _sessions.value
+        if (!_sessionsHasMore.value || _sessionsLoading.value || moreLoading) return
+        moreLoading = true
+        viewModelScope.launch {
+            val uid = _myUid.value
+            val offset = rawFetched
+            val resp = apiGet<MsgPrivateSessionsResponse>(
+                "/msg/private",
+                mapOf("limit" to PAGE_SIZE, "offset" to offset)
+            ).getOrNull()
+            if (resp != null) {
+                rawFetched += resp.msgs.size
+                val appended = resp.msgs.mapNotNull { s -> MsgSessionCache.toItem(s, uid, false) }
+                _sessions.value = current + appended
+                _sessionsHasMore.value = resp.more
+                MsgSessionCache.publish(_sessions.value, resp.newMsgCount)
+            }
+            moreLoading = false
+        }
+    }
+
+    /**
+     * 会话 → 缓存 Item（过滤 userType 0/207、排除自己、解析预览、并入在线状态）。
+     * 纯函数，不触碰缓存状态。
+     */
+    private fun mergeSessions(
+        msgs: List<MsgPrivateSession>,
+        uid: Long,
+        onlineUids: Set<Long>
+    ): List<MsgSessionCache.Item> =
+        msgs.mapNotNull { s ->
+            val other = s.otherUser(uid)
+            MsgSessionCache.toItem(s, uid, other?.let { onlineUids.contains(it.userId) } ?: false)
+        }
+
     private companion object {
-        /** 私信联系人列表仅保留普通用户（0）与 207（官方枚举未公开，实测数据驱动）。 */
-        val CONTACT_ALLOWED_USER_TYPES = setOf(0, 207)
+        const val PAGE_SIZE = 30
     }
 }

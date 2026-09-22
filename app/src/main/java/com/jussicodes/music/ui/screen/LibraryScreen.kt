@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.align
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -71,6 +72,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
@@ -661,6 +663,7 @@ private fun LibraryUserCard(
 ) {
     val profile = userInfo.account.profile
     val secondaryText = profile.signature.takeIf { it.isNotBlank() }
+    val unread by com.jussicodes.music.data.MsgSessionCache.unread.collectAsState()
 
     Box(
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -672,14 +675,33 @@ private fun LibraryUserCard(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
-                FilledTonalIconButton(
-                    onClick = onMessagesClick,
-                    modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp)
-                ) {
-                    androidx.compose.material3.Icon(
-                        imageVector = Message,
-                        contentDescription = stringResource(R.string.messages)
-                    )
+                Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp)) {
+                    FilledTonalIconButton(
+                        onClick = onMessagesClick
+                    ) {
+                        androidx.compose.material3.Icon(
+                            imageVector = Message,
+                            contentDescription = stringResource(R.string.messages)
+                        )
+                    }
+                    // 全局未读红点（/msg/private 顶层 newMsgCount，来自 MsgSessionCache）
+                    if (unread > 0) {
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.error)
+                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            androidx.compose.material3.Text(
+                                text = if (unread > 99) "99+" else unread.toString(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onError,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
                 }
                 Row(
                     modifier = Modifier.align(Alignment.CenterEnd).padding(end = 14.dp),

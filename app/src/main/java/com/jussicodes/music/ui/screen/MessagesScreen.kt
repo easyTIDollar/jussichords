@@ -44,14 +44,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.ListThumbnailSize
 import com.jussicodes.music.constants.ThumbnailCornerRadius
-import com.jussicodes.music.data.MsgRecentContact
+import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.ui.navigation.PrivateChatNav
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.formatTimestamp
@@ -80,8 +79,9 @@ fun MessagesScreen(
     val comments by viewModel.comments.collectAsState()
     val forwards by viewModel.forwards.collectAsState()
     val notices by viewModel.notices.collectAsState()
-    val contacts by viewModel.contacts.collectAsState()
-    val contactsLoading by viewModel.contactsLoading.collectAsState()
+    val sessions by viewModel.sessions.collectAsState()
+    val sessionsLoading by viewModel.sessionsLoading.collectAsState()
+    val sessionsHasMore by viewModel.sessionsHasMore.collectAsState()
     val commentsLoading by viewModel.commentsLoading.collectAsState()
     val forwardsLoading by viewModel.forwardsLoading.collectAsState()
     val noticesLoading by viewModel.noticesLoading.collectAsState()
@@ -129,24 +129,30 @@ fun MessagesScreen(
 
             when (selectedTab) {
                 0 -> {
-                    if (contactsLoading) {
+                    if (sessionsLoading) {
                         item { MsgLoadingRow() }
-                    } else if (contacts.isEmpty()) {
-                        item { MsgEmptyRow(stringResource(R.string.msg_empty_contacts)) }
+                    } else if (sessions.isEmpty()) {
+                        item { MsgEmptyRow(stringResource(R.string.msg_empty_sessions)) }
                     } else {
-                        items(contacts.size, key = { contacts[it].userId }) { index ->
-                            MsgContactRow(
-                                contact = contacts[index],
+                        items(sessions.size, key = { sessions[it].user.userId }) { index ->
+                            val item = sessions[index]
+                            MsgSessionRow(
+                                session = item,
                                 onClick = {
                                     navController.navigate(
                                         PrivateChatNav(
-                                            userId = contacts[index].userId,
-                                            nickname = contacts[index].nickname,
-                                            avatarUrl = contacts[index].avatarUrl
+                                            userId = item.user.userId,
+                                            nickname = item.user.nickname,
+                                            avatarUrl = item.user.avatarUrl
                                         )
                                     )
                                 }
                             )
+                        }
+                        if (sessionsHasMore) {
+                            item {
+                                MsgMoreRow { viewModel.loadMoreSessions() }
+                            }
                         }
                     }
                 }
@@ -269,13 +275,13 @@ private fun MsgNoticeRow(notice: MsgNotice) {
     )
 }
 
-/** 私信联系人：头像 + 昵称 + VIP 标记；头像右下角互关角标、左下角在线点。 */
+/** 私信会话行：头像 + 昵称 + 时间（右上）；次行预览 + 未读角标；头像左下角在线点。 */
 @Composable
-private fun MsgContactRow(
-    contact: MsgRecentContact,
+private fun MsgSessionRow(
+    session: MsgSessionCache.Item,
     onClick: () -> Unit
 ) {
-    val isVip = contact.vipType != 0
+    val other = session.user
 
     Row(
         modifier = Modifier
@@ -289,9 +295,9 @@ private fun MsgContactRow(
                 .size(ListThumbnailSize)
                 .clip(RoundedCornerShape(ThumbnailCornerRadius))
         ) {
-            if (contact.avatarUrl.isNotBlank()) {
+            if (other.avatarUrl.isNotBlank()) {
                 AsyncImage(
-                    model = contact.avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
+                    model = other.avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
@@ -299,31 +305,13 @@ private fun MsgContactRow(
                         .clip(RoundedCornerShape(ThumbnailCornerRadius))
                 )
             }
-            // 互关角标（右下角）
-            if (contact.mutual) {
-                Box(
-                    modifier = Modifier
-                        .size(16.dp)
-                        .align(Alignment.BottomEnd)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = stringResource(R.string.msg_contact_mutual),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontSize = 10.sp
-                    )
-                }
-            }
             // 在线点（左下角）
             Box(
                 modifier = Modifier
                     .size(10.dp)
                     .align(Alignment.BottomStart)
                     .clip(CircleShape)
-                    .background(if (contact.onlined) Color(0xFF4CAF50) else Color.Gray)
+                    .background(if (session.onlined) Color(0xFF4CAF50) else Color.Gray)
             )
         }
         Column(
@@ -332,26 +320,61 @@ private fun MsgContactRow(
                 .padding(start = 10.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
+            // 首行：昵称（左）+ 时间（右）
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = other.nickname,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (session.newMsgCount > 0) {
+                    // 未读角标
+                    Text(
+                        text = if (session.newMsgCount > 99) "99+" else session.newMsgCount.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.error)
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
+                Text(
+                    text = session.displayTime,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            // 次行：最后一条消息预览（灰、单行省略）
             Text(
-                text = contact.nickname,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
+                text = session.preview,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            // VIP 标记：头像下方（昵称行下方）
-            if (isVip) {
-                Text(
-                    text = stringResource(R.string.msg_contact_vip),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                        .padding(horizontal = 6.dp, vertical = 1.dp)
-                )
-            }
         }
+    }
+}
+
+/** 会话分页「加载更多」行。 */
+@Composable
+private fun MsgMoreRow(onLoadMore: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onLoadMore)
+            .padding(vertical = 12.dp),
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = stringResource(R.string.msg_load_more),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary
+        )
     }
 }
 
