@@ -6,7 +6,8 @@ import kotlinx.serialization.SerialName
 /**
  * 私信聊天页用到的 app 本地模型（不走 ncmapi，端点直接 apiGet）。
  *
- * 最近联系（/msg/recentcontact）：实测返回全量关注列表（count 参数不生效，需登录）。
+ * 最近联系（/msg/recentcontact）：按最近私信往来时间排序的联系人快照，
+ * 实测约 43 人封顶（count 参数不生效，需登录）。字段名 follow 有误导性，并非全量关注列表。
  * 仅保留客户端展示/过滤用的字段；userType 过滤 0（普通）/ 207（官方未公开枚举，数据驱动）。
  */
 @Serializable

@@ -24,7 +24,7 @@ import kotlinx.coroutines.launch
  * 提速：去掉「全屏 isLoading」，各区块（私信联系人 / 评论 / @我 / 通知 / 小秘书私信）
  * 并行且独立 loading——私信 tab 是默认首位，只等 /msg/recentcontact 一个请求，
  * 不再被最慢的区块拖住首屏；未就绪的区块在各自列表上方转圈，就绪即显示。
- * 最近联系（/msg/recentcontact）返回全量关注，客户端仅保留 userType 0/207。
+ * 最近联系（/msg/recentcontact）：按最近私信时间排序的联系人快照（约 43 人封顶），客户端仅保留 userType 0/207。
  */
 @HiltViewModel
 class MessagesScreenViewModel @Inject constructor() : ViewModel() {
