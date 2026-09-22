@@ -69,6 +69,8 @@ import com.rcmiku.ncmapi.model.MsgPrivateSong
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.SongAlbum
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /** 内层 JSON（私信 msg 字段）容错解析。 */
 private val chatInnerJson = Json {
@@ -77,12 +79,28 @@ private val chatInnerJson = Json {
 }
 
 /** 把私信内层的歌曲小模型拼成可起播的 Song（NCM 播放只需 id/name/封面，其余走默认值）。 */
-private fun MsgPrivateSong.toPlayableSong(): Song = Song(
+private fun MsgPrivateSong.toPlayableSong(cover: String): Song = Song(
     id = id,
     name = name,
     ar = artists.map { Artist(name = it.name) },
-    al = SongAlbum(picUrl = picUrl)
+    al = SongAlbum(picUrl = cover)
 )
+
+/**
+ * 从内层 JSON 原始 song 对象挖真封面。
+ * NCM 私信里 song.picUrl 顶层恒为 null，封面实际在 song.album.picUrl（兜底 blurPicUrl）；
+ * MsgPrivateSong 没带 album 字段，故直接对原始 JSON 取值。
+ */
+private fun songCoverFromRaw(rawSong: JsonObject?): String {
+    val top = (rawSong?.get("picUrl") as? JsonPrimitive)?.contentOrNull
+    val album = rawSong?.get("album") as? JsonObject
+    val albumPic = (album?.get("picUrl") as? JsonPrimitive)?.contentOrNull
+    val blur = (album?.get("blurPicUrl") as? JsonPrimitive)?.contentOrNull
+    return top?.takeIf { it.isNotBlank() }
+        ?: albumPic?.takeIf { it.isNotBlank() }
+        ?: blur?.takeIf { it.isNotBlank() }
+        ?: ""
+}
 
 /** 私信内层的歌单小模型。 */
 private fun playlistCardName(p: MsgPrivatePlaylist): String =
@@ -266,6 +284,11 @@ private fun ChatBubble(
     val body = inner?.msg.orEmpty()
     val song = inner?.song?.takeIf { it.id > 0 }
     val playlist = inner?.playlist?.takeIf { it.id > 0 }
+    // 封面真值在 song.album.picUrl，NCM 顶层 song.picUrl 恒为 null，故从原始 JSON 挖
+    val rawObj = msg.msg
+        .takeIf { it.isNotBlank() }
+        ?.let { runCatching { chatInnerJson.parseToJsonElement(it) }.getOrNull() as? JsonObject }
+    val songCover = if (song != null) songCoverFromRaw(rawObj?.get("song") as? JsonObject) else ""
     val cardColor = if (isMine) MaterialTheme.colorScheme.onPrimary
         else MaterialTheme.colorScheme.onSurface
 
@@ -310,11 +333,12 @@ private fun ChatBubble(
                         Spacer(Modifier.size(6.dp))
                         SongCard(
                             song = song,
+                            cover = songCover,
                             accent = cardColor,
                             cardBg = cardBg,
                             onClick = {
                                 mediaController?.setPlaylist(
-                                    listOf(song.toPlayableSong()),
+                                    listOf(song.toPlayableSong(songCover)),
                                     sourceName = "私信"
                                 )
                                 mediaController?.playMediaAtId(song.id)
@@ -347,6 +371,7 @@ private fun ChatBubble(
 @Composable
 private fun SongCard(
     song: MsgPrivateSong,
+    cover: String,
     accent: androidx.compose.ui.graphics.Color,
     cardBg: androidx.compose.ui.graphics.Color,
     onClick: () -> Unit
@@ -368,9 +393,9 @@ private fun SongCard(
                 .clip(RoundedCornerShape(6.dp)),
             contentAlignment = Alignment.Center
         ) {
-            if (song.picUrl.isNotBlank()) {
+            if (cover.isNotBlank()) {
                 AsyncImage(
-                    model = song.picUrl.toCoverImageUrl(CoverImageSize.LIST),
+                    model = cover.toCoverImageUrl(CoverImageSize.LIST),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp))
