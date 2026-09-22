@@ -151,7 +151,7 @@ data class MsgRecentContactsResponse(
     val data: MsgRecentContactsData? = null
 )
 
-/** 发送私信响应（/send/*）：code 200=成功，301=需登录；重复歌单等失败原因在 msg。 */
+/** 发送私信响应（/send 系列）：code 200=成功，301=需登录；重复歌单等失败原因在 msg。 */
 @Serializable
 data class MsgSendResponse(
     val code: Int = 0,
