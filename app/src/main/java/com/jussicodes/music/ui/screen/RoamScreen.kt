@@ -290,6 +290,8 @@ fun RoamScreen(
                     },
                     // FM 页留在返回栈里（不 popBackStack），back 可回到 FM；小播放器随路由自动出现
                     onAfterNavigate = {},
+                    // FM 上下文：点歌名直跳专辑页、点音乐人（单个）直跳歌手页，不弹中间弹层
+                    fmDirectNav = true,
                 )
             } else {
                 RoamPlayerContent(
