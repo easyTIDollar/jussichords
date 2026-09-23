@@ -94,7 +94,9 @@ fun UserFollowScreen(
         .filterNot { it.userType == 2 || it.userType == 4 }
         .sortedBy { it.nickname.toPinyinSortKey() }
     // "关注的用户" userType 筛选：null = 全部；空集 = 全部隐藏。只作用于用户列表（非歌手 tab）
-    val filteredFollowedUsers = followedUsers.filter { filterUserTypes == null || it.userType in filterUserTypes }
+    // filterUserTypes 是 delegated property，不能在其上 smart cast，先落到普通局部 val 再判断
+    val activeFilter = filterUserTypes
+    val filteredFollowedUsers = followedUsers.filter { activeFilter == null || it.userType in activeFilter }
     var selectedType by remember(type, showArtistFollows) {
         mutableStateOf(if (type == UserFollowType.FOLLOWS) UserFollowType.ARTISTS else type)
     }
