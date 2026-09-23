@@ -125,6 +125,20 @@ fun UserFollowScreen(
         }
     }
 
+    // 自动加载：监听 listState，滑到倒数第 3 项时自动触发 loadMore
+    LaunchedEffect(hasMore, isLoadingMore) {
+        if (!hasMore) return@LaunchedEffect
+        snapshotFlow {
+            val info = listState.layoutInfo
+            info.totalItemsCount > 0 && info.visibleItemsInfo.any { it.index >= info.totalItemsCount - 3 }
+        }.filter { it }
+            .collect { _ ->
+                if (hasMore && !isLoadingMore) {
+                    userFollowScreenViewModel.loadMore()
+                }
+            }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -185,17 +199,6 @@ fun UserFollowScreen(
                     },
                 contentType = { "follow_item" }
             ) {
-                // 自动加载：滑到底部时触发
-                snapshotFlow { listState.layoutInfo.visibleItemsInfo }
-                    .flatMapLatest { items ->
-                        if (items.isEmpty()) return@flatMapLatest flowOf(false)
-                        val lastVisible = items.lastOrNull() ?: return@flatMapLatest flowOf(false)
-                        flowOf(lastVisible.index == items.size - 1 && items.lastOrNull()?.index == listState.layoutInfo.totalItemsCount - 1)
-                    }
-                    .distinctUntilChanged()
-                    .filter { it && hasMore && !isLoadingMore }
-                    .collect { loadMore() }
-
                 if (type == UserFollowType.FOLLOWS) {
                     item {
                         SecondaryTabRow(
