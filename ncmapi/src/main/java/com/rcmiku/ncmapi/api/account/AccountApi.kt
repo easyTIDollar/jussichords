@@ -77,12 +77,19 @@ object AccountApi {
     ): Result<UserFollowResponse> =
         apiGet("/user/follows", mapOf("uid" to userId, "limit" to limit, "offset" to offset))
 
+    /**
+     * 粉丝列表（getfolloweds）。NCM 服务端分页只认 lasttime 游标（上一页最后一个粉丝的 time，毫秒），
+     * offset/limit 被忽略、每页固定最多 30 条；首页 lastTime=0。
+     * 代理的 module 端点 `/user/followeds` 不透传 lasttime，故改走代理现成的通用 `/api` 透传端点，
+     * 把 lasttime 塞进 data JSON 交给 NCM（生产已验证可翻全）。极简 payload：不带 time/offset（带了游标会失效）。
+     */
     suspend fun userFolloweds(
         userId: Long,
-        limit: Int = 20,
-        offset: Int = 0
-    ): Result<UserFollowResponse> =
-        apiGet("/user/followeds", mapOf("uid" to userId, "limit" to limit, "offset" to offset))
+        lastTime: Long = 0
+    ): Result<UserFollowResponse> {
+        val data = """{"userId":"$userId","lasttime":"$lastTime","limit":30,"getcounts":"true"}"""
+        return apiGet("/api", mapOf("uri" to "/api/user/getfolloweds/$userId", "data" to data))
+    }
 
     suspend fun followUser(userId: Long, follow: Boolean): Result<ApiCodeResponse> =
         apiPost<ApiCodeResponse>(

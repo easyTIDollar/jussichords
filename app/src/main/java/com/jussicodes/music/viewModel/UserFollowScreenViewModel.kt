@@ -74,15 +74,31 @@ class UserFollowScreenViewModel @Inject constructor(
     private var activeUserId: Long = 0L
     private var activeType: UserFollowType? = null
     private var nextUserOffset = 0
+    private var nextFollowedsLastTime = 0L
     private var nextArtistOffset = 0
     private var fetchJob: Job? = null
+
+    // "关注的用户"列表 userType 筛选：null = 显示全部；空集 = 全部隐藏。仅对 FOLLOWS 生效。
+    // 交互对齐私信页（MsgSessionCache）：状态 + 全量类型分布放 VM，UI 只读 + 调用。
+    private val _filterUserTypes = MutableStateFlow<Set<Int>?>(null)
+    val filterUserTypes: StateFlow<Set<Int>?> = _filterUserTypes.asStateFlow()
+
+    // 已加载 FOLLOWS 全量的 userType 分布：筛选菜单生成选项与计数（含当前被筛掉的类型）。
+    private val _userTypeCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
+    val userTypeCounts: StateFlow<Map<Int, Int>> = _userTypeCounts.asStateFlow()
+
+    /** 设置关注的用户 userType 筛选（null = 显示全部；空集 = 全部隐藏）。仅本地生效，不持久化。 */
+    fun setFilterUserTypes(types: Set<Int>?) {
+        _filterUserTypes.value = types
+    }
 
     // 内存缓存（进入主页 prefetch 填充）：只存第一页，命中后从记录的分页点继续自动加载
     private data class CachedUsers(
         val users: List<SearchUser>,
         val hasMore: Boolean,
         val nextOffset: Int,
-        val limited: Boolean
+        val limited: Boolean,
+        val nextLastTime: Long = 0L
     )
 
     private data class CachedArtists(
@@ -117,7 +133,7 @@ class UserFollowScreenViewModel @Inject constructor(
         if (userId <= 0) return
         viewModelScope.launch {
             val followJob = async { AccountApi.userFollows(userId, limit = USER_PAGE_SIZE) }
-            val followedsJob = async { AccountApi.userFolloweds(userId, limit = USER_PAGE_SIZE) }
+            val followedsJob = async { AccountApi.userFolloweds(userId) }
             val artistsJob = async { ArtistApi.artistSublist(offset = 0, limit = ARTIST_PAGE_SIZE) }
 
             followJob.await().getOrNull()?.let { res ->
@@ -126,13 +142,20 @@ class UserFollowScreenViewModel @Inject constructor(
                     Pair(userId, UserFollowType.FOLLOWS) to
                         CachedUsers(list, res.hasMore, list.size, limited = false)
                     )
+                _userTypeCounts.value = list.followedUserTypeCounts()
             }
             followedsJob.await().getOrNull()?.let { res ->
                 val list = res.followeds
-                val limited = res.size > list.size
+                // 粉丝列表走 lasttime 游标分页：首页拿不满 size 也还能继续翻，不再判截断
                 _userCache.value = _userCache.value + (
                     Pair(userId, UserFollowType.FOLLOWEDS) to
-                        CachedUsers(list, res.hasMore && !limited, list.size, limited)
+                        CachedUsers(
+                            users = list,
+                            hasMore = res.hasMore,
+                            nextOffset = list.size,
+                            limited = false,
+                            nextLastTime = list.lastOrNull()?.time ?: 0L
+                        )
                     )
             }
             // 歌手接口偶发返回空（服务端问题），空结果不写缓存，避免覆盖有效旧缓存
@@ -155,6 +178,7 @@ class UserFollowScreenViewModel @Inject constructor(
         hasMoreUsers = false
         hasMoreArtists = false
         nextUserOffset = 0
+        nextFollowedsLastTime = 0L
         nextArtistOffset = 0
         _hasMore.value = false
         _isFollowedsLimited.value = false
@@ -204,15 +228,24 @@ class UserFollowScreenViewModel @Inject constructor(
                     _userCache.value[Pair(userId, type)]?.let { cached ->
                         _users.value = cached.users
                         nextUserOffset = cached.nextOffset
+                        nextFollowedsLastTime = cached.nextLastTime
                         hasMoreUsers = cached.hasMore
                         _isFollowedsLimited.value = cached.limited
+                        if (type == UserFollowType.FOLLOWS) {
+                            _userTypeCounts.value = cached.users.followedUserTypeCounts()
+                        }
                         _hasMore.value = hasMoreUsers
                         _follows.value = null
                         _artists.value = emptyList()
                         _isLoading.value = false
                         return@launch
                     }
-                    val pageResult = fetchUserPage(userId, type, offset = 0)
+                    val pageResult = when (type) {
+                        UserFollowType.FOLLOWS ->
+                            AccountApi.userFollows(userId, limit = USER_PAGE_SIZE, offset = 0)
+                        else ->
+                            AccountApi.userFolloweds(userId, lastTime = nextFollowedsLastTime)
+                    }
                     val result = pageResult.getOrNull()
                     if (pageResult.isFailure) {
                         val detail = pageResult.exceptionOrNull()?.message.orEmpty()
@@ -230,18 +263,25 @@ class UserFollowScreenViewModel @Inject constructor(
                     _artists.value = emptyList()
                     val pageUsers = when (type) {
                         UserFollowType.FOLLOWS -> result?.follows.orEmpty()
-                        UserFollowType.FOLLOWEDS -> result?.followeds.orEmpty()
-                        UserFollowType.ARTISTS -> emptyList()
+                        else -> result?.followeds.orEmpty()
                     }
                     nextUserOffset = pageUsers.size
+                    nextFollowedsLastTime = when (type) {
+                        UserFollowType.FOLLOWS -> nextFollowedsLastTime
+                        else -> pageUsers.lastOrNull()?.time ?: nextFollowedsLastTime
+                    }
                     _users.value = pageUsers
                     hasMoreUsers = result?.hasMore == true
-                    // followeds 接口 bug：total(size) > 返回条数时停止分页并提示
-                    if (type == UserFollowType.FOLLOWEDS && result != null && result.size > pageUsers.size) {
+                    // 粉丝列表用 lasttime 游标分页：只要 hasMore 就能继续翻；
+                    // 仅当游标翻到空页（0 条）时兜底标记 limited，提示已到顶
+                    if (type == UserFollowType.FOLLOWEDS && result != null && hasMoreUsers && pageUsers.isEmpty()) {
                         hasMoreUsers = false
                         _isFollowedsLimited.value = true
                     }
                     _hasMore.value = hasMoreUsers
+                    if (type == UserFollowType.FOLLOWS) {
+                        _userTypeCounts.value = pageUsers.followedUserTypeCounts()
+                    }
                     if (result != null) {
                         _userCache.value = _userCache.value + (
                             Pair(userId, type) to
@@ -249,7 +289,8 @@ class UserFollowScreenViewModel @Inject constructor(
                                     users = pageUsers,
                                     hasMore = hasMoreUsers,
                                     nextOffset = nextUserOffset,
-                                    limited = _isFollowedsLimited.value
+                                    limited = _isFollowedsLimited.value,
+                                    nextLastTime = nextFollowedsLastTime
                                 )
                             )
                     }
@@ -298,12 +339,14 @@ class UserFollowScreenViewModel @Inject constructor(
         hasMoreUsers = false
         hasMoreArtists = false
         nextUserOffset = 0
+        nextFollowedsLastTime = 0L
         nextArtistOffset = 0
         _hasMore.value = false
         _errorMessage.value = null
         _follows.value = null
         _users.value = emptyList()
         _artists.value = emptyList()
+        _userTypeCounts.value = emptyMap()
         _isLoading.value = false
         _isLoadingMore.value = false
         _isFollowedsLimited.value = false
@@ -313,35 +356,42 @@ class UserFollowScreenViewModel @Inject constructor(
         if (!hasMoreUsers) return
         _isLoadingMore.value = true
         try {
-            val result = fetchUserPage(userId, type, offset = nextUserOffset).getOrNull()
+            val result = when (type) {
+                UserFollowType.FOLLOWS ->
+                    AccountApi.userFollows(userId, limit = USER_PAGE_SIZE, offset = nextUserOffset)
+                else ->
+                    AccountApi.userFolloweds(userId, lastTime = nextFollowedsLastTime)
+            }.getOrNull()
             if (result != null) {
                 val nextUsers = when (type) {
                     UserFollowType.FOLLOWS -> result.follows
-                    UserFollowType.FOLLOWEDS -> result.followeds
-                    UserFollowType.ARTISTS -> emptyList()
+                    else -> result.followeds
                 }
-                // followeds bug 防护：offset 被接口忽略时，返回的仍是同一批数据 → 停止
-                if (type == UserFollowType.FOLLOWEDS && nextUserOffset > 0) {
-                    val existingIds = _users.value.mapTo(HashSet()) { it.id }
-                    if (nextUsers.isEmpty() || nextUsers.all { it.id in existingIds }) {
-                        hasMoreUsers = false
-                        _hasMore.value = false
-                        _isFollowedsLimited.value = true
-                        return
-                    }
-                }
-                nextUserOffset += nextUsers.size
-                val merged = (_users.value + nextUsers).distinctBy { it.id }
+                val existingIds = _users.value.mapTo(HashSet()) { it.id }
+                val merged = (_users.value + nextUsers.filterNot { it.id in existingIds }).distinctBy { it.id }
                 _users.value = merged
-                hasMoreUsers = result.hasMore
-                _hasMore.value = hasMoreUsers
+                nextUserOffset = merged.size
+                nextFollowedsLastTime = nextUsers.lastOrNull()?.time ?: nextFollowedsLastTime
+                // 防护：游标失效/返回全为已加载数据时停止，避免死循环；此时提示已到顶
+                if (type == UserFollowType.FOLLOWEDS && nextUsers.isNotEmpty() && nextUsers.all { it.id in existingIds }) {
+                    hasMoreUsers = false
+                    _hasMore.value = false
+                    _isFollowedsLimited.value = true
+                } else {
+                    hasMoreUsers = result.hasMore
+                    _hasMore.value = hasMoreUsers
+                }
+                if (type == UserFollowType.FOLLOWS) {
+                    _userTypeCounts.value = merged.followedUserTypeCounts()
+                }
                 _userCache.value = _userCache.value + (
                     Pair(userId, type) to
                         CachedUsers(
                             users = merged,
                             hasMore = hasMoreUsers,
                             nextOffset = nextUserOffset,
-                            limited = type == UserFollowType.FOLLOWEDS && result.size > merged.size
+                            limited = _isFollowedsLimited.value,
+                            nextLastTime = nextFollowedsLastTime
                         )
                     )
             }
@@ -379,15 +429,6 @@ class UserFollowScreenViewModel @Inject constructor(
         _artists.value = if (replace) result.data else _artists.value + result.data
     }
 
-    private suspend fun fetchUserPage(userId: Long, type: UserFollowType, offset: Int): Result<UserFollowResponse> =
-        when (type) {
-            UserFollowType.FOLLOWS -> AccountApi.userFollows(userId, limit = USER_PAGE_SIZE, offset = offset)
-            UserFollowType.FOLLOWEDS -> AccountApi.userFolloweds(userId, limit = USER_PAGE_SIZE, offset = offset)
-            UserFollowType.ARTISTS -> Result.failure(
-                IllegalArgumentException("Artists are not user follow pages")
-            )
-        }
-
     private suspend fun loadCachedArtists() {
         val cached = context.dataStore.data.first()[artistFirstPageCacheKey]
             ?.takeIf { it.isNotBlank() }
@@ -398,3 +439,14 @@ class UserFollowScreenViewModel @Inject constructor(
         applyArtistPage(cached, replace = true)
     }
 }
+
+/**
+ * 计算「会出现在'关注的用户' tab」的 userType 分布，供筛选菜单生成选项与计数。
+ * 排除 2(音乐人)/4(歌手)——UI 里它们已被拆到「关注的歌手」tab，若计入会在筛选菜单里
+ * 冒出勾了也不影响用户 tab 的项，误导用户。与 [UserFollowScreen.kt] 的 followedUsers
+ * （filterNot { 2||4 }）口径保持一致。
+ */
+private fun List<SearchUser>.followedUserTypeCounts(): Map<Int, Int> =
+    filterNot { it.userType == 2 || it.userType == 4 }
+        .groupingBy { it.userType }
+        .eachCount()

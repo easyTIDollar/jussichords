@@ -20,6 +20,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,6 +56,7 @@ import com.jussicodes.music.ui.components.ArtistListItem
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.navigation.ArtistNav
 import com.jussicodes.music.ui.navigation.UserNav
+import com.jussicodes.music.ui.icons.Funnel
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.UserFollowScreenViewModel
@@ -80,6 +84,8 @@ fun UserFollowScreen(
     val hasMore by userFollowScreenViewModel.hasMore.collectAsState()
     val isFollowedsLimited by userFollowScreenViewModel.isFollowedsLimited.collectAsState()
     val errorMessage by userFollowScreenViewModel.errorMessage.collectAsState()
+    val filterUserTypes by userFollowScreenViewModel.filterUserTypes.collectAsState()
+    val userTypeCounts by userFollowScreenViewModel.userTypeCounts.collectAsState()
     val sortedArtists = artists.sortedBy { it.name.toPinyinSortKey() }
     val followedArtistUsers = users
         .filter { it.userType == 2 || it.userType == 4 }
@@ -87,6 +93,8 @@ fun UserFollowScreen(
     val followedUsers = users
         .filterNot { it.userType == 2 || it.userType == 4 }
         .sortedBy { it.nickname.toPinyinSortKey() }
+    // "关注的用户" userType 筛选：null = 全部；空集 = 全部隐藏。只作用于用户列表（非歌手 tab）
+    val filteredFollowedUsers = followedUsers.filter { filterUserTypes == null || it.userType in filterUserTypes }
     var selectedType by remember(type, showArtistFollows) {
         mutableStateOf(if (type == UserFollowType.FOLLOWS) UserFollowType.ARTISTS else type)
     }
@@ -95,7 +103,7 @@ fun UserFollowScreen(
     val listState = rememberLazyListState()
     val isContentEmpty = when (selectedType) {
         UserFollowType.ARTISTS -> if (showArtistFollows) sortedArtists.isEmpty() else followedArtistUsers.isEmpty()
-        UserFollowType.FOLLOWS -> followedUsers.isEmpty()
+        UserFollowType.FOLLOWS -> filteredFollowedUsers.isEmpty()
         UserFollowType.FOLLOWEDS -> users.isEmpty()
     }
 
@@ -161,6 +169,16 @@ fun UserFollowScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = null
+                        )
+                    }
+                },
+                actions = {
+                    if (type == UserFollowType.FOLLOWS) {
+                        FollowsFilterMenu(
+                            active = filterUserTypes != null,
+                            activeTypes = filterUserTypes,
+                            counts = userTypeCounts,
+                            onSet = { userFollowScreenViewModel.setFilterUserTypes(it) }
                         )
                     }
                 }
@@ -273,7 +291,7 @@ fun UserFollowScreen(
                         } else if (errorMessage != null && isContentEmpty) {
                             emptyMessageItem(errorMessage.orEmpty())
                         } else {
-                            val displayedUsers = if (selectedType == UserFollowType.FOLLOWS) followedUsers else users
+                            val displayedUsers = if (selectedType == UserFollowType.FOLLOWS) filteredFollowedUsers else users
                             items(displayedUsers, key = { it.id }) { user ->
                                 ArtistListItem(
                                     artist = SearchArtist(
@@ -289,11 +307,11 @@ fun UserFollowScreen(
                                 )
                             }
                         }
-                        // followeds 接口 bug：总数比拿到的多时给个提示，不假装能继续翻
+                        // 游标翻到顶、仍有未加载剩余时提示（lasttime 翻不出新数据/空页兜底）
                         if (selectedType == UserFollowType.FOLLOWEDS && isFollowedsLimited) {
                             item {
                                 Text(
-                                    text = "粉丝数据接口限制，仅显示部分粉丝（共 ${users.size} 条已加载）",
+                                    text = "粉丝已加载 ${users.size} 条，暂无更多可加载",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
@@ -316,6 +334,69 @@ fun UserFollowScreen(
         )
     }
 }
+
+/** 关注的用户 userType 筛选（顶栏漏斗）：交互对齐私信页 SessionsFilterMenu。
+ * activeTypes = null 表示未筛选（全部）；counts 为已加载全量类型分布（含当前被筛掉的类型）。
+ * 点项即时生效且不关菜单（可连续多选），点菜单外才关闭。 */
+@Composable
+private fun FollowsFilterMenu(
+    active: Boolean,
+    activeTypes: Set<Int>?,
+    counts: Map<Int, Int>,
+    onSet: (Set<Int>?) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val allChecked = activeTypes == null
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                imageVector = Funnel,
+                contentDescription = null,
+                tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text("显示全部类型") },
+                leadingIcon = {
+                    Checkbox(
+                        checked = allChecked,
+                        onCheckedChange = { if (!allChecked) onSet(null) }
+                    )
+                },
+                onClick = {}
+            )
+            counts.entries.sortedBy { it.key }.forEach { (type, count) ->
+                val label = FOLLOW_USER_TYPE_LABELS[type] ?: "类型$type"
+                val checked = allChecked || (activeTypes?.contains(type) ?: false)
+                DropdownMenuItem(
+                    text = { Text("$label（$count）") },
+                    leadingIcon = {
+                        Checkbox(checked = checked, onCheckedChange = { })
+                    },
+                    onClick = {
+                        val base = if (allChecked) counts.keys.toMutableSet() else activeTypes!!.toMutableSet()
+                        if (type in base) base.remove(type) else base.add(type)
+                        // 全勾 = 取消筛选（null）；逐项即时生效，菜单保持打开
+                        onSet(if (base.size == counts.size) null else base)
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** 关注的用户 userType → 展示名（对齐私信页；NCM 未公开完整枚举，未知码兜底"类型N"）。 */
+private val FOLLOW_USER_TYPE_LABELS = mapOf(
+    0 to "普通用户",
+    2 to "音乐人入驻账号",
+    4 to "歌手",
+    10 to "官方",
+    207 to "音乐达人"
+)
 
 private fun String.toPinyinSortKey(): String =
     FollowListPinyinTransliterator.transliterate(trim()).lowercase(Locale.ROOT)

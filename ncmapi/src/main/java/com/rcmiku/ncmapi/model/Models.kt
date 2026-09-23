@@ -181,7 +181,9 @@ data class SearchUser(
     val nickname: String = "",
     @SerialName("avatarUrl") val avatarUrl: String = "",
     val signature: String = "",
-    val userType: Int = 0
+    val userType: Int = 0,
+    // NCM 粉丝列表 (getfolloweds) 的分页游标：取上一页最后一个元素的 time
+    @SerialName("time") val time: Long = 0
 )
 
 data class SearchResources(
