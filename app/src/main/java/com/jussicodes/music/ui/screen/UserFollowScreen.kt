@@ -20,9 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,7 +53,6 @@ import com.jussicodes.music.ui.components.ArtistListItem
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.navigation.ArtistNav
 import com.jussicodes.music.ui.navigation.UserNav
-import com.jussicodes.music.ui.icons.Funnel
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.UserFollowScreenViewModel
@@ -84,19 +80,12 @@ fun UserFollowScreen(
     val hasMore by userFollowScreenViewModel.hasMore.collectAsState()
     val isFollowedsLimited by userFollowScreenViewModel.isFollowedsLimited.collectAsState()
     val errorMessage by userFollowScreenViewModel.errorMessage.collectAsState()
-    val filterUserTypes by userFollowScreenViewModel.filterUserTypes.collectAsState()
-    val userTypeCounts by userFollowScreenViewModel.userTypeCounts.collectAsState()
-    val sortedArtists = artists.sortedBy { it.name.toPinyinSortKey() }
-    val followedArtistUsers = users
-        .filter { it.userType == 2 || it.userType == 4 }
-        .sortedBy { it.nickname.toPinyinSortKey() }
-    val followedUsers = users
-        .filterNot { it.userType == 2 || it.userType == 4 }
-        .sortedBy { it.nickname.toPinyinSortKey() }
-    // "关注的用户" userType 筛选：null = 全部；空集 = 全部隐藏。只作用于用户列表（非歌手 tab）
-    // filterUserTypes 是 delegated property，不能在其上 smart cast，先落到普通局部 val 再判断
-    val activeFilter = filterUserTypes
-    val filteredFollowedUsers = followedUsers.filter { activeFilter == null || it.userType in activeFilter }
+    // 歌手 tab（artist/sublist）没有时间戳，仍按拼音排序；拼音 key 有进程级缓存，重组不再重转写
+    val sortedArtists = remember(artists) { artists.sortedBy { it.name.toPinyinSortKey() } }
+    // 关注接口（getfollows, order=true）原生按关注时间倒序返回（最近关注在前），
+    // 不做客户端拼音重排、直接按原生顺序展示，翻页追加时时间序保持一致
+    val followedArtistUsers = users.filter { it.userType == 2 || it.userType == 4 }
+    val followedUsers = users.filterNot { it.userType == 2 || it.userType == 4 }
     var selectedType by remember(type, showArtistFollows) {
         mutableStateOf(if (type == UserFollowType.FOLLOWS) UserFollowType.ARTISTS else type)
     }
@@ -105,7 +94,7 @@ fun UserFollowScreen(
     val listState = rememberLazyListState()
     val isContentEmpty = when (selectedType) {
         UserFollowType.ARTISTS -> if (showArtistFollows) sortedArtists.isEmpty() else followedArtistUsers.isEmpty()
-        UserFollowType.FOLLOWS -> filteredFollowedUsers.isEmpty()
+        UserFollowType.FOLLOWS -> followedUsers.isEmpty()
         UserFollowType.FOLLOWEDS -> users.isEmpty()
     }
 
@@ -174,16 +163,7 @@ fun UserFollowScreen(
                         )
                     }
                 },
-                actions = {
-                    if (type == UserFollowType.FOLLOWS) {
-                        FollowsFilterMenu(
-                            active = filterUserTypes != null,
-                            activeTypes = filterUserTypes,
-                            counts = userTypeCounts,
-                            onSet = { userFollowScreenViewModel.setFilterUserTypes(it) }
-                        )
-                    }
-                }
+                actions = { }
             )
         }
     ) { padding ->
@@ -241,7 +221,7 @@ fun UserFollowScreen(
                     if (!showArtistFollows) {
                         item {
                             Text(
-                                text = "接口未提供关注时间，列表按 A-Z 排序，中文按拼音排序",
+                                text = "按关注时间排序（最新关注在前）",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
@@ -293,7 +273,7 @@ fun UserFollowScreen(
                         } else if (errorMessage != null && isContentEmpty) {
                             emptyMessageItem(errorMessage.orEmpty())
                         } else {
-                            val displayedUsers = if (selectedType == UserFollowType.FOLLOWS) filteredFollowedUsers else users
+                            val displayedUsers = if (selectedType == UserFollowType.FOLLOWS) followedUsers else users
                             items(displayedUsers, key = { it.id }) { user ->
                                 ArtistListItem(
                                     artist = SearchArtist(
@@ -337,78 +317,22 @@ fun UserFollowScreen(
     }
 }
 
-/** 关注的用户 userType 筛选（顶栏漏斗）：交互对齐私信页 SessionsFilterMenu。
- * activeTypes = null 表示未筛选（全部）；counts 为已加载全量类型分布（含当前被筛掉的类型）。
- * 点项即时生效且不关菜单（可连续多选），点菜单外才关闭。 */
-@Composable
-private fun FollowsFilterMenu(
-    active: Boolean,
-    activeTypes: Set<Int>?,
-    counts: Map<Int, Int>,
-    onSet: (Set<Int>?) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val allChecked = activeTypes == null
-    Box {
-        IconButton(onClick = { expanded = true }) {
-            Icon(
-                imageVector = Funnel,
-                contentDescription = null,
-                tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-            )
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            DropdownMenuItem(
-                text = { Text("显示全部类型") },
-                leadingIcon = {
-                    Checkbox(
-                        checked = allChecked,
-                        onCheckedChange = { if (!allChecked) onSet(null) }
-                    )
-                },
-                onClick = {}
-            )
-            counts.entries.sortedBy { it.key }.forEach { (type, count) ->
-                val label = FOLLOW_USER_TYPE_LABELS[type] ?: "类型$type"
-                val checked = allChecked || (activeTypes?.contains(type) ?: false)
-                DropdownMenuItem(
-                    text = { Text("$label（$count）") },
-                    leadingIcon = {
-                        Checkbox(checked = checked, onCheckedChange = { })
-                    },
-                    onClick = {
-                        val base = if (allChecked) counts.keys.toMutableSet() else activeTypes!!.toMutableSet()
-                        if (type in base) base.remove(type) else base.add(type)
-                        // 全勾 = 取消筛选（null）；逐项即时生效，菜单保持打开
-                        onSet(if (base.size == counts.size) null else base)
-                    }
-                )
-            }
-        }
-    }
-}
-
-/** 关注的用户 userType → 展示名（对齐私信页；NCM 未公开完整枚举，未知码兜底"类型N"）。 */
-private val FOLLOW_USER_TYPE_LABELS = mapOf(
-    0 to "普通用户",
-    2 to "音乐人入驻账号",
-    4 to "歌手",
-    10 to "官方",
-    207 to "音乐达人"
-)
-
 private fun String.toPinyinSortKey(): String =
-    FollowListPinyinTransliterator.transliterate(trim()).lowercase(Locale.ROOT)
+    FollowListPinyinTransliterator.sortKey(trim())
 
 private object FollowListPinyinTransliterator {
+    // 进程级拼音 key 缓存：歌手列表重组/翻页会反复取同一批名字，
+    // 不加缓存时每次重组都对全量歌手重跑 ICU 转写，是列表卡顿主因之一
+    private val cache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val transliterator by lazy {
         Transliterator.getInstance("Han-Latin/Names; Latin-ASCII")
     }
 
-    fun transliterate(value: String): String = transliterator.transliterate(value)
+    fun sortKey(value: String): String = cache.computeIfAbsent(value) {
+        transliterate(it).lowercase(Locale.ROOT)
+    }
+
+    private fun transliterate(value: String): String = transliterator.transliterate(value)
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.emptyMessageItem(message: String) {

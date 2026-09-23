@@ -37,9 +37,9 @@ class UserFollowScreenViewModel @Inject constructor(
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     private companion object {
-        // 关注用户/粉丝单页 100（接口支持且已实测）；歌手保持 50（文档默认值）
+        // 单页 100（用户/粉丝/歌手接口均实测支持：歌手 offset 翻页无重叠、上限 100）
         const val USER_PAGE_SIZE = 100
-        const val ARTIST_PAGE_SIZE = 50
+        const val ARTIST_PAGE_SIZE = 100
         val artistFirstPageCacheKey = stringPreferencesKey("artistFirstPageCache")
     }
 
@@ -77,20 +77,6 @@ class UserFollowScreenViewModel @Inject constructor(
     private var nextFollowedsLastTime = 0L
     private var nextArtistOffset = 0
     private var fetchJob: Job? = null
-
-    // "关注的用户"列表 userType 筛选：null = 显示全部；空集 = 全部隐藏。仅对 FOLLOWS 生效。
-    // 交互对齐私信页（MsgSessionCache）：状态 + 全量类型分布放 VM，UI 只读 + 调用。
-    private val _filterUserTypes = MutableStateFlow<Set<Int>?>(null)
-    val filterUserTypes: StateFlow<Set<Int>?> = _filterUserTypes.asStateFlow()
-
-    // 已加载 FOLLOWS 全量的 userType 分布：筛选菜单生成选项与计数（含当前被筛掉的类型）。
-    private val _userTypeCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
-    val userTypeCounts: StateFlow<Map<Int, Int>> = _userTypeCounts.asStateFlow()
-
-    /** 设置关注的用户 userType 筛选（null = 显示全部；空集 = 全部隐藏）。仅本地生效，不持久化。 */
-    fun setFilterUserTypes(types: Set<Int>?) {
-        _filterUserTypes.value = types
-    }
 
     // 内存缓存（进入主页 prefetch 填充）：只存第一页，命中后从记录的分页点继续自动加载
     private data class CachedUsers(
@@ -142,7 +128,6 @@ class UserFollowScreenViewModel @Inject constructor(
                     Pair(userId, UserFollowType.FOLLOWS) to
                         CachedUsers(list, res.hasMore, list.size, limited = false)
                     )
-                _userTypeCounts.value = list.followedUserTypeCounts()
             }
             followedsJob.await().getOrNull()?.let { res ->
                 val list = res.followeds
@@ -231,9 +216,6 @@ class UserFollowScreenViewModel @Inject constructor(
                         nextFollowedsLastTime = cached.nextLastTime
                         hasMoreUsers = cached.hasMore
                         _isFollowedsLimited.value = cached.limited
-                        if (type == UserFollowType.FOLLOWS) {
-                            _userTypeCounts.value = cached.users.followedUserTypeCounts()
-                        }
                         _hasMore.value = hasMoreUsers
                         _follows.value = null
                         _artists.value = emptyList()
@@ -279,9 +261,6 @@ class UserFollowScreenViewModel @Inject constructor(
                         _isFollowedsLimited.value = true
                     }
                     _hasMore.value = hasMoreUsers
-                    if (type == UserFollowType.FOLLOWS) {
-                        _userTypeCounts.value = pageUsers.followedUserTypeCounts()
-                    }
                     if (result != null) {
                         _userCache.value = _userCache.value + (
                             Pair(userId, type) to
@@ -346,7 +325,6 @@ class UserFollowScreenViewModel @Inject constructor(
         _follows.value = null
         _users.value = emptyList()
         _artists.value = emptyList()
-        _userTypeCounts.value = emptyMap()
         _isLoading.value = false
         _isLoadingMore.value = false
         _isFollowedsLimited.value = false
@@ -380,9 +358,6 @@ class UserFollowScreenViewModel @Inject constructor(
                 } else {
                     hasMoreUsers = result.hasMore
                     _hasMore.value = hasMoreUsers
-                }
-                if (type == UserFollowType.FOLLOWS) {
-                    _userTypeCounts.value = merged.followedUserTypeCounts()
                 }
                 _userCache.value = _userCache.value + (
                     Pair(userId, type) to
@@ -439,14 +414,3 @@ class UserFollowScreenViewModel @Inject constructor(
         applyArtistPage(cached, replace = true)
     }
 }
-
-/**
- * 计算「会出现在'关注的用户' tab」的 userType 分布，供筛选菜单生成选项与计数。
- * 排除 2(音乐人)/4(歌手)——UI 里它们已被拆到「关注的歌手」tab，若计入会在筛选菜单里
- * 冒出勾了也不影响用户 tab 的项，误导用户。与 [UserFollowScreen.kt] 的 followedUsers
- * （filterNot { 2||4 }）口径保持一致。
- */
-private fun List<SearchUser>.followedUserTypeCounts(): Map<Int, Int> =
-    filterNot { it.userType == 2 || it.userType == 4 }
-        .groupingBy { it.userType }
-        .eachCount()
