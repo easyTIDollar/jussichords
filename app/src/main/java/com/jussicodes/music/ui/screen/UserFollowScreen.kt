@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -57,6 +58,8 @@ import com.jussicodes.music.viewModel.UserFollowScreenViewModel
 import com.jussicodes.music.viewModel.UserFollowType
 import com.rcmiku.ncmapi.model.SearchArtist
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.snapshotFlow
+import kotlinx.coroutines.flow.flowOf
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -73,6 +76,7 @@ fun UserFollowScreen(
     val isLoading by userFollowScreenViewModel.isLoading.collectAsState()
     val isLoadingMore by userFollowScreenViewModel.isLoadingMore.collectAsState()
     val hasMore by userFollowScreenViewModel.hasMore.collectAsState()
+    val isFollowedsLimited by userFollowScreenViewModel.isFollowedsLimited.collectAsState()
     val errorMessage by userFollowScreenViewModel.errorMessage.collectAsState()
     val sortedArtists = artists.sortedBy { it.name.toPinyinSortKey() }
     val followedArtistUsers = users
@@ -86,6 +90,7 @@ fun UserFollowScreen(
     }
     var previewAvatarUrl by remember { mutableStateOf<String?>(null) }
     var horizontalDragAmount by remember { mutableStateOf(0f) }
+    val listState = rememberLazyListState()
     val isContentEmpty = when (selectedType) {
         UserFollowType.ARTISTS -> if (showArtistFollows) sortedArtists.isEmpty() else followedArtistUsers.isEmpty()
         UserFollowType.FOLLOWS -> followedUsers.isEmpty()
@@ -161,6 +166,7 @@ fun UserFollowScreen(
             }
         ) {
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(type) {
@@ -176,8 +182,20 @@ fun UserFollowScreen(
                                 onDragCancel = { horizontalDragAmount = 0f }
                             )
                         }
-                    }
+                    },
+                contentType = { "follow_item" }
             ) {
+                // 自动加载：滑到底部时触发
+                snapshotFlow { listState.layoutInfo.visibleItemsInfo }
+                    .flatMapLatest { items ->
+                        if (items.isEmpty()) return@flatMapLatest flowOf(false)
+                        val lastVisible = items.lastOrNull() ?: return@flatMapLatest flowOf(false)
+                        flowOf(lastVisible.index == items.size - 1 && items.lastOrNull()?.index == listState.layoutInfo.totalItemsCount - 1)
+                    }
+                    .distinctUntilChanged()
+                    .filter { it && hasMore && !isLoadingMore }
+                    .collect { loadMore() }
+
                 if (type == UserFollowType.FOLLOWS) {
                     item {
                         SecondaryTabRow(
@@ -272,11 +290,24 @@ fun UserFollowScreen(
                                     }
                                 )
                             }
-                            loadMoreItem(
-                                hasMore = hasMore,
-                                isLoadingMore = isLoadingMore,
-                                onClick = { userFollowScreenViewModel.loadMore() }
-                            )
+                            // 粉丝列表 API 限制：可能无法获取全部粉丝，显示提示
+                            if (isFollowedsLimited) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                                        contentAlignment = androidx.compose.ui.Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "粉丝列表加载受限，可能显示不全",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.align(androidx.compose.ui.Alignment.Center)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

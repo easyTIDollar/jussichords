@@ -60,6 +60,10 @@ class UserFollowScreenViewModel @Inject constructor(
     private val _hasMore = MutableStateFlow(false)
     val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
 
+    // followeds API 有 bug，可能永远 more=true，用一个特殊标记提示
+    private val _isFollowedsLimited = MutableStateFlow(false)
+    val isFollowedsLimited: StateFlow<Boolean> = _isFollowedsLimited.asStateFlow()
+
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
@@ -137,6 +141,7 @@ class UserFollowScreenViewModel @Inject constructor(
         nextUserOffset = 0
         nextArtistOffset = 0
         _hasMore.value = false
+        _isFollowedsLimited.value = false
         fetchJob = viewModelScope.launch {
             _isLoading.value = true
             _isLoadingMore.value = false
@@ -205,6 +210,13 @@ class UserFollowScreenViewModel @Inject constructor(
                     }
                     nextUserOffset = pageUsers.size
                     _users.value = pageUsers
+
+                    // followeds API bug 处理：如果 size > len(followeds) 且 more=true，说明 API 不支持分页
+                    if (type == UserFollowType.FOLLOWEDS && result?.size != null && result.size > pageUsers.size) {
+                        hasMoreUsers = false
+                        _hasMore.value = false
+                        _isFollowedsLimited.value = true
+                    }
                 }
             }
             _isLoading.value = false
@@ -212,18 +224,8 @@ class UserFollowScreenViewModel @Inject constructor(
     }
 
     /**
-     * 下滑刷新：清空对应缓存并重新拉取
+     * 自动加载下一页（滑到底部触发，不需要手动点击）
      */
-    fun refresh(userId: Long, type: UserFollowType) {
-        if (userId <= 0) return
-        // 清除该类型缓存
-        _userCache.value = _userCache.value - Pair(userId, type)
-        if (type == UserFollowType.ARTISTS) {
-            _artistCache.value = _artistCache.value - userId
-        }
-        fetch(userId, type)
-    }
-
     fun loadMore() {
         val type = activeType ?: return
         if (_isLoading.value || _isLoadingMore.value) {
@@ -241,6 +243,19 @@ class UserFollowScreenViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 下滑刷新：清空对应缓存并重新拉取
+     */
+    fun refresh(userId: Long, type: UserFollowType) {
+        if (userId <= 0) return
+        // 清除该类型缓存
+        _userCache.value = _userCache.value - Pair(userId, type)
+        if (type == UserFollowType.ARTISTS) {
+            _artistCache.value = _artistCache.value - userId
+        }
+        fetch(userId, type)
+    }
+
     fun clear() {
         fetchJob?.cancel()
         activeUserId = 0L
@@ -256,18 +271,7 @@ class UserFollowScreenViewModel @Inject constructor(
         _artists.value = emptyList()
         _isLoading.value = false
         _isLoadingMore.value = false
-    }
-
-    private suspend fun fetchUserPage(
-        userId: Long,
-        type: UserFollowType,
-        offset: Int
-    ): Result<UserFollowResponse> {
-        return when (type) {
-            UserFollowType.FOLLOWS -> AccountApi.userFollows(userId, limit = PAGE_SIZE, offset = offset)
-            UserFollowType.FOLLOWEDS -> AccountApi.userFolloweds(userId, limit = PAGE_SIZE, offset = offset)
-            UserFollowType.ARTISTS -> Result.failure(IllegalArgumentException("Artists are not user follow pages"))
-        }
+        _isFollowedsLimited.value = false
     }
 
     private suspend fun loadMoreUsers(userId: Long, type: UserFollowType) {
@@ -281,20 +285,21 @@ class UserFollowScreenViewModel @Inject constructor(
                     UserFollowType.FOLLOWEDS -> result.followeds
                     UserFollowType.ARTISTS -> emptyList()
                 }
-                // 防止 followeds API bug：返回数据与已加载完全重复时停止分页
-                val newIds = nextUsers.map { it.id }.toSet()
-                val existingIds = _users.value.map { it.id }.toSet()
-                if (newIds.isEmpty() || (nextUserOffset > 0 && newIds.isNotEmpty() && newIds.subsetOf(existingIds))) {
-                    hasMoreUsers = false
-                    _hasMore.value = false
-                    return
+                // API bug 防护：followeds 返回的数据与已加载的完全重复 → 停止分页
+                if (type == UserFollowType.FOLLOWEDS && nextUserOffset > 0) {
+                    val existingIds = _users.value.map { it.id }.toSet()
+                    val newIds = nextUsers.map { it.id }.toSet()
+                    if (newIds.isEmpty() || newIds.all { it in existingIds }) {
+                        hasMoreUsers = false
+                        _hasMore.value = false
+                        _isFollowedsLimited.value = true
+                        return
+                    }
                 }
+                nextUserOffset += nextUsers.size
+                _users.value = (_users.value + nextUsers).distinctBy { it.id }
                 hasMoreUsers = result.hasMore
                 _hasMore.value = hasMoreUsers
-                nextUserOffset += nextUsers.size
-                if (nextUsers.isNotEmpty()) {
-                    _users.value = (_users.value + nextUsers).distinctBy { it.id }
-                }
             }
         } finally {
             _isLoadingMore.value = false
@@ -307,38 +312,41 @@ class UserFollowScreenViewModel @Inject constructor(
         try {
             val result = ArtistApi.artistSublist(offset = nextArtistOffset, limit = PAGE_SIZE).getOrNull()
             if (result != null) {
-                applyArtistPage(result, replace = false)
+                nextArtistOffset += result.data.size
+                applyArtistPage(result)
+                hasMoreArtists = result.hasMore
+                _hasMore.value = hasMoreArtists
+                context.dataStore.edit { prefs ->
+                    prefs[artistFirstPageCacheKey] = json.encodeToString(result)
+                }
             }
         } finally {
             _isLoadingMore.value = false
         }
     }
 
-    private suspend fun loadCachedArtists() {
-        val cached = context.dataStore.data.first()[artistFirstPageCacheKey]
-            ?.takeIf { it.isNotBlank() }
-            ?.let { cache ->
-                runCatching { json.decodeFromString<ArtistSublistResponse>(cache) }.getOrNull()
-            }
-            ?: return
-        applyArtistPage(cached, replace = true)
+    private fun applyArtistPage(result: ArtistSublistResponse, replace: Boolean = false) {
+        if (replace) {
+            _artists.value = result.data
+        } else {
+            _artists.value = _artists.value + result.data
+        }
     }
 
-    private fun applyArtistPage(response: ArtistSublistResponse, replace: Boolean) {
-        hasMoreArtists = response.hasMore || response.more
-        _hasMore.value = hasMoreArtists
-        nextArtistOffset = if (replace) {
-            response.data.size
-        } else {
-            nextArtistOffset + response.data.size
+    private suspend fun fetchUserPage(userId: Long, type: UserFollowType, offset: Int) =
+        when (type) {
+            UserFollowType.FOLLOWS -> AccountApi.userFollows(userId, limit = PAGE_SIZE, offset = offset)
+            UserFollowType.FOLLOWEDS -> AccountApi.userFolloweds(userId, limit = PAGE_SIZE, offset = offset)
+            UserFollowType.ARTISTS -> throw IllegalArgumentException("Invalid type for fetchUserPage")
         }
-        val artists = if (replace) {
-            response.data
-        } else {
-            _artists.value + response.data
+
+    private suspend fun loadCachedArtists() {
+        try {
+            val cached: ArtistSublistResponse? = context.dataStore.preferences
+                .first()[artistFirstPageCacheKey]?.let { json.decodeFromString(it) }
+            _artists.value = cached?.data ?: emptyList()
+        } catch (_: Exception) {
+            _artists.value = emptyList()
         }
-        _artists.value = artists
-            .distinctBy { it.id }
-            .let(ArtistCollectionSyncBus::mergeInto)
     }
 }
