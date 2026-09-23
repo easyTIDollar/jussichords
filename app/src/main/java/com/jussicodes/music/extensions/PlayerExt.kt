@@ -6,6 +6,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import com.jussicodes.music.constants.currentPlayMediaIdKey
 import com.jussicodes.music.utils.SongListUtil
+import com.jussicodes.music.utils.SongSourceMeta
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.get
 import com.rcmiku.ncmapi.model.CloudSong
@@ -26,9 +27,21 @@ private var cacheSourceNavId: Long = 0L
 
 fun Player.init(context: Context) {
     val currentPlayMediaId = context.dataStore[currentPlayMediaIdKey]
-    SongListUtil.loadSongList()?.toMediaItemList()?.let { playlist ->
+    val savedList = SongListUtil.loadSongList()
+    // Restore the last queue's source metadata together with the list, so
+    // the top-of-player source label is not blank after an app restart.
+    // Written in lockstep with song_list.json by setPlaylist.
+    val source = SongListUtil.loadSongSource()
+    savedList?.let { songs ->
         if (currentMediaItems.isEmpty()) {
-            setMediaItems(playlist)
+            setMediaItems(
+                songs.toMediaItemList(
+                    sourceId = source?.sourceId ?: 0L,
+                    sourceName = source?.sourceName ?: "list",
+                    sourceType = source?.sourceType,
+                    navId = source?.navId ?: 0L
+                )
+            )
             val index =
                 currentMediaItems.indexOfFirst { it.mediaId == currentPlayMediaId.toString() }
             if (index != -1)
@@ -53,6 +66,14 @@ fun Player.setPlaylist(
         cacheSourceNavId = navId
         setMediaItems(songs.toMediaItemList(sourceId = sourceId, sourceName = sourceName, sourceType = sourceType, navId = navId))
         SongListUtil.saveSongList(songs)
+        SongListUtil.saveSongSource(
+            SongSourceMeta(
+                sourceId = sourceId,
+                sourceName = sourceName,
+                sourceType = sourceType,
+                navId = navId
+            )
+        )
     }
 }
 

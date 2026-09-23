@@ -22,6 +22,7 @@ import androidx.media3.common.util.UnstableApi
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.uiScaleKey
+import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.extensions.init
 import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.playback.PlayerState
@@ -98,6 +99,10 @@ class MainActivity : ComponentActivity() {
                 if (updateInfo != null && updateInfo.versionName != ignoredVersion) {
                     pendingUpdateInfo = updateInfo
                 }
+
+                // 私信会话缓存预热：并行拉 /msg/private + /msg/recentcontact，
+                // 之后分享菜单/消息页首屏直接读缓存，不再现场等网络
+                MsgSessionCache.ensureLoaded(lifecycleScope)
             }
 
             LaunchedEffect(Unit) {

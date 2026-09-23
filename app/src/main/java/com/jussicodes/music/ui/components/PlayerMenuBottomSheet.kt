@@ -1,6 +1,5 @@
 ﻿package com.jussicodes.music.ui.components
 
-import android.content.Intent
 import android.widget.Toast
 import android.os.Bundle
 import androidx.compose.foundation.clickable
@@ -122,6 +121,7 @@ fun PlayerMenuBottomSheet(
     val context = LocalContext.current
     var cancelSleepTimer by rememberSaveable { mutableStateOf(false) }
     var openSongListBottomSheet by rememberSaveable { mutableStateOf(false) }
+    var openShareSheet by rememberSaveable { mutableStateOf(false) }
 
     // Per-song unblock-source picker state.
     val scope = rememberCoroutineScope()
@@ -282,18 +282,8 @@ fun PlayerMenuBottomSheet(
                             icon = Icons.Outlined.Share,
                             title = stringResource(R.string.share),
                             onClick = {
-                                currentSong?.id?.let {
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, "https://music.163.com/#/song?id=$it")
-                                    }
-                                    context.startActivity(
-                                        Intent.createChooser(
-                                            shareIntent,
-                                            context.getString(R.string.share_link)
-                                        )
-                                    )
-                                }
+                                openShareSheet = true
+                                onDismiss()
                             }
                         )
                     }
@@ -375,6 +365,14 @@ fun PlayerMenuBottomSheet(
     SongListBottomSheet(song = currentSong, onDismiss = {
         openSongListBottomSheet = false
     }, openBottomSheet = openSongListBottomSheet)
+
+    currentSong?.let { song ->
+        ShareSheet(
+            payload = SharePayload.SongShare(song),
+            openBottomSheet = openShareSheet,
+            onDismiss = { openShareSheet = false }
+        )
+    }
 }
 
 /**

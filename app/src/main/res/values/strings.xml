@@ -96,4 +96,27 @@
     <string name="playback_mode_sequential">顺序播放</string>
     <string name="playback_mode_repeat_all">列表循环</string>
     <string name="playback_mode_repeat_one">单曲循环</string>
+    <string name="messages">消息</string>
+    <string name="msg_empty_private">暂无私信</string>
+    <string name="msg_no_content">暂无内容</string>
+    <string name="msg_secretary">云音乐小秘书</string>
+    <string name="msg_empty_contacts">暂无联系人</string>
+    <string name="msg_session_delete_title">删除该会话？</string>
+    <string name="msg_session_delete_text">「%1$s」将不再显示在私信列表（本地隐藏，网易云服务端消息仍保留）。可随时从右上角菜单恢复。</string>
+    <string name="msg_menu_reset_order">恢复按时间排序</string>
+    <string name="msg_menu_restore_deleted">恢复已删除会话</string>
+    <string name="msg_more_load_failed">加载失败，点击重试</string>
+    <string name="msg_contact_vip">VIP</string>
+    <string name="msg_contact_mutual">互关</string>
+    <string name="msg_empty_sessions">暂无私信会话</string>
+    <string name="msg_chat_input_hint">说点什么…</string>
+    <string name="msg_chat_send">发送</string>
+    <string name="msg_chat_empty">还没有私信，发一条吧</string>
+    <string name="msg_chat_playlist_hint">点击查看歌单</string>
+    <string name="msg_chat_album_title">专辑</string>
+    <string name="msg_chat_mv_title">MV</string>
+    <string name="msg_chat_listen_title">一起听</string>
+    <string name="msg_chat_album_hint">点击查看专辑</string>
+    <string name="msg_chat_mv_hint">点击观看 MV</string>
+    <string name="msg_chat_general_hint">点击查看</string>
 </resources>

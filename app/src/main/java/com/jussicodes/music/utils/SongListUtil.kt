@@ -7,10 +7,20 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class SongSourceMeta(
+    val sourceId: Long = 0L,
+    val sourceName: String = "list",
+    val sourceType: String? = null,
+    val navId: Long = 0L
+)
 
 object SongListUtil {
 
     private const val SONG_LIST = "song_list.json"
+    private const val SOURCE_META = "song_list_source.json"
     private var file: File? = null
     private var songList: List<Song> = emptyList()
     // The in-memory list is the source of truth for playback resumption;
@@ -48,8 +58,7 @@ object SongListUtil {
         this.songList = songList
         ioScope.launch {
             val target = file ?: return@launch
-            val songListJson = json.encodeToString<List<Song>>(songList)
-            File(target, SONG_LIST).writeText(songListJson)
+            File(target, SONG_LIST).writeText(json.encodeToString<List<Song>>(songList))
         }
     }
 
@@ -61,5 +70,20 @@ object SongListUtil {
         } else {
             null
         }
+    }
+
+    // The last queue's source metadata (label shown above the player),
+    // persisted so it survives an app restart like the song list itself.
+    fun saveSongSource(meta: SongSourceMeta) {
+        ioScope.launch {
+            file?.let { File(it, SOURCE_META).writeText(json.encodeToString(meta)) }
+        }
+    }
+
+    fun loadSongSource(): SongSourceMeta? {
+        val target = file ?: return null
+        val sourceJson = File(target, SOURCE_META)
+        if (!sourceJson.exists()) return null
+        return runCatching { json.decodeFromString<SongSourceMeta>(sourceJson.readText()) }.getOrNull()
     }
 }

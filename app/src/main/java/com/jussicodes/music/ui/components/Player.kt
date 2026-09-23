@@ -135,6 +135,11 @@ fun Player(
     selectedPlayerLabelOption: Int = 0,
     onPlayerLabelOptionSelected: (Int) -> Unit = {},
     metadataClickEnabled: Boolean = true,
+    // 跳到 音乐人/专辑 页后的收尾动作；null 时回退到 onBackPressed()。
+    // 小播放器路径默认收起全屏；私人 FM 传空实现，FM 页留在返回栈里，back 可回到 FM。
+    onAfterNavigate: (() -> Unit)? = null,
+    // FM 上下文：点歌名直接进专辑页（album id 有效时），其余路径保持先弹专辑层。
+    fmDirectNav: Boolean = false,
 ) {
 
     BackHandler {
@@ -565,7 +570,14 @@ fun Player(
                                     modifier = Modifier
                                         .basicMarquee()
                                         .clickable(enabled = metadataClickEnabled) {
-                                            openAlbumSheet = true
+                                            // FM 直跳：当前歌有有效专辑 id 时一键进专辑页；
+                                            // 其余路径（含 album id 缺失）维持先弹专辑层。
+                                            if (fmDirectNav && currentSong?.al?.id != 0L) {
+                                                navController.navigate(AlbumNav(albumId = currentSong?.al?.id ?: 0L))
+                                                onAfterNavigate?.invoke() ?: onBackPressed()
+                                            } else {
+                                                openAlbumSheet = true
+                                            }
                                         }
                                 )
                             }
@@ -583,7 +595,7 @@ fun Player(
                                             when {
                                                 artists.size == 1 -> {
                                                     navController.navigate(ArtistNav(artistId = artists.first().id))
-                                                    onBackPressed()
+                                                    onAfterNavigate?.invoke() ?: onBackPressed()
                                                 }
                                                 artists.size > 1 -> openArtistSheet = true
                                             }
@@ -831,7 +843,7 @@ fun Player(
                 onDismiss = { openAlbumSheet = false },
                 onAlbumClick = { album ->
                     navController.navigate(AlbumNav(albumId = album.id))
-                    onBackPressed()
+                    onAfterNavigate?.invoke() ?: onBackPressed()
                 })
             ArtistBottomSheet(
                 currentSong = it,
@@ -839,7 +851,7 @@ fun Player(
                 onDismiss = { openArtistSheet = false },
                 onClick = { artist ->
                     navController.navigate(ArtistNav(artistId = artist.id))
-                    onBackPressed()
+                    onAfterNavigate?.invoke() ?: onBackPressed()
                 })
         }
 

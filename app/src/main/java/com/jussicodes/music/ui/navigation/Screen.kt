@@ -1,5 +1,6 @@
 package com.jussicodes.music.ui.navigation
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 sealed class Screen(val route: String) {
@@ -10,6 +11,7 @@ sealed class Screen(val route: String) {
     data object Settings : Screen("settings")
     data object AlbumSublist : Screen("albumSublist")
     data object Login : Screen("login")
+    data object Messages : Screen("messages")
     data object Search : Screen("search")
 }
 
@@ -43,3 +45,10 @@ data class UserFollowNav(
 
 @Serializable
 data class UserNav(val userId: Long)
+
+@Serializable
+data class PrivateChatNav(
+    val userId: Long,
+    val nickname: String = "",
+    @SerialName("avatarUrl") val avatarUrl: String = ""
+)
