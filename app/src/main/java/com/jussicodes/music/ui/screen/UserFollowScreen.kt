@@ -345,7 +345,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.emptyMessageItem(mess
     }
 }
 
-@Composable
 private fun androidx.compose.foundation.lazy.LazyListScope.loadMoreIndicator(
     hasMore: Boolean,
     isLoadingMore: Boolean
