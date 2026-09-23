@@ -563,7 +563,8 @@ data class FavoriteSongResponse(
 data class UserFollowResponse(
     @SerialName("follow") val follows: List<SearchUser> = emptyList(),
     @SerialName("followeds") val followeds: List<SearchUser> = emptyList(),
-    @SerialName("more") val hasMore: Boolean = false
+    @SerialName("more") val hasMore: Boolean = false,
+    @SerialName("size") val size: Int = 0
 )
 
 @Serializable
