@@ -15,9 +15,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -77,13 +80,10 @@ sealed interface SharePayload {
         }
 }
 
-/** 分享菜单上排展示的联系人数量上限。 */
-private const val MAX_CONTACTS = 5
-
 /**
- * “分享至”底部 sheet：上排最近联系人（[MAX_CONTACTS] 个，头像 + 昵称），下排系统分享兜底。
+ * “分享至”底部 sheet：一条横滑行 = 无底系统分享入口（首位，左右滑可看全部可私信联系人），
  * 点联系人 → 输入框（右侧发送按钮，不输入直接发卡片）→ MsgApi.send* 发私信。
- * 需登录；未登录 / 无联系人 / 拉取失败时隐藏上排，只留系统分享行。
+ * 需登录；未登录 / 无联系人 / 拉取失败时不显示联系人，仅留分享链接位。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,7 +110,6 @@ fun ShareSheet(
     // 列表全量不过滤（含系统号/商家），分享联系人本地只留可私信类型，避免给系统号发私信
     val contacts = (cachedItems.orEmpty())
         .filter { it.user.userType in MsgSessionCache.allowedUserTypes }
-        .take(MAX_CONTACTS)
 
     if (openBottomSheet) {
         ModalBottomSheet(
@@ -139,7 +138,7 @@ fun ShareSheet(
                     )
 
                     when {
-                        loading -> Box(
+                        loading && contacts.isEmpty() -> Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(72.dp),
@@ -148,45 +147,46 @@ fun ShareSheet(
                             CircularProgressIndicator()
                         }
 
-                        contacts.isNotEmpty() -> Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            contacts.forEach { contact ->
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier
-                                        .clickable { selectedContact = contact }
-                                        .padding(vertical = 4.dp)
-                                ) {
-                                    ContactAvatar(contact)
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        text = contact.user.nickname.ifBlank { "用户${contact.user.userId}" },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.width(64.dp),
-                                        textAlign = TextAlign.Center
-                                    )
+                        else -> {
+                            // 单条横滑行：首位 = 无底系统分享入口（左右滑可看全部可私信联系人，不再截断 5 个）
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    start = 4.dp,
+                                    end = 4.dp
+                                )
+                            ) {
+                                item(key = "share_link") {
+                                    ShareLinkItem {
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, payload.webUrl)
+                                        }
+                                        context.startActivity(
+                                            Intent.createChooser(shareIntent, context.getString(R.string.share_link))
+                                        )
+                                    }
+                                }
+                                items(contacts, key = { it.user.userId }) { contact ->
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier
+                                            .clickable { selectedContact = contact }
+                                            .padding(vertical = 4.dp)
+                                    ) {
+                                        ContactAvatar(contact)
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            text = contact.user.nickname.ifBlank { "用户${contact.user.userId}" },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.width(64.dp),
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
                                 }
                             }
-                        }
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        ContactAppItem(title = stringResource(R.string.share_link)) {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, payload.webUrl)
-                            }
-                            context.startActivity(
-                                Intent.createChooser(shareIntent, context.getString(R.string.share_link))
-                            )
                         }
                     }
                 }
@@ -236,13 +236,28 @@ private fun NcmMsgSendRow(
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .width(56.dp)
-                    .clickable(enabled = !sending, onClick = onBack)
+            Box(
+                modifier = Modifier.size(56.dp),
+                contentAlignment = Alignment.Center
             ) {
-                ContactAvatar(contact)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clickable(enabled = !sending, onClick = onBack)
+                ) {
+                    ContactAvatar(contact)
+                }
+                // 返回图标叠在头像正中：显式告知"可返回重新选用户"（原隐式点击头像返回）
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "重新选用户",
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
             }
             Spacer(Modifier.size(10.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -317,10 +332,11 @@ private fun ContactAvatar(contact: MsgSessionCache.Item) {
     }
 }
 
-/** 下排应用格：系统分享兜底（“更多…”语义，复用现有 R.string.share_link 文案）。 */
+/** 分享行首位：系统分享兜底（“分享链接”），无底色圆——与联系人同高的裸图标 + 文案，
+ * 视觉上排在第一格、横向可滑出后续联系人。 */
 @Composable
-private fun ContactAppItem(
-    title: String,
+private fun ShareLinkItem(
+    title: String = stringResource(R.string.share_link),
     onClick: () -> Unit,
 ) {
     Column(
@@ -332,14 +348,14 @@ private fun ContactAppItem(
         Box(
             modifier = Modifier
                 .size(56.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .clip(CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Outlined.Share,
                 contentDescription = title,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(24.dp),
+                tint = MaterialTheme.colorScheme.primary
             )
         }
         Spacer(Modifier.height(6.dp))

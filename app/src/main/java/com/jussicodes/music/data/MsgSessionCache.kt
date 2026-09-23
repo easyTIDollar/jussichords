@@ -92,6 +92,7 @@ object MsgSessionCache {
     private val KEY_SNAPSHOT = stringPreferencesKey("msgSessionsCache")
     private val KEY_DELETED = stringPreferencesKey("msgDeletedUids")
     private val KEY_ORDER = stringPreferencesKey("msgManualOrder")
+    private val KEY_FILTER = stringPreferencesKey("msgFilterUserTypes")
 
     /** 服务端原始数据（全类型、未删、未排序）；null = 尚无磁盘快照且未拉取过。 */
     private val _allItems = MutableStateFlow<List<Item>?>(null)
@@ -103,9 +104,17 @@ object MsgSessionCache {
     private val _deletedUids = MutableStateFlow<Set<Long>>(emptySet())
     val deletedUids: StateFlow<Set<Long>> = _deletedUids.asStateFlow()
 
+    /** 私信列表 userType 筛选：null = 显示全部（默认）；空集 = 全部隐藏。 */
+    private val _filterUserTypes = MutableStateFlow<Set<Int>?>(null)
+    val filterUserTypes: StateFlow<Set<Int>?> = _filterUserTypes.asStateFlow()
+
     /** 全账号未读总数（/msg/private 顶层 newMsgCount，markRead 后本地递减），>0 时消息入口显红点。 */
     private val _unread = MutableStateFlow(0)
     val unread: StateFlow<Int> = _unread.asStateFlow()
+
+    /** 全量（未删、未筛）会话的 userType 分布：筛选菜单生成选项与计数用（含当前被筛掉的类型）。 */
+    private val _typeCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
+    val typeCounts: StateFlow<Map<Int, Int>> = _typeCounts.asStateFlow()
 
     /** 本地已读：进聊天页清零的会话 uid（纯本地观感，NCM 无已读 API；刷新以服务端值为准）。 */
     private val readUids = Collections.synchronizedSet(HashSet<Long>())
@@ -149,6 +158,12 @@ object MsgSessionCache {
                 json.decodeFromString<List<Long>>(prefs[KEY_ORDER] ?: "[]")
             }.getOrNull().orEmpty()
             _manualOrderActive.value = manualOrder.isNotEmpty()
+            // userType 筛选：JSON 数组；"null" / 缺省 = 显示全部（默认）
+            _filterUserTypes.value = runCatching {
+                val rawFilter = prefs[KEY_FILTER] ?: "null"
+                if (rawFilter == "null") null
+                else json.decodeFromString<List<Int>>(rawFilter).toSet()
+            }.getOrNull()
             // 只有 live 数据还没到位时才用磁盘快照铺（快照可能过期，live 优先）
             if (_allItems.value == null && !liveFetched) {
                 _allItems.value = raw
@@ -232,6 +247,14 @@ object MsgSessionCache {
         recomputeDisplay()
         saveDeleted()
         if (manualOrder.size != before) saveOrder()
+    }
+
+    /** 设置 userType 筛选（null = 显示全部；空集 = 全部隐藏）。持久化。 */
+    fun setFilterUserTypes(types: Set<Int>?) {
+        if (types == null && _filterUserTypes.value == null) return
+        _filterUserTypes.value = types
+        recomputeDisplay()
+        saveFilter()
     }
 
     /** 清除手动排序，回到时间倒序（持久化）。 */
@@ -334,10 +357,14 @@ object MsgSessionCache {
         }
     }
 
-    /** 展示列表 = 全量 − 删除 + 手动序（无手动序按最后消息时间倒序）。 */
+    /** 展示列表 = 全量 − 删除 − userType 筛选 + 手动序（无手动序按最后消息时间倒序）。
+     * 同时发布全量（未删、未筛）的 userType 分布，供筛选菜单生成选项。 */
     private fun recomputeDisplay() {
         val all = _allItems.value ?: return
-        val visible = all.filter { it.user.userId !in deletedSet }
+        val notDeleted = all.filter { it.user.userId !in deletedSet }
+        _typeCounts.value = notDeleted.groupingBy { it.user.userType }.eachCount()
+        val filter = _filterUserTypes.value
+        val visible = notDeleted.filter { filter == null || it.user.userType in filter }
         _items.value = if (manualOrder.isEmpty()) {
             visible.sortedByDescending { it.lastMsgTime }
         } else {
@@ -366,6 +393,12 @@ object MsgSessionCache {
         val s = store ?: return
         val payload = json.encodeToString(manualOrder)
         ioScope.launch { s.edit { it[KEY_ORDER] = payload } }
+    }
+
+    private fun saveFilter() {
+        val s = store ?: return
+        val payload = _filterUserTypes.value?.let { json.encodeToString(it.toList()) } ?: "null"
+        ioScope.launch { s.edit { it[KEY_FILTER] = payload } }
     }
 
     /**

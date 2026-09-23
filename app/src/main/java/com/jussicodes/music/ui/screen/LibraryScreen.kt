@@ -662,7 +662,6 @@ private fun LibraryUserCard(
 ) {
     val profile = userInfo.account.profile
     val secondaryText = profile.signature.takeIf { it.isNotBlank() }
-    val unread by com.jussicodes.music.data.MsgSessionCache.unread.collectAsState()
 
     Box(
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -682,24 +681,6 @@ private fun LibraryUserCard(
                             imageVector = Message,
                             contentDescription = stringResource(R.string.messages)
                         )
-                    }
-                    // 全局未读红点（/msg/private 顶层 newMsgCount，来自 MsgSessionCache）
-                    if (unread > 0) {
-                        androidx.compose.foundation.layout.Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.error)
-                                .padding(horizontal = 4.dp, vertical = 1.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            androidx.compose.material3.Text(
-                                text = if (unread > 99) "99+" else unread.toString(),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onError,
-                                fontSize = 10.sp
-                            )
-                        }
                     }
                 }
                 Row(

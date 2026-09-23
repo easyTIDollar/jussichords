@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -70,6 +71,7 @@ import com.jussicodes.music.utils.formatTimestamp
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.MessagesScreenViewModel
 import com.jussicodes.music.ui.icons.DragHandle
+import com.jussicodes.music.ui.icons.Funnel
 import com.rcmiku.ncmapi.model.MsgComment
 import com.rcmiku.ncmapi.model.MsgForward
 import com.rcmiku.ncmapi.model.MsgNotice
@@ -108,6 +110,7 @@ fun MessagesScreen(
     // 顶栏菜单状态（持久化在缓存：重启生效）
     val manualOrderActive by MsgSessionCache.manualOrderActive.collectAsState()
     val deletedUids by MsgSessionCache.deletedUids.collectAsState()
+    val filterUserTypes by MsgSessionCache.filterUserTypes.collectAsState()
     var deleteTarget by remember { mutableStateOf<MsgSessionCache.Item?>(null) }
 
     val listState = rememberLazyListState()
@@ -145,6 +148,11 @@ fun MessagesScreen(
                 },
                 actions = {
                     if (selectedTab == 0) {
+                        SessionsFilterMenu(
+                            active = filterUserTypes != null,
+                            activeTypes = filterUserTypes,
+                            onSet = { MsgSessionCache.setFilterUserTypes(it) }
+                        )
                         SessionsTopMenu(
                             manualOrderActive = manualOrderActive,
                             hasDeleted = deletedUids.isNotEmpty(),
@@ -387,62 +395,70 @@ private fun MsgSessionRow(
                 if (isDragging) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent
             )
             .clip(RoundedCornerShape(8.dp))
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(modifier = Modifier.size(ListThumbnailSize)) {
-            AsyncImage(
-                model = other.avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .matchParentSize()
-                    .clip(RoundedCornerShape(ThumbnailCornerRadius))
-            )
-            // 在线状态点：头像右下角（绿 = 在线，灰 = 离线）
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .align(Alignment.BottomEnd)
-                    .clip(CircleShape)
-                    .background(if (session.onlined) Color(0xFF4CAF50) else Color(0xFF9E9E9E))
-                    .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
-            )
-        }
-        Column(
+        // 行体（头像 + 昵称/预览）= 单击进聊天、长按删除确认；
+        // 拖拽手柄在外层单独节点，两个手势域互不嵌套，长按手柄起拖不再误弹删除框
+        Row(
             modifier = Modifier
                 .weight(1f)
-                .padding(start = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+                .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = other.nickname,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            // 次行：[VIP] [互关] 标签 + 预览（标签统一从次行行首开始，不受昵称长度影响）
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                val hasTags = session.vipType != 0 || session.mutual
-                if (session.vipType != 0) MsgStateTag(stringResource(R.string.msg_contact_vip))
-                if (session.mutual) MsgStateTag(stringResource(R.string.msg_contact_mutual))
-                if (hasTags) Spacer(Modifier.width(4.dp))
-                Text(
-                    text = session.preview,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
+            Box(modifier = Modifier.size(ListThumbnailSize)) {
+                AsyncImage(
+                    model = other.avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                )
+                // 在线状态点：头像右下角（绿 = 在线，灰 = 离线）
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .align(Alignment.BottomEnd)
+                        .clip(CircleShape)
+                        .background(if (session.onlined) Color(0xFF4CAF50) else Color(0xFF9E9E9E))
+                        .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
                 )
             }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = other.nickname,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                // 次行：[VIP] [互关] 标签 + 预览（标签统一从次行行首开始，不受昵称长度影响）
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    val hasTags = session.vipType != 0 || session.mutual
+                    if (session.vipType != 0) MsgStateTag(stringResource(R.string.msg_contact_vip))
+                    if (session.mutual) MsgStateTag(stringResource(R.string.msg_contact_mutual))
+                    if (hasTags) Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = session.preview,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
+            }
         }
-        // 拖拽手柄：长按 grip 起拖排序（长按行体 = 删除确认框，两手势互不冲突）
+        // 拖拽手柄：长按 grip 起拖排序（行体长按 = 删除确认，两节点无嵌套零冲突）
         Icon(
             imageVector = DragHandle,
             contentDescription = null,
@@ -496,6 +512,73 @@ private fun MsgStateTag(text: String) {
             .padding(horizontal = 4.dp, vertical = 1.dp)
     )
 }
+
+/** 顶栏筛选（仅私信 tab）：按 userType 多选保留。
+ * activeTypes = null 表示未筛选（全部勾选）；选项与计数来自缓存全量类型分布。 */
+@Composable
+private fun SessionsFilterMenu(
+    active: Boolean,
+    activeTypes: Set<Int>?,
+    onSet: (Set<Int>?) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val counts by MsgSessionCache.typeCounts.collectAsState()
+    val allChecked = activeTypes == null
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                imageVector = Funnel,
+                contentDescription = null,
+                tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            // 首行"显示全部"：取消筛选
+            DropdownMenuItem(
+                text = { Text("显示全部类型") },
+                leadingIcon = {
+                    FilterCheckIcon(checked = allChecked)
+                },
+                onClick = { onSet(null); expanded = false }
+            )
+            counts.entries.sortedBy { it.key }.forEach { (type, count) ->
+                val label = USER_TYPE_LABELS[type] ?: "类型$type"
+                val checked = allChecked || (activeTypes?.contains(type) ?: false)
+                DropdownMenuItem(
+                    text = { Text("$label（$count）") },
+                    leadingIcon = { FilterCheckIcon(checked = checked) },
+                    onClick = {
+                        val base = if (allChecked) counts.keys.toMutableSet() else activeTypes!!.toMutableSet()
+                        if (type in base) base.remove(type) else base.add(type)
+                        onSet(if (base.size == counts.size) null else base)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** 筛选菜单勾选图标：勾选 = 主色，未勾选 = 灰色。 */
+@Composable
+private fun FilterCheckIcon(checked: Boolean) {
+    Icon(
+        imageVector = Icons.Filled.Check,
+        contentDescription = null,
+        tint = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+/** userType → 展示名（NCM 未公开完整枚举，已知码给友好名，未知码兜底"类型N"）。 */
+private val USER_TYPE_LABELS = mapOf(
+    0 to "普通用户",
+    4 to "歌手",
+    10 to "官方",
+    207 to "音乐达人"
+)
 
 /** 顶栏 ⋮ 菜单（仅私信 tab）：手动排序生效时可"恢复按时间排序"；有被删会话时可一键恢复。 */
 @Composable
