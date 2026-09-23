@@ -195,7 +195,7 @@ class UserFollowScreenViewModel @Inject constructor(
                     }
                     val result = ArtistApi.artistSublist(offset = 0, limit = ARTIST_PAGE_SIZE).getOrNull()
                     if (result != null) {
-                        applyArtistPage(result, replace = true)
+                        _artists.value = result.data
                         nextArtistOffset = result.data.size
                         hasMoreArtists = result.hasMore
                         _hasMore.value = hasMoreArtists
@@ -382,8 +382,13 @@ class UserFollowScreenViewModel @Inject constructor(
             val result = ArtistApi.artistSublist(offset = nextArtistOffset, limit = ARTIST_PAGE_SIZE).getOrNull()
             if (result != null) {
                 nextArtistOffset += result.data.size
-                applyArtistPage(result)
-                hasMoreArtists = result.hasMore
+                // offset 分页在页长抖动 / 服务端关注列表变动时会重复返回已加载歌手；
+                // LazyColumn 的 key=id 遇重复 key 会直接崩。追加前按 id 去重（与用户列表同款防护）。
+                val existingIds = _artists.value.mapTo(HashSet()) { it.id }
+                val newItems = result.data.filterNot { it.id in existingIds }
+                _artists.value = _artists.value + newItems
+                // 整页都是已加载过的（游标漂移/失效）→ 停止，避免死循环与重复 key
+                hasMoreArtists = result.hasMore && newItems.isNotEmpty()
                 _hasMore.value = hasMoreArtists
                 if (activeUserId > 0) {
                     _artistCache.value = _artistCache.value + (
@@ -400,10 +405,6 @@ class UserFollowScreenViewModel @Inject constructor(
         }
     }
 
-    private fun applyArtistPage(result: ArtistSublistResponse, replace: Boolean = false) {
-        _artists.value = if (replace) result.data else _artists.value + result.data
-    }
-
     private suspend fun loadCachedArtists() {
         val cached = context.dataStore.data.first()[artistFirstPageCacheKey]
             ?.takeIf { it.isNotBlank() }
@@ -411,6 +412,6 @@ class UserFollowScreenViewModel @Inject constructor(
                 runCatching { json.decodeFromString<ArtistSublistResponse>(cache) }.getOrNull()
             }
             ?: return
-        applyArtistPage(cached, replace = true)
+        _artists.value = cached.data
     }
 }
