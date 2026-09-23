@@ -24,14 +24,14 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PullToRefreshBox
-import androidx.compose.material3.PullToRefreshDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -40,6 +40,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -57,8 +58,10 @@ import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.UserFollowScreenViewModel
 import com.jussicodes.music.viewModel.UserFollowType
 import com.rcmiku.ncmapi.model.SearchArtist
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.snapshotFlow
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,7 +102,7 @@ fun UserFollowScreen(
     // 下拉刷新
     val coroutineScope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(false) }
-    val pullToRefreshState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+    val pullToRefreshState = rememberPullToRefreshState()
     val onRefresh: () -> Unit = {
         if (!isRefreshing) {
             isRefreshing = true
@@ -124,17 +127,18 @@ fun UserFollowScreen(
         }
     }
 
-    // 自动加载：监听 listState，滑到倒数第 3 项时自动触发 loadMore
-    LaunchedEffect(hasMore, isLoadingMore) {
-        if (!hasMore) return@LaunchedEffect
+    // 无缝自动加载：滑到倒数第 4 项时自动拉下一页（与 PlayerComments 同款写法）
+    LaunchedEffect(listState, users.size, artists.size, hasMore, isLoading, isLoadingMore) {
         snapshotFlow {
-            val info = listState.layoutInfo
-            info.totalItemsCount > 0 && info.visibleItemsInfo.any { it.index >= info.totalItemsCount - 3 }
-        }.filter { it }
-            .collect { _ ->
-                if (hasMore && !isLoadingMore) {
-                    userFollowScreenViewModel.loadMore()
-                }
+            val layoutInfo = listState.layoutInfo
+            val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val totalItemsCount = layoutInfo.totalItemsCount
+            totalItemsCount > 0 && lastVisibleIndex >= totalItemsCount - 4
+        }
+            .distinctUntilChanged()
+            .filter { it }
+            .collect {
+                userFollowScreenViewModel.loadMore()
             }
     }
 
@@ -195,8 +199,7 @@ fun UserFollowScreen(
                                 onDragCancel = { horizontalDragAmount = 0f }
                             )
                         }
-                    },
-                contentType = { "follow_item" }
+                    }
             ) {
                 if (type == UserFollowType.FOLLOWS) {
                     item {
@@ -248,11 +251,6 @@ fun UserFollowScreen(
                                     }
                                 )
                             }
-                            loadMoreItem(
-                                hasMore = hasMore,
-                                isLoadingMore = isLoadingMore,
-                                onClick = { userFollowScreenViewModel.loadMore() }
-                            )
                         } else {
                             items(sortedArtists, key = { it.id }) { artist ->
                                 ArtistListItem(
@@ -263,11 +261,9 @@ fun UserFollowScreen(
                                     }
                                 )
                             }
-                            loadMoreItem(
-                                hasMore = hasMore,
-                                isLoadingMore = isLoadingMore,
-                                onClick = { userFollowScreenViewModel.loadMore() }
-                            )
+                        }
+                        if (hasMore || isLoadingMore) {
+                            loadMoreIndicator(hasMore = hasMore, isLoadingMore = isLoadingMore)
                         }
                     }
                     UserFollowType.FOLLOWS,
@@ -292,24 +288,20 @@ fun UserFollowScreen(
                                     }
                                 )
                             }
-                            // 粉丝列表 API 限制：可能无法获取全部粉丝，显示提示
-                            if (isFollowedsLimited) {
-                                item {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                                        contentAlignment = androidx.compose.ui.Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "粉丝列表加载受限，可能显示不全",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.align(androidx.compose.ui.Alignment.Center)
-                                        )
-                                    }
-                                }
+                        }
+                        // followeds 接口 bug：总数比拿到的多时给个提示，不假装能继续翻
+                        if (selectedType == UserFollowType.FOLLOWEDS && isFollowedsLimited) {
+                            item {
+                                Text(
+                                    text = "粉丝数据接口限制，仅显示部分粉丝（共 ${users.size} 条已加载）",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                                )
                             }
+                        }
+                        if (hasMore || isLoadingMore) {
+                            loadMoreIndicator(hasMore = hasMore, isLoadingMore = isLoadingMore)
                         }
                     }
                 }
@@ -342,7 +334,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.emptyMessageItem(mess
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp, vertical = 48.dp),
-            contentAlignment = androidx.compose.ui.Alignment.Center
+            contentAlignment = Alignment.Center
         ) {
             Text(
                 text = message,
@@ -353,28 +345,26 @@ private fun androidx.compose.foundation.lazy.LazyListScope.emptyMessageItem(mess
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.loadMoreItem(
+@Composable
+private fun androidx.compose.foundation.lazy.LazyListScope.loadMoreIndicator(
     hasMore: Boolean,
-    isLoadingMore: Boolean,
-    onClick: () -> Unit
+    isLoadingMore: Boolean
 ) {
-    if (!hasMore && !isLoadingMore) return
     item {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 14.dp),
-            contentAlignment = androidx.compose.ui.Alignment.Center
+            contentAlignment = Alignment.Center
         ) {
-            TextButton(
-                enabled = !isLoadingMore,
-                onClick = onClick
-            ) {
-                if (isLoadingMore) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                } else {
-                    Text(text = "加载下一页")
-                }
+            if (isLoadingMore) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp))
+            } else if (hasMore) {
+                Text(
+                    text = "上滑加载更多",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

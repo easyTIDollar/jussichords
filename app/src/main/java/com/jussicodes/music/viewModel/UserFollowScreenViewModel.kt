@@ -37,8 +37,9 @@ class UserFollowScreenViewModel @Inject constructor(
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     private companion object {
-        const val FIRST_PAGE_SIZE = 100
-        const val PAGE_SIZE = 100
+        // 关注用户/粉丝单页 100（接口支持且已实测）；歌手保持 50（文档默认值）
+        const val USER_PAGE_SIZE = 100
+        const val ARTIST_PAGE_SIZE = 50
         val artistFirstPageCacheKey = stringPreferencesKey("artistFirstPageCache")
     }
 
@@ -60,7 +61,8 @@ class UserFollowScreenViewModel @Inject constructor(
     private val _hasMore = MutableStateFlow(false)
     val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
 
-    // followeds API 有 bug，可能永远 more=true，用一个特殊标记提示
+    // /user/followeds 接口有 bug：offset/limit 被忽略，永远只返回前 30 条。
+    // 当 total(size) > 实际拿到条数时标记受限，UI 显示提示，不再空转分页
     private val _isFollowedsLimited = MutableStateFlow(false)
     val isFollowedsLimited: StateFlow<Boolean> = _isFollowedsLimited.asStateFlow()
 
@@ -75,9 +77,22 @@ class UserFollowScreenViewModel @Inject constructor(
     private var nextArtistOffset = 0
     private var fetchJob: Job? = null
 
-    // 内存缓存：按 userId + type 存储已加载数据，避免重复请求
-    private val _userCache = MutableStateFlow<Map<Pair<Long, UserFollowType>, List<SearchUser>>>(emptyMap())
-    private val _artistCache = MutableStateFlow<Map<Long, List<SearchArtist>>>(emptyMap())
+    // 内存缓存（进入主页 prefetch 填充）：只存第一页，命中后从记录的分页点继续自动加载
+    private data class CachedUsers(
+        val users: List<SearchUser>,
+        val hasMore: Boolean,
+        val nextOffset: Int,
+        val limited: Boolean
+    )
+
+    private data class CachedArtists(
+        val artists: List<SearchArtist>,
+        val hasMore: Boolean,
+        val nextOffset: Int
+    )
+
+    private val _userCache = MutableStateFlow<Map<Pair<Long, UserFollowType>, CachedUsers>>(emptyMap())
+    private val _artistCache = MutableStateFlow<Map<Long, CachedArtists>>(emptyMap())
 
     init {
         viewModelScope.launch {
@@ -96,39 +111,40 @@ class UserFollowScreenViewModel @Inject constructor(
     }
 
     /**
-     * 预加载：进入用户主页时并行拉取三张表存入缓存
+     * 预加载：进入用户主页时并行拉第一页，命中后列表秒开，后续页仍按需自动加载
      */
     fun prefetch(userId: Long) {
         if (userId <= 0) return
         viewModelScope.launch {
-            val followJob = async { AccountApi.userFollows(userId, limit = PAGE_SIZE) }
-            val followedsJob = async { AccountApi.userFolloweds(userId, limit = PAGE_SIZE) }
-            val artistsJob = async { ArtistApi.artistSublist(offset = 0, limit = PAGE_SIZE) }
+            val followJob = async { AccountApi.userFollows(userId, limit = USER_PAGE_SIZE) }
+            val followedsJob = async { AccountApi.userFolloweds(userId, limit = USER_PAGE_SIZE) }
+            val artistsJob = async { ArtistApi.artistSublist(offset = 0, limit = ARTIST_PAGE_SIZE) }
 
-            try {
-                val followsResult = followJob.await().getOrNull()
-                followsResult?.follows?.let {
-                    _userCache.value = _userCache.value + (Pair(userId, UserFollowType.FOLLOWS) to it)
-                }
-            } catch (_: Exception) {}
-            try {
-                val followedsResult = followedsJob.await().getOrNull()
-                followedsResult?.followeds?.let {
-                    _userCache.value = _userCache.value + (Pair(userId, UserFollowType.FOLLOWEDS) to it)
-                }
-            } catch (_: Exception) {}
-            try {
-                val artistsResult = artistsJob.await().getOrNull()
-                artistsResult?.data?.let {
-                    _artistCache.value = _artistCache.value + (userId to it)
-                }
-                // 同时存第一页到 dataStore
-                if (artistsResult != null) {
+            followJob.await().getOrNull()?.let { res ->
+                val list = res.follows
+                _userCache.value = _userCache.value + (
+                    Pair(userId, UserFollowType.FOLLOWS) to
+                        CachedUsers(list, res.hasMore, list.size, limited = false)
+                    )
+            }
+            followedsJob.await().getOrNull()?.let { res ->
+                val list = res.followeds
+                val limited = res.size > list.size
+                _userCache.value = _userCache.value + (
+                    Pair(userId, UserFollowType.FOLLOWEDS) to
+                        CachedUsers(list, res.hasMore && !limited, list.size, limited)
+                    )
+            }
+            // 歌手接口偶发返回空（服务端问题），空结果不写缓存，避免覆盖有效旧缓存
+            artistsJob.await().getOrNull()?.let { res ->
+                if (res.data.isNotEmpty()) {
+                    _artistCache.value = _artistCache.value +
+                        (userId to CachedArtists(res.data, res.hasMore, res.data.size))
                     context.dataStore.edit { prefs ->
-                        prefs[artistFirstPageCacheKey] = json.encodeToString(artistsResult)
+                        prefs[artistFirstPageCacheKey] = json.encodeToString(res)
                     }
                 }
-            } catch (_: Exception) {}
+            }
         }
     }
 
@@ -150,36 +166,47 @@ class UserFollowScreenViewModel @Inject constructor(
                 UserFollowType.ARTISTS -> {
                     _follows.value = null
                     _users.value = emptyList()
-                    // 先查缓存
-                    val cachedArtists = _artistCache.value[userId]
-                    if (cachedArtists != null) {
-                        _artists.value = cachedArtists
-                        hasMoreArtists = false
-                        _hasMore.value = false
-                        _isLoading.value = false
-                        return@launch
+                    // 先查内存缓存（prefetch 填充），命中直接从记录的分页点继续
+                    _artistCache.value[userId]?.let { cached ->
+                        if (cached.artists.isNotEmpty()) {
+                            _artists.value = cached.artists
+                            nextArtistOffset = cached.nextOffset
+                            hasMoreArtists = cached.hasMore
+                            _hasMore.value = cached.hasMore
+                            _isLoading.value = false
+                            return@launch
+                        }
                     }
-                    // 查 dataStore 旧缓存
+                    // 再查 dataStore 旧缓存（秒开首屏）
                     loadCachedArtists()
+                    nextArtistOffset = _artists.value.size
                     if (!_artists.value.isNullOrEmpty()) {
-                        _hasMore.value = true // 旧缓存不完整，标记还有更多
+                        hasMoreArtists = true
+                        _hasMore.value = true
                     }
-                    val result = ArtistApi.artistSublist(offset = nextArtistOffset, limit = FIRST_PAGE_SIZE).getOrNull()
+                    val result = ArtistApi.artistSublist(offset = 0, limit = ARTIST_PAGE_SIZE).getOrNull()
                     if (result != null) {
                         applyArtistPage(result, replace = true)
+                        nextArtistOffset = result.data.size
+                        hasMoreArtists = result.hasMore
+                        _hasMore.value = hasMoreArtists
                         context.dataStore.edit { prefs ->
                             prefs[artistFirstPageCacheKey] = json.encodeToString(result)
                         }
+                    } else if (_artists.value.isNotEmpty()) {
+                        // 网络失败：保留旧缓存，继续从缓存条数处分页
+                        nextArtistOffset = _artists.value.size
                     }
                 }
                 UserFollowType.FOLLOWS,
                 UserFollowType.FOLLOWEDS -> {
-                    // 先查缓存
-                    val cachedUsers = _userCache.value[Pair(userId, type)]
-                    if (cachedUsers != null) {
-                        _users.value = cachedUsers
-                        hasMoreUsers = false
-                        _hasMore.value = false
+                    // 先查内存缓存（prefetch 填充），命中直接从记录的分页点继续
+                    _userCache.value[Pair(userId, type)]?.let { cached ->
+                        _users.value = cached.users
+                        nextUserOffset = cached.nextOffset
+                        hasMoreUsers = cached.hasMore
+                        _isFollowedsLimited.value = cached.limited
+                        _hasMore.value = hasMoreUsers
                         _follows.value = null
                         _artists.value = emptyList()
                         _isLoading.value = false
@@ -201,8 +228,6 @@ class UserFollowScreenViewModel @Inject constructor(
                     }
                     _follows.value = result
                     _artists.value = emptyList()
-                    hasMoreUsers = result?.hasMore == true
-                    _hasMore.value = hasMoreUsers
                     val pageUsers = when (type) {
                         UserFollowType.FOLLOWS -> result?.follows.orEmpty()
                         UserFollowType.FOLLOWEDS -> result?.followeds.orEmpty()
@@ -210,12 +235,23 @@ class UserFollowScreenViewModel @Inject constructor(
                     }
                     nextUserOffset = pageUsers.size
                     _users.value = pageUsers
-
-                    // followeds API bug 处理：如果 size > len(followeds) 且 more=true，说明 API 不支持分页
-                    if (type == UserFollowType.FOLLOWEDS && result?.size != null && result.size > pageUsers.size) {
+                    hasMoreUsers = result?.hasMore == true
+                    // followeds 接口 bug：total(size) > 返回条数时停止分页并提示
+                    if (type == UserFollowType.FOLLOWEDS && result != null && result.size > pageUsers.size) {
                         hasMoreUsers = false
-                        _hasMore.value = false
                         _isFollowedsLimited.value = true
+                    }
+                    _hasMore.value = hasMoreUsers
+                    if (result != null) {
+                        _userCache.value = _userCache.value + (
+                            Pair(userId, type) to
+                                CachedUsers(
+                                    users = pageUsers,
+                                    hasMore = hasMoreUsers,
+                                    nextOffset = nextUserOffset,
+                                    limited = _isFollowedsLimited.value
+                                )
+                            )
                     }
                 }
             }
@@ -224,7 +260,7 @@ class UserFollowScreenViewModel @Inject constructor(
     }
 
     /**
-     * 自动加载下一页（滑到底部触发，不需要手动点击）
+     * 滑到底部自动触发（也可由手动按钮调用），加载下一页
      */
     fun loadMore() {
         val type = activeType ?: return
@@ -244,11 +280,10 @@ class UserFollowScreenViewModel @Inject constructor(
     }
 
     /**
-     * 下滑刷新：清空对应缓存并重新拉取
+     * 下拉刷新：清掉对应缓存后重新拉取
      */
     fun refresh(userId: Long, type: UserFollowType) {
         if (userId <= 0) return
-        // 清除该类型缓存
         _userCache.value = _userCache.value - Pair(userId, type)
         if (type == UserFollowType.ARTISTS) {
             _artistCache.value = _artistCache.value - userId
@@ -285,11 +320,10 @@ class UserFollowScreenViewModel @Inject constructor(
                     UserFollowType.FOLLOWEDS -> result.followeds
                     UserFollowType.ARTISTS -> emptyList()
                 }
-                // API bug 防护：followeds 返回的数据与已加载的完全重复 → 停止分页
+                // followeds bug 防护：offset 被接口忽略时，返回的仍是同一批数据 → 停止
                 if (type == UserFollowType.FOLLOWEDS && nextUserOffset > 0) {
-                    val existingIds = _users.value.map { it.id }.toSet()
-                    val newIds = nextUsers.map { it.id }.toSet()
-                    if (newIds.isEmpty() || newIds.all { it in existingIds }) {
+                    val existingIds = _users.value.mapTo(HashSet()) { it.id }
+                    if (nextUsers.isEmpty() || nextUsers.all { it.id in existingIds }) {
                         hasMoreUsers = false
                         _hasMore.value = false
                         _isFollowedsLimited.value = true
@@ -297,9 +331,19 @@ class UserFollowScreenViewModel @Inject constructor(
                     }
                 }
                 nextUserOffset += nextUsers.size
-                _users.value = (_users.value + nextUsers).distinctBy { it.id }
+                val merged = (_users.value + nextUsers).distinctBy { it.id }
+                _users.value = merged
                 hasMoreUsers = result.hasMore
                 _hasMore.value = hasMoreUsers
+                _userCache.value = _userCache.value + (
+                    Pair(userId, type) to
+                        CachedUsers(
+                            users = merged,
+                            hasMore = hasMoreUsers,
+                            nextOffset = nextUserOffset,
+                            limited = type == UserFollowType.FOLLOWEDS && result.size > merged.size
+                        )
+                    )
             }
         } finally {
             _isLoadingMore.value = false
@@ -310,14 +354,20 @@ class UserFollowScreenViewModel @Inject constructor(
         if (!hasMoreArtists) return
         _isLoadingMore.value = true
         try {
-            val result = ArtistApi.artistSublist(offset = nextArtistOffset, limit = PAGE_SIZE).getOrNull()
+            val result = ArtistApi.artistSublist(offset = nextArtistOffset, limit = ARTIST_PAGE_SIZE).getOrNull()
             if (result != null) {
                 nextArtistOffset += result.data.size
                 applyArtistPage(result)
                 hasMoreArtists = result.hasMore
                 _hasMore.value = hasMoreArtists
-                context.dataStore.edit { prefs ->
-                    prefs[artistFirstPageCacheKey] = json.encodeToString(result)
+                if (activeUserId > 0) {
+                    _artistCache.value = _artistCache.value + (
+                        activeUserId to
+                            CachedArtists(_artists.value, hasMoreArtists, nextArtistOffset)
+                        )
+                    context.dataStore.edit { prefs ->
+                        prefs[artistFirstPageCacheKey] = json.encodeToString(result)
+                    }
                 }
             }
         } finally {
@@ -326,27 +376,25 @@ class UserFollowScreenViewModel @Inject constructor(
     }
 
     private fun applyArtistPage(result: ArtistSublistResponse, replace: Boolean = false) {
-        if (replace) {
-            _artists.value = result.data
-        } else {
-            _artists.value = _artists.value + result.data
-        }
+        _artists.value = if (replace) result.data else _artists.value + result.data
     }
 
-    private suspend fun fetchUserPage(userId: Long, type: UserFollowType, offset: Int) =
+    private suspend fun fetchUserPage(userId: Long, type: UserFollowType, offset: Int): Result<UserFollowResponse> =
         when (type) {
-            UserFollowType.FOLLOWS -> AccountApi.userFollows(userId, limit = PAGE_SIZE, offset = offset)
-            UserFollowType.FOLLOWEDS -> AccountApi.userFolloweds(userId, limit = PAGE_SIZE, offset = offset)
-            UserFollowType.ARTISTS -> throw IllegalArgumentException("Invalid type for fetchUserPage")
+            UserFollowType.FOLLOWS -> AccountApi.userFollows(userId, limit = USER_PAGE_SIZE, offset = offset)
+            UserFollowType.FOLLOWEDS -> AccountApi.userFolloweds(userId, limit = USER_PAGE_SIZE, offset = offset)
+            UserFollowType.ARTISTS -> Result.failure(
+                IllegalArgumentException("Artists are not user follow pages")
+            )
         }
 
     private suspend fun loadCachedArtists() {
-        try {
-            val cached: ArtistSublistResponse? = context.dataStore.preferences
-                .first()[artistFirstPageCacheKey]?.let { json.decodeFromString(it) }
-            _artists.value = cached?.data ?: emptyList()
-        } catch (_: Exception) {
-            _artists.value = emptyList()
-        }
+        val cached = context.dataStore.data.first()[artistFirstPageCacheKey]
+            ?.takeIf { it.isNotBlank() }
+            ?.let { cache ->
+                runCatching { json.decodeFromString<ArtistSublistResponse>(cache) }.getOrNull()
+            }
+            ?: return
+        applyArtistPage(cached, replace = true)
     }
 }
