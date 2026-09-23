@@ -23,6 +23,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PullToRefreshBox
+import androidx.compose.material3.PullToRefreshDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.Tab
@@ -35,7 +37,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
@@ -52,6 +56,7 @@ import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.UserFollowScreenViewModel
 import com.jussicodes.music.viewModel.UserFollowType
 import com.rcmiku.ncmapi.model.SearchArtist
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -85,6 +90,21 @@ fun UserFollowScreen(
         UserFollowType.ARTISTS -> if (showArtistFollows) sortedArtists.isEmpty() else followedArtistUsers.isEmpty()
         UserFollowType.FOLLOWS -> followedUsers.isEmpty()
         UserFollowType.FOLLOWEDS -> users.isEmpty()
+    }
+
+    // 下拉刷新
+    val coroutineScope = rememberCoroutineScope()
+    var isRefreshing by remember { mutableStateOf(false) }
+    val pullToRefreshState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+    val onRefresh: () -> Unit = {
+        if (!isRefreshing) {
+            isRefreshing = true
+            coroutineScope.launch {
+                userFollowScreenViewModel.refresh(userId, selectedType)
+                delay(600)
+                isRefreshing = false
+            }
+        }
     }
 
     LaunchedEffect(userId, selectedType) {
@@ -125,124 +145,139 @@ fun UserFollowScreen(
             )
         }
     ) { padding ->
-        LazyColumn(
+        PullToRefreshBox(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .pointerInput(type) {
-                    if (type == UserFollowType.FOLLOWS) {
-                        detectHorizontalDragGestures(
-                            onDragStart = { horizontalDragAmount = 0f },
-                            onHorizontalDrag = { _, amount -> horizontalDragAmount += amount },
-                            onDragEnd = {
-                                if (horizontalDragAmount < -80f) selectedType = UserFollowType.FOLLOWS
-                                if (horizontalDragAmount > 80f) selectedType = UserFollowType.ARTISTS
-                                horizontalDragAmount = 0f
-                            },
-                            onDragCancel = { horizontalDragAmount = 0f }
-                        )
-                    }
-                }
-        ) {
-            if (type == UserFollowType.FOLLOWS) {
-                item {
-                    SecondaryTabRow(
-                        selectedTabIndex = if (selectedType == UserFollowType.ARTISTS) 0 else 1
-                    ) {
-                        Tab(
-                            selected = selectedType == UserFollowType.ARTISTS,
-                            onClick = { selectedType = UserFollowType.ARTISTS },
-                            text = { Text("关注的歌手", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                        )
-                        Tab(
-                            selected = selectedType == UserFollowType.FOLLOWS,
-                            onClick = { selectedType = UserFollowType.FOLLOWS },
-                            text = { Text("关注的用户", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                        )
-                    }
-                }
-                if (!showArtistFollows) {
-                    item {
-                        Text(
-                            text = "接口未提供关注时间，列表按 A-Z 排序，中文按拼音排序",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-                        )
-                    }
-                }
+                .padding(padding),
+            state = pullToRefreshState,
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            indicator = {
+                PullToRefreshDefaults.Indicator(
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    isRefreshing = isRefreshing,
+                    state = pullToRefreshState
+                )
             }
-
-            when (selectedType) {
-                UserFollowType.ARTISTS -> {
-                    if (isLoading && isContentEmpty) {
-                        loadingListItems()
-                    } else if (errorMessage != null && isContentEmpty) {
-                        emptyMessageItem(errorMessage.orEmpty())
-                    } else if (!showArtistFollows) {
-                        items(followedArtistUsers, key = { it.id }) { user ->
-                            ArtistListItem(
-                                artist = SearchArtist(
-                                    id = user.id,
-                                    name = user.nickname,
-                                    picUrl = user.avatarUrl,
-                                    briefDesc = user.signature
-                                ),
-                                onThumbnailClick = { previewAvatarUrl = user.avatarUrl },
-                                modifier = Modifier.clickable {
-                                    navController.navigate(UserNav(userId = user.id))
-                                }
+        ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(type) {
+                        if (type == UserFollowType.FOLLOWS) {
+                            detectHorizontalDragGestures(
+                                onDragStart = { horizontalDragAmount = 0f },
+                                onHorizontalDrag = { _, amount -> horizontalDragAmount += amount },
+                                onDragEnd = {
+                                    if (horizontalDragAmount < -80f) selectedType = UserFollowType.FOLLOWS
+                                    if (horizontalDragAmount > 80f) selectedType = UserFollowType.ARTISTS
+                                    horizontalDragAmount = 0f
+                                },
+                                onDragCancel = { horizontalDragAmount = 0f }
                             )
                         }
-                        loadMoreItem(
-                            hasMore = hasMore,
-                            isLoadingMore = isLoadingMore,
-                            onClick = { userFollowScreenViewModel.loadMore() }
-                        )
-                    } else {
-                        items(sortedArtists, key = { it.id }) { artist ->
-                            ArtistListItem(
-                                artist = artist,
-                                onThumbnailClick = { previewAvatarUrl = artist.cover },
-                                modifier = Modifier.clickable {
-                                    navController.navigate(ArtistNav(artistId = artist.id))
-                                }
+                    }
+            ) {
+                if (type == UserFollowType.FOLLOWS) {
+                    item {
+                        SecondaryTabRow(
+                            selectedTabIndex = if (selectedType == UserFollowType.ARTISTS) 0 else 1
+                        ) {
+                            Tab(
+                                selected = selectedType == UserFollowType.ARTISTS,
+                                onClick = { selectedType = UserFollowType.ARTISTS },
+                                text = { Text("关注的歌手", maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            )
+                            Tab(
+                                selected = selectedType == UserFollowType.FOLLOWS,
+                                onClick = { selectedType = UserFollowType.FOLLOWS },
+                                text = { Text("关注的用户", maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             )
                         }
-                        loadMoreItem(
-                            hasMore = hasMore,
-                            isLoadingMore = isLoadingMore,
-                            onClick = { userFollowScreenViewModel.loadMore() }
-                        )
+                    }
+                    if (!showArtistFollows) {
+                        item {
+                            Text(
+                                text = "接口未提供关注时间，列表按 A-Z 排序，中文按拼音排序",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                            )
+                        }
                     }
                 }
-                UserFollowType.FOLLOWS,
-                UserFollowType.FOLLOWEDS -> {
-                    if (isLoading && isContentEmpty) {
-                        loadingListItems()
-                    } else if (errorMessage != null && isContentEmpty) {
-                        emptyMessageItem(errorMessage.orEmpty())
-                    } else {
-                        val displayedUsers = if (selectedType == UserFollowType.FOLLOWS) followedUsers else users
-                        items(displayedUsers, key = { it.id }) { user ->
-                            ArtistListItem(
-                                artist = SearchArtist(
-                                    id = user.id,
-                                    name = user.nickname,
-                                    picUrl = user.avatarUrl,
-                                    briefDesc = user.signature
-                                ),
-                                onThumbnailClick = { previewAvatarUrl = user.avatarUrl },
-                                modifier = Modifier.clickable {
-                                    navController.navigate(UserNav(userId = user.id))
-                                }
+
+                when (selectedType) {
+                    UserFollowType.ARTISTS -> {
+                        if (isLoading && isContentEmpty) {
+                            loadingListItems()
+                        } else if (errorMessage != null && isContentEmpty) {
+                            emptyMessageItem(errorMessage.orEmpty())
+                        } else if (!showArtistFollows) {
+                            items(followedArtistUsers, key = { it.id }) { user ->
+                                ArtistListItem(
+                                    artist = SearchArtist(
+                                        id = user.id,
+                                        name = user.nickname,
+                                        picUrl = user.avatarUrl,
+                                        briefDesc = user.signature
+                                    ),
+                                    onThumbnailClick = { previewAvatarUrl = user.avatarUrl },
+                                    modifier = Modifier.clickable {
+                                        navController.navigate(UserNav(userId = user.id))
+                                    }
+                                )
+                            }
+                            loadMoreItem(
+                                hasMore = hasMore,
+                                isLoadingMore = isLoadingMore,
+                                onClick = { userFollowScreenViewModel.loadMore() }
+                            )
+                        } else {
+                            items(sortedArtists, key = { it.id }) { artist ->
+                                ArtistListItem(
+                                    artist = artist,
+                                    onThumbnailClick = { previewAvatarUrl = artist.cover },
+                                    modifier = Modifier.clickable {
+                                        navController.navigate(ArtistNav(artistId = artist.id))
+                                    }
+                                )
+                            }
+                            loadMoreItem(
+                                hasMore = hasMore,
+                                isLoadingMore = isLoadingMore,
+                                onClick = { userFollowScreenViewModel.loadMore() }
                             )
                         }
-                        loadMoreItem(
-                            hasMore = hasMore,
-                            isLoadingMore = isLoadingMore,
-                            onClick = { userFollowScreenViewModel.loadMore() }
-                        )
+                    }
+                    UserFollowType.FOLLOWS,
+                    UserFollowType.FOLLOWEDS -> {
+                        if (isLoading && isContentEmpty) {
+                            loadingListItems()
+                        } else if (errorMessage != null && isContentEmpty) {
+                            emptyMessageItem(errorMessage.orEmpty())
+                        } else {
+                            val displayedUsers = if (selectedType == UserFollowType.FOLLOWS) followedUsers else users
+                            items(displayedUsers, key = { it.id }) { user ->
+                                ArtistListItem(
+                                    artist = SearchArtist(
+                                        id = user.id,
+                                        name = user.nickname,
+                                        picUrl = user.avatarUrl,
+                                        briefDesc = user.signature
+                                    ),
+                                    onThumbnailClick = { previewAvatarUrl = user.avatarUrl },
+                                    modifier = Modifier.clickable {
+                                        navController.navigate(UserNav(userId = user.id))
+                                    }
+                                )
+                            }
+                            loadMoreItem(
+                                hasMore = hasMore,
+                                isLoadingMore = isLoadingMore,
+                                onClick = { userFollowScreenViewModel.loadMore() }
+                            )
+                        }
                     }
                 }
             }

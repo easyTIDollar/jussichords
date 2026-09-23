@@ -38,11 +38,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +56,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.jussicodes.music.viewModel.UserFollowScreenViewModel
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import androidx.compose.material3.OutlinedButton
@@ -75,7 +78,8 @@ private const val LIKED_PLAYLIST_NAME_FRAGMENT = "\u559c\u6b22"
 @Composable
 fun UserScreen(
     navController: NavHostController,
-    userScreenViewModel: UserScreenViewModel = hiltViewModel()
+    userScreenViewModel: UserScreenViewModel = hiltViewModel(),
+    userFollowViewModel: UserFollowScreenViewModel = hiltViewModel()
 ) {
     val userDetailState by userScreenViewModel.userDetail.collectAsState()
     val userPlaylists by userScreenViewModel.userPlaylists.collectAsState()
@@ -112,6 +116,11 @@ fun UserScreen(
                 ).show()
             }
         }
+    }
+
+    // 预加载三张表：进入用户主页时并行拉取，供关注/粉丝页面直接使用
+    LaunchedEffect(userId) {
+        userFollowViewModel.prefetch(userId)
     }
 
     Scaffold(
