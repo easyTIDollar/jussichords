@@ -1,6 +1,5 @@
 package com.jussicodes.music.ui.screen
 
-import android.icu.text.Transliterator
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -62,7 +61,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,10 +78,9 @@ fun UserFollowScreen(
     val hasMore by userFollowScreenViewModel.hasMore.collectAsState()
     val isFollowedsLimited by userFollowScreenViewModel.isFollowedsLimited.collectAsState()
     val errorMessage by userFollowScreenViewModel.errorMessage.collectAsState()
-    // 歌手 tab（artist/sublist）没有时间戳，仍按拼音排序；拼音 key 有进程级缓存，重组不再重转写
-    val sortedArtists = remember(artists) { artists.sortedBy { it.name.toPinyinSortKey() } }
-    // 关注接口（getfollows, order=true）原生按关注时间倒序返回（最近关注在前），
-    // 不做客户端拼音重排、直接按原生顺序展示，翻页追加时时间序保持一致
+    // 两个 tab 都直接按接口原生返回顺序展示，不做客户端重排：
+    // - 歌手 tab（artist/sublist）逐页追加，第一页在前
+    // - 用户 tab（getfollows, order=true）原生按关注时间倒序（最新关注在前）
     val followedArtistUsers = users.filter { it.userType == 2 || it.userType == 4 }
     val followedUsers = users.filterNot { it.userType == 2 || it.userType == 4 }
     var selectedType by remember(type, showArtistFollows) {
@@ -93,7 +90,7 @@ fun UserFollowScreen(
     var horizontalDragAmount by remember { mutableStateOf(0f) }
     val listState = rememberLazyListState()
     val isContentEmpty = when (selectedType) {
-        UserFollowType.ARTISTS -> if (showArtistFollows) sortedArtists.isEmpty() else followedArtistUsers.isEmpty()
+        UserFollowType.ARTISTS -> if (showArtistFollows) artists.isEmpty() else followedArtistUsers.isEmpty()
         UserFollowType.FOLLOWS -> followedUsers.isEmpty()
         UserFollowType.FOLLOWEDS -> users.isEmpty()
     }
@@ -252,7 +249,7 @@ fun UserFollowScreen(
                                 )
                             }
                         } else {
-                            items(sortedArtists, key = { it.id }) { artist ->
+                            items(artists, key = { it.id }) { artist ->
                                 ArtistListItem(
                                     artist = artist,
                                     onThumbnailClick = { previewAvatarUrl = artist.cover },
@@ -315,24 +312,6 @@ fun UserFollowScreen(
             showSaveAction = true
         )
     }
-}
-
-private fun String.toPinyinSortKey(): String =
-    FollowListPinyinTransliterator.sortKey(trim())
-
-private object FollowListPinyinTransliterator {
-    // 进程级拼音 key 缓存：歌手列表重组/翻页会反复取同一批名字，
-    // 不加缓存时每次重组都对全量歌手重跑 ICU 转写，是列表卡顿主因之一
-    private val cache = java.util.concurrent.ConcurrentHashMap<String, String>()
-    private val transliterator by lazy {
-        Transliterator.getInstance("Han-Latin/Names; Latin-ASCII")
-    }
-
-    fun sortKey(value: String): String = cache.computeIfAbsent(value) {
-        transliterate(it).lowercase(Locale.ROOT)
-    }
-
-    private fun transliterate(value: String): String = transliterator.transliterate(value)
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.emptyMessageItem(message: String) {
