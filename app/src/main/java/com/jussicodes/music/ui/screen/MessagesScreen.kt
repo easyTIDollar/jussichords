@@ -18,17 +18,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,8 +35,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SecondaryTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TextButton
@@ -45,7 +42,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,26 +63,12 @@ import com.jussicodes.music.constants.ThumbnailCornerRadius
 import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.ui.navigation.PrivateChatNav
 import com.jussicodes.music.utils.CoverImageSize
-import com.jussicodes.music.utils.formatTimestamp
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.MessagesScreenViewModel
 import com.jussicodes.music.ui.icons.DragHandle
 import com.jussicodes.music.ui.icons.Funnel
-import com.rcmiku.ncmapi.model.MsgComment
-import com.rcmiku.ncmapi.model.MsgForward
-import com.rcmiku.ncmapi.model.MsgNotice
-import com.rcmiku.ncmapi.model.MsgNoticeInner
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
-
-/** 内层 JSON（私信 msg / 通知 notice 都是字符串 JSON）容错解析。 */
-private val innerJson = Json {
-    ignoreUnknownKeys = true
-    isLenient = true
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,9 +76,6 @@ fun MessagesScreen(
     navController: NavHostController,
     viewModel: MessagesScreenViewModel = hiltViewModel()
 ) {
-    val comments by viewModel.comments.collectAsState()
-    val forwards by viewModel.forwards.collectAsState()
-    val notices by viewModel.notices.collectAsState()
     // 会话列表读缓存（单一数据源）：loadMore/refresh/markRead/拖拽/删除都回写缓存，
     // 进聊天页本地已读后角标自动消；viewModel 仅负责 loading / hasMore / loadMore。
     val cacheSessions by MsgSessionCache.items.collectAsState()
@@ -104,9 +83,6 @@ fun MessagesScreen(
     val sessionsLoading by viewModel.sessionsLoading.collectAsState()
     val sessionsHasMore by viewModel.sessionsHasMore.collectAsState()
     val sessionsMoreFailed by viewModel.sessionsMoreFailed.collectAsState()
-    val commentsLoading by viewModel.commentsLoading.collectAsState()
-    val forwardsLoading by viewModel.forwardsLoading.collectAsState()
-    val noticesLoading by viewModel.noticesLoading.collectAsState()
     // 顶栏菜单状态（持久化在缓存：重启生效）
     val manualOrderActive by MsgSessionCache.manualOrderActive.collectAsState()
     val deletedUids by MsgSessionCache.deletedUids.collectAsState()
@@ -126,14 +102,6 @@ fun MessagesScreen(
         if (!dragging) MsgSessionCache.flushManualOrder()
     }
 
-    var selectedTab by remember { mutableIntStateOf(0) }
-    val titles = listOf(
-        stringResource(R.string.msg_tab_private),
-        stringResource(R.string.msg_tab_comments),
-        stringResource(R.string.msg_tab_mentions),
-        stringResource(R.string.msg_tab_notices)
-    )
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -147,19 +115,17 @@ fun MessagesScreen(
                     }
                 },
                 actions = {
-                    if (selectedTab == 0) {
-                        SessionsFilterMenu(
-                            active = filterUserTypes != null,
-                            activeTypes = filterUserTypes,
-                            onSet = { MsgSessionCache.setFilterUserTypes(it) }
-                        )
-                        SessionsTopMenu(
-                            manualOrderActive = manualOrderActive,
-                            hasDeleted = deletedUids.isNotEmpty(),
-                            onResetOrder = { MsgSessionCache.resetManualOrder() },
-                            onRestoreAllDeleted = { MsgSessionCache.restoreAllDeleted() }
-                        )
-                    }
+                    SessionsFilterMenu(
+                        active = filterUserTypes != null,
+                        activeTypes = filterUserTypes,
+                        onSet = { MsgSessionCache.setFilterUserTypes(it) }
+                    )
+                    SessionsTopMenu(
+                        manualOrderActive = manualOrderActive,
+                        hasDeleted = deletedUids.isNotEmpty(),
+                        onResetOrder = { MsgSessionCache.resetManualOrder() },
+                        onRestoreAllDeleted = { MsgSessionCache.restoreAllDeleted() }
+                    )
                 }
             )
         }
@@ -170,95 +136,44 @@ fun MessagesScreen(
             contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            item {
-                SecondaryTabRow(selectedTabIndex = selectedTab) {
-                    titles.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTab == index,
-                            onClick = { selectedTab = index },
-                            text = { Text(title) }
+            // 私信会话：全量（缓存层按筛选/删除/手动序过滤）；
+            // 拖拽手柄排序（reorderable 库，长按 DragHandle 起拖）、长按行体弹删除确认、
+            // 接近底部（倒数第 4 行）自动补拉下一页、仅加载失败时显"点击重试"尾行。
+            if (sessionsLoading && sessions.isEmpty()) {
+                item { MsgLoadingRow() }
+            } else if (sessions.isEmpty()) {
+                item { MsgEmptyRow(stringResource(R.string.msg_empty_sessions)) }
+            } else {
+                itemsIndexed(
+                    sessions,
+                    key = { _, item -> item.user.userId }
+                ) { index, item ->
+                    val autoLoadMore = index >= sessions.size - 4
+                    ReorderableItem(
+                        state = reorderableState,
+                        key = item.user.userId,
+                    ) { isDragging ->
+                        MsgSessionRow(
+                            session = item,
+                            isDragging = isDragging,
+                            autoLoadMore = autoLoadMore,
+                            onLoadMore = { viewModel.loadMoreSessions() },
+                            onLongClick = { deleteTarget = item },
+                            onClick = {
+                                navController.navigate(
+                                    PrivateChatNav(
+                                        userId = item.user.userId,
+                                        nickname = item.user.nickname,
+                                        avatarUrl = item.user.avatarUrl
+                                    )
+                                )
+                            },
+                            handleModifier = Modifier.longPressDraggableHandle()
                         )
                     }
                 }
-                Spacer(modifier = Modifier.size(8.dp))
-            }
-
-            when (selectedTab) {
-                0 -> {
-                    // 冷启动：磁盘快照已有数据时直接铺列表（后台静默刷新），只有"无数据且加载中"才转圈
-                    if (sessionsLoading && sessions.isEmpty()) {
-                        item { MsgLoadingRow() }
-                    } else if (sessions.isEmpty()) {
-                        item { MsgEmptyRow(stringResource(R.string.msg_empty_sessions)) }
-                    } else {
-                        // 私信会话：全量（不过滤 userType）− 本地已删除 + 手动序；
-                        // 拖拽手柄排序（reorderable 库，长按 DragHandle 起拖）、长按弹删除确认、
-                        // 接近底部（倒数第 4 行）自动补拉下一页、仅加载失败时显"点击重试"尾行。
-                        itemsIndexed(
-                            sessions,
-                            key = { _, item -> item.user.userId }
-                        ) { index, item ->
-                            val autoLoadMore = index >= sessions.size - 4
-                            ReorderableItem(
-                                state = reorderableState,
-                                key = item.user.userId,
-                            ) { isDragging ->
-                                MsgSessionRow(
-                                    session = item,
-                                    isDragging = isDragging,
-                                    autoLoadMore = autoLoadMore,
-                                    onLoadMore = { viewModel.loadMoreSessions() },
-                                    onLongClick = { deleteTarget = item },
-                                    onClick = {
-                                        navController.navigate(
-                                            PrivateChatNav(
-                                                userId = item.user.userId,
-                                                nickname = item.user.nickname,
-                                                avatarUrl = item.user.avatarUrl
-                                            )
-                                        )
-                                    },
-                                    handleModifier = Modifier.longPressDraggableHandle()
-                                )
-                            }
-                        }
-                        if (sessionsMoreFailed) {
-                            item { MsgRetryRow(onClick = { viewModel.loadMoreSessions() }) }
-                        }
-                    }
-                }
-                1 -> {
-                    if (commentsLoading) {
-                        item { MsgLoadingRow() }
-                    } else if (comments.isEmpty()) {
-                        item { MsgEmptyRow(stringResource(R.string.msg_empty_comments)) }
-                    } else {
-                        items(comments.size, key = { comments[it].commentId }) { index ->
-                            MsgCommentRow(comments[index])
-                        }
-                    }
-                }
-                2 -> {
-                    if (forwardsLoading) {
-                        item { MsgLoadingRow() }
-                    } else if (forwards.isEmpty()) {
-                        item { MsgEmptyRow(stringResource(R.string.msg_empty_mentions)) }
-                    } else {
-                        items(forwards.size, key = { it }) { index ->
-                            MsgForwardRow(forwards[index])
-                        }
-                    }
-                }
-                3 -> {
-                    if (noticesLoading) {
-                        item { MsgLoadingRow() }
-                    } else if (notices.isEmpty()) {
-                        item { MsgEmptyRow(stringResource(R.string.msg_empty_notices)) }
-                    } else {
-                        items(notices.size, key = { notices[it].id }) { index ->
-                            MsgNoticeRow(notices[index])
-                        }
-                    }
+                if (sessionsMoreFailed) {
+                    item { MsgRetryRow(onClick = { viewModel.loadMoreSessions() }) }
                 }
             }
         }
@@ -298,74 +213,6 @@ private fun MsgLoadingRow() {
     ) {
         CircularProgressIndicator(Modifier.size(28.dp))
     }
-}
-
-/** 评论：谁评论/回复了你的评论，引用被回复的内容。 */
-@Composable
-private fun MsgCommentRow(comment: MsgComment) {
-    val nickname = comment.user?.nickname.orEmpty()
-    val author = nickname.ifBlank { "未知用户" }
-    val emptyText = stringResource(R.string.msg_no_content)
-    val subtitle = comment.content.ifBlank { comment.beRepliedContent }.ifBlank { emptyText }
-
-    MsgRow(
-        avatarUrl = comment.user?.avatarUrl.orEmpty(),
-        title = author,
-        subtitle = subtitle,
-        time = comment.time
-    )
-}
-
-/** @我：字段 NCM 未完全公开，尽力从 msg JSON 提取文本，解析不到则只显示来源用户。 */
-@Composable
-private fun MsgForwardRow(forward: MsgForward) {
-    val rawText = forward.msg?.let { el ->
-        val obj = el as? JsonObject
-        val m = (obj?.get("msg") as? JsonPrimitive)?.content
-        val c = (obj?.get("content") as? JsonPrimitive)?.content
-        if (!m.isNullOrBlank()) m else c
-    }
-    val nickname = forward.fromUser?.nickname.orEmpty()
-    val title = nickname.ifBlank { stringResource(R.string.msg_mention_unknown) }
-    val fallback = stringResource(R.string.msg_empty_mentions)
-    val subtitle = rawText?.ifBlank { fallback } ?: fallback
-
-    MsgRow(
-        avatarUrl = forward.fromUser?.avatarUrl.orEmpty(),
-        title = title,
-        subtitle = subtitle,
-        time = forward.time
-    )
-}
-
-/** 系统通知：评论互动（type 6）展示被引用的评论内容，其余原样展示。 */
-@Composable
-private fun MsgNoticeRow(notice: MsgNotice) {
-    val inner = notice.notice
-        .takeIf { it.isNotBlank() }
-        ?.let { runCatching { innerJson.decodeFromString<MsgNoticeInner>(it) }.getOrNull() }
-    val innerUser = inner?.user
-    val quotedUser = inner?.comment?.user
-    val quoted = inner?.comment?.content
-
-    val emptyText = stringResource(R.string.msg_no_content)
-    val title: String = when {
-        !innerUser?.nickname.isNullOrBlank() -> innerUser.nickname
-        else -> stringResource(R.string.msg_system_notice)
-    }
-    val subtitle: String = when {
-        inner?.type == 6 && !quoted.isNullOrBlank() ->
-            stringResource(R.string.msg_quote_prefix, quoted)
-        !quoted.isNullOrBlank() -> quoted
-        else -> emptyText
-    }
-
-    MsgRow(
-        avatarUrl = quotedUser?.avatarUrl.orEmpty(),
-        title = title,
-        subtitle = subtitle,
-        time = notice.time
-    )
 }
 
 /** 私信会话行：头像（右下角在线点，绿在线/灰离线）；首行昵称；次行 [VIP]/[互关] + 预览；
@@ -513,8 +360,9 @@ private fun MsgStateTag(text: String) {
     )
 }
 
-/** 顶栏筛选（仅私信 tab）：按 userType 多选保留。
- * activeTypes = null 表示未筛选（全部勾选）；选项与计数来自缓存全量类型分布。 */
+/** 顶栏筛选：按 userType 多选保留。activeTypes = null 表示未筛选（全部勾选）；
+ * 选项与计数来自缓存全量类型分布。勾选框显示勾选状态；点项即时生效（缓存 + 持久化）且不关菜单，
+ * 可连续多选，点菜单外才关闭。 */
 @Composable
 private fun SessionsFilterMenu(
     active: Boolean,
@@ -536,25 +384,30 @@ private fun SessionsFilterMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false }
         ) {
-            // 首行"显示全部"：取消筛选
+            // 首行"显示全部类型"：勾选 = 取消筛选；点击不关菜单（点外才关）
             DropdownMenuItem(
                 text = { Text("显示全部类型") },
                 leadingIcon = {
-                    FilterCheckIcon(checked = allChecked)
+                    Checkbox(
+                        checked = allChecked,
+                        onCheckedChange = { if (!allChecked) onSet(null) }
+                    )
                 },
-                onClick = { onSet(null); expanded = false }
+                onClick = {}
             )
             counts.entries.sortedBy { it.key }.forEach { (type, count) ->
                 val label = USER_TYPE_LABELS[type] ?: "类型$type"
                 val checked = allChecked || (activeTypes?.contains(type) ?: false)
                 DropdownMenuItem(
                     text = { Text("$label（$count）") },
-                    leadingIcon = { FilterCheckIcon(checked = checked) },
+                    leadingIcon = {
+                        Checkbox(checked = checked, onCheckedChange = { })
+                    },
                     onClick = {
                         val base = if (allChecked) counts.keys.toMutableSet() else activeTypes!!.toMutableSet()
                         if (type in base) base.remove(type) else base.add(type)
+                        // 全勾 = 取消筛选（null）；逐项即时落缓存 + 持久化，菜单保持打开
                         onSet(if (base.size == counts.size) null else base)
-                        expanded = false
                     }
                 )
             }
@@ -562,19 +415,10 @@ private fun SessionsFilterMenu(
     }
 }
 
-/** 筛选菜单勾选图标：勾选 = 主色，未勾选 = 灰色。 */
-@Composable
-private fun FilterCheckIcon(checked: Boolean) {
-    Icon(
-        imageVector = Icons.Filled.Check,
-        contentDescription = null,
-        tint = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-    )
-}
-
 /** userType → 展示名（NCM 未公开完整枚举，已知码给友好名，未知码兜底"类型N"）。 */
 private val USER_TYPE_LABELS = mapOf(
     0 to "普通用户",
+    2 to "音乐人入驻账号",
     4 to "歌手",
     10 to "官方",
     207 to "音乐达人"
@@ -627,65 +471,6 @@ private fun MsgRetryRow(onClick: () -> Unit) {
             .padding(vertical = 12.dp),
         textAlign = TextAlign.Center
     )
-}
-
-/** 通用消息行：头像 + 标题 + 副文本 + 时间。 */
-@Composable
-private fun MsgRow(
-    avatarUrl: String,
-    title: String,
-    subtitle: String,
-    time: Long
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(ListThumbnailSize)
-                .clip(RoundedCornerShape(ThumbnailCornerRadius))
-        ) {
-            if (avatarUrl.isNotBlank()) {
-                AsyncImage(
-                    model = avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(ThumbnailCornerRadius))
-                )
-            }
-        }
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Text(
-            text = formatTimestamp(time),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
 }
 
 @Composable
