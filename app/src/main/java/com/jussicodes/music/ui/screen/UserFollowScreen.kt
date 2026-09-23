@@ -59,7 +59,6 @@ import com.jussicodes.music.viewModel.UserFollowType
 import com.rcmiku.ncmapi.model.SearchArtist
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.snapshotFlow
-import kotlinx.coroutines.flow.flowOf
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
