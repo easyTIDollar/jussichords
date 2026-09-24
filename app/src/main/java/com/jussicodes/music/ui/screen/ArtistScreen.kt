@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -177,15 +176,12 @@ fun ArtistScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 4.dp)
-                        .height(56.dp),
+                        .padding(top = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Text(
                             text = artistHeadInfoState?.data?.artist?.name.orEmpty(),
@@ -210,9 +206,7 @@ fun ArtistScreen(
                     OutlinedButton(
                         onClick = artistScreenViewModel::toggleArtistSub,
                         enabled = !isArtistSubUpdating && artistHeadInfoState != null,
-                        modifier = Modifier
-                            .padding(start = 8.dp)
-                            .fillMaxHeight()
+                        modifier = Modifier.padding(start = 8.dp)
                     ) {
                         Text(text = if (isArtistSubscribed) "取消收藏" else "收藏")
                     }
