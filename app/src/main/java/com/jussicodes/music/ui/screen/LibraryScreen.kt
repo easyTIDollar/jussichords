@@ -158,11 +158,9 @@ fun LibraryScreen(
     var showPinnedAlbumPickDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(ncmCookie) {
-        if (ncmCookie == null) {
-            return@LaunchedEffect
-        }
-        if (ncmCookie.isNotEmpty()) {
-            libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie)
+        val cookie = ncmCookie ?: return@LaunchedEffect
+        if (cookie.isNotEmpty()) {
+            libraryScreenViewModel.fetchUserInfo(cookie = cookie)
             PinnedAlbumStore.sync()
         } else {
             libraryScreenViewModel.clear()

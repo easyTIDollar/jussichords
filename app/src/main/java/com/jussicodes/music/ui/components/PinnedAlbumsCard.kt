@@ -137,16 +137,14 @@ fun PinnedAlbumsCard(
         }
     }
 
-    val loopingAlbumId: Long? = when (playerState?.repeatMode) {
-        Player.REPEAT_MODE_ALL -> playerState?.currentMediaItem?.extras
-            ?.takeIf {
-                it.getString(MediaSessionConstants.EXTRA_SOURCE_TYPE) ==
-                    MediaSessionConstants.SOURCE_TYPE_ALBUM
-            }
-            ?.getLong(MediaSessionConstants.EXTRA_SOURCE_ID, 0L)
-            ?.takeIf { it != 0L }
-        else -> null
-    }
+    val loopingAlbumId: Long? = if (playerState?.repeatMode == Player.REPEAT_MODE_ALL) {
+        val extras = playerState?.currentMediaItem?.mediaMetadata?.extras
+        val sourceId = extras?.getLong(MediaSessionConstants.EXTRA_SOURCE_ID, 0L)
+        if (
+            extras?.getString(MediaSessionConstants.EXTRA_SOURCE_TYPE) ==
+                MediaSessionConstants.SOURCE_TYPE_ALBUM && sourceId != null && sourceId != 0L
+        ) sourceId else null
+    } else null
 
     fun loopPlay(album: Album) {
         coroutineScope.launch {
@@ -207,7 +205,7 @@ fun PinnedAlbumsCard(
                         Text(text = "完成")
                     }
                 } else {
-                    IconButton(onClick = { editing = true }, contentDescription = "编辑") {
+                    IconButton(onClick = { editing = true }) {
                         Icon(
                             imageVector = Pencil,
                             contentDescription = "编辑",
@@ -405,7 +403,7 @@ private fun PinnedAlbumCover(
         }
         if (editing) {
             Box(modifier = Modifier.align(Alignment.TopStart).padding(2.dp)) {
-                IconButton(onClick = onLoop, contentDescription = "播放整张") {
+                IconButton(onClick = onLoop) {
                     Icon(
                         imageVector = RepeatOn,
                         contentDescription = "播放整张",
@@ -415,7 +413,7 @@ private fun PinnedAlbumCover(
                 }
             }
             Box(modifier = Modifier.align(Alignment.TopEnd).padding(2.dp)) {
-                IconButton(onClick = onUnpin, contentDescription = "取消置顶") {
+                IconButton(onClick = onUnpin) {
                     Icon(
                         imageVector = PushPin,
                         contentDescription = "取消置顶",

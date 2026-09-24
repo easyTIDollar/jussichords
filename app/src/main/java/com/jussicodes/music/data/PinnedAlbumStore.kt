@@ -132,14 +132,16 @@ object PinnedAlbumStore {
             val results = kotlinx.coroutines.coroutineScope {
                 ids.map { id ->
                     async(Dispatchers.IO) {
-                        runCatching { AlbumApi.albumDetail(id) }.getOrNull()
+                        AlbumApi.albumDetail(id).getOrNull()
                     }
                 }.awaitAll()
             }
-            val found = results.mapNotNull { it?.album }
+            val found = results.filterNotNull()
             if (found.isEmpty()) return@withLock false
-            results.forEachNotNull { r -> songCache[r.album.id] = r.songs }
-            val ordered = ids.mapNotNull { id -> found.firstOrNull { it.id == id } }
+            for (r in found) {
+                songCache[r.album.id] = r.songs
+            }
+            val ordered = ids.mapNotNull { albumId -> found.firstOrNull { it.album.id == albumId }?.album }
             _albums.value = ordered
             persist(ids, ordered)
             lastSyncedAccount = acc
