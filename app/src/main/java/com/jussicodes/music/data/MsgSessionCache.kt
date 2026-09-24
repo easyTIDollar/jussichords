@@ -116,6 +116,11 @@ object MsgSessionCache {
     private val _typeCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
     val typeCounts: StateFlow<Map<Int, Int>> = _typeCounts.asStateFlow()
 
+    /** 最近联系（/msg/recentcontact）快照：userId → 在线/VIP/互关补丁。best-effort，
+     * 供聊天页顶栏、关注/粉丝列表补状态（交集才显示，不交集无数据）。 */
+    private val _recentContacts = MutableStateFlow<Map<Long, MsgRecentContact>>(emptyMap())
+    val recentContacts: StateFlow<Map<Long, MsgRecentContact>> = _recentContacts.asStateFlow()
+
     /** 本地已读：进聊天页清零的会话 uid（纯本地观感，NCM 无已读 API；刷新以服务端值为准）。 */
     private val readUids = Collections.synchronizedSet(HashSet<Long>())
 
@@ -313,6 +318,11 @@ object MsgSessionCache {
         saveSnapshot()
     }
 
+    /** 发布最近联系快照（消息页 ViewModel 刷新/分页时，其自拉的最新 rcMap 优先）。 */
+    fun setRecentContacts(rc: Map<Long, MsgRecentContact>) {
+        _recentContacts.value = rc
+    }
+
     /**
      * 分享菜单打开 / App 启动预热时调用：已有 live 数据则跳过；否则**并行**拉
      * 账号 uid（5s）+ /msg/private（主数据，8s）+ /msg/recentcontact（在线/VIP/互关，5s），
@@ -344,6 +354,7 @@ object MsgSessionCache {
             val resp = p.await()
             val rcList = r.await()?.follow.orEmpty()
             val rcMap = rcList.associateBy { it.userId }
+            _recentContacts.value = rcMap
             val onlineUids = rcList.filter { it.onlined }.mapTo(HashSet()) { it.userId }
             if (resp != null) {
                 val items = resp.msgs.mapNotNull { s ->

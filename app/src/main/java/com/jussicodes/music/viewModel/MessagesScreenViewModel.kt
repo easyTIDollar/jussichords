@@ -74,6 +74,7 @@ class MessagesScreenViewModel @Inject constructor() : ViewModel() {
                 }
                 val resp = p.await()
                 rcMap = r.await()?.follow?.associateBy { it.userId } ?: emptyMap()
+                MsgSessionCache.setRecentContacts(rcMap)
                 if (resp != null) {
                     rawFetched = resp.msgs.size
                     val items = mergeSessions(resp.msgs, uid)

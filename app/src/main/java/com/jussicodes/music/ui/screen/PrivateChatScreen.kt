@@ -60,8 +60,11 @@ import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
+import com.jussicodes.music.ui.components.OnlineDot
+import com.jussicodes.music.ui.components.UserStateTags
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.PlaylistNav
+import com.jussicodes.music.ui.navigation.UserNav
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.formatTimestamp
 import com.jussicodes.music.utils.toCoverImageUrl
@@ -139,6 +142,10 @@ fun PrivateChatScreen(
     val refreshTick by viewModel.refreshTick.collectAsState()
     val mediaController = LocalPlayerController.current.controller
 
+    // 顶栏状态点（在线 / VIP / 互关）：读 recentcontact 快照（best-effort，无交集则不显）
+    val rc by MsgSessionCache.recentContacts.collectAsState()
+    val contactState = rc[viewModel.contactUserId]
+
     var draft by remember { mutableStateOf("") }
     val chatList = remember(history) { history.asReversed() }
     val listState = rememberLazyListState()
@@ -173,16 +180,37 @@ fun PrivateChatScreen(
                                 modifier = Modifier
                                     .size(32.dp)
                                     .clip(CircleShape)
+                                    .clickable { navController.navigate(UserNav(userId = viewModel.contactUserId)) }
                             ) {
                                 AsyncImage(
                                     model = viewModel.contactAvatar.toCoverImageUrl(CoverImageSize.LIST),
                                     contentDescription = null,
                                     modifier = Modifier.fillMaxSize().clip(CircleShape)
                                 )
+                                // 在线状态点：头像右下角（与私信列表同款）；快照缺失则不显
+                                if (contactState != null) {
+                                    OnlineDot(
+                                        online = contactState.onlined,
+                                        size = 10.dp,
+                                        modifier = Modifier.align(Alignment.BottomEnd)
+                                    )
+                                }
                             }
                             Spacer(Modifier.size(10.dp))
                         }
-                        Text(viewModel.contactName, style = MaterialTheme.typography.titleMedium)
+                        Column {
+                            Text(
+                                text = viewModel.contactName,
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.clickable {
+                                    navController.navigate(UserNav(userId = viewModel.contactUserId))
+                                }
+                            )
+                            // 昵称下：VIP / 互关标签（与私信列表同款；快照缺失则不显）
+                            contactState?.let { st ->
+                                UserStateTags(vipType = st.vipType, mutual = st.mutual)
+                            }
+                        }
                     }
                 },
                 navigationIcon = {

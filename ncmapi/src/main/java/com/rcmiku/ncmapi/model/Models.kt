@@ -182,6 +182,9 @@ data class SearchUser(
     @SerialName("avatarUrl") val avatarUrl: String = "",
     val signature: String = "",
     val userType: Int = 0,
+    // NCM 关注/粉丝列表原生携带：VIP 等级、是否互关（与私信 recentcontact 同源口径）
+    val vipType: Int = 0,
+    val mutual: Boolean = false,
     // NCM 粉丝列表 (getfolloweds) 的分页游标：取上一页最后一个元素的 time
     @SerialName("time") val time: Long = 0
 )
@@ -260,7 +263,9 @@ data class ArtistFollowCountData(
     @SerialName("isFollow") val isFollow: Boolean = false,
     val follow: Boolean = false,
     val fansCnt: Long = 0,
-    val followCnt: Long = 0
+    val followCnt: Long = 0,
+    val followDay: String = "",
+    @SerialName("followDayCnt") val followDayCnt: Long = 0
 ) {
     val followed: Boolean get() = isFollow || follow
 }
@@ -540,6 +545,7 @@ data class UserProfile(
     @SerialName("avatarUrl") val avatarUrl: String = "",
     val signature: String = "",
     val vipType: Int = 0,
+    val userType: Int = -1,
     @SerialName("follows") val followsCount: Int = 0,
     @SerialName("followeds") val followedsCount: Int = 0,
     val followed: Boolean = false

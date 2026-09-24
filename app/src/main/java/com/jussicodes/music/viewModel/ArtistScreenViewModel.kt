@@ -19,6 +19,7 @@ import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.api.artist.ArtistApi
 import com.rcmiku.ncmapi.model.ArtistHeadInfoResponse
+import com.rcmiku.ncmapi.model.ArtistFollowCountData
 import com.rcmiku.ncmapi.model.ArtistTopSong
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.ArtistUser
@@ -88,13 +89,18 @@ class ArtistScreenViewModel @Inject constructor(
     private val _likedSongIds = MutableStateFlow<Set<Long>>(emptySet())
     val likedSongIds: StateFlow<Set<Long>> = _likedSongIds.asStateFlow()
 
+    private val _artistFollowStats = MutableStateFlow<ArtistFollowCountData?>(null)
+    val artistFollowStats: StateFlow<ArtistFollowCountData?> = _artistFollowStats.asStateFlow()
+
     init {
         viewModelScope.launch {
             artistId?.let {
                 val headInfo = ArtistApi.artistHeadInfo(it).getOrNull()
                 _artistHeadInfo.value = headInfo
+                val followStats = ArtistApi.artistFollowCount(it).getOrNull()?.data
+                _artistFollowStats.value = followStats
                 _isArtistSubscribed.value = ArtistCollectionSyncBus.overrideFor(it)
-                    ?: ArtistApi.artistFollowCount(it).getOrNull()?.data?.followed
+                    ?: followStats?.followed
                     ?: (headInfo?.data?.user?.followed == true)
                 val topSong = ArtistApi.artistTopSong(it).getOrNull()
                 _artistTopSong.value = topSong
@@ -168,6 +174,17 @@ class ArtistScreenViewModel @Inject constructor(
         return out
     }
 
+    private fun refreshFollowStats() {
+        val id = artistId ?: return
+        viewModelScope.launch {
+            val stats = ArtistApi.artistFollowCount(id).getOrNull()?.data ?: return@launch
+            _artistFollowStats.value = stats
+            // 同步刷新关注状态，避免乐观更新与服务端不一致
+            _isArtistSubscribed.value = ArtistCollectionSyncBus.overrideFor(id)
+                ?: stats.followed
+        }
+    }
+
     fun setSongMode(mode: String) {
         if (mode == _songMode.value) return
         _songMode.value = mode
@@ -224,6 +241,9 @@ class ArtistScreenViewModel @Inject constructor(
             }
 
             ArtistApi.artistSub(id, nextSubscribed)
+                .onSuccess {
+                    refreshFollowStats()
+                }
                 .onFailure {
                     _isArtistSubscribed.value = !nextSubscribed
                     artist?.let { ArtistCollectionSyncBus.setCollected(it, !nextSubscribed) }
@@ -236,6 +256,7 @@ class ArtistScreenViewModel @Inject constructor(
                             )
                         )
                     }
+                    refreshFollowStats()
                     Toast.makeText(
                         context,
                         it.message ?: "歌手收藏失败，请稍后重试",
