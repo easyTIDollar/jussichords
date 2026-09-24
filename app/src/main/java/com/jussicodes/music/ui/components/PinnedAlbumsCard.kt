@@ -314,8 +314,8 @@ private fun PinnedAlbumsGrid(
                         cardShape = cardShape,
                         dragModifier = dragModifier,
                         onOpen = { onOpenAlbum(album) },
-                        onPlay = { onPlay(album, loop = false) },
-                        onLoop = { onPlay(album, loop = true) },
+                        onPlay = { onPlay(album, false) },
+                        onLoop = { onPlay(album, true) },
                         onRemove = { onRemove(album) },
                         onEnterEdit = onEnterEdit
                     )
@@ -378,14 +378,14 @@ private fun PinnedAlbumCover(
                 icon = PlayArrow,
                 contentDescription = "播放整张",
                 onClick = onPlay,
-                align = Alignment.TopStart,
+                modifier = Modifier.align(Alignment.TopStart),
                 artwork = album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL)
             )
             CoverActionChip(
                 icon = Icons.Outlined.Delete,
                 contentDescription = "删除",
                 onClick = onRemove,
-                align = Alignment.TopEnd,
+                modifier = Modifier.align(Alignment.TopEnd),
                 tint = MaterialTheme.colorScheme.error,
                 artwork = album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL)
             )
@@ -399,13 +399,12 @@ private fun CoverActionChip(
     icon: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
-    align: Alignment,
+    modifier: Modifier,
     tint: Color = MaterialTheme.colorScheme.onSurface,
     artwork: Any? = null
 ) {
     Box(
-        modifier = Modifier
-            .align(align)
+        modifier = modifier
             .padding(4.dp)
             .size(26.dp)
             .clip(CircleShape)
