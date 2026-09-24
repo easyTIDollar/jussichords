@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -176,38 +178,47 @@ fun ArtistScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(top = 4.dp)
+                        .height(56.dp),
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Text(
-                        text = artistHeadInfoState?.data?.artist?.name.orEmpty(),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = artistHeadInfoState?.data?.artist?.name.orEmpty(),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val stats = artistFollowStats
+                        if (stats != null) {
+                            val parts = mutableListOf("粉丝 ${formatPlayCount(stats.fansCnt.toDouble())}")
+                            if (isArtistSubscribed && stats.followDay.isNotBlank()) {
+                                parts.add(stats.followDay)
+                            }
+                            Text(
+                                text = parts.joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     OutlinedButton(
                         onClick = artistScreenViewModel::toggleArtistSub,
-                        enabled = !isArtistSubUpdating && artistHeadInfoState != null
+                        enabled = !isArtistSubUpdating && artistHeadInfoState != null,
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .fillMaxHeight()
                     ) {
                         Text(text = if (isArtistSubscribed) "取消收藏" else "收藏")
                     }
                 }
-                val stats = artistFollowStats
-                if (stats != null) {
-                    val parts = mutableListOf("粉丝 ${formatPlayCount(stats.fansCnt.toDouble())}")
-                    if (isArtistSubscribed && stats.followDay.isNotBlank()) {
-                        parts.add(stats.followDay)
-                    }
-                    Text(
-                        text = parts.joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(4.dp))
             }
         }
 
@@ -442,6 +453,7 @@ fun ArtistScreen(
             Text(
                 text = if (showTitle) artistHeadInfoState?.data?.artist?.name ?: "" else "",
                 maxLines = 1,
+                style = MaterialTheme.typography.titleLarge,
                 overflow = TextOverflow.Ellipsis
             )
         },
