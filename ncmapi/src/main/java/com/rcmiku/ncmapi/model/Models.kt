@@ -263,7 +263,9 @@ data class ArtistFollowCountData(
     @SerialName("isFollow") val isFollow: Boolean = false,
     val follow: Boolean = false,
     val fansCnt: Long = 0,
-    val followCnt: Long = 0
+    val followCnt: Long = 0,
+    val followDay: String = "",
+    @SerialName("followDayCnt") val followDayCnt: Long = 0
 ) {
     val followed: Boolean get() = isFollow || follow
 }

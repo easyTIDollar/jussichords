@@ -1,6 +1,5 @@
 package com.jussicodes.music.ui.screen
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -9,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -49,7 +49,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -77,6 +76,7 @@ import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.ArtistNav
 import com.jussicodes.music.ui.icons.ChevronDown
 import com.jussicodes.music.utils.CoverImageSize
+import com.jussicodes.music.utils.formatPlayCount
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.ArtistScreenViewModel
 import com.rcmiku.ncmapi.model.Song
@@ -98,6 +98,7 @@ fun ArtistScreen(
     val isArtistSubUpdating by artistScreenViewModel.isArtistSubUpdating.collectAsState()
     val likedSongIds by artistScreenViewModel.likedSongIds.collectAsState()
     val artistAlbumList = artistScreenViewModel.artistAlbumList.collectAsLazyPagingItems()
+    val artistFollowStats by artistScreenViewModel.artistFollowStats.collectAsState()
     val listState = rememberLazyListState()
     val showTitle by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
     var state by rememberSaveable { mutableIntStateOf(1) }
@@ -163,31 +164,50 @@ fun ArtistScreen(
                             previewArtistImageUrl = avatarUrl
                         }
                 )
-                artistHeadInfoState?.data?.artist?.name?.let {
-                    Box(
-                        Modifier
-                            .padding(6.dp)
-                            .clip(MaterialTheme.shapes.small)
-                            .background(color = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = artistHeadInfoState?.data?.artist?.name.orEmpty(),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedButton(
+                        onClick = artistScreenViewModel::toggleArtistSub,
+                        enabled = !isArtistSubUpdating && artistHeadInfoState != null
                     ) {
-                        Text(
-                            text = it,
-                            modifier = Modifier.padding(4.dp),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
+                        Text(text = if (isArtistSubscribed) "取消收藏" else "收藏")
                     }
                 }
-                OutlinedButton(
-                    onClick = artistScreenViewModel::toggleArtistSub,
-                    enabled = !isArtistSubUpdating && artistHeadInfoState != null,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(12.dp)
-                ) {
-                    Text(text = if (isArtistSubscribed) "取消收藏" else "收藏")
+                val stats = artistFollowStats
+                if (stats != null) {
+                    val parts = mutableListOf("粉丝 ${formatPlayCount(stats.fansCnt.toDouble())}")
+                    if (isArtistSubscribed && stats.followDay.isNotBlank()) {
+                        parts.add(stats.followDay)
+                    }
+                    Text(
+                        text = parts.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
                 }
+                Spacer(Modifier.height(8.dp))
             }
         }
 
@@ -436,9 +456,6 @@ fun ArtistScreen(
                 )
             }
         },
-        modifier = Modifier.background(
-            Brush.verticalGradient(listOf(MaterialTheme.colorScheme.primaryContainer, Color.Transparent))
-        ),
         colors = if (showTitle) TopAppBarDefaults.topAppBarColors() else TopAppBarDefaults.topAppBarColors(
             containerColor = Color.Transparent
         )
