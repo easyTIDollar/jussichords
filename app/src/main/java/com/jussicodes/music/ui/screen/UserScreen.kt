@@ -60,8 +60,10 @@ import com.jussicodes.music.viewModel.UserFollowScreenViewModel
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import androidx.compose.material3.OutlinedButton
+import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.navigation.PlaylistNav
+import com.jussicodes.music.ui.navigation.PrivateChatNav
 import com.jussicodes.music.ui.navigation.UserFollowNav
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.AvatarUploadLimiter
@@ -164,8 +166,19 @@ fun UserScreen(
                     isFollowUpdating = isFollowUpdating,
                     followsCount = profile?.followsCount ?: 0,
                     followedsCount = profile?.followedsCount ?: 0,
+                    canSendMsg = !isSelf &&
+                        (profile?.userType ?: -1) in MsgSessionCache.allowedUserTypes,
                     onAvatarClick = { showAvatarDialog = true },
                     onFollowClick = userScreenViewModel::toggleFollow,
+                    onPrivateChatClick = {
+                        navController.navigate(
+                            PrivateChatNav(
+                                userId = userId,
+                                nickname = profile?.nickname.orEmpty(),
+                                avatarUrl = avatarUrl.orEmpty()
+                            )
+                        )
+                    },
                     onFollowsClick = {
                         navController.navigate(
                             UserFollowNav(
@@ -320,8 +333,10 @@ private fun UserProfileCard(
     isFollowUpdating: Boolean,
     followsCount: Int,
     followedsCount: Int,
+    canSendMsg: Boolean = false,
     onAvatarClick: () -> Unit,
     onFollowClick: () -> Unit,
+    onPrivateChatClick: () -> Unit = {},
     onFollowsClick: () -> Unit,
     onFollowedsClick: () -> Unit
 ) {
@@ -359,11 +374,19 @@ private fun UserProfileCard(
                 overflow = TextOverflow.Ellipsis
             )
             if (!isSelf) {
-                OutlinedButton(
-                    onClick = onFollowClick,
-                    enabled = !isFollowUpdating
-                ) {
-                    Text(text = if (isFollowed) "取消关注" else "关注")
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = onFollowClick,
+                        enabled = !isFollowUpdating
+                    ) {
+                        Text(text = if (isFollowed) "取消关注" else "关注")
+                    }
+                    // 私信按钮：仅可私信对象显示（普通用户 0 / 音乐人 207，与分享菜单同一口径）
+                    if (canSendMsg) {
+                        OutlinedButton(onClick = onPrivateChatClick) {
+                            Text(text = "私信")
+                        }
+                    }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

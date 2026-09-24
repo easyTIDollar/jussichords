@@ -4,7 +4,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,6 +60,8 @@ import com.jussicodes.music.R
 import com.jussicodes.music.constants.ListThumbnailSize
 import com.jussicodes.music.constants.ThumbnailCornerRadius
 import com.jussicodes.music.data.MsgSessionCache
+import com.jussicodes.music.ui.components.OnlineDot
+import com.jussicodes.music.ui.components.StateTag
 import com.jussicodes.music.ui.navigation.PrivateChatNav
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.toCoverImageUrl
@@ -263,13 +264,10 @@ private fun MsgSessionRow(
                         .clip(RoundedCornerShape(ThumbnailCornerRadius))
                 )
                 // 在线状态点：头像右下角（绿 = 在线，灰 = 离线）
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .align(Alignment.BottomEnd)
-                        .clip(CircleShape)
-                        .background(if (session.onlined) Color(0xFF4CAF50) else Color(0xFF9E9E9E))
-                        .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                OnlineDot(
+                    online = session.onlined,
+                    size = 10.dp,
+                    modifier = Modifier.align(Alignment.BottomEnd)
                 )
             }
             Column(
@@ -291,8 +289,8 @@ private fun MsgSessionRow(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     val hasTags = session.vipType != 0 || session.mutual
-                    if (session.vipType != 0) MsgStateTag(stringResource(R.string.msg_contact_vip))
-                    if (session.mutual) MsgStateTag(stringResource(R.string.msg_contact_mutual))
+                    if (session.vipType != 0) StateTag(stringResource(R.string.msg_contact_vip))
+                    if (session.mutual) StateTag(stringResource(R.string.msg_contact_mutual))
                     if (hasTags) Spacer(Modifier.width(4.dp))
                     Text(
                         text = session.preview,
@@ -343,21 +341,6 @@ private fun MsgSessionRow(
             )
         }
     }
-}
-
-/** 小状态标签（VIP / 互关）：灰底圆角，次行行首并排。 */
-@Composable
-private fun MsgStateTag(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier
-            .padding(start = 6.dp)
-            .clip(RoundedCornerShape(4.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 4.dp, vertical = 1.dp)
-    )
 }
 
 /** 顶栏筛选：按 userType 多选保留。activeTypes = null 表示未筛选（全部勾选）；

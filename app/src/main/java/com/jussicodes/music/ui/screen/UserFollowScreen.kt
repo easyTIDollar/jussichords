@@ -43,13 +43,18 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
+import coil3.compose.AsyncImage
+import com.jussicodes.music.constants.ListThumbnailSize
 import com.jussicodes.music.ui.components.ArtistListItem
 import com.jussicodes.music.ui.components.LargeImageDialog
+import com.jussicodes.music.ui.components.ListItem
+import com.jussicodes.music.ui.components.UserStateTags
 import com.jussicodes.music.ui.navigation.ArtistNav
 import com.jussicodes.music.ui.navigation.UserNav
 import com.jussicodes.music.utils.CoverImageSize
@@ -57,6 +62,7 @@ import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.UserFollowScreenViewModel
 import com.jussicodes.music.viewModel.UserFollowType
 import com.rcmiku.ncmapi.model.SearchArtist
+import com.rcmiku.ncmapi.model.SearchUser
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -272,13 +278,8 @@ fun UserFollowScreen(
                         } else {
                             val displayedUsers = if (selectedType == UserFollowType.FOLLOWS) followedUsers else users
                             items(displayedUsers, key = { it.id }) { user ->
-                                ArtistListItem(
-                                    artist = SearchArtist(
-                                        id = user.id,
-                                        name = user.nickname,
-                                        picUrl = user.avatarUrl,
-                                        briefDesc = user.signature
-                                    ),
+                                UserListItem(
+                                    user = user,
                                     onThumbnailClick = { previewAvatarUrl = user.avatarUrl },
                                     modifier = Modifier.clickable {
                                         navController.navigate(UserNav(userId = user.id))
@@ -360,6 +361,31 @@ private fun androidx.compose.foundation.lazy.LazyListScope.loadingListItems(coun
         FollowLoadingItem()
     }
 }
+
+/** 关注/粉丝列表的用户行：与 ArtistListItem 同款外观，昵称下补 VIP / 互关标签（数据源：列表接口原生字段）。 */
+@Composable
+private fun UserListItem(
+    user: SearchUser,
+    modifier: Modifier = Modifier,
+    onThumbnailClick: (() -> Unit)? = null
+) = ListItem(
+    title = user.nickname,
+    subtitle = {
+        UserStateTags(vipType = user.vipType, mutual = user.mutual)
+    },
+    thumbnailContent = {
+        AsyncImage(
+            model = user.avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .clip(CircleShape)
+                .size(ListThumbnailSize)
+                .then(onThumbnailClick?.let { Modifier.clickable(onClick = it) } ?: Modifier)
+        )
+    },
+    modifier = modifier
+)
 
 @Composable
 private fun FollowLoadingItem() {
