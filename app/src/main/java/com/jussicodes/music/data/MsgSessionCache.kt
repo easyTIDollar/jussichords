@@ -241,6 +241,20 @@ object MsgSessionCache {
         saveOrder()
     }
 
+    /**
+     * 下拉刷新前调用：清掉会话快照与手动排序（保留删除集合/筛选/已读清零），
+     * 让随后的全量重拉从空集合开始；手动排序在刷新后失效（NCM 无私信会话删除/排序 API，
+     * 刷新取服务端最新时间序）。
+     */
+    fun clearForRefresh() {
+        _allItems.value = emptyList()
+        manualOrder = emptyList()
+        _manualOrderActive.value = false
+        recomputeDisplay()
+        saveSnapshot()
+        saveOrder()
+    }
+
     /** 恢复已删除的会话（顶栏"排序"按钮长按 / 会话恢复入口用）：从全量集合移除。 */
     fun restoreDeleted(userId: Long) {
         if (userId <= 0) return
