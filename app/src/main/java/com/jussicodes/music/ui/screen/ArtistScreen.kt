@@ -179,13 +179,13 @@ fun ArtistScreen(
                         .fillMaxWidth()
                         .padding(top = 4.dp)
                         .height(56.dp),
-                    verticalAlignment = Alignment.Top
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight(),
-                        verticalArrangement = Arrangement.SpaceBetween
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
                             text = artistHeadInfoState?.data?.artist?.name.orEmpty(),
