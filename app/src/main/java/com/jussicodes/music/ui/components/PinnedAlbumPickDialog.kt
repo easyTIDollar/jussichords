@@ -44,6 +44,7 @@ import com.jussicodes.music.ui.icons.LibraryAddCheck
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.rcmiku.ncmapi.api.account.AccountApi
+import com.rcmiku.ncmapi.model.Album
 import com.rcmiku.ncmapi.model.SubAlbum
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
@@ -52,6 +53,15 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 private const val SUB_ALBUM_PAGE_SIZE = 25
+
+/** 弹窗里选中的收藏专辑 → 专辑墙桩数据（/album/sublist 字段足够展示，详情由 Store 补拉）。 */
+private fun SubAlbum.toSeedAlbum() = Album(
+    id = id,
+    name = name,
+    picUrl = picUrl,
+    artists = artists,
+    size = size
+)
 
 /**
  * "收藏的专辑"多选弹窗（/album/sublist 分页，25/页，滚到底自动续页，失败可重试）。
@@ -240,7 +250,10 @@ fun PinnedAlbumPickDialog(onDismiss: () -> Unit) {
                 )
                 TextButton(onClick = {
                     coroutineScope.launch {
-                        PinnedAlbumStore.applyPinned(selected.toList())
+                        PinnedAlbumStore.applyPinned(
+                            finalIds = selected.toList(),
+                            seeds = albums.filter { it.id in selected }.map { it.toSeedAlbum() }
+                        )
                     }
                     onDismiss()
                 }) {

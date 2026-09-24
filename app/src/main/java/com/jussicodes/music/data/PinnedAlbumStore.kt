@@ -111,7 +111,11 @@ object PinnedAlbumStore {
      * 专辑一并拉下来（[applyPinned] 走这个）。返回是否成功：全失败时不动 dedup
      * 标记，下次调用会重试。
      */
-    suspend fun sync(force: Boolean = false, extraIds: List<Long> = emptyList()): Boolean {
+    suspend fun sync(
+        force: Boolean = false,
+        extraIds: List<Long> = emptyList(),
+        seeds: List<Album> = emptyList()
+    ): Boolean {
         return mutex.withLock {
             loadCache()
             val acc = accountKey()
@@ -137,16 +141,25 @@ object PinnedAlbumStore {
                 }.awaitAll()
             }
             val found = results.filterNotNull()
-            if (found.isEmpty()) return@withLock false
+            val seedById = seeds.associateBy { it.id }
+            val cachedById = _albums.value.associateBy { it.id }
+            // 详情拉不到的 id 回退 缓存 > 弹窗种子数据，保证选中的一定上墙
+            val ordered = ids.mapNotNull { albumId ->
+                found.firstOrNull { it.album.id == albumId }?.album
+                    ?: cachedById[albumId]
+                    ?: seedById[albumId]
+            }
+            if (ordered.isEmpty()) return@withLock false
             for (r in found) {
                 songCache[r.album.id] = r.songs
             }
-            val ordered = ids.mapNotNull { albumId -> found.firstOrNull { it.album.id == albumId }?.album }
             _albums.value = ordered
             persist(ids, ordered)
-            lastSyncedAccount = acc
-            lastSyncedIds = ids
-            lastSyncedAt = now
+            if (found.isNotEmpty()) {
+                lastSyncedAccount = acc
+                lastSyncedIds = ids
+                lastSyncedAt = now
+            }
             true
         }
     }
@@ -183,15 +196,22 @@ object PinnedAlbumStore {
 
     /**
      * 多选弹窗"应用"：[finalIds] 是最终置顶集合（保留已有顺序、新增追加、
-     * 未勾选的移除）。已有专辑保留本地数据，新增的交给 [sync] 拉详情。
+     * 未勾选的移除）。[seeds] 是选中专辑的桩数据（/album/sublist 自带字段），
+     * 拉详情失败时兜底直接上墙；已有专辑保留本地数据。
      */
-    suspend fun applyPinned(finalIds: List<Long>) {
+    suspend fun applyPinned(finalIds: List<Long>, seeds: List<Album> = emptyList()) {
         val current = _albums.value
         val kept = current.filter { it.id in finalIds }
         _albums.value = kept
-        persist(finalIds, kept)
         val newIds = finalIds - kept.map { it.id }.toSet()
-        if (newIds.isNotEmpty()) sync(force = true, extraIds = newIds)
+        if (newIds.isNotEmpty()) {
+            // 新专辑先把桩数据顶上去，详情随后补拉；全部失败也能显示
+            _albums.value = kept + newIds.mapNotNull { seedId -> seeds.firstOrNull { it.id == seedId } }
+            persist(_albums.value.map { it.id }, _albums.value)
+            sync(force = true, extraIds = newIds, seeds = seeds)
+        } else {
+            persist(finalIds, kept)
+        }
     }
 
     private suspend fun persist(ids: List<Long>, albums: List<Album>) {

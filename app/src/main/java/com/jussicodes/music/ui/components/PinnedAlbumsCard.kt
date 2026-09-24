@@ -2,6 +2,7 @@ package com.jussicodes.music.ui.components
 
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -9,7 +10,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,12 +22,14 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,21 +37,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -60,40 +60,37 @@ import androidx.core.view.ViewCompat
 import androidx.media3.common.Player
 import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
-import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
+import com.jussicodes.music.constants.ThumbnailCornerRadius
 import com.jussicodes.music.constants.pinnedAlbumColumnsKey
+import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.setPlaylist
-import com.jussicodes.music.ui.icons.Pencil
+import com.jussicodes.music.ui.icons.PlayArrow
 import com.jussicodes.music.ui.icons.Plus
-import com.jussicodes.music.ui.icons.PushPin
-import com.jussicodes.music.ui.icons.RepeatOn
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.rcmiku.ncmapi.api.album.AlbumApi
 import com.rcmiku.ncmapi.model.Album
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.ReorderableLazyGridState
 import sh.calvin.reorderable.rememberReorderableLazyGridState
 
-private const val SINGLE_TAP_DELAY_MS = 300L
 private val CARD_GRID_SPACING = 8.dp
 
 /**
- * 主页"置顶专辑墙"卡片（跟"创建/收藏的歌单"卡片同款样式）。
+ * 主页"置顶专辑墙"卡片（无标题栏）。
  *
- * - 非编辑：默认 3 列（编辑模式改的列数持久化后全局生效）封面网格，单击进专辑页
- *   （300ms 防误触窗口，第二下判定为双击 → 循环播放该专辑：切队列 +
- *   REPEAT_MODE_ALL），正在循环播放的专辑封面带 RepeatOn 角标；专辑为空时
- *   网格内是一个虚线边框加号（占位格与封面等大），点它打开收藏专辑多选弹窗。
- * - 编辑：标题栏出 刷新 / 列数(2~6, 持久化) / 完成；封面长按拖拽排序（放下才落盘）、
- *   左上循环播放整张、右上取消置顶；加号跟在最后一张专辑后面。
+ * - 默认 3 列封面网格（编辑模式可改 2~6 列，持久化）：单击进专辑页（系统双击窗口防误触），
+ *   双击循环播放该专辑；**长按任意封面进入编辑模式**。
+ * - 编辑模式：封面左上播放（磨砂圆钮）、右上删除（垃圾桶磨砂圆钮）、长按拖拽排序；
+ *   顶部工具条出 刷新 / 列数 / 关闭（隐藏整张墙，设置页可恢复）/ 完成。
+ * - 专辑为空时网格内是一个圆角矩形边框的加号格（占位格与封面等大），
+ *   点它打开收藏专辑多选弹窗。
  */
 @Composable
 fun PinnedAlbumsCard(
@@ -104,9 +101,9 @@ fun PinnedAlbumsCard(
     val context = LocalContext.current
     val view = LocalView.current
     val mediaController = LocalPlayerController.current.controller
-    val playerState = LocalPlayerState.current
     var editing by remember { mutableStateOf(false) }
     var columns by rememberPreference(pinnedAlbumColumnsKey, 3)
+    var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
     var displayed by remember { mutableStateOf<List<Album>>(emptyList()) }
     var dragChanged by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
@@ -137,16 +134,8 @@ fun PinnedAlbumsCard(
         }
     }
 
-    val loopingAlbumId: Long? = if (playerState?.repeatMode == Player.REPEAT_MODE_ALL) {
-        val extras = playerState?.currentMediaItem?.mediaMetadata?.extras
-        val sourceId = extras?.getLong(MediaSessionConstants.EXTRA_SOURCE_ID, 0L)
-        if (
-            extras?.getString(MediaSessionConstants.EXTRA_SOURCE_TYPE) ==
-                MediaSessionConstants.SOURCE_TYPE_ALBUM && sourceId != null && sourceId != 0L
-        ) sourceId else null
-    } else null
-
-    fun loopPlay(album: Album) {
+    /** [loop]=true 用于双击循环播放；编辑模式左上按钮走 [loop]=false 普通播放。 */
+    fun playAlbum(album: Album, loop: Boolean) {
         coroutineScope.launch {
             val songs = PinnedAlbumStore.getAlbumSongs(album.id)
                 ?: AlbumApi.albumDetail(album.id).getOrNull()
@@ -161,8 +150,12 @@ fun PinnedAlbumsCard(
                 navId = album.id
             )
             mediaController?.playMediaAt()
-            mediaController?.repeatMode = Player.REPEAT_MODE_ALL
-            Toast.makeText(context, "《${album.name}》已循环播放", Toast.LENGTH_SHORT).show()
+            if (loop) mediaController?.repeatMode = Player.REPEAT_MODE_ALL
+            Toast.makeText(
+                context,
+                if (loop) "《${album.name}》已循环播放" else "《${album.name}》开始播放",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
@@ -175,42 +168,36 @@ fun PinnedAlbumsCard(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Pinned Albums",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.weight(1f))
-                if (editing) {
-                    TextButton(
-                        onClick = {
-                            if (!refreshing) {
-                                refreshing = true
-                                coroutineScope.launch {
-                                    PinnedAlbumStore.sync(force = true)
-                                    delay(500)
-                                    refreshing = false
-                                }
+            if (editing) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = {
+                        if (!refreshing) {
+                            refreshing = true
+                            coroutineScope.launch {
+                                PinnedAlbumStore.sync(force = true)
+                                delay(500)
+                                refreshing = false
                             }
                         }
-                    ) {
+                    }) {
                         Text(text = if (refreshing) "刷新中…" else "刷新")
                     }
                     PinnedAlbumsColumnsPicker(columns = columns, onColumnsChange = { columns = it })
+                    TextButton(onClick = {
+                        pinnedAlbumsHidden = true
+                        editing = false
+                        Toast.makeText(
+                            context, "专辑墙已关闭，可在设置中恢复", Toast.LENGTH_SHORT
+                        ).show()
+                    }) {
+                        Text(text = "关闭")
+                    }
                     TextButton(onClick = { editing = false }) {
                         Text(text = "完成")
-                    }
-                } else {
-                    IconButton(onClick = { editing = true }) {
-                        Icon(
-                            imageVector = Pencil,
-                            contentDescription = "编辑",
-                            modifier = Modifier.size(20.dp)
-                        )
                     }
                 }
             }
@@ -225,16 +212,17 @@ fun PinnedAlbumsCard(
                 showAddTile = displayed.isEmpty() || editing,
                 onAddClick = onAddClick,
                 onOpenAlbum = onOpenAlbum,
-                onLoopPlay = ::loopPlay,
-                onUnpin = { album ->
+                onPlay = { album, loop -> playAlbum(album, loop) },
+                onRemove = { album ->
                     coroutineScope.launch {
                         PinnedAlbumStore.togglePin(album)
-                        Toast.makeText(
-                            context, "已取消置顶《${album.name}》", Toast.LENGTH_SHORT
-                        ).show()
+                        Toast.makeText(context, "已删除《${album.name}》", Toast.LENGTH_SHORT).show()
                     }
                 },
-                loopingAlbumId = loopingAlbumId
+                onEnterEdit = {
+                    ViewCompat.performHapticFeedback(view, HapticFeedbackConstantsCompat.LONG_PRESS)
+                    editing = true
+                }
             )
         }
     }
@@ -274,9 +262,9 @@ private fun PinnedAlbumsGrid(
     showAddTile: Boolean,
     onAddClick: () -> Unit,
     onOpenAlbum: (Album) -> Unit,
-    onLoopPlay: (Album) -> Unit,
-    onUnpin: (Album) -> Unit,
-    loopingAlbumId: Long?
+    onPlay: (Album, Boolean) -> Unit,
+    onRemove: (Album) -> Unit,
+    onEnterEdit: () -> Unit
 ) {
     val colCount = columns.coerceIn(2, 6)
     BoxWithConstraints {
@@ -325,10 +313,11 @@ private fun PinnedAlbumsGrid(
                         isDragging = isDragging,
                         cardShape = cardShape,
                         dragModifier = dragModifier,
-                        looping = album.id == loopingAlbumId,
                         onOpen = { onOpenAlbum(album) },
-                        onLoop = { onLoopPlay(album) },
-                        onUnpin = { onUnpin(album) }
+                        onPlay = { onPlay(album, loop = false) },
+                        onLoop = { onPlay(album, loop = true) },
+                        onRemove = { onRemove(album) },
+                        onEnterEdit = onEnterEdit
                     )
                 }
             }
@@ -348,12 +337,12 @@ private fun PinnedAlbumCover(
     isDragging: Boolean,
     cardShape: Shape,
     dragModifier: Modifier,
-    looping: Boolean,
     onOpen: () -> Unit,
+    onPlay: () -> Unit,
     onLoop: () -> Unit,
-    onUnpin: () -> Unit
+    onRemove: () -> Unit,
+    onEnterEdit: () -> Unit
 ) {
-    val coroutineScope = rememberCoroutineScope()
     Box(
         modifier = Modifier
             .aspectRatio(1f)
@@ -366,7 +355,8 @@ private fun PinnedAlbumCover(
                 // 内确认没有第二下才触发；第二下落在窗口内则走 onDoubleTap。
                 detectTapGestures(
                     onTap = { onOpen() },
-                    onDoubleTap = { onLoop() }
+                    onDoubleTap = { onLoop() },
+                    onLongPress = { onEnterEdit() }
                 )
             }
             .graphicsLayer {
@@ -383,71 +373,79 @@ private fun PinnedAlbumCover(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
         )
-        if (looping) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(4.dp)
-                    .size(22.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = RepeatOn,
-                    contentDescription = "循环播放中",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(14.dp)
-                )
-            }
-        }
         if (editing) {
-            Box(modifier = Modifier.align(Alignment.TopStart).padding(2.dp)) {
-                IconButton(onClick = onLoop) {
-                    Icon(
-                        imageVector = RepeatOn,
-                        contentDescription = "播放整张",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-            Box(modifier = Modifier.align(Alignment.TopEnd).padding(2.dp)) {
-                IconButton(onClick = onUnpin) {
-                    Icon(
-                        imageVector = PushPin,
-                        contentDescription = "取消置顶",
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
+            CoverActionChip(
+                icon = PlayArrow,
+                contentDescription = "播放整张",
+                onClick = onPlay,
+                align = Alignment.TopStart,
+                artwork = album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL)
+            )
+            CoverActionChip(
+                icon = Icons.Outlined.Delete,
+                contentDescription = "删除",
+                onClick = onRemove,
+                align = Alignment.TopEnd,
+                tint = MaterialTheme.colorScheme.error,
+                artwork = album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL)
+            )
         }
     }
 }
 
-/** 虚线边框加号：占位格与封面同网格单元（等大），边框用 dash path effect 画。 */
+/** 编辑模式封面角上的磨砂圆钮（亚克力：同一张封面 blur 一层垫底 + 半透明 surface + 细描边）。 */
+@Composable
+private fun CoverActionChip(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    align: Alignment,
+    tint: Color = MaterialTheme.colorScheme.onSurface,
+    artwork: Any? = null
+) {
+    Box(
+        modifier = Modifier
+            .align(align)
+            .padding(4.dp)
+            .size(26.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.35f))
+            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (artwork != null) {
+            AsyncImage(
+                model = artwork,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .alpha(0.6f)
+                    .blur(14.dp)
+            )
+        }
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tint,
+            modifier = Modifier.size(15.dp)
+        )
+    }
+}
+
+/** 圆角矩形边框加号格：占位格与封面同网格单元（等大）。 */
 @Composable
 private fun PinnedAlbumsAddTile(cardShape: Shape, onClick: () -> Unit) {
-    val dashColor = MaterialTheme.colorScheme.outline
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .aspectRatio(1f)
-            .clip(cardShape)
-            .drawBehind {
-                val stroke = with(drawContext.density) { 2.dp.toPx() }
-                val dashes = with(drawContext.density) {
-                    floatArrayOf(10.dp.toPx(), 8.dp.toPx())
-                }
-                val dashed = PathEffect.dashPathEffect(dashes, 0f)
-                drawRoundRect(
-                    topLeft = Offset(stroke / 2f, stroke / 2f),
-                    size = Size(size.width - stroke, size.height - stroke),
-                    color = dashColor,
-                    style = Stroke(width = stroke, pathEffect = dashed)
-                )
-            }
+            .border(
+                width = 2.dp,
+                color = MaterialTheme.colorScheme.outline,
+                shape = RoundedCornerShape(ThumbnailCornerRadius)
+            )
             .clickable(onClick = onClick)
     ) {
         Icon(

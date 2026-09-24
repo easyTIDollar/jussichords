@@ -77,6 +77,7 @@ import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.ncmCookieKey
+import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.PinnedAlbumPickDialog
@@ -98,6 +99,7 @@ import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.AvatarUploadLimiter
 import com.jussicodes.music.utils.PlaylistCoverSyncBus
 import com.jussicodes.music.utils.rememberNullablePreference
+import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.utils.withAvatarCacheBuster
 import com.jussicodes.music.utils.withPlaylistCoverCacheBuster
@@ -352,10 +354,13 @@ fun LibraryScreen(
                 }
 
                 item {
-                    PinnedAlbumsCard(
-                        onOpenAlbum = { album -> navController.navigate(AlbumNav(albumId = album.id)) },
-                        onAddClick = { showPinnedAlbumPickDialog = true }
-                    )
+                    val pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
+                    if (!pinnedAlbumsHidden) {
+                        PinnedAlbumsCard(
+                            onOpenAlbum = { album -> navController.navigate(AlbumNav(albumId = album.id)) },
+                            onAddClick = { showPinnedAlbumPickDialog = true }
+                        )
+                    }
                 }
 
                 item { Spacer(modifier = Modifier.navigationBarsPadding()) }

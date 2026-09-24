@@ -75,6 +75,7 @@ import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
+import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.lyric.DesktopLyricManager
@@ -83,6 +84,7 @@ import com.jussicodes.music.ui.components.SongQualityDialog
 import com.jussicodes.music.ui.components.ThemeColorSourceDialog
 import com.jussicodes.music.ui.components.UnblockSourceDialog
 import com.jussicodes.music.ui.components.UpdateDialog
+import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.AudioLines
 import com.jussicodes.music.ui.icons.DesktopLyrics
 import com.jussicodes.music.ui.icons.Dns
@@ -131,6 +133,7 @@ fun SettingsScreen(navController: NavHostController) {
         defaultValue = ThemeColorSource.WALLPAPER,
     )
     var ncmCookie by rememberPreference(ncmCookieKey, "")
+    var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://8.134.163.111:3000")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
@@ -324,6 +327,22 @@ fun SettingsScreen(navController: NavHostController) {
                         ).show()
                     }
                 }
+            }
+        ),
+        SettingItemData(
+            title = "主页专辑墙",
+            subtitle = if (pinnedAlbumsHidden) {
+                "已关闭，打开开关恢复"
+            } else {
+                "显示在主页的置顶专辑"
+            },
+            imageVector = Album,
+            trailingContent = {
+                Switch(
+                    checked = !pinnedAlbumsHidden,
+                    onCheckedChange = { pinnedAlbumsHidden = !it }
+                )
+                Spacer(Modifier.width(12.dp))
             }
         ),
         SettingItemData(
