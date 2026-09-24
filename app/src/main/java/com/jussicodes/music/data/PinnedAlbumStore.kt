@@ -112,7 +112,7 @@ object PinnedAlbumStore {
      * 标记，下次调用会重试。
      */
     suspend fun sync(force: Boolean = false, extraIds: List<Long> = emptyList()): Boolean {
-        mutex.withLock {
+        return mutex.withLock {
             loadCache()
             val acc = accountKey()
             if (acc == GUEST_KEY) return@withLock false
