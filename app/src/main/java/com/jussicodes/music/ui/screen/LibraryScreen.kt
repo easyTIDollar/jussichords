@@ -77,8 +77,10 @@ import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.ncmCookieKey
-import com.jussicodes.music.constants.pinnedAlbumIdsKey
+import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.ui.components.LargeImageDialog
+import com.jussicodes.music.ui.components.PinnedAlbumPickDialog
+import com.jussicodes.music.ui.components.PinnedAlbumsCard
 import com.jussicodes.music.ui.components.TopBar
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.History
@@ -95,7 +97,6 @@ import com.jussicodes.music.ui.navigation.UserFollowNav
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.AvatarUploadLimiter
 import com.jussicodes.music.utils.PlaylistCoverSyncBus
-import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.rememberNullablePreference
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.utils.withAvatarCacheBuster
@@ -105,7 +106,6 @@ import com.rcmiku.ncmapi.model.Album
 import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.UserInfoBatch
 import java.io.File
-import kotlinx.coroutines.flow.map
 import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.core.view.ViewCompat
 import sh.calvin.reorderable.ReorderableItem
@@ -124,8 +124,6 @@ fun LibraryScreen(
     val userInfoBatchState by libraryScreenViewModel.userInfo.collectAsState()
     val favoriteSongState by libraryScreenViewModel.favoriteSong.collectAsState()
     val userPlaylists by libraryScreenViewModel.userPlaylists.collectAsState()
-    val pinnedAlbums by libraryScreenViewModel.pinnedAlbums.collectAsState()
-    val pinnedAlbumsCacheLoaded by libraryScreenViewModel.pinnedAlbumsCacheLoaded.collectAsState()
     val isAvatarUploading by libraryScreenViewModel.isAvatarUploading.collectAsState()
     val avatarCacheVersion by libraryScreenViewModel.avatarCacheVersion.collectAsState()
     val playlistCoverVersions by PlaylistCoverSyncBus.versions.collectAsState()
@@ -157,27 +155,18 @@ fun LibraryScreen(
             selectedCoverUri = it
         }
     }
-    val pinnedAlbumIdsText by remember {
-        context.dataStore.data.map { it[pinnedAlbumIdsKey] }
-    }.collectAsState(initial = null)
-    val pinnedAlbumIds = remember(pinnedAlbumIdsText) {
-        pinnedAlbumIdsText?.split(",")?.mapNotNull { it.toLongOrNull() }
-    }
+    var showPinnedAlbumPickDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(ncmCookie) {
         if (ncmCookie == null) {
             return@LaunchedEffect
         }
-        if (ncmCookie?.isNotEmpty() == true) {
+        if (ncmCookie.isNotEmpty()) {
             libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie)
+            PinnedAlbumStore.sync()
         } else {
             libraryScreenViewModel.clear()
-        }
-    }
-
-    LaunchedEffect(pinnedAlbumIds, pinnedAlbumsCacheLoaded) {
-        if (pinnedAlbumsCacheLoaded && pinnedAlbumIds != null) {
-            libraryScreenViewModel.fetchPinnedAlbums(pinnedAlbumIds)
+            PinnedAlbumStore.resetOnLogout()
         }
     }
 
@@ -364,13 +353,11 @@ fun LibraryScreen(
                     }
                 }
 
-                if (pinnedAlbums.isNotEmpty()) {
-                    item {
-                        AlbumShowcaseCard(
-                            albums = pinnedAlbums,
-                            onAlbumClick = { album -> navController.navigate(AlbumNav(albumId = album.id)) }
-                        )
-                    }
+                item {
+                    PinnedAlbumsCard(
+                        onOpenAlbum = { album -> navController.navigate(AlbumNav(albumId = album.id)) },
+                        onAddClick = { showPinnedAlbumPickDialog = true }
+                    )
                 }
 
                 item { Spacer(modifier = Modifier.navigationBarsPadding()) }
@@ -574,6 +561,10 @@ fun LibraryScreen(
                 }
             }
         )
+    }
+
+    if (showPinnedAlbumPickDialog) {
+        PinnedAlbumPickDialog(onDismiss = { showPinnedAlbumPickDialog = false })
     }
 
     selectedAvatarUri?.let { uri ->
@@ -830,48 +821,6 @@ private fun Uri.copyToSquareImageCache(
         } ?: return null
         file
     }.getOrNull()
-}
-
-@Composable
-private fun AlbumShowcaseCard(
-    albums: List<Album>,
-    onAlbumClick: (Album) -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            albums.chunked(3).forEach { rowAlbums ->
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    rowAlbums.forEach { album ->
-                        AsyncImage(
-                            model = album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            filterQuality = FilterQuality.High,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .aspectRatio(1f)
-                                .clickable { onAlbumClick(album) }
-                        )
-                    }
-                    repeat(3 - rowAlbums.size) {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable

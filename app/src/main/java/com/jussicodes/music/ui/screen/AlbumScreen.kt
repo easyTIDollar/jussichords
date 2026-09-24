@@ -1,6 +1,7 @@
 ﻿package com.jussicodes.music.ui.screen
 
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -56,14 +57,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
-import androidx.datastore.preferences.core.edit
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.ThumbnailCornerRadius
-import com.jussicodes.music.constants.pinnedAlbumIdsKey
-import com.jussicodes.music.constants.pinnedAlbumsCacheKey
+import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.playMediaAtId
@@ -81,14 +80,11 @@ import com.jussicodes.music.ui.icons.PushPin
 import com.jussicodes.music.ui.icons.PushPinFill
 import com.jussicodes.music.ui.navigation.ArtistNav
 import com.jussicodes.music.utils.CoverImageSize
-import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.formatTimestamp
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.AlbumScreenViewModel
 import com.rcmiku.ncmapi.model.Album
 import com.rcmiku.ncmapi.model.Song
-import com.rcmiku.ncmapi.utils.json
-import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -116,40 +112,14 @@ fun AlbumScreen(
     var previewCoverUrl by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
-    val pinnedAlbumIdsText by context.dataStore.data.map { it[pinnedAlbumIdsKey].orEmpty() }
-        .collectAsState(initial = "")
-    val pinnedAlbumIds = remember(pinnedAlbumIdsText) {
-        pinnedAlbumIdsText.split(",").mapNotNull { it.toLongOrNull() }
-    }
+    val pinnedAlbums by PinnedAlbumStore.albums.collectAsState()
     val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
         .collectAsState(emptyList())
     val currentAlbum = albumDetailState?.getOrNull()?.album
 
     fun togglePinnedAlbum(album: Album) {
         coroutineScope.launch {
-            context.dataStore.edit { prefs ->
-                val currentIds = prefs[pinnedAlbumIdsKey]
-                    .orEmpty()
-                    .split(",")
-                    .mapNotNull { it.toLongOrNull() }
-                    .toMutableList()
-                if (album.id in currentIds) {
-                    currentIds.remove(album.id)
-                } else {
-                    currentIds.add(0, album.id)
-                }
-                val pinnedIds = currentIds.distinct()
-                val currentAlbums = runCatching {
-                    json.decodeFromString<List<Album>>(prefs[pinnedAlbumsCacheKey].orEmpty())
-                }.getOrDefault(emptyList())
-                val updatedAlbums = if (album.id in currentAlbums.map { it.id }) {
-                    currentAlbums.filterNot { it.id == album.id }
-                } else {
-                    listOf(album) + currentAlbums
-                }.filter { it.id in pinnedIds }
-                prefs[pinnedAlbumIdsKey] = pinnedIds.joinToString(",")
-                prefs[pinnedAlbumsCacheKey] = json.encodeToString(updatedAlbums)
-            }
+            PinnedAlbumStore.togglePin(album)
         }
     }
 
@@ -170,9 +140,12 @@ fun AlbumScreen(
                 },
                 actions = {
                     currentAlbum?.let { album ->
-                        val isPinned = album.id in pinnedAlbumIds
+                        val isPinned = album.id in pinnedAlbums.map { it.id }
                         if (isPinned) {
-                            FilledTonalIconButton(onClick = { togglePinnedAlbum(album) }) {
+                            FilledTonalIconButton(onClick = {
+                                togglePinnedAlbum(album)
+                                Toast.makeText(context, "已取消置顶《${album.name}》", Toast.LENGTH_SHORT).show()
+                            }) {
                                 Icon(
                                     imageVector = PushPinFill,
                                     contentDescription = "取消固定",
@@ -180,7 +153,10 @@ fun AlbumScreen(
                                 )
                             }
                         } else {
-                            IconButton(onClick = { togglePinnedAlbum(album) }) {
+                            IconButton(onClick = {
+                                togglePinnedAlbum(album)
+                                Toast.makeText(context, "已固定到主页", Toast.LENGTH_SHORT).show()
+                            }) {
                                 Icon(
                                     imageVector = PushPin,
                                     contentDescription = "固定到主页"

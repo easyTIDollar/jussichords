@@ -8,8 +8,6 @@ import com.jussicodes.music.constants.libraryFavoriteSongCacheKey
 import com.jussicodes.music.constants.libraryPlaylistRefreshTokenKey
 import com.jussicodes.music.constants.libraryUserInfoCacheKey
 import com.jussicodes.music.constants.libraryUserPlaylistsCacheKey
-import com.jussicodes.music.constants.pinnedAlbumIdsKey
-import com.jussicodes.music.constants.pinnedAlbumsCacheKey
 import com.jussicodes.music.constants.userIdKye
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.utils.FavoriteSongSyncBus
@@ -19,9 +17,7 @@ import com.jussicodes.music.utils.PlaylistCoverSyncBus
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.account.UserPlaylistType
-import com.rcmiku.ncmapi.api.album.AlbumApi
 import com.rcmiku.ncmapi.api.playlist.PlaylistApi
-import com.rcmiku.ncmapi.model.Album
 import com.rcmiku.ncmapi.model.FavoriteSongResponse
 import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.UserInfoBatch
@@ -60,11 +56,6 @@ class LibraryScreenViewModel @Inject constructor(
     val userPlaylists: StateFlow<List<Playlist>> = _userPlaylists.asStateFlow()
     private var baseUserPlaylists: List<Playlist> = emptyList()
 
-    private val _pinnedAlbums = MutableStateFlow<List<Album>>(emptyList())
-    val pinnedAlbums: StateFlow<List<Album>> = _pinnedAlbums.asStateFlow()
-    private val _pinnedAlbumsCacheLoaded = MutableStateFlow(false)
-    val pinnedAlbumsCacheLoaded: StateFlow<Boolean> = _pinnedAlbumsCacheLoaded.asStateFlow()
-    private var loadedPinnedAlbumIds: List<Long> = emptyList()
     private var lastUserInfoRefreshAt = 0L
     private var lastUserInfoCookieHash = 0
     private var favoriteSongCount = 0
@@ -371,46 +362,12 @@ class LibraryScreenViewModel @Inject constructor(
         }
     }
 
-    fun fetchPinnedAlbums(albumIds: List<Long>) {
-        if (!_pinnedAlbumsCacheLoaded.value) return
-        if (albumIds == loadedPinnedAlbumIds && _pinnedAlbums.value.isNotEmpty()) return
-        loadedPinnedAlbumIds = albumIds
-        viewModelScope.launch {
-            if (albumIds.isEmpty()) {
-                _pinnedAlbums.value = emptyList()
-                context.dataStore.edit {
-                    it[pinnedAlbumsCacheKey] = ""
-                }
-                return@launch
-            }
-            val albums = albumIds.mapNotNull { albumId ->
-                AlbumApi.albumDetail(albumId).getOrNull()?.album
-            }
-            if (albums.isNotEmpty()) {
-                _pinnedAlbums.value = albums
-                context.dataStore.edit {
-                    it[pinnedAlbumsCacheKey] = json.encodeToString(albums)
-                }
-            }
-        }
-    }
-
     private suspend fun loadCachedLibrary() {
         val prefs = context.dataStore.data.first()
         _userInfo.value = decodeCache(prefs[libraryUserInfoCacheKey])
         _favoriteSong.value = decodeCache(prefs[libraryFavoriteSongCacheKey])
         baseUserPlaylists = decodeCache<List<Playlist>>(prefs[libraryUserPlaylistsCacheKey]).orEmpty()
         _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
-        val cachedPinnedAlbums = decodeCache<List<Album>>(prefs[pinnedAlbumsCacheKey]).orEmpty()
-        _pinnedAlbums.value = cachedPinnedAlbums
-        loadedPinnedAlbumIds = when {
-            cachedPinnedAlbums.isNotEmpty() -> cachedPinnedAlbums.map { it.id }
-            else -> prefs[pinnedAlbumIdsKey]
-                .orEmpty()
-                .split(",")
-                .mapNotNull { it.toLongOrNull() }
-        }
-        _pinnedAlbumsCacheLoaded.value = true
     }
 
     private inline fun <reified T> decodeCache(cache: String?): T? {
