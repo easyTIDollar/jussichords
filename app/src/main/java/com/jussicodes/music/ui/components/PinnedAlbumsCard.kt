@@ -26,7 +26,10 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -68,11 +71,8 @@ import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.setPlaylist
-import com.jussicodes.music.ui.icons.Check
-import com.jussicodes.music.ui.icons.Close
 import com.jussicodes.music.ui.icons.GridView
 import com.jussicodes.music.ui.icons.Plus
-import com.jussicodes.music.ui.icons.Refresh
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.utils.toCoverImageUrl
@@ -122,13 +122,10 @@ fun PinnedAlbumsCard(
         dragChanged = true
     }
 
-    LaunchedEffect(albums, editing) {
-        if (editing) {
-            val storeIds = albums.mapTo(HashSet()) { it.id }
-            displayed = displayed.filter { it.id in storeIds }
-        } else {
-            displayed = albums
-        }
+    // 编辑态与正常态都全量跟随 store：弹窗"应用"/删除即时上墙（新专辑实时进入，
+    // 不必先点"完成"）；拖拽排序由 PinnedAlbumStore.reorder 落盘后经 albums 流回流。
+    LaunchedEffect(albums) {
+        displayed = albums
     }
 
     LaunchedEffect(reorderableState.isAnyItemDragging) {
@@ -196,7 +193,7 @@ fun PinnedAlbumsCard(
                         }
                     }) {
                         Icon(
-                            imageVector = Refresh,
+                            imageVector = Icons.Outlined.Refresh,
                             contentDescription = if (refreshing) "刷新中" else "刷新",
                             tint = if (refreshing) MaterialTheme.colorScheme.onSurfaceVariant
                             else MaterialTheme.colorScheme.onSurface
@@ -210,22 +207,32 @@ fun PinnedAlbumsCard(
                     }
                     IconButton(onClick = { editing = false }) {
                         Icon(
-                            imageVector = Check,
+                            imageVector = Icons.Outlined.Check,
                             contentDescription = "完成"
                         )
                     }
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = {
-                        pinnedAlbumsHidden = true
-                        editing = false
-                        Toast.makeText(
-                            context, "专辑墙已关闭，可在设置中恢复", Toast.LENGTH_SHORT
-                        ).show()
-                    }) {
+                    Row(
+                        modifier = Modifier.clickable {
+                            pinnedAlbumsHidden = true
+                            editing = false
+                            Toast.makeText(
+                                context, "专辑墙已关闭，可在设置中恢复", Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(
-                            imageVector = Close,
+                            imageVector = Icons.Outlined.Close,
                             contentDescription = "关闭专辑墙",
-                            tint = MaterialTheme.colorScheme.error
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "关闭专辑墙",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(start = 4.dp)
                         )
                     }
                 }
@@ -418,12 +425,13 @@ private fun PinnedAlbumCover(
             modifier = Modifier.fillMaxSize()
         )
         if (editing) {
-            // MD 风格删除钮：实心 error 圆 + 白色图标（去掉磨砂背景），置顶右上
+            // MD 风格删除钮：实心 error 圆 + 白色图标（去掉磨砂背景），置顶右上；
+            // 放大 150%（圆 33dp / 图标 21dp）并留 6dp 内边距，不贴封面圆角边界。
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(4.dp)
-                    .size(22.dp)
+                    .padding(6.dp)
+                    .size(33.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.error)
                     .clickable(onClick = onRemove),
@@ -433,7 +441,7 @@ private fun PinnedAlbumCover(
                     imageVector = Icons.Outlined.Delete,
                     contentDescription = "删除",
                     tint = Color.White,
-                    modifier = Modifier.size(14.dp)
+                    modifier = Modifier.size(21.dp)
                 )
             }
         }
