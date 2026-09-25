@@ -82,6 +82,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.runBlocking
+import java.security.MessageDigest
 import kotlin.random.Random
 import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.json
@@ -515,6 +516,33 @@ class PlaybackService : MediaSessionService() {
             ?.toInt()
     }
 
+    private fun cookieFingerprint(): String {
+        val map = CookieProvider.getCookieMap()
+        fun fp(key: String): String {
+            val value = map[key].orEmpty()
+            if (value.isEmpty()) return "missing"
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest(value.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+                .take(12)
+            return "len=${value.length},sha=$digest"
+        }
+        val keys = map.keys.sorted().joinToString(",")
+        return "keys=[$keys] MUSIC_U=${fp("MUSIC_U")} JSESSIONID=${fp("JSESSIONID-WYYY")} csrf=${fp("__csrf")}"
+    }
+
+    private suspend fun logScrobbleAccountDiagnostic(songId: Long) {
+        Log.d(TAG_SCROBBLE, "cookie fingerprint id=$songId ${cookieFingerprint()}")
+        AccountApi.account().onSuccess { account ->
+            Log.d(
+                TAG_SCROBBLE,
+                "account diagnostic id=$songId codeAccount=${account.account.id} profile=${account.profile.userId} nickname=${account.profile.nickname}"
+            )
+        }.onFailure { err ->
+            Log.e(TAG_SCROBBLE, "account diagnostic FAILED id=$songId: ${err.message}", err)
+        }
+    }
+
     /**
      * 达到听歌阈值后提交打卡。只有 v1 响应体 code==200 才标记为成功；失败保留状态，
      * 由 ticker 在冷却后重试，避免网络瞬断直接丢掉本次打卡。
@@ -534,6 +562,7 @@ class PlaybackService : MediaSessionService() {
         val effectiveSourceId = state.sourceId ?: songId
 
         scope.launch(Dispatchers.IO) {
+            logScrobbleAccountDiagnostic(songId)
             Log.d(
                 TAG_SCROBBLE,
                 "submit scrobble id=$songId sourceid=$effectiveSourceId (fallback=${state.sourceId == null}) " +
