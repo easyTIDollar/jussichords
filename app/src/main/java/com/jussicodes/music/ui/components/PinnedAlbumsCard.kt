@@ -1,6 +1,7 @@
 package com.jussicodes.music.ui.components
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,12 +27,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,17 +46,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.core.view.ViewCompat
@@ -67,13 +68,17 @@ import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.setPlaylist
-import com.jussicodes.music.ui.icons.PlayArrow
+import com.jussicodes.music.ui.icons.Check
+import com.jussicodes.music.ui.icons.Close
+import com.jussicodes.music.ui.icons.GridView
 import com.jussicodes.music.ui.icons.Plus
+import com.jussicodes.music.ui.icons.Refresh
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.rcmiku.ncmapi.api.album.AlbumApi
 import com.rcmiku.ncmapi.model.Album
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
@@ -87,8 +92,9 @@ private val CARD_GRID_SPACING = 8.dp
  *
  * - 默认 3 列封面网格（编辑模式可改 2~6 列，持久化）：单击进专辑页（系统双击窗口防误触），
  *   双击循环播放该专辑；**长按任意封面进入编辑模式**。
- * - 编辑模式：封面左上播放（磨砂圆钮）、右上删除（垃圾桶磨砂圆钮）、长按拖拽排序；
- *   顶部工具条出 刷新 / 列数 / 关闭（隐藏整张墙，设置页可恢复）/ 完成。
+ * - 编辑模式：顶部图标工具条 刷新 / 列数（弹窗滑杆调 2~6 列）/ 完成 / 关闭（红色叉，最右；
+ *   隐藏整张墙，设置页可恢复）；封面右上角为实心圆删除钮（MD 风格，无磨砂）；
+ *   长按拖拽排序；系统返回手势拦截为"退出编辑模式"。
  * - 专辑为空时网格内是一个圆角矩形边框的加号格（占位格与封面等大），
  *   点它打开收藏专辑多选弹窗。
  */
@@ -134,7 +140,10 @@ fun PinnedAlbumsCard(
         }
     }
 
-    /** [loop]=true 用于双击循环播放；编辑模式左上按钮走 [loop]=false 普通播放。 */
+    // 编辑模式下系统返回（手势/按键）先退出编辑模式，而不是直接退到桌面
+    BackHandler(enabled = editing) { editing = false }
+
+    /** [loop]=true 用于双击循环播放。 */
     fun playAlbum(album: Album, loop: Boolean) {
         coroutineScope.launch {
             val songs = PinnedAlbumStore.getAlbumSongs(album.id)
@@ -159,6 +168,8 @@ fun PinnedAlbumsCard(
         }
     }
 
+    var showColumnsDialog by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.extraLarge,
@@ -174,7 +185,7 @@ fun PinnedAlbumsCard(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = {
+                    IconButton(onClick = {
                         if (!refreshing) {
                             refreshing = true
                             coroutineScope.launch {
@@ -184,70 +195,105 @@ fun PinnedAlbumsCard(
                             }
                         }
                     }) {
-                        Text(text = if (refreshing) "刷新中…" else "刷新")
+                        Icon(
+                            imageVector = Refresh,
+                            contentDescription = if (refreshing) "刷新中" else "刷新",
+                            tint = if (refreshing) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onSurface
+                        )
                     }
-                    PinnedAlbumsColumnsPicker(columns = columns, onColumnsChange = { columns = it })
-                    TextButton(onClick = {
+                    IconButton(onClick = { showColumnsDialog = true }) {
+                        Icon(
+                            imageVector = GridView,
+                            contentDescription = "调整列数"
+                        )
+                    }
+                    IconButton(onClick = { editing = false }) {
+                        Icon(
+                            imageVector = Check,
+                            contentDescription = "完成"
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = {
                         pinnedAlbumsHidden = true
                         editing = false
                         Toast.makeText(
                             context, "专辑墙已关闭，可在设置中恢复", Toast.LENGTH_SHORT
                         ).show()
                     }) {
-                        Text(text = "关闭")
+                        Icon(
+                            imageVector = Close,
+                            contentDescription = "关闭专辑墙",
+                            tint = MaterialTheme.colorScheme.error
+                        )
                     }
-                    TextButton(onClick = { editing = false }) {
-                        Text(text = "完成")
+                }
+                PinnedAlbumsGrid(
+                    albums = displayed,
+                    editing = editing,
+                    columns = columns,
+                    cardShape = MaterialTheme.shapes.extraLarge,
+                    reorderableState = reorderableState,
+                    gridState = gridState,
+                    view = view,
+                    showAddTile = displayed.isEmpty() || editing,
+                    onAddClick = onAddClick,
+                    onOpenAlbum = onOpenAlbum,
+                    onPlay = { album, loop -> playAlbum(album, loop) },
+                    onRemove = { album ->
+                        coroutineScope.launch {
+                            PinnedAlbumStore.togglePin(album)
+                            Toast.makeText(context, "已删除《${album.name}》", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onEnterEdit = {
+                        ViewCompat.performHapticFeedback(view, HapticFeedbackConstantsCompat.LONG_PRESS)
+                        editing = true
                     }
+                )
+                if (showColumnsDialog) {
+                    PinnedAlbumsColumnsDialog(
+                        columns = columns,
+                        onColumnsChange = { columns = it },
+                        onDismiss = { showColumnsDialog = false }
+                    )
                 }
             }
-            PinnedAlbumsGrid(
-                albums = displayed,
-                editing = editing,
-                columns = columns,
-                cardShape = MaterialTheme.shapes.extraLarge,
-                reorderableState = reorderableState,
-                gridState = gridState,
-                view = view,
-                showAddTile = displayed.isEmpty() || editing,
-                onAddClick = onAddClick,
-                onOpenAlbum = onOpenAlbum,
-                onPlay = { album, loop -> playAlbum(album, loop) },
-                onRemove = { album ->
-                    coroutineScope.launch {
-                        PinnedAlbumStore.togglePin(album)
-                        Toast.makeText(context, "已删除《${album.name}》", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                onEnterEdit = {
-                    ViewCompat.performHapticFeedback(view, HapticFeedbackConstantsCompat.LONG_PRESS)
-                    editing = true
-                }
-            )
         }
     }
 }
 
-/** 编辑模式的列数选择（2~6），house style = DropdownMenu。 */
+/** 列数弹窗：滑杆 2~6 列（5 个档位与当前可调范围一致），拖动即时生效，确定/取消关闭。 */
 @Composable
-private fun PinnedAlbumsColumnsPicker(columns: Int, onColumnsChange: (Int) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        TextButton(onClick = { open = true }) {
-            Text(text = "列数：$columns")
-        }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            (2..6).forEach { n ->
-                DropdownMenuItem(
-                    text = { Text(text = "$n 列") },
-                    onClick = {
-                        onColumnsChange(n)
-                        open = false
-                    }
+private fun PinnedAlbumsColumnsDialog(
+    columns: Int,
+    onColumnsChange: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text = "封面列数") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Slider(
+                    value = columns.toFloat(),
+                    onValueChange = { onColumnsChange(it.roundToInt()) },
+                    valueRange = 2f..6f,
+                    steps = 3
+                )
+                Text(
+                    text = "${columns} 列",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(text = "完成") }
         }
-    }
+    )
 }
 
 @Composable
@@ -314,7 +360,6 @@ private fun PinnedAlbumsGrid(
                         cardShape = cardShape,
                         dragModifier = dragModifier,
                         onOpen = { onOpenAlbum(album) },
-                        onPlay = { onPlay(album, false) },
                         onLoop = { onPlay(album, true) },
                         onRemove = { onRemove(album) },
                         onEnterEdit = onEnterEdit
@@ -338,7 +383,6 @@ private fun PinnedAlbumCover(
     cardShape: Shape,
     dragModifier: Modifier,
     onOpen: () -> Unit,
-    onPlay: () -> Unit,
     onLoop: () -> Unit,
     onRemove: () -> Unit,
     onEnterEdit: () -> Unit
@@ -374,62 +418,25 @@ private fun PinnedAlbumCover(
             modifier = Modifier.fillMaxSize()
         )
         if (editing) {
-            CoverActionChip(
-                icon = PlayArrow,
-                contentDescription = "播放整张",
-                onClick = onPlay,
-                modifier = Modifier.align(Alignment.TopStart),
-                artwork = album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL)
-            )
-            CoverActionChip(
-                icon = Icons.Outlined.Delete,
-                contentDescription = "删除",
-                onClick = onRemove,
-                modifier = Modifier.align(Alignment.TopEnd),
-                tint = MaterialTheme.colorScheme.error,
-                artwork = album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL)
-            )
-        }
-    }
-}
-
-/** 编辑模式封面角上的磨砂圆钮（亚克力：同一张封面 blur 一层垫底 + 半透明 surface + 细描边）。 */
-@Composable
-private fun CoverActionChip(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    modifier: Modifier,
-    tint: Color = MaterialTheme.colorScheme.onSurface,
-    artwork: Any? = null
-) {
-    Box(
-        modifier = modifier
-            .padding(4.dp)
-            .size(26.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.35f))
-            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        if (artwork != null) {
-            AsyncImage(
-                model = artwork,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
+            // MD 风格删除钮：实心 error 圆 + 白色图标（去掉磨砂背景），置顶右上
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .alpha(0.6f)
-                    .blur(14.dp)
-            )
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.error)
+                    .clickable(onClick = onRemove),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = "删除",
+                    tint = Color.White,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
         }
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = tint,
-            modifier = Modifier.size(15.dp)
-        )
     }
 }
 
