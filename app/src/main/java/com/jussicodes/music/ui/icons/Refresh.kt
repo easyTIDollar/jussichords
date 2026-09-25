@@ -18,17 +18,23 @@ val Refresh: ImageVector
             viewportWidth = 960f,
             viewportHeight = 960f
         ).apply {
+            // 环形刷新箭头：外层折线弧（右上留缺口）+ 箭头三角 + 内层折线弧，纯直线近似
             path(fill = SolidColor(Color(0xFF5F6368))) {
-                moveTo(664f, 204f)
-                lineTo(408f, 204f)
-                lineTo(408f, 104f)
-                lineTo(804f, 480f)
-                lineTo(408f, 856f)
-                lineTo(408f, 756f)
-                horizontalLineTo(600f)
-                cubicTo(734f, 756f, 840f, 650f, 840f, 516f)
-                cubicTo(840f, 382f, 734f, 276f, 600f, 276f)
-                horizontalLineToRelative(-52f)
+                moveTo(558f, 190f)
+                lineTo(402f, 190f)
+                lineTo(268f, 268f)
+                lineTo(190f, 402f)
+                lineTo(190f, 558f)
+                lineTo(268f, 692f)
+                lineTo(402f, 770f)
+                lineTo(558f, 770f)
+                lineTo(692f, 692f)
+                lineTo(770f, 558f)
+                lineTo(770f, 402f)
+                lineTo(820f, 470f)
+                lineTo(683f, 425f)
+                lineTo(585f, 298f)
+                lineTo(535f, 277f)
                 close()
             }
         }.build()
