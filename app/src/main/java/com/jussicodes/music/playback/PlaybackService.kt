@@ -536,26 +536,25 @@ class PlaybackService : MediaSessionService() {
         scope.launch(Dispatchers.IO) {
             Log.d(
                 TAG_SCROBBLE,
-                "submit scrobble/v1 id=$songId sourceid=$effectiveSourceId (fallback=${state.sourceId == null}) " +
+                "submit scrobble id=$songId sourceid=$effectiveSourceId (fallback=${state.sourceId == null}) " +
                     "played=${reportedSeconds}s total=${state.totalSeconds} api=$API_BASE_URL"
             )
             AccountApi.scrobble(
                 songId = songId,
                 time = reportedSeconds,
-                sourceId = state.sourceId,
-                total = state.totalSeconds,
-                name = state.songName,
-                artist = state.songArtist
+                sourceId = state.sourceId
             ).onSuccess { resp ->
-                // HTTP 200 只表示代理响应成功；v1 body code 才是上报结果。
-                if (resp.code == 200) {
+                val upstreamOk = resp.details?.let {
+                    it.startplay?.code == 200 && it.play?.code == 200
+                } ?: (resp.code == 200)
+                if (resp.code == 200 && upstreamOk) {
                     state.submitted = true
                     state.submitting = false
-                    Log.d(TAG_SCROBBLE, "scrobble success id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
+                    Log.d(TAG_SCROBBLE, "scrobble success id=$songId code=${resp.code} start=${resp.details?.startplay?.code} play=${resp.details?.play?.code}")
                     stopScrobbleTicker()
                 } else {
                     state.submitting = false
-                    Log.e(TAG_SCROBBLE, "scrobble rejected id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
+                    Log.e(TAG_SCROBBLE, "scrobble rejected id=$songId code=${resp.code} start=${resp.details?.startplay?.code} play=${resp.details?.play?.code} msg=${resp.msg ?: resp.message}")
                     mainHandler.post {
                         Toast.makeText(
                             applicationContext,
