@@ -229,29 +229,6 @@ fun PinnedAlbumsCard(
                         )
                     }
                 }
-                PinnedAlbumsGrid(
-                    albums = displayed,
-                    editing = editing,
-                    columns = columns,
-                    cardShape = MaterialTheme.shapes.extraLarge,
-                    reorderableState = reorderableState,
-                    gridState = gridState,
-                    view = view,
-                    showAddTile = displayed.isEmpty() || editing,
-                    onAddClick = onAddClick,
-                    onOpenAlbum = onOpenAlbum,
-                    onPlay = { album, loop -> playAlbum(album, loop) },
-                    onRemove = { album ->
-                        coroutineScope.launch {
-                            PinnedAlbumStore.togglePin(album)
-                            Toast.makeText(context, "已删除《${album.name}》", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onEnterEdit = {
-                        ViewCompat.performHapticFeedback(view, HapticFeedbackConstantsCompat.LONG_PRESS)
-                        editing = true
-                    }
-                )
                 if (showColumnsDialog) {
                     PinnedAlbumsColumnsDialog(
                         columns = columns,
@@ -260,6 +237,29 @@ fun PinnedAlbumsCard(
                     )
                 }
             }
+            PinnedAlbumsGrid(
+                albums = displayed,
+                editing = editing,
+                columns = columns,
+                cardShape = MaterialTheme.shapes.extraLarge,
+                reorderableState = reorderableState,
+                gridState = gridState,
+                view = view,
+                showAddTile = displayed.isEmpty() || editing,
+                onAddClick = onAddClick,
+                onOpenAlbum = onOpenAlbum,
+                onPlay = { album, loop -> playAlbum(album, loop) },
+                onRemove = { album ->
+                    coroutineScope.launch {
+                        PinnedAlbumStore.togglePin(album)
+                        Toast.makeText(context, "已删除《${album.name}》", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onEnterEdit = {
+                    ViewCompat.performHapticFeedback(view, HapticFeedbackConstantsCompat.LONG_PRESS)
+                    editing = true
+                }
+            )
         }
     }
 }
