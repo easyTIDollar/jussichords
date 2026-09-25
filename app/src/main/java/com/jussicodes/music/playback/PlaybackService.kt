@@ -98,6 +98,7 @@ class PlaybackService : MediaSessionService() {
     private var scrobbleState: ScrobbleState? = null
     private var playSessionId: String? = null
     private val TAG_SCROBBLE = "Scrobble"
+    private val SCROBBLE_RETRY_DELAY_MS = 15_000L
     // TEMP-DIAG: 临时诊断 toast，定位完成后可删
     private val mainHandler = Handler(Looper.getMainLooper())
     private var diagToastShown = false
@@ -307,7 +308,9 @@ class PlaybackService : MediaSessionService() {
         val mediaItemIndex: Int,
         var maxPositionMs: Long = 0,
         var reached: Boolean = false,
+        var submitting: Boolean = false,
         var submitted: Boolean = false,
+        var lastSubmitAttemptMs: Long = 0,
         var totalSeconds: Int? = null,
         var sourceId: Long? = null,
         var songName: String? = null,
@@ -470,12 +473,12 @@ class PlaybackService : MediaSessionService() {
             fresh
             }
 
-        if (currentState.submitted) {
-            stopScrobbleTicker()
+        if (currentState.submitted || currentState.submitting) {
+            if (currentState.submitted) stopScrobbleTicker()
             return
         }
 
-        // 记录最大位置（含向后 seek），达到时长阈值时置位（真正提交在「离开本曲」时）
+        // 记录最大位置（含向后 seek），达到阈值后立即上报。
         val positionMs = player.currentPosition
         if (positionMs > currentState.maxPositionMs) {
             currentState.maxPositionMs = positionMs
@@ -485,6 +488,9 @@ class PlaybackService : MediaSessionService() {
         if (reachedSeconds >= thresholdSeconds && !currentState.reached) {
             currentState.reached = true
             Log.d(TAG_SCROBBLE, "reached threshold id=${mediaItem.mediaId} reached=${reachedSeconds}s threshold=${thresholdSeconds}s total=${currentState.totalSeconds}")
+        }
+        if (currentState.reached) {
+            submitScrobbleForState(currentState)
         }
     }
 
@@ -510,14 +516,18 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * 离开某首歌（切歌 / 自然播完）时，若该歌已达到时长阈值且未提交，则提交打卡。
-     * time 上报实际听到的秒数（已封顶到总时长），并带上 total / name / artist（v1 上报所需）。
+     * 达到听歌阈值后提交打卡。只有 v1 响应体 code==200 才标记为成功；失败保留状态，
+     * 由 ticker 在冷却后重试，避免网络瞬断直接丢掉本次打卡。
      */
     private fun submitScrobbleForState(state: ScrobbleState?) {
-        if (state == null || !state.reached || state.submitted) return
+        if (state == null || !state.reached || state.submitting || state.submitted) return
         val songId = state.mediaId.toLongOrNull() ?: return
         if (!CookieProvider.isLoggedIn()) return
-        state.submitted = true
+
+        val now = System.currentTimeMillis()
+        if (now - state.lastSubmitAttemptMs < SCROBBLE_RETRY_DELAY_MS) return
+        state.lastSubmitAttemptMs = now
+        state.submitting = true
 
         val playedSeconds = (state.maxPositionMs / 1000).toInt()
         val reportedSeconds = state.totalSeconds?.let { minOf(playedSeconds, it) } ?: playedSeconds
@@ -537,10 +547,14 @@ class PlaybackService : MediaSessionService() {
                 name = state.songName,
                 artist = state.songArtist
             ).onSuccess { resp ->
-                // /scrobble/v1 透传 NCBL 上报结果，code!=200 表示未落库
+                // HTTP 200 只表示代理响应成功；v1 body code 才是上报结果。
                 if (resp.code == 200) {
+                    state.submitted = true
+                    state.submitting = false
                     Log.d(TAG_SCROBBLE, "scrobble success id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
+                    stopScrobbleTicker()
                 } else {
+                    state.submitting = false
                     Log.e(TAG_SCROBBLE, "scrobble rejected id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
                     mainHandler.post {
                         Toast.makeText(
@@ -551,6 +565,7 @@ class PlaybackService : MediaSessionService() {
                     }
                 }
             }.onFailure { err ->
+                state.submitting = false
                 Log.e(TAG_SCROBBLE, "scrobble FAILED id=$songId api=$API_BASE_URL: ${err.message}", err)
                 mainHandler.post {
                     Toast.makeText(
