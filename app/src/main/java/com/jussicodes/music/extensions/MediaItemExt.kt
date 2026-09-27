@@ -23,9 +23,6 @@ private fun Song.encodeUri(source: String? = null): String {
     return "$base?fee=$fee&pl=$pl$srcParam"
 }
 
-private fun Song.effectiveSourceId(sourceId: Long): Long =
-    sourceId.takeIf { it > 0 } ?: al.id
-
 fun Song.toMediaItem(
     sourceId: Long = 0L,
     sourceName: String = "list",
@@ -45,12 +42,9 @@ fun Song.toMediaItem(
                         "song",
                         json.encodeToString(this@toMediaItem)
                     )
-                    putLong(
-                        MediaSessionConstants.EXTRA_SOURCE_ID,
-                        this@toMediaItem.effectiveSourceId(sourceId)
-                    )
-                    sourceType?.let { putString(MediaSessionConstants.EXTRA_SOURCE_TYPE, it) }
+                    putLong(MediaSessionConstants.EXTRA_SOURCE_ID, sourceId)
                     putString(MediaSessionConstants.EXTRA_SOURCE_NAME, sourceName)
+                    sourceType?.let { putString(MediaSessionConstants.EXTRA_SOURCE_TYPE, it) }
                     if (navId != 0L) putLong(MediaSessionConstants.EXTRA_NAV_ID, navId)
                     putLong(MediaSessionConstants.EXTRA_DURATION_MS, dt)
                 })
@@ -68,7 +62,7 @@ fun List<Song>.toMediaItemList(
     this.map { song ->
         val extras = Bundle().apply {
             putString("song", json.encodeToString(song))
-            putLong(MediaSessionConstants.EXTRA_SOURCE_ID, song.effectiveSourceId(sourceId))
+            putLong(MediaSessionConstants.EXTRA_SOURCE_ID, sourceId)
             putString(MediaSessionConstants.EXTRA_SOURCE_NAME, sourceName)
             sourceType?.let { putString(MediaSessionConstants.EXTRA_SOURCE_TYPE, it) }
             if (navId != 0L) putLong(MediaSessionConstants.EXTRA_NAV_ID, navId)

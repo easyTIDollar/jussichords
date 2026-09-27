@@ -82,7 +82,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.runBlocking
-import java.security.MessageDigest
 import kotlin.random.Random
 import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.json
@@ -99,7 +98,6 @@ class PlaybackService : MediaSessionService() {
     private var scrobbleState: ScrobbleState? = null
     private var playSessionId: String? = null
     private val TAG_SCROBBLE = "Scrobble"
-    private val SCROBBLE_RETRY_DELAY_MS = 15_000L
     // TEMP-DIAG: 临时诊断 toast，定位完成后可删
     private val mainHandler = Handler(Looper.getMainLooper())
     private var diagToastShown = false
@@ -309,9 +307,7 @@ class PlaybackService : MediaSessionService() {
         val mediaItemIndex: Int,
         var maxPositionMs: Long = 0,
         var reached: Boolean = false,
-        var submitting: Boolean = false,
         var submitted: Boolean = false,
-        var lastSubmitAttemptMs: Long = 0,
         var totalSeconds: Int? = null,
         var sourceId: Long? = null,
         var songName: String? = null,
@@ -474,12 +470,12 @@ class PlaybackService : MediaSessionService() {
             fresh
             }
 
-        if (currentState.submitted || currentState.submitting) {
-            if (currentState.submitted) stopScrobbleTicker()
+        if (currentState.submitted) {
+            stopScrobbleTicker()
             return
         }
 
-        // 记录最大位置（含向后 seek），达到阈值后立即上报。
+        // 记录最大位置（含向后 seek），达到时长阈值时置位（真正提交在「离开本曲」时）
         val positionMs = player.currentPosition
         if (positionMs > currentState.maxPositionMs) {
             currentState.maxPositionMs = positionMs
@@ -489,9 +485,6 @@ class PlaybackService : MediaSessionService() {
         if (reachedSeconds >= thresholdSeconds && !currentState.reached) {
             currentState.reached = true
             Log.d(TAG_SCROBBLE, "reached threshold id=${mediaItem.mediaId} reached=${reachedSeconds}s threshold=${thresholdSeconds}s total=${currentState.totalSeconds}")
-        }
-        if (currentState.reached) {
-            submitScrobbleForState(currentState)
         }
     }
 
@@ -516,74 +509,39 @@ class PlaybackService : MediaSessionService() {
             ?.toInt()
     }
 
-    private fun cookieFingerprint(): String {
-        val map = CookieProvider.getCookieMap()
-        fun fp(key: String): String {
-            val value = map[key].orEmpty()
-            if (value.isEmpty()) return "missing"
-            val digest = MessageDigest.getInstance("SHA-256")
-                .digest(value.toByteArray())
-                .joinToString("") { "%02x".format(it) }
-                .take(12)
-            return "len=${value.length},sha=$digest"
-        }
-        val keys = map.keys.sorted().joinToString(",")
-        return "keys=[$keys] MUSIC_U=${fp("MUSIC_U")} JSESSIONID=${fp("JSESSIONID-WYYY")} csrf=${fp("__csrf")}"
-    }
-
-    private suspend fun logScrobbleAccountDiagnostic(songId: Long) {
-        Log.d(TAG_SCROBBLE, "cookie fingerprint id=$songId ${cookieFingerprint()}")
-        AccountApi.account().onSuccess { account ->
-            Log.d(
-                TAG_SCROBBLE,
-                "account diagnostic id=$songId codeAccount=${account.account.id} profile=${account.profile.userId} nickname=${account.profile.nickname}"
-            )
-        }.onFailure { err ->
-            Log.e(TAG_SCROBBLE, "account diagnostic FAILED id=$songId: ${err.message}", err)
-        }
-    }
-
     /**
-     * 达到听歌阈值后提交打卡。只有 v1 响应体 code==200 才标记为成功；失败保留状态，
-     * 由 ticker 在冷却后重试，避免网络瞬断直接丢掉本次打卡。
+     * 离开某首歌（切歌 / 自然播完）时，若该歌已达到时长阈值且未提交，则提交打卡。
+     * time 上报实际听到的秒数（已封顶到总时长），并带上 total / name / artist（v1 上报所需）。
      */
     private fun submitScrobbleForState(state: ScrobbleState?) {
-        if (state == null || !state.reached || state.submitting || state.submitted) return
+        if (state == null || !state.reached || state.submitted) return
         val songId = state.mediaId.toLongOrNull() ?: return
         if (!CookieProvider.isLoggedIn()) return
-
-        val now = System.currentTimeMillis()
-        if (now - state.lastSubmitAttemptMs < SCROBBLE_RETRY_DELAY_MS) return
-        state.lastSubmitAttemptMs = now
-        state.submitting = true
+        state.submitted = true
 
         val playedSeconds = (state.maxPositionMs / 1000).toInt()
         val reportedSeconds = state.totalSeconds?.let { minOf(playedSeconds, it) } ?: playedSeconds
         val effectiveSourceId = state.sourceId ?: songId
 
         scope.launch(Dispatchers.IO) {
-            logScrobbleAccountDiagnostic(songId)
             Log.d(
                 TAG_SCROBBLE,
-                "submit scrobble id=$songId sourceid=$effectiveSourceId (fallback=${state.sourceId == null}) " +
+                "submit scrobble/v1 id=$songId sourceid=$effectiveSourceId (fallback=${state.sourceId == null}) " +
                     "played=${reportedSeconds}s total=${state.totalSeconds} api=$API_BASE_URL"
             )
             AccountApi.scrobble(
                 songId = songId,
                 time = reportedSeconds,
-                sourceId = state.sourceId
+                sourceId = state.sourceId,
+                total = state.totalSeconds,
+                name = state.songName,
+                artist = state.songArtist
             ).onSuccess { resp ->
-                val upstreamOk = resp.details?.let {
-                    it.startplay?.code == 200 && it.play?.code == 200
-                } ?: (resp.code == 200)
-                if (resp.code == 200 && upstreamOk) {
-                    state.submitted = true
-                    state.submitting = false
-                    Log.d(TAG_SCROBBLE, "scrobble success id=$songId code=${resp.code} start=${resp.details?.startplay?.code} play=${resp.details?.play?.code}")
-                    stopScrobbleTicker()
+                // /scrobble/v1 透传 NCBL 上报结果，code!=200 表示未落库
+                if (resp.code == 200) {
+                    Log.d(TAG_SCROBBLE, "scrobble success id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
                 } else {
-                    state.submitting = false
-                    Log.e(TAG_SCROBBLE, "scrobble rejected id=$songId code=${resp.code} start=${resp.details?.startplay?.code} play=${resp.details?.play?.code} msg=${resp.msg ?: resp.message}")
+                    Log.e(TAG_SCROBBLE, "scrobble rejected id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
                     mainHandler.post {
                         Toast.makeText(
                             applicationContext,
@@ -593,7 +551,6 @@ class PlaybackService : MediaSessionService() {
                     }
                 }
             }.onFailure { err ->
-                state.submitting = false
                 Log.e(TAG_SCROBBLE, "scrobble FAILED id=$songId api=$API_BASE_URL: ${err.message}", err)
                 mainHandler.post {
                     Toast.makeText(

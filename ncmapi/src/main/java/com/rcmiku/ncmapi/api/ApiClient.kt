@@ -52,10 +52,10 @@ val apiClient = HttpClient(OkHttp) {
     install(Logging) {
         logger = object : Logger {
             override fun log(message: String) {
-                // Keep request diagnostics out of logcat: headers contain NCM cookies.
+                Log.d("KtorClient", message)
             }
         }
-        level = LogLevel.NONE
+        level = LogLevel.ALL
     }
     defaultRequest {
         header(
