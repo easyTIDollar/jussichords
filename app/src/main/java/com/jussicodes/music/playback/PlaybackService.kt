@@ -549,7 +549,7 @@ class PlaybackService : MediaSessionService() {
                         ).show()
                     }
                 }
-            ).onFailure { err ->
+            }.onFailure { err ->
                 Log.e(TAG_SCROBBLE, "scrobble FAILED id=$songId (direct eapi weblog): ${err.message}", err)
                 mainHandler.post {
                     Toast.makeText(
