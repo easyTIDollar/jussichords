@@ -64,7 +64,6 @@ import com.jussicodes.music.utils.enumPreference
 import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.preference
 import com.jussicodes.music.utils.toEnum
-import com.rcmiku.ncmapi.api.API_BASE_URL
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.Song
@@ -527,7 +526,7 @@ class PlaybackService : MediaSessionService() {
             Log.d(
                 TAG_SCROBBLE,
                 "submit scrobble/v1 id=$songId sourceid=$effectiveSourceId (fallback=${state.sourceId == null}) " +
-                    "played=${reportedSeconds}s total=${state.totalSeconds} api=$API_BASE_URL"
+                    "played=${reportedSeconds}s total=${state.totalSeconds} (direct eapi weblog)"
             )
             AccountApi.scrobble(
                 songId = songId,
@@ -537,7 +536,7 @@ class PlaybackService : MediaSessionService() {
                 name = state.songName,
                 artist = state.songArtist
             ).onSuccess { resp ->
-                // /scrobble/v1 透传 NCBL 上报结果，code!=200 表示未落库
+                // /scrobble/v1 走直连 eapi weblog，code!=200 表示未落库
                 if (resp.code == 200) {
                     Log.d(TAG_SCROBBLE, "scrobble success id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
                 } else {
@@ -550,8 +549,8 @@ class PlaybackService : MediaSessionService() {
                         ).show()
                     }
                 }
-            }.onFailure { err ->
-                Log.e(TAG_SCROBBLE, "scrobble FAILED id=$songId api=$API_BASE_URL: ${err.message}", err)
+            ).onFailure { err ->
+                Log.e(TAG_SCROBBLE, "scrobble FAILED id=$songId (direct eapi weblog): ${err.message}", err)
                 mainHandler.post {
                     Toast.makeText(
                         applicationContext,

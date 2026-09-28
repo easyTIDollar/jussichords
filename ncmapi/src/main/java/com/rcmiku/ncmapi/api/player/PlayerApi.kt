@@ -8,6 +8,8 @@ import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.model.LyricResponse
 import com.rcmiku.ncmapi.model.SongUrl
 import com.rcmiku.ncmapi.model.SongUrlResponse
+import com.rcmiku.ncmapi.utils.CookieProvider
+import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.request
 import io.ktor.client.statement.bodyAsText
@@ -134,6 +136,9 @@ object PlayerApi {
                 parameter("id", songId)
                 if (!source.isNullOrEmpty()) {
                     parameter("source", source)
+                }
+                CookieProvider.cookie.takeIf { it.isNotEmpty() }?.let {
+                    header("Cookie", it)
                 }
             }
             if (response.status.isSuccess()) {
