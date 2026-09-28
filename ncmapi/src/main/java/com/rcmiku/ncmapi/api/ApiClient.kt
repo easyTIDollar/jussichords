@@ -118,9 +118,9 @@ internal data class Route(val uri: String, val data: Map<String, Any>, val encry
 @PublishedApi
 internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
     fun req(key: String): Any = requireNotNull(p[key]) { "Missing $key for $path" }
-    fun long(key: String, def: Long): Any =
+    fun long(key: String, def: Long): Long =
         (p[key] as? Number)?.toLong() ?: (p[key] as? String)?.toLongOrNull() ?: def
-    fun int(key: String, def: Int): Any =
+    fun int(key: String, def: Int): Int =
         (p[key] as? Number)?.toInt() ?: (p[key] as? String)?.toIntOrNull() ?: def
     fun str(key: String): String = p[key]?.toString().orEmpty()
 
@@ -386,12 +386,12 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
                 }
             val playState = buildJsonObject {
                 put("resource", buildJsonObject {
-                    put("id", str("id").ifBlank { "0" })
-                    put("type", str("type").ifBlank { "song" })
+                    put("id", JsonPrimitive(str("id").ifBlank { "0" }))
+                    put("type", JsonPrimitive(str("type").ifBlank { "song" }))
                 })
-                put("progress", int("progress", 0))
-                put("sessionId", sessionId)
-                put("playMode", str("playMode").ifBlank { "list_loop" })
+                put("progress", JsonPrimitive(int("progress", 0)))
+                put("sessionId", JsonPrimitive(sessionId))
+                put("playMode", JsonPrimitive(str("playMode").ifBlank { "list_loop" }))
             }
             weapi("/api/relay/play/state/submit", mapOf("playStateSubmitReq" to playState.toString()))
         }
@@ -523,26 +523,26 @@ internal suspend fun scrobble(p: Map<String, Any>): String {
     val sourceId = (p["sourceid"]?.toString() ?: id).ifBlank { id }
     val time = (p["time"]?.toString()?.toIntOrNull() ?: 1).coerceAtLeast(1)
     val common = buildJsonObject {
-        put("id", id)
-        put("type", "song")
-        put("mainsite", "1")
-        put("mainsiteWeb", "1")
-        put("content", "id=$sourceId")
+        put("id", JsonPrimitive(id))
+        put("type", JsonPrimitive("song"))
+        put("mainsite", JsonPrimitive("1"))
+        put("mainsiteWeb", JsonPrimitive("1"))
+        put("content", JsonPrimitive("id=$sourceId"))
     }
     val start = buildJsonObject {
-        put("action", "startplay")
+        put("action", JsonPrimitive("startplay"))
         put("json", common)
     }
     val play = buildJsonObject {
-        put("action", "play")
+        put("action", JsonPrimitive("play"))
         put("json", buildJsonObject {
             common.forEach { (k, v) -> put(k, v) }
-            put("download", 0)
-            put("end", "playend")
-            put("sourceId", sourceId)
-            put("time", time)
-            put("wifi", 0)
-            put("source", "list")
+            put("download", JsonPrimitive(0))
+            put("end", JsonPrimitive("playend"))
+            put("sourceId", JsonPrimitive(sourceId))
+            put("time", JsonPrimitive(time))
+            put("wifi", JsonPrimitive(0))
+            put("source", JsonPrimitive("list"))
         })
     }
     for (entry in listOf(start, play)) {
