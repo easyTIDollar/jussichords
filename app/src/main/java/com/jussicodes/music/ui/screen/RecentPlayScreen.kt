@@ -90,7 +90,7 @@ fun RecentPlayScreen(
     val isPlaying = playerState?.isPlaying == true
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
 
-    // 下拉刷新（重新拉取最近播放，让刚打卡的歌尽快显示）
+    // 下拉刷新（重新拉取最近播放列表）
     val coroutineScope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(false) }
     val pullToRefreshState = rememberPullToRefreshState()

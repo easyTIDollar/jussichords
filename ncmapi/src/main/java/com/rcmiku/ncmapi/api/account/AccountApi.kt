@@ -197,55 +197,6 @@ object AccountApi {
     suspend fun songRecord(uid: Long, type: SongRecordType): Result<RecordResponse> =
         apiGet("/user/record", mapOf("uid" to uid, "type" to type.type))
 
-    /**
-     * 提交听歌打卡。NCM 数据面已直连：本端点改走 eapi weblog（/scrobble/v1 在 ApiClient 里
-     * 被路由到 clientlog 域 feedback/weblog，startplay + play 两条日志，对齐 Mooic 3.0.0），
-     * 不再经 ncmapi 代理的 NCBL 加密上报。time 为已听秒数、total 为歌曲总秒数（缺省用 time）。
-     * sourceId 缺失时 fallback 成歌曲自身 ID。返回值 code!=200 表示未落库。
-     */
-    suspend fun scrobble(
-        songId: Long,
-        time: Int,
-        sourceId: Long? = null,
-        total: Int? = null,
-        name: String? = null,
-        artist: String? = null
-    ): Result<ApiCodeResponse> =
-        apiGet(
-            "/scrobble/v1",
-            buildMap {
-                put("id", songId)
-                put("time", time.coerceAtLeast(1))
-                put("sourceid", sourceId?.takeIf { it > 0 } ?: songId)
-                total?.takeIf { it >= time }?.let { put("total", it) }
-                name?.takeIf { it.isNotBlank() }?.let { put("name", it) }
-                artist?.takeIf { it.isNotBlank() }?.let { put("artist", it) }
-                put("timestamp", System.currentTimeMillis())
-            }
-        )
-
-    /**
-     * 提交播放状态（会话追踪 + 播放模式）。未传 sessionId 时后端自动生成。
-     * 该接口无需 MUSIC_U 鉴权即可调用（与 scrobble 不同）。
-     */
-    suspend fun playStateSubmit(
-        songId: Long,
-        sessionId: String? = null,
-        progress: Int = 0,
-        playMode: String = "list_loop",
-        type: String = "song"
-    ): Result<ApiCodeResponse> =
-        apiGet(
-            "/relay/play/state/submit",
-            buildMap {
-                put("id", songId)
-                sessionId?.takeIf { it.isNotBlank() }?.let { put("sessionId", it) }
-                put("progress", progress.coerceAtLeast(0))
-                put("playMode", playMode)
-                put("type", type)
-            }
-        )
-
     @kotlinx.serialization.Serializable
     data class UserPlaylistRawResponse(
         val playlist: List<PlaylistRawItem> = emptyList()

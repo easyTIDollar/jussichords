@@ -41,7 +41,7 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 
-// NCM 数据面已改为直连官方接口（music.163.com / interface.music.163.com / clientlog），
+// NCM 数据面已改为直连官方接口（music.163.com / interfacepc.music.163.com），
 // 不再经 ncmapi 代理。API_BASE_URL / UNBLOCK_SOURCE 仍保留给「解灰音源 unblock」与「文件上传」
 // 两条仍走代理的通道（见 PlayerApi.tryUnblockUrl、apiPostFile*）。
 var API_BASE_URL = "http://8.134.163.111:3000"
@@ -58,16 +58,12 @@ internal val anonymousDeviceId: String =
 private const val NCM_WEB_DOMAIN = "https://music.163.com"
 // 对齐代理 config.json 的 eapiDomain（当前生产在用的 eapi 目标域），不是 interface。
 private const val NCM_API_DOMAIN = "https://interfacepc.music.163.com"
-private const val NCM_CLIENT_LOG_DOMAIN = "https://clientlog.music.163.com"
 
-// 移动端（默认 weapi/eapi）与桌面端（打卡 clientlog 走 osx）User-Agent。
+// 移动端（默认 weapi/eapi）User-Agent。
 @PublishedApi
 internal const val NCM_MOBILE_UA =
     "Mozilla/5.0 (Linux; Android 10; Mi A3 Build/QQ3A.200705.002; wv) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Version/4.0 Chrome/143.0.7499.34 Mobile Safari/537.36 NeteaseMusic/9.4.32.251222163637"
-private const val NCM_OSX_UA =
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
 val apiClient = HttpClient(OkHttp) {
     install(Logging) {
@@ -89,7 +85,6 @@ val apiClient = HttpClient(OkHttp) {
 /** NCM 数据面入口：按路由表把 jussichords 风格路径映射到官方 weapi/eapi 端点直连。 */
 @PublishedApi
 internal suspend fun requestNetease(path: String, params: Map<String, Any> = emptyMap()): String {
-    if (path == "/scrobble/v1") return scrobble(params)
     if (path == "/api") return sendGenericPassthrough(params)
     val route = resolveRoute(path, params)
     return send(route)
@@ -378,23 +373,6 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
             "/api/play-record/playlist/list",
             mapOf("limit" to int("limit", 100))
         )
-        // 播放状态上报
-        "/relay/play/state/submit" -> {
-            val sessionId = str("sessionId")
-                .ifBlank {
-                    (0 until 12).map { ("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".random()) }.joinToString("")
-                }
-            val playState = buildJsonObject {
-                put("resource", buildJsonObject {
-                    put("id", JsonPrimitive(str("id").ifBlank { "0" }))
-                    put("type", JsonPrimitive(str("type").ifBlank { "song" }))
-                })
-                put("progress", JsonPrimitive(int("progress", 0)))
-                put("sessionId", JsonPrimitive(sessionId))
-                put("playMode", JsonPrimitive(str("playMode").ifBlank { "list_loop" }))
-            }
-            weapi("/api/relay/play/state/submit", mapOf("playStateSubmitReq" to playState.toString()))
-        }
         // 评论
         "/comment/new" -> {
             val id = req("id")
@@ -512,64 +490,12 @@ internal suspend fun sendGenericPassthrough(p: Map<String, Any>): String {
     return send(Route(uri, finalData, Encryption.EAPI))
 }
 
-/**
- * 听歌打卡（直连 NCM eapi weblog → clientlog 域）。对齐 3.0.0 的 startplay + play 两条日志。
- * 返回合成 JSON；code!=200 时抛错由 apiGet 收敛成 Result.failure。
- */
 @PublishedApi
-internal suspend fun scrobble(p: Map<String, Any>): String {
-    val id = p["id"]?.toString().orEmpty()
-    if (id.isBlank()) return """{"code":400,"msg":"缺少歌曲 id"}"""
-    val sourceId = (p["sourceid"]?.toString() ?: id).ifBlank { id }
-    val time = (p["time"]?.toString()?.toIntOrNull() ?: 1).coerceAtLeast(1)
-    val common = buildJsonObject {
-        put("id", JsonPrimitive(id))
-        put("type", JsonPrimitive("song"))
-        put("mainsite", JsonPrimitive("1"))
-        put("mainsiteWeb", JsonPrimitive("1"))
-        put("content", JsonPrimitive("id=$sourceId"))
-    }
-    val start = buildJsonObject {
-        put("action", JsonPrimitive("startplay"))
-        put("json", common)
-    }
-    val play = buildJsonObject {
-        put("action", JsonPrimitive("play"))
-        put("json", buildJsonObject {
-            common.forEach { (k, v) -> put(k, v) }
-            put("download", JsonPrimitive(0))
-            put("end", JsonPrimitive("playend"))
-            put("sourceId", JsonPrimitive(sourceId))
-            put("time", JsonPrimitive(time))
-            put("wifi", JsonPrimitive(0))
-            put("source", JsonPrimitive("list"))
-        })
-    }
-    for (entry in listOf(start, play)) {
-        val logs = JsonArray(listOf(entry)).toString()
-        val result = send(
-            Route("/api/feedback/weblog", mapOf("logs" to logs), Encryption.EAPI),
-            os = "osx",
-            domain = NCM_CLIENT_LOG_DOMAIN
-        )
-        val code = (runCatching {
-            (json.parseToJsonElement(result) as? JsonObject)?.get("code")
-                ?.let { it.toString().trim('"') }
-        }.getOrNull() ?: "").toIntOrNull()
-        if (code != 200) {
-            Log.w("ApiClient", "scrobble weblog action=${entry["action"]} rejected: ${result.take(300)}")
-            return result
-        }
-    }
-    return """{"code":200}"""
-}
-
-@PublishedApi
-internal suspend fun send(route: Route, os: String? = null, domain: String? = null): String {
+internal suspend fun send(route: Route): String {
     val cookie = CookieProvider.getCookieMap()
     val csrf = cookie["__csrf"].orEmpty()
     val musicU = cookie["MUSIC_U"]
-    val osValue = os ?: cookie["os"] ?: "android"
+    val osValue = cookie["os"] ?: "android"
 
     // eapi 身份 header（对齐代理 createHeaderCookie 的字段集）
     val header = buildMap<String, Any> {
@@ -599,7 +525,7 @@ internal suspend fun send(route: Route, os: String? = null, domain: String? = nu
     }
 
     val rest = route.uri.removePrefix("/api/")
-    val targetDomain = domain ?: when (route.encryption) {
+    val targetDomain = when (route.encryption) {
         Encryption.WEAPI -> NCM_WEB_DOMAIN
         Encryption.EAPI -> NCM_API_DOMAIN
     }
@@ -608,18 +534,17 @@ internal suspend fun send(route: Route, os: String? = null, domain: String? = nu
         Encryption.EAPI -> "$targetDomain/eapi/$rest"
     }
 
-    // 请求 Cookie：对齐 3.0.0，weapi 与 eapi 都发完整 cookie（含 MUSIC_U）；指定 os（如打卡 osx）时覆盖 os 字段。
+    // 请求 Cookie：对齐 3.0.0，weapi 与 eapi 都发完整 cookie（含 MUSIC_U）。
     // 未登录（cookie 空）时补一个稳定 deviceId，保证匿名读接口（toplist / 搜索等）也能握手成功。
     val cookieHeader = buildMap {
         putAll(cookie)
         if (cookie["deviceId"] == null) put("deviceId", anonymousDeviceId)
-        if (os != null) put("os", osValue)
     }.entries.joinToString("; ") { (k, v) -> "$k=$v" }
 
     val response = apiClient.request(url) {
         method = HttpMethod.Post
         contentType(ContentType.Application.FormUrlEncoded)
-        if (os == "osx") header("User-Agent", NCM_OSX_UA) else header("User-Agent", NCM_MOBILE_UA)
+        header("User-Agent", NCM_MOBILE_UA)
         if (route.encryption == Encryption.WEAPI) {
             header("Referer", NCM_WEB_DOMAIN)
         }
