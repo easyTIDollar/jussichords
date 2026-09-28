@@ -35,22 +35,20 @@ object PlayerApi {
         val realId = parsed.first
         val fee = parsed.second
 
-        // 1) 先走官方直连。账号能听的歌（免费、fee=8 普通等）直接返回完整 url，
-        //    完全不碰 API 服务器——"能直连就直连"。
-        val directResult = apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
-        if (directResult.hasPlayableUrl()) return directResult
+        // 只有 fee==1（VIP/黑胶）需要第三方解灰。fee=0（免费）、fee=8（普通）等其它值
+        // 官方直连即可播放，完全不碰 API 服务器。
+        // 用户确认：fee=1 是要解灰的 VIP，fee=8 是直接能听的普通歌。
+        if (fee != 1) {
+            return apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
+        }
 
-        // 2) 直连取不到完整 url（该曲对当前账号受限）。免费歌（fee==0）直连若为 404/占位，
-        //    即表示当前不可播，不必走第三方解灰。
-        if (fee == 0) return directResult
-
-        // 3) 付费/需 VIP 的歌：走设置里选的 API 服务器解灰。
+        // VIP（fee==1）：走设置里选的 API 服务器解灰。
         val unblockResult = tryUnblockUrl(realId, source)
         if (unblockResult.hasPlayableUrl()) return unblockResult
 
-        // 4) 解灰失败（服务器不可用/该源无版权）：退回官方直连结果。
-        //    账号有会员/已购时 NCM 直接回完整 url，否则是 30 秒试听占位。
-        return directResult
+        // 解灰失败（服务器不可用/该源无版权）：退回官方直连。
+        // 账号有会员则 NCM 直接回完整 url，否则是 30 秒试听占位。
+        return apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
     }
 
     private fun songUrlParams(songId: String, songLevel: SongLevel, unblock: Boolean): Map<String, Any> =
