@@ -34,29 +34,22 @@ object PlayerApi {
         val parsed = parseSongId(songId)
         val realId = parsed.first
         val fee = parsed.second
-        val privilegeLevel = parsed.third
-        val shouldTryUnblock = fee != 0 || privilegeLevel <= 0
 
-        val primaryResult = if (shouldTryUnblock) {
-            // Restricted song: try the unblock service first, honouring an
-            // optional per-song source override. `null` / "AUTO" keeps the
-            // global UNBLOCK_SOURCE behaviour.
-            val unblockResult = tryUnblockUrl(realId, source)
-            if (unblockResult.hasPlayableUrl()) return unblockResult
-            // Unblock failed or returned a placeholder: fall back to the
-            // main API WITHOUT unblock so a regular NCM CDN URL can still
-            // be used (e.g. free songs that were misjudged as restricted).
-            apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
-        } else {
-            // Free song: use main API directly
-            apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
-        }
-        if (primaryResult.hasPlayableUrl()) return primaryResult
+        // 1) 先走官方直连取流。NCM 端点自己判断账号权限：
+        //    免费歌 / 已购 / 有会员 —— 都直接返回真 CDN url。
+        //    这样"不是 VIP 就直接播"天然成立，同时也能自动处理"是 VIP 但账号已购/有会员"。
+        val directResult = apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
+        if (directResult.hasPlayableUrl()) return directResult
+
+        // 2) 直连拿不到可播 url（版权/VIP 受限）：仅付费歌才值得走第三方解灰。
+        //    免费歌直连若为 null 即表示该曲当前不可播（下架/地区限制），无需解灰。
+        if (fee == 0) return directResult
 
         val unblockResult = tryUnblockUrl(realId, source)
         if (unblockResult.hasPlayableUrl()) return unblockResult
 
-        return primaryResult
+        // 3) 解灰也没拿到，退回直连结果（占位/误判时 NCM CDN url 仍可用）。
+        return directResult
     }
 
     private fun songUrlParams(songId: String, songLevel: SongLevel, unblock: Boolean): Map<String, Any> =
@@ -69,10 +62,9 @@ object PlayerApi {
         !url.isNullOrEmpty() &&
             // NCM 占位/外链（未真正解锁成功时返回），实测返回反爬 HTML 而非音频
             !url.contains("outer/url") &&
-            freeTrialInfo == null &&
-            freeTrialPrivilege == null &&
-            freeTimeTrialPrivilege == null &&
+            // 试听 30 秒占位（time 单位 ms：30040）
             time != 30_040L
+            // 注意：freeTrial* 字段 NCM 对可播歌曲也常回非 null 的空对象，不能用作判据
 
     private fun parseSongId(raw: String): Triple<String, Int, Int> {
         val queryIndex = raw.indexOf('?')
