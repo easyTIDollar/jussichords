@@ -2,8 +2,11 @@ package com.jussicodes.music.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
+import android.os.Process
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
@@ -61,8 +64,11 @@ import com.jussicodes.music.utils.enumPreference
 import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.preference
 import com.jussicodes.music.utils.toEnum
+import com.jussicodes.music.BuildConfig
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.Song
+import com.rcmiku.ncmapi.ncbl.NcblDeviceInfo
+import com.rcmiku.ncmapi.ncbl.NeteaseClientLogClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -85,6 +91,90 @@ class PlaybackService : MediaSessionService() {
     private val use40DpIcon by preference(this, use40DpIconKey, false)
     private val desktopLyricEnabled by preference(this, desktopLyricEnabledKey, false)
     private val audioQuality by enumPreference(this, audioQualityKey, SongLevel.STANDARD)
+
+    private var playbackHistoryReporter: PlaybackHistoryReporter? = null
+    private val playbackHistorySession = PlaybackHistorySession()
+
+    /**
+     * 播放历史监听器：纯内存计时 + 切歌/结束双通道上报。
+     * 歌曲元数据（songId/来源/时长/曲名）在 begin() 时由 reporter 缓存，
+     * 结束时原 item 已切走仍可用。
+     */
+    private val playbackHistoryListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            // 离开旧曲：结算其会话。
+            playbackHistorySession.onMediaItemTransition(
+                mediaId = mediaItem?.mediaId,
+                reason = reason,
+                realtimeMs = SystemClock.elapsedRealtime(),
+            )?.let { reportDuration(it) }
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            onPlaybackHistoryStateChange()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            when (playbackState) {
+                Player.STATE_ENDED -> playbackHistorySession
+                    .finish(SystemClock.elapsedRealtime(), "playend")
+                    ?.let { reportDuration(it) }
+                Player.STATE_IDLE -> playbackHistorySession
+                    .finish(SystemClock.elapsedRealtime())
+                    ?.let { reportDuration(it) }
+            }
+        }
+
+        override fun onEvents(player: Player, events: Player.Events) {
+            if (events.contains(Player.EVENT_IS_PLAYING_CHANGED) ||
+                events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) ||
+                events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)
+            ) {
+                onPlaybackHistoryStateChange()
+            }
+        }
+    }
+
+    /** 播放状态/曲目变化：更新计时器，必要时上报「开始」。 */
+    private fun onPlaybackHistoryStateChange() {
+        val player = mediaSession?.player ?: return
+        val mediaItem = player.currentMediaItem
+        val update = playbackHistorySession.update(
+            mediaId = mediaItem?.mediaId,
+            isPlaying = player.isPlaying,
+            wallClockMs = System.currentTimeMillis(),
+            realtimeMs = SystemClock.elapsedRealtime(),
+        )
+        update.completed?.let { reportDuration(it) }
+        if (update.startedAtMs != null && mediaItem != null) {
+            startPlaybackHistory(mediaItem, update.startedAtMs)
+        }
+    }
+
+    /** 上报一次会话开始（eapi startplay + NCBL _plv），元数据在此缓存进 reporter。 */
+    private fun startPlaybackHistory(mediaItem: MediaItem, startedAtMs: Long) {
+        val reporter = playbackHistoryReporter ?: return
+        if (!CookieProvider.isLoggedIn()) return
+        val source = mediaItem.playbackHistorySourceContext() ?: return
+        val durationMs = mediaItem.mediaMetadata.extras
+            ?.getLong(MediaSessionConstants.EXTRA_DURATION_MS, 0L)
+            .takeIf { it > 0L } ?: 0L
+        reporter.begin(
+            mediaId = mediaItem.mediaId,
+            songId = source.songId,
+            sourceId = source.sourceId,
+            source = source.source,
+            startedAtMs = startedAtMs,
+            songName = mediaItem.mediaMetadata.title?.toString().orEmpty(),
+            songArtist = mediaItem.mediaMetadata.artist?.toString().orEmpty(),
+            songDurationMs = durationMs,
+        )
+    }
+
+    /** 上报一次会话结束（eapi play + NCBL _pld），元数据用 reporter 内 begin() 时的缓存。 */
+    private fun reportDuration(completed: PlaybackHistorySession.CompletedSession) {
+        playbackHistoryReporter?.end(completed, endedAtMs = System.currentTimeMillis())
+    }
 
 
     private val favoriteButton: CommandButton
@@ -209,6 +299,22 @@ class PlaybackService : MediaSessionService() {
                 setMediaSourceFactory(DefaultMediaSourceFactory(resolvingDataSourceFactory))
             }.build()
         player.repeatMode = REPEAT_MODE_ALL
+        // 播放历史上报（eapi weblog + NCBL 双通道）：MeiloX 式纯内存计时器 + 串行 IO 上报。
+        playbackHistoryReporter = PlaybackHistoryReporter(
+            ncblClient = NeteaseClientLogClient(),
+            ncblDevice = NcblDeviceInfo(
+                deviceId = CookieProvider.getCookieMap()["deviceId"].orEmpty(),
+                osVersion = Build.VERSION.RELEASE.orEmpty(),
+                model = Build.MODEL.orEmpty(),
+                brand = Build.BRAND.orEmpty(),
+                processName = applicationInfo.processName ?: packageName,
+                buildType = BuildConfig.BUILD_TYPE,
+                pid = Process.myPid(),
+                buildId = Build.ID.orEmpty(),
+            ),
+            ncblDeviceId = { CookieProvider.getCookieMap()["deviceId"].orEmpty() },
+        )
+        player.addListener(playbackHistoryListener)
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(
                 PendingIntent.getActivity(
@@ -236,6 +342,15 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         scope.cancel()
         mediaSession?.run {
+            player.removeListener(playbackHistoryListener)
+            // 服务销毁前结算并排空未上报的播放历史事件。
+            playbackHistoryReporter?.let { reporter ->
+                playbackHistorySession.finish(SystemClock.elapsedRealtime())?.let { completed ->
+                    reporter.end(completed, System.currentTimeMillis())
+                }
+                reporter.close()
+            }
+            playbackHistoryReporter = null
             player.release()
             release()
             mediaSession = null

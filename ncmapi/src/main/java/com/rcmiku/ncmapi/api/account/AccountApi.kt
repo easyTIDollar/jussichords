@@ -4,10 +4,16 @@ import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.api.apiPostFileOkHttp
 import com.rcmiku.ncmapi.api.apiPostFile
 import com.rcmiku.ncmapi.api.apiPost
+import com.rcmiku.ncmapi.api.toJsonElement
+import com.rcmiku.ncmapi.api.playbackHistoryBaseFields
+import com.rcmiku.ncmapi.api.playbackHistoryPlayFields
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.*
 import com.rcmiku.ncmapi.utils.CookieProvider
 import io.ktor.http.ContentType
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.File
 
 object AccountApi {
@@ -196,6 +202,53 @@ object AccountApi {
 
     suspend fun songRecord(uid: Long, type: SongRecordType): Result<RecordResponse> =
         apiGet("/user/record", mapOf("uid" to uid, "type" to type.type))
+
+    /**
+     * 听歌打卡 / 播放历史上报 —— 开始事件（对齐 MeiloX recordPlaybackStart）。
+     * 歌曲真正开始播放时调用：提交一条 startplay 日志到 eapi feedback/weblog（osx 桌面 profile）。
+     * 未登录 / songId 非法时返回 failure。
+     */
+    suspend fun recordPlaybackStart(
+        songId: Long,
+        sourceId: Long,
+        source: String,
+        startedAtMs: Long
+    ): Result<PlaybackWeblogResponse> {
+        if (!CookieProvider.isLoggedIn()) {
+            return Result.failure(IllegalStateException("未登录，无法上报播放历史"))
+        }
+        if (songId <= 0L) return Result.failure(IllegalArgumentException("songId 必须为正数"))
+        val fields = playbackHistoryBaseFields(songId, sourceId, source, startedAtMs, startedAtMs)
+        return sendWeblogLogs("startplay", fields)
+    }
+
+    /**
+     * 听歌打卡 / 播放历史上报 —— 结束事件（对齐 MeiloX recordPlaybackDuration）。
+     * 会话结束时调用：提交一条 play 日志（实际收听秒 + end 原因）。
+     * 一条 startplay 必须由对应的 play 收尾（time=0 的 play 会产生假完成，勿发）。
+     */
+    suspend fun recordPlaybackDuration(session: CompletedPlaybackSession): Result<PlaybackWeblogResponse> {
+        if (!CookieProvider.isLoggedIn()) {
+            return Result.failure(IllegalStateException("未登录，无法上报播放历史"))
+        }
+        if (session.songId <= 0L) return Result.failure(IllegalArgumentException("songId 必须为正数"))
+        val fields = playbackHistoryPlayFields(session)
+        return sendWeblogLogs("play", fields)
+    }
+
+    /** 单条 weblog 日志走 /scrobble/weblog（osx 桌面 profile + eapi 直连）。 */
+    private suspend fun sendWeblogLogs(action: String, fields: Map<String, Any>): Result<PlaybackWeblogResponse> {
+        val logsArray = buildJsonArray {
+            add(buildJsonObject {
+                put("action", action)
+                put("json", toJsonElement(fields))
+            })
+        }
+        return apiGet<PlaybackWeblogResponse>(
+            "/scrobble/weblog",
+            mapOf("logs" to logsArray.toString())
+        )
+    }
 
     @kotlinx.serialization.Serializable
     data class UserPlaylistRawResponse(

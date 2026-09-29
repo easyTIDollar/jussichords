@@ -64,6 +64,13 @@ private const val NCM_API_DOMAIN = "https://interfacepc.music.163.com"
 internal const val NCM_MOBILE_UA =
     "Mozilla/5.0 (Linux; Android 10; Mi A3 Build/QQ3A.200705.002; wv) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Version/4.0 Chrome/143.0.7499.34 Mobile Safari/537.36 NeteaseMusic/9.4.32.251222163637"
+// eapi 播放历史上报专用 macOS 桌面 UA（对齐 MeiloX playback-history profile）。
+internal const val NCM_OSX_UA =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+        "AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/124.0.0.0 Safari/537.36"
+// eapi 播放历史上报专用域（对齐 MeiloX：interface 域 + osx 桌面 profile）。
+internal const val NCM_EAPI_HISTORY_DOMAIN = "https://interface.music.163.com"
 
 val apiClient = HttpClient(OkHttp) {
     install(Logging) {
@@ -108,7 +115,30 @@ suspend inline fun <reified T> apiPost(path: String, body: Map<String, Any> = em
 
 internal enum class Encryption { WEAPI, EAPI }
 
-internal data class Route(val uri: String, val data: Map<String, Any>, val encryption: Encryption)
+internal data class Route(
+    val uri: String,
+    val data: Map<String, Any>,
+    val encryption: Encryption,
+    /**
+     * eapi 请求 profile（对齐 MeiloX 的 eapi profile 机制）：
+     * 普通请求用 null（Android 移动端参数 + interfacepc 域 + 移动 UA）；
+     * 播放历史上报用 [EAPI_PLAYBACK_HISTORY_PROFILE]（osx 桌面参数 + interface 域 + macOS UA，
+     * 不带 __csrf、不发 X-Real-IP/X-Forwarded-For 假 IP 头）。
+     */
+    val eapiProfile: Map<String, Any>? = null
+)
+
+/** 播放历史上报 eapi profile（osx 桌面伪装，参数对齐 MeiloX NeteaseInterceptor）。 */
+val EAPI_PLAYBACK_HISTORY_PROFILE: Map<String, Any> = mapOf(
+    "os" to "osx",
+    "osver" to "15.5",
+    "appver" to "3.1.10.5100",
+    "versioncode" to "140",
+    "channel" to "netease",
+    "resolution" to "1920x1080",
+    "userAgent" to NCM_OSX_UA,
+    "domain" to NCM_EAPI_HISTORY_DOMAIN,
+)
 
 @PublishedApi
 internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
@@ -121,6 +151,9 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
 
     fun weapi(uri: String, data: Map<String, Any> = emptyMap()) = Route(uri, data, Encryption.WEAPI)
     fun eapi(uri: String, data: Map<String, Any> = emptyMap()) = Route(uri, data, Encryption.EAPI)
+    // 播放历史上报专用：eapi + osx 桌面 profile（interface 域 + macOS UA + 空 csrf）。
+    fun eapiHistory(uri: String, data: Map<String, Any> = emptyMap()) =
+        Route(uri, data, Encryption.EAPI, eapiProfile = EAPI_PLAYBACK_HISTORY_PROFILE)
 
     val commentTypePrefix = when (int("type", 0)) {
         0 -> "R_SO_4_"
@@ -373,6 +406,12 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
             "/api/play-record/playlist/list",
             mapOf("limit" to int("limit", 100))
         )
+        // 听歌打卡（写端点）：eapi feedback/weblog，osx 桌面 profile。
+        // 调用方一次性提交 startplay + play 两条日志（对齐 MeiloX 双事件模型）。
+        "/scrobble/weblog" -> eapiHistory(
+            "/api/feedback/weblog",
+            mapOf("logs" to str("logs"))
+        )
         // 评论
         "/comment/new" -> {
             val id = req("id")
@@ -496,20 +535,23 @@ internal suspend fun send(route: Route): String {
     val csrf = cookie["__csrf"].orEmpty()
     val musicU = cookie["MUSIC_U"]
     val osValue = cookie["os"] ?: "android"
+    val profile = route.eapiProfile
+    val isHistoryProfile = profile != null
 
     // eapi 身份 header（对齐代理 createHeaderCookie 的字段集）
+    // 播放历史 profile：osx 桌面参数（对齐 MeiloX），__csrf 置空、buildver 用秒级时间戳。
     val header = buildMap<String, Any> {
-        put("osver", cookie["osver"] ?: "14")
+        put("osver", profile?.get("osver")?.toString() ?: cookie["osver"] ?: "14")
         put("deviceId", cookie["deviceId"] ?: anonymousDeviceId)
-        put("os", osValue)
-        put("appver", cookie["appver"] ?: "9.4.32.251222163637")
-        put("versioncode", cookie["versioncode"] ?: "6006066")
-        put("mobilename", cookie["mobilename"] ?: "")
+        put("os", profile?.get("os")?.toString() ?: osValue)
+        put("appver", profile?.get("appver")?.toString() ?: cookie["appver"] ?: "9.4.32.251222163637")
+        put("versioncode", profile?.get("versioncode")?.toString() ?: cookie["versioncode"] ?: "6006066")
+        if (!isHistoryProfile) put("mobilename", cookie["mobilename"] ?: "")
         put("buildver", (System.currentTimeMillis() / 1000).toString())
-        put("resolution", cookie["resolution"] ?: "2268x1080")
-        put("channel", cookie["channel"] ?: "xiaomi")
+        put("resolution", profile?.get("resolution")?.toString() ?: cookie["resolution"] ?: "2268x1080")
+        put("channel", profile?.get("channel")?.toString() ?: cookie["channel"] ?: "xiaomi")
         put("requestId", "${System.currentTimeMillis()}_${(0..9999).random()}")
-        put("__csrf", csrf)
+        put("__csrf", if (isHistoryProfile) "" else csrf)
         if (musicU != null) put("MUSIC_U", musicU)
     }
 
@@ -525,9 +567,10 @@ internal suspend fun send(route: Route): String {
     }
 
     val rest = route.uri.removePrefix("/api/")
-    val targetDomain = when (route.encryption) {
-        Encryption.WEAPI -> NCM_WEB_DOMAIN
-        Encryption.EAPI -> NCM_API_DOMAIN
+    val targetDomain = when {
+        isHistoryProfile -> profile["domain"].toString()
+        route.encryption == Encryption.WEAPI -> NCM_WEB_DOMAIN
+        else -> NCM_API_DOMAIN
     }
     val url = when (route.encryption) {
         Encryption.WEAPI -> "$targetDomain/weapi/$rest"
@@ -544,16 +587,27 @@ internal suspend fun send(route: Route): String {
     val response = apiClient.request(url) {
         method = HttpMethod.Post
         contentType(ContentType.Application.FormUrlEncoded)
-        header("User-Agent", NCM_MOBILE_UA)
+        header("User-Agent", if (isHistoryProfile) NCM_OSX_UA else NCM_MOBILE_UA)
         if (route.encryption == Encryption.WEAPI) {
             header("Referer", NCM_WEB_DOMAIN)
+        }
+        if (isHistoryProfile) {
+            header("Accept", "*/*")
         }
         header("Cookie", cookieHeader)
         setBody(fields.entries.joinToString("&") { (k, v) -> "${k.encodeURLParameter()}=${v.encodeURLParameter()}" })
     }
-    val body = response.bodyAsText()
+    var body = response.bodyAsText()
     if (!response.status.isSuccess()) {
         throw Exception("HTTP ${response.status} ${response.status.description}: ${body.take(500)}")
+    }
+    // eapi 响应兜底：若 NCM 仍回 hex 加密体（非 JSON 开头），用 EAPI-key 解密（对齐 MeiloX 解密分支）。
+    if (route.encryption == Encryption.EAPI) {
+        val firstChar = body.firstOrNull { it > ' ' }
+        if (firstChar != '{' && firstChar != '[') {
+            val decoded = NeteaseCrypto.eapiDecryptHex(body.trim())
+            if (decoded.isNotEmpty()) body = decoded
+        }
     }
     return body
 }
