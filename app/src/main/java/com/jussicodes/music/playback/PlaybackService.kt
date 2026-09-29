@@ -158,7 +158,7 @@ class PlaybackService : MediaSessionService() {
         val source = mediaItem.playbackHistorySourceContext() ?: return
         val durationMs = mediaItem.mediaMetadata.extras
             ?.getLong(MediaSessionConstants.EXTRA_DURATION_MS, 0L)
-            .takeIf { it > 0L } ?: 0L
+            ?.coerceAtLeast(0L) ?: 0L
         reporter.begin(
             mediaId = mediaItem.mediaId,
             songId = source.songId,

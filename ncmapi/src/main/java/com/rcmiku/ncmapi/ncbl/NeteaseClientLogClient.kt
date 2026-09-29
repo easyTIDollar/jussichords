@@ -30,9 +30,8 @@ import java.util.concurrent.atomic.AtomicLong
  * 每次上传一个新的 NCBL 信封文件（start/end 各一次，multipart form 的 file 字段）；
  * 响应在 data.successfiles 里回显被接受的文件名，HTTP 2xx + code=200 + 文件名匹配才视为受理。
  */
-class NeteaseClientLogClient(
+class NeteaseClientLogClient {
     private val http: HttpClient = HttpClient(OkHttp)
-) {
     /** 校验并返回可上报的会话（对齐 MeiloX beginSession）：MUSIC_U / songId / sourceId 齐备。 */
     fun beginSession(session: NcblSessionContext): NcblSessionContext? = session.takeIf {
         it.musicU.isNotBlank() && it.songId > 0L && it.sourceId > 0L
