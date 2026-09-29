@@ -40,7 +40,7 @@ data class RecentPlaylistData(
     val id: Long = 0,
     val name: String = "",
     @SerialName("coverImgUrl") val coverImgUrl: String = "",
-    @SerialName("uiPlaylistType") val uiPlaylistType: Int = 0,
+    @SerialName("uiPlaylistType") val uiPlaylistType: String = "",
     val creator: PlaylistCreator? = null,
     val lastSong: Song = Song()
 )
