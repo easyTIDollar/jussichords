@@ -30,6 +30,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 
 /**
  * 可左右滑动的 tab 页：HorizontalPager + 跟手指示器。
@@ -53,7 +54,7 @@ fun SwipableTabPager(
     val state = pagerState
         ?: rememberPagerState(initialPage = defaultPage, pageCount = { titles.size })
     val scope = rememberCoroutineScope()
-    val rowWidthPx by remember { mutableIntStateOf(0) }
+    var rowWidthPx by remember { mutableIntStateOf(0) }
 
     Column(modifier = modifier) {
         // Tab 栏 + 跟手指示器
