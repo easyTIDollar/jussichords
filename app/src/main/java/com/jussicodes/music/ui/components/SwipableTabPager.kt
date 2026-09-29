@@ -55,6 +55,12 @@ fun SwipableTabPager(
         ?: rememberPagerState(initialPage = defaultPage, pageCount = { titles.size })
     val scope = rememberCoroutineScope()
     var rowWidthPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+
+    // 跟手连续页位置（foundation 源码验证）：拖拽中 currentPageOffsetFraction 从 0→±1，
+    // currentPage + fraction 即手指所在的连续页位置，clamp 到 [0, size-1]。
+    val continuousPos = (state.currentPage + state.currentPageOffsetFraction)
+        .coerceIn(0f, (titles.size - 1).toFloat())
 
     Column(modifier = modifier) {
         // Tab 栏 + 跟手指示器
@@ -79,21 +85,21 @@ fun SwipableTabPager(
                     )
                 }
             }
-            // 跟手指示器：连续位置驱动，不滞后。
-            // 语义（foundation 源码验证）：前进拖拽 fraction 0→+1，后退 0→-1；
-            // currentPage + fraction 即连续页位置，clamp 到 [0, size-1]。
+            // 跟手指示器：
+            // m3 SecondaryTabRow 的 tab 等宽平分整行（槽宽 = 行宽 / tab 数，源码确认）。
+            // 指示器宽度 = 一个槽位宽（onSizeChanged 回的是 px，必须按密度换算成 dp，
+            // 之前直接 px 当 dp 用导致 3x 屏上宽度 = 整行、指示器失效）；
+            // 偏移 = 连续位置 × 槽宽（px），拖拽逐帧跟手。
             if (rowWidthPx > 0 && titles.size > 1) {
-                val tabWidthPx = rowWidthPx / titles.size
-                val continuousPos =
-                    (state.currentPage + state.currentPageOffsetFraction)
-                        .coerceIn(0f, (titles.size - 1).toFloat())
-                val indicatorX = (continuousPos * tabWidthPx).toInt()
-                val indicatorWidthDp = tabWidthPx.dp
+                val slotWidthPx = rowWidthPx / titles.size
+                // onSizeChanged 回的是 px；必须按密度换算成 dp 再交给 Modifier.width，
+                // 之前直接 px 当 dp 用 → 3x 屏指示器宽度 = 整行，视觉上"没有指示"。
+                val slotWidthDp = (slotWidthPx / density.density).dp
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .offset { IntOffset(indicatorX, 0) }
-                        .width(indicatorWidthDp)
+                        .offset { IntOffset((continuousPos * slotWidthPx).toInt(), 0) }
+                        .width(slotWidthDp)
                         .padding(horizontal = 5.dp)
                         .height(3.dp)
                         .padding(bottom = 5.dp)
