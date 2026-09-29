@@ -191,8 +191,9 @@ private fun CookieLoginDialog(
     onDismiss: () -> Unit,
     onLogin: (String) -> Unit,
 ) {
+    val context = LocalContext.current
     val clipboard = remember {
-        LocalContext.current.getSystemService(android.content.ClipboardManager::class.java)
+        context.getSystemService(android.content.ClipboardManager::class.java)
     }
     var text by rememberSaveable { mutableStateOf(initialCookie) }
 
@@ -228,7 +229,7 @@ private fun CookieLoginDialog(
                                 android.content.ClipData.newPlainText("ncm-cookie", value)
                             )
                             Toast.makeText(
-                                LocalContext.current, "已复制到剪贴板", Toast.LENGTH_SHORT
+                                context, "已复制到剪贴板", Toast.LENGTH_SHORT
                             ).show()
                         }
                     }
