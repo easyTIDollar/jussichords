@@ -529,6 +529,12 @@ internal suspend fun sendGenericPassthrough(p: Map<String, Any>): String {
     return send(Route(uri, finalData, Encryption.EAPI))
 }
 
+/** MeiloX encodeCookieComponent：cookie 键值 URL-encode（+→%20，%7E→~）。 */
+private fun encodeCookieComponent(value: String): String =
+    java.net.URLEncoder.encode(value, "UTF-8")
+        .replace("+", "%20")
+        .replace("%7E", "~")
+
 @PublishedApi
 internal suspend fun send(route: Route): String {
     val cookie = CookieProvider.getCookieMap()
@@ -577,12 +583,23 @@ internal suspend fun send(route: Route): String {
         Encryption.EAPI -> "$targetDomain/eapi/$rest"
     }
 
-    // 请求 Cookie：对齐 3.0.0，weapi 与 eapi 都发完整 cookie（含 MUSIC_U）。
-    // 未登录（cookie 空）时补一个稳定 deviceId，保证匿名读接口（toplist / 搜索等）也能握手成功。
-    val cookieHeader = buildMap {
-        putAll(cookie)
-        if (cookie["deviceId"] == null) put("deviceId", anonymousDeviceId)
-    }.entries.joinToString("; ") { (k, v) -> "$k=$v" }
+    // 请求 Cookie：
+    // - 普通 eapi/weapi：对齐 3.0.0 发完整登录 cookie（含 MUSIC_U）；未登录时补稳定 deviceId，
+    //   保证匿名读接口（toplist / 搜索等）也能握手成功。
+    // - 播放历史 profile：对齐 MeiloX buildEApiCookieString 发「合成 cookie」——
+    //   只带与加密 header 同源的 11 个字段（os/osver/appver/versioncode 全为 osx 值 +
+    //   空 __csrf + MUSIC_U），值 URL-encode、按 key 排序。发完整登录 cookie（os=android）
+    //   会与加密参数里的 osx 自相矛盾，NCM 交叉校验后静默丢弃。
+    val cookieHeader = if (isHistoryProfile) {
+        header.entries
+            .sortedBy { it.key }
+            .joinToString("; ") { (k, v) -> "${encodeCookieComponent(k)}=${encodeCookieComponent(v.toString())}" }
+    } else {
+        buildMap {
+            putAll(cookie)
+            if (cookie["deviceId"] == null) put("deviceId", anonymousDeviceId)
+        }.entries.joinToString("; ") { (k, v) -> "$k=$v" }
+    }
 
     val response = apiClient.request(url) {
         method = HttpMethod.Post
