@@ -90,7 +90,7 @@ class NeteaseClientLogClient(
                 setBody(filePart)
             }
             val bodyText = runCatching { response.bodyAsText() }.getOrNull()
-            parseNcblUploadResponse(response.statusCode.value, bodyText, fileName)
+            parseNcblUploadResponse(response.status.value, bodyText, fileName)
         } catch (e: Exception) {
             NcblUploadResult(fileAccepted = false)
         }
@@ -148,7 +148,7 @@ class NeteaseClientLogClient(
             val root = runCatching {
                 body?.takeIf { it.isNotBlank() }?.let { json.parseToJsonElement(it).jsonObject }
             }.getOrNull()
-            val code = root?.get("code")?.let { runCatching { it.jsonPrimitive.int }.getOrNull() }
+            val code = root?.get("code")?.let { runCatching { it.jsonPrimitive.content.toIntOrNull() }.getOrNull() }
             val files = root
                 ?.get("data")
                 ?.jsonObject
