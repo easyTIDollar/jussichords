@@ -56,6 +56,10 @@ object PinnedAlbumStore {
     private val _albums = MutableStateFlow<List<Album>>(emptyList())
     val albums: StateFlow<List<Album>> = _albums.asStateFlow()
 
+    /** 磁盘缓存是否已读完（冷启动首帧为 false；UI 用它区分"还没到"与"确实为空"）。 */
+    private val _cacheLoaded = MutableStateFlow(false)
+    val cacheLoaded: StateFlow<Boolean> = _cacheLoaded.asStateFlow()
+
     /** 上一次成功同步的账号 + ids + 时间，用于去重；失败不更新。 */
     @Volatile
     private var lastSyncedAccount: String = ""
@@ -89,6 +93,7 @@ object PinnedAlbumStore {
         val acc = accountKey()
         if (storedAccount.isNotEmpty() && acc != GUEST_KEY && storedAccount != acc) {
             _albums.value = emptyList()
+            _cacheLoaded.value = true
             return
         }
         val ids = readIds(prefs)
@@ -104,6 +109,7 @@ object PinnedAlbumStore {
         if (ordered.isNotEmpty()) {
             _albums.value = ordered
         }
+        _cacheLoaded.value = true
     }
 
     /**
@@ -188,6 +194,7 @@ object PinnedAlbumStore {
     /** 退出登录：清内存态（磁盘缓存保留，重新登录后 [sync] 会刷新）。 */
     fun resetOnLogout() {
         _albums.value = emptyList()
+        _cacheLoaded.value = false
         songCache.clear()
         lastSyncedAccount = ""
         lastSyncedIds = emptyList()

@@ -261,6 +261,14 @@ fun RoamScreen(
             } else if (target == ROAM_QUEUE && metadata != null) {
                 PlayerQueue(
                     mediaMetadata = metadata,
+                    modifier = Modifier.sharedBounds(
+                        sharedContentState = rememberSharedContentState(key = "roamContainer"),
+                        animatedVisibilityScope = this@AnimatedContent,
+                        placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
+                        boundsTransform = AlbumArtBoundsTransform,
+                        enter = fadeIn(tweenEnter(delayMillis = DURATION_EXIT_SHORT)),
+                        exit = fadeOut(tweenExit(durationMillis = DURATION_EXIT_SHORT))
+                    ),
                     imageModifier = Modifier.sharedElement(
                         state = rememberSharedContentState(
                             key = "roamArtwork-${metadata.artworkUri ?: metadata.title}"
@@ -277,6 +285,22 @@ fun RoamScreen(
                     mediaMetadata = metadata,
                     position = position,
                     duration = duration,
+                    modifier = Modifier.sharedBounds(
+                        sharedContentState = rememberSharedContentState(key = "roamContainer"),
+                        animatedVisibilityScope = this@AnimatedContent,
+                        placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
+                        boundsTransform = AlbumArtBoundsTransform,
+                        enter = fadeIn(tweenEnter(delayMillis = DURATION_EXIT_SHORT)),
+                        exit = fadeOut(tweenExit(durationMillis = DURATION_EXIT_SHORT))
+                    ),
+                    imageModifier = Modifier.sharedElement(
+                        state = rememberSharedContentState(
+                            key = "roamArtwork-${metadata.artworkUri ?: metadata.title}"
+                        ),
+                        animatedVisibilityScope = this@AnimatedContent,
+                        placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
+                        boundsTransform = AlbumArtBoundsTransform
+                    ),
                     onBackPressed = onBackPressed,
                     onClick = { shownPanel = ROAM_LYRIC },
                     onContainerClick = { shownPanel = ROAM_QUEUE },
@@ -364,6 +388,14 @@ fun RoamScreen(
                     } else {
                         Modifier
                     },
+                    containerModifier = Modifier.sharedBounds(
+                        sharedContentState = rememberSharedContentState(key = "roamContainer"),
+                        animatedVisibilityScope = this@AnimatedContent,
+                        placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
+                        boundsTransform = AlbumArtBoundsTransform,
+                        enter = fadeIn(tweenEnter(delayMillis = DURATION_EXIT_SHORT)),
+                        exit = fadeOut(tweenExit(durationMillis = DURATION_EXIT_SHORT))
+                    ),
                     selectedModeIndex = selectedModeIndex
                 )
             }
@@ -402,6 +434,7 @@ private fun RoamPlayerContent(
     onSliderFinished: () -> Unit,
     onBackPressed: () -> Unit,
     artworkModifier: Modifier,
+    containerModifier: Modifier,
     selectedModeIndex: Int
 ) {
     var modeMenuExpanded by rememberSaveable { mutableStateOf(false) }
@@ -455,7 +488,7 @@ private fun RoamPlayerContent(
     }
 
     Surface(
-        modifier = Modifier.fillMaxSize(),
+        modifier = containerModifier.fillMaxSize(),
         color = Color.Transparent
     ) {
         Box(modifier = Modifier.fillMaxSize()) {

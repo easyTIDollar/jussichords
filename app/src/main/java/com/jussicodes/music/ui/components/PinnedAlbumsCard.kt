@@ -104,6 +104,7 @@ fun PinnedAlbumsCard(
     onAddClick: () -> Unit
 ) {
     val albums by PinnedAlbumStore.albums.collectAsState()
+    val cacheLoaded by PinnedAlbumStore.cacheLoaded.collectAsState()
     val context = LocalContext.current
     val view = LocalView.current
     val mediaController = LocalPlayerController.current.controller
@@ -252,7 +253,8 @@ fun PinnedAlbumsCard(
                 reorderableState = reorderableState,
                 gridState = gridState,
                 view = view,
-                showAddTile = displayed.isEmpty() || editing,
+                // 缓存未读完（冷启动首帧）不显示加号，避免"空列表→加号闪现再跳位"的布局跳变
+                showAddTile = cacheLoaded && (displayed.isEmpty() || editing),
                 onAddClick = onAddClick,
                 onOpenAlbum = onOpenAlbum,
                 onPlay = { album, loop -> playAlbum(album, loop) },
