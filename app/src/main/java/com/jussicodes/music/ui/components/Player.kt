@@ -366,15 +366,13 @@ fun Player(
                 }
                 resolvedPlayerLabel?.let { label ->
                     Box(modifier = Modifier.align(Alignment.Center)) {
-                        // FM 模式菜单在场时，标签展示当前模式（"私人 FM · 探索"）；
-                        // 选"默认"时后缀冗余，只保留来源名。
+                        // FM 模式菜单在场时，标签始终展示当前模式（"私人 FM · 默认/探索/…"），
+                        // 点击展开模式菜单切换。
                         val fmModeTitle = fmLabelOptions.getOrNull(
                             fmSelectedOption.coerceIn(0, (fmLabelOptions.size - 1).coerceAtLeast(0))
                         )
                         Text(
-                            text = fmModeTitle?.let {
-                                if (it == "默认") label else "$label · $it"
-                            } ?: label,
+                            text = fmModeTitle?.let { "$label · $it" } ?: label,
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.clickable(

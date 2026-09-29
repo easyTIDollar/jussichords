@@ -514,17 +514,17 @@ private fun RoamPlayerContent(
                     .fillMaxWidth()
                     .height(48.dp)
                     .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // 顶部来源标签：始终展示当前模式（"私人 FM · 探索"），点击展开模式菜单
                 Box {
-                    IconButton(onClick = { modeMenuExpanded = true }) {
-                        Icon(
-                            imageVector = Icons.Outlined.MoreVert,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
+                    Text(
+                        text = "私人 FM · ${personalFmModeOptions[selectedModeIndex].title}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable { modeMenuExpanded = true }
+                    )
                     DropdownMenu(
                         expanded = modeMenuExpanded,
                         onDismissRequest = { modeMenuExpanded = false }
@@ -534,9 +534,9 @@ private fun RoamPlayerContent(
                                 text = {
                                     Text(
                                         text = if (index == selectedModeIndex) {
-                                            "${option.title} · 当前"
+                                            "私人 FM · ${option.title} · 当前"
                                         } else {
-                                            option.title
+                                            "私人 FM · ${option.title}"
                                         }
                                     )
                                 },
@@ -547,6 +547,13 @@ private fun RoamPlayerContent(
                             )
                         }
                     }
+                }
+                IconButton(onClick = { modeMenuExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Outlined.MoreVert,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
 

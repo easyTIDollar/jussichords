@@ -113,7 +113,7 @@ suspend inline fun <reified T> apiPost(path: String, body: Map<String, Any> = em
 // data 形状逐条对齐 api-enhanced 代理 module/*.js 的默认参数。
 // ---------------------------------------------------------------------------
 
-internal enum class Encryption { WEAPI, EAPI }
+internal enum class Encryption { WEAPI, EAPI, PROXY }
 
 internal data class Route(
     val uri: String,
@@ -151,6 +151,8 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
 
     fun weapi(uri: String, data: Map<String, Any> = emptyMap()) = Route(uri, data, Encryption.WEAPI)
     fun eapi(uri: String, data: Map<String, Any> = emptyMap()) = Route(uri, data, Encryption.EAPI)
+    /** 走 ncmapi 代理（PC 客户端身份 + 国内出口）：用于官方 weapi 按客户端维度过滤的端点。 */
+    fun proxy(uri: String, data: Map<String, Any> = emptyMap()) = Route(uri, data, Encryption.PROXY)
     // 播放历史上报专用：eapi + osx 桌面 profile（interface 域 + macOS UA + 空 csrf）。
     fun eapiHistory(uri: String, data: Map<String, Any> = emptyMap()) =
         Route(uri, data, Encryption.EAPI, eapiProfile = EAPI_PLAYBACK_HISTORY_PROFILE)
@@ -393,17 +395,19 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
             if (p["submode"] != null) data["subMode"] = str("submode")
             eapi("/api/v1/radio/get", data)
         }
-        // 听歌记录（读端点）
-        "/record/recent/song" -> weapi(
-            "/api/play-record/song/list",
+        // 听歌记录（读端点）：走 kdns 代理（PC 身份 + 国内出口）。
+        // 官方 weapi 按客户端维度存播放记录：App 移动端身份（cookie 无 os=pc）直连读回 0 条，
+        // 代理默认 PC 身份实测 song/playlist/album 三个维度均有数据。
+        "/record/recent/song" -> proxy(
+            "/record/recent/song",
             mapOf("limit" to int("limit", 100))
         )
-        "/record/recent/album" -> weapi(
-            "/api/play-record/album/list",
+        "/record/recent/album" -> proxy(
+            "/record/recent/album",
             mapOf("limit" to int("limit", 100))
         )
-        "/record/recent/playlist" -> weapi(
-            "/api/play-record/playlist/list",
+        "/record/recent/playlist" -> proxy(
+            "/record/recent/playlist",
             mapOf("limit" to int("limit", 100))
         )
         // 听歌打卡（写端点）：eapi feedback/weblog，osx 桌面 profile。
@@ -537,6 +541,30 @@ private fun encodeCookieComponent(value: String): String =
 
 @PublishedApi
 internal suspend fun send(route: Route): String {
+    // 代理通道（PC 身份 + 国内出口）：GET $API_BASE_URL + 路由 uri，登录态经 cookie 参数透传。
+    if (route.encryption == Encryption.PROXY) {
+        val cookieString = CookieProvider.cookie
+        val queryString = buildString {
+            route.data.forEach { (k, v) ->
+                if (isNotEmpty()) append('&')
+                append("${k.encodeURLParameter()}=${v.encodeURLParameter()}")
+            }
+            if (cookieString.isNotBlank()) {
+                append("&cookie=${cookieString.encodeURLParameter()}")
+            }
+        }
+        val url = "$API_BASE_URL${route.uri}" + if (queryString.isNotEmpty()) "?$queryString" else ""
+        val response = apiClient.request(url) {
+            method = HttpMethod.Get
+            if (cookieString.isNotBlank()) header(HttpHeaders.Cookie, cookieString)
+        }
+        val body = response.bodyAsText()
+        if (!response.status.isSuccess()) {
+            throw Exception("HTTP ${response.status} ${response.status.description}: ${body.take(500)}")
+        }
+        return body
+    }
+
     val cookie = CookieProvider.getCookieMap()
     val csrf = cookie["__csrf"].orEmpty()
     val musicU = cookie["MUSIC_U"]

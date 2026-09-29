@@ -2,7 +2,6 @@ package com.jussicodes.music.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -14,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -24,8 +24,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SecondaryTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -42,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,6 +51,7 @@ import com.jussicodes.music.constants.ListThumbnailSize
 import com.jussicodes.music.ui.components.ArtistListItem
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.ListItem
+import com.jussicodes.music.ui.components.SwipableTabPager
 import com.jussicodes.music.ui.components.UserStateTags
 import com.jussicodes.music.ui.navigation.ArtistNav
 import com.jussicodes.music.ui.navigation.UserNav
@@ -89,11 +87,18 @@ fun UserFollowScreen(
     // - 用户 tab（getfollows, order=true）原生按关注时间倒序（最新关注在前）
     val followedArtistUsers = users.filter { it.userType == 2 || it.userType == 4 }
     val followedUsers = users.filterNot { it.userType == 2 || it.userType == 4 }
-    var selectedType by remember(type, showArtistFollows) {
-        mutableStateOf(if (type == UserFollowType.FOLLOWS) UserFollowType.ARTISTS else type)
+    // 两个 tab（关注的歌手 / 关注的用户）改为左右滑动：pager 驱动 + 跟手指示器。
+    // 仅「关注列表」(type==FOLLOWS) 走 pager；「粉丝列表」(FOLLOWEDS) 仍是单列。
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
+    val selectedType = when {
+        type == UserFollowType.FOLLOWEDS -> UserFollowType.FOLLOWEDS
+        pagerState.currentPage == 0 -> UserFollowType.ARTISTS
+        else -> UserFollowType.FOLLOWS
     }
     var previewAvatarUrl by remember { mutableStateOf<String?>(null) }
-    var horizontalDragAmount by remember { mutableStateOf(0f) }
+    // 各 tab 页独立懒列（pager 每个 page 一个 LazyColumn）；粉丝列表沿用 listState。
+    val artistsPageListState = rememberLazyListState()
+    val usersPageListState = rememberLazyListState()
     val listState = rememberLazyListState()
     val isContentEmpty = when (selectedType) {
         UserFollowType.ARTISTS -> if (showArtistFollows) artists.isEmpty() else followedArtistUsers.isEmpty()
@@ -129,13 +134,31 @@ fun UserFollowScreen(
         }
     }
 
-    // 无缝自动加载：滑到倒数第 4 项时自动拉下一页（与 PlayerComments 同款写法）
-    LaunchedEffect(listState, users.size, artists.size, hasMore, isLoading, isLoadingMore) {
+    // 各 tab 页独立懒列，统一自动加载：监听「当前实际渲染」的列表滑到倒数第 4 项时拉下一页。
+    // type==FOLLOWS：pager 双列（artistsPageListState / usersPageListState）；
+    // 其它单列（ARTISTS / FOLLOWEDS）：listState。
+    val isFollowsPager = type == UserFollowType.FOLLOWS
+    LaunchedEffect(
+        listState,
+        artistsPageListState,
+        usersPageListState,
+        users.size,
+        artists.size,
+        hasMore,
+        isLoading,
+        isLoadingMore
+    ) {
+        val monitored = if (isFollowsPager) {
+            listOf(artistsPageListState, usersPageListState)
+        } else {
+            listOf(listState)
+        }
         snapshotFlow {
-            val layoutInfo = listState.layoutInfo
-            val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            val totalItemsCount = layoutInfo.totalItemsCount
-            totalItemsCount > 0 && lastVisibleIndex >= totalItemsCount - 4
+            monitored.any { list ->
+                val info = list.layoutInfo
+                info.totalItemsCount > 0 &&
+                    (info.visibleItemsInfo.lastOrNull()?.index ?: -1) >= info.totalItemsCount - 4
+            }
         }
             .distinctUntilChanged()
             .filter { it }
@@ -185,56 +208,99 @@ fun UserFollowScreen(
                 )
             }
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(type) {
-                        if (type == UserFollowType.FOLLOWS) {
-                            detectHorizontalDragGestures(
-                                onDragStart = { horizontalDragAmount = 0f },
-                                onHorizontalDrag = { _, amount -> horizontalDragAmount += amount },
-                                onDragEnd = {
-                                    if (horizontalDragAmount < -80f) selectedType = UserFollowType.FOLLOWS
-                                    if (horizontalDragAmount > 80f) selectedType = UserFollowType.ARTISTS
-                                    horizontalDragAmount = 0f
-                                },
-                                onDragCancel = { horizontalDragAmount = 0f }
-                            )
-                        }
-                    }
-            ) {
-                if (type == UserFollowType.FOLLOWS) {
-                    item {
-                        SecondaryTabRow(
-                            selectedTabIndex = if (selectedType == UserFollowType.ARTISTS) 0 else 1
-                        ) {
-                            Tab(
-                                selected = selectedType == UserFollowType.ARTISTS,
-                                onClick = { selectedType = UserFollowType.ARTISTS },
-                                text = { Text("关注的歌手", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                            )
-                            Tab(
-                                selected = selectedType == UserFollowType.FOLLOWS,
-                                onClick = { selectedType = UserFollowType.FOLLOWS },
-                                text = { Text("关注的用户", maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                            )
-                        }
-                    }
-                    if (!showArtistFollows) {
-                        item {
-                            Text(
-                                text = "按关注时间排序（最新关注在前）",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-                            )
+            when (type) {
+                // 关注列表：两个 tab 左右滑动（关注的歌手 / 关注的用户），各页独立懒列
+                UserFollowType.FOLLOWS -> {
+                    SwipableTabPager(
+                        titles = listOf("关注的歌手", "关注的用户"),
+                        pagerState = pagerState,
+                        modifier = Modifier.fillMaxSize()
+                    ) { page ->
+                        when (page) {
+                            0 -> {
+                                LazyColumn(
+                                    state = artistsPageListState,
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    if (!showArtistFollows) {
+                                        item {
+                                            Text(
+                                                text = "按关注时间排序（最新关注在前）",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                                            )
+                                        }
+                                    }
+                                    if (isLoading && (if (showArtistFollows) artists.isEmpty() else followedArtistUsers.isEmpty())) {
+                                        loadingListItems()
+                                    } else if (errorMessage != null && (if (showArtistFollows) artists.isEmpty() else followedArtistUsers.isEmpty())) {
+                                        emptyMessageItem(errorMessage.orEmpty())
+                                    } else if (!showArtistFollows) {
+                                        items(followedArtistUsers, key = { it.id }) { user ->
+                                            ArtistListItem(
+                                                artist = SearchArtist(
+                                                    id = user.id,
+                                                    name = user.nickname,
+                                                    picUrl = user.avatarUrl,
+                                                    briefDesc = user.signature
+                                                ),
+                                                onThumbnailClick = { previewAvatarUrl = user.avatarUrl },
+                                                modifier = Modifier.clickable {
+                                                    navController.navigate(UserNav(userId = user.id))
+                                                }
+                                            )
+                                        }
+                                    } else {
+                                        items(artists, key = { it.id }) { artist ->
+                                            ArtistListItem(
+                                                artist = artist,
+                                                onThumbnailClick = { previewAvatarUrl = artist.cover },
+                                                modifier = Modifier.clickable {
+                                                    navController.navigate(ArtistNav(artistId = artist.id))
+                                                }
+                                            )
+                                        }
+                                    }
+                                    if (hasMore || isLoadingMore) {
+                                        loadMoreIndicator(hasMore = hasMore, isLoadingMore = isLoadingMore)
+                                    }
+                                }
+                            }
+                            else -> {
+                                LazyColumn(
+                                    state = usersPageListState,
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    if (isLoading && followedUsers.isEmpty()) {
+                                        loadingListItems()
+                                    } else if (errorMessage != null && followedUsers.isEmpty()) {
+                                        emptyMessageItem(errorMessage.orEmpty())
+                                    } else {
+                                        items(followedUsers, key = { it.id }) { user ->
+                                            UserListItem(
+                                                user = user,
+                                                onThumbnailClick = { previewAvatarUrl = user.avatarUrl },
+                                                modifier = Modifier.clickable {
+                                                    navController.navigate(UserNav(userId = user.id))
+                                                }
+                                            )
+                                        }
+                                    }
+                                    if (hasMore || isLoadingMore) {
+                                        loadMoreIndicator(hasMore = hasMore, isLoadingMore = isLoadingMore)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-
-                when (selectedType) {
-                    UserFollowType.ARTISTS -> {
+                // 歌手入口（type==ARTISTS）：单一歌手列表，沿用原行为
+                UserFollowType.ARTISTS -> {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
                         if (isLoading && isContentEmpty) {
                             loadingListItems()
                         } else if (errorMessage != null && isContentEmpty) {
@@ -269,15 +335,19 @@ fun UserFollowScreen(
                             loadMoreIndicator(hasMore = hasMore, isLoadingMore = isLoadingMore)
                         }
                     }
-                    UserFollowType.FOLLOWS,
-                    UserFollowType.FOLLOWEDS -> {
+                }
+                // 粉丝列表（type==FOLLOWEDS）：单一用户列表，沿用原行为
+                UserFollowType.FOLLOWEDS -> {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
                         if (isLoading && isContentEmpty) {
                             loadingListItems()
                         } else if (errorMessage != null && isContentEmpty) {
                             emptyMessageItem(errorMessage.orEmpty())
                         } else {
-                            val displayedUsers = if (selectedType == UserFollowType.FOLLOWS) followedUsers else users
-                            items(displayedUsers, key = { it.id }) { user ->
+                            items(users, key = { it.id }) { user ->
                                 UserListItem(
                                     user = user,
                                     onThumbnailClick = { previewAvatarUrl = user.avatarUrl },
@@ -287,8 +357,7 @@ fun UserFollowScreen(
                                 )
                             }
                         }
-                        // 游标翻到顶、仍有未加载剩余时提示（lasttime 翻不出新数据/空页兜底）
-                        if (selectedType == UserFollowType.FOLLOWEDS && isFollowedsLimited) {
+                        if (isFollowedsLimited) {
                             item {
                                 Text(
                                     text = "粉丝已加载 ${users.size} 条，暂无更多可加载",
