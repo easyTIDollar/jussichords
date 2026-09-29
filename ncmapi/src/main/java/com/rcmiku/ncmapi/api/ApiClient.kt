@@ -547,7 +547,7 @@ internal suspend fun send(route: Route): String {
         val queryString = buildString {
             route.data.forEach { (k, v) ->
                 if (isNotEmpty()) append('&')
-                append("${k.encodeURLParameter()}=${v.encodeURLParameter()}")
+                append("${k.encodeURLParameter()}=${v.toString().encodeURLParameter()}")
             }
             if (cookieString.isNotBlank()) {
                 append("&cookie=${cookieString.encodeURLParameter()}")
@@ -598,6 +598,7 @@ internal suspend fun send(route: Route): String {
     val fields = when (route.encryption) {
         Encryption.WEAPI -> NeteaseCrypto.weapi(jsonBody)
         Encryption.EAPI -> NeteaseCrypto.eapi(route.uri, jsonBody)
+        Encryption.PROXY -> error("PROXY 通道已在 send() 前段处理")
     }
 
     val rest = route.uri.removePrefix("/api/")
@@ -609,6 +610,7 @@ internal suspend fun send(route: Route): String {
     val url = when (route.encryption) {
         Encryption.WEAPI -> "$targetDomain/weapi/$rest"
         Encryption.EAPI -> "$targetDomain/eapi/$rest"
+        Encryption.PROXY -> error("PROXY 通道已在 send() 前段处理")
     }
 
     // 请求 Cookie：
