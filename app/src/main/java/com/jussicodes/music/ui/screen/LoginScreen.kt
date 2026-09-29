@@ -1,7 +1,6 @@
 package com.jussicodes.music.ui.screen
 
 import android.annotation.SuppressLint
-import android.os.Build
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebSettings
@@ -29,6 +28,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -40,12 +40,12 @@ import com.jussicodes.music.R
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.ui.icons.Login as LoginIcon
 import com.jussicodes.music.ui.navigation.Screen
-import com.jussicodes.music.utils.getDeviceID
+import com.jussicodes.music.utils.NcmCookieNormalizer
 import com.jussicodes.music.utils.rememberPreference
-import com.rcmiku.ncmapi.utils.CookieKeys
 import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.json
 import com.rcmiku.ncmapi.utils.parseCookieString
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 
 
@@ -60,6 +60,15 @@ fun LoginScreen(
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var showCookieLoginDialog by rememberSaveable { mutableStateOf(false) }
     var webView: WebView? = null
+
+    // 登录弹窗预填当前已保存 cookie（便于对照/全选复制/直接重新登录）。
+    val accountCookiePreview = remember(ncmCookie) {
+        runCatching {
+            json.decodeFromString<Map<String, String>>(ncmCookie)
+                .entries
+                .joinToString("; ") { (k, v) -> "$k=$v" }
+        }.getOrNull().orEmpty()
+    }
 
     Scaffold(
         topBar = {
@@ -121,8 +130,9 @@ fun LoginScreen(
                                             ?.let { putAll(parseCookieString(it)) }
                                         cookieManager.getCookie(url)
                                             ?.let { putAll(parseCookieString(it)) }
-                                    }.toMutableMap()
-                                    if (!cookieMap.containsKey(CookieKeys.MUSIC_U)) {
+                                    }
+                                    val normalized = NcmCookieNormalizer.normalizeForStorage(cookieMap)
+                                    if (normalized == null) {
                                         Toast.makeText(
                                             context,
                                             "登录态还没有生效，请完成登录后稍等",
@@ -130,8 +140,8 @@ fun LoginScreen(
                                         ).show()
                                         return
                                     }
-                                    ncmCookie = cookieMap.withDeviceInfo().toStoredCookie()
-                                    CookieProvider.init(cookieMap.withDeviceInfo())
+                                    ncmCookie = json.encodeToString(normalized)
+                                    CookieProvider.init(normalized)
                                     webView?.clearCache(true)
                                     navController.navigate(Screen.Library.route)
                                 }
@@ -153,15 +163,21 @@ fun LoginScreen(
 
     if (showCookieLoginDialog) {
         CookieLoginDialog(
+            initialCookie = accountCookiePreview,
             onDismiss = { showCookieLoginDialog = false },
-            onConfirm = { rawCookie ->
-                val cookieMap = parseCookieString(rawCookie).withDeviceInfo()
-                if (!cookieMap.containsKey(CookieKeys.MUSIC_U)) {
-                    Toast.makeText(context, "Cookie 缺少 MUSIC_U，无法登录", Toast.LENGTH_SHORT).show()
+            onLogin = { raw ->
+                val normalized = NcmCookieNormalizer.normalizeForStorage(raw)
+                if (normalized == null) {
+                    Toast.makeText(context, "未识别到 MUSIC_U，无法登录", Toast.LENGTH_SHORT).show()
                     return@CookieLoginDialog
                 }
-                ncmCookie = cookieMap.toStoredCookie()
-                CookieProvider.init(cookieMap)
+                // 登录 = 清除本地 WebView 登录缓存，按输入框内容重新登录
+                CookieManager.getInstance().apply {
+                    removeAllCookies(null)
+                    flush()
+                }
+                ncmCookie = json.encodeToString(normalized)
+                CookieProvider.init(normalized)
                 showCookieLoginDialog = false
                 navController.navigate(Screen.Library.route)
             }
@@ -171,48 +187,57 @@ fun LoginScreen(
 
 @Composable
 private fun CookieLoginDialog(
+    initialCookie: String,
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
+    onLogin: (String) -> Unit,
 ) {
-    var cookie by rememberSaveable { mutableStateOf("") }
+    val clipboard = remember {
+        LocalContext.current.getSystemService(android.content.ClipboardManager::class.java)
+    }
+    var text by rememberSaveable { mutableStateOf(initialCookie) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Cookie 登录") },
         text = {
             OutlinedTextField(
-                value = cookie,
-                onValueChange = { cookie = it },
-                label = { Text("完整 Cookie") },
-                minLines = 6,
-                maxLines = 12,
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("MUSIC_U 或完整 Cookie") },
+                placeholder = { Text("贴 MUSIC_U 值即可；整串 Cookie 也行") },
+                minLines = 2,
+                maxLines = 8,
                 modifier = Modifier.fillMaxWidth(),
             )
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(cookie.trim()) }) {
-                Text(stringResource(R.string.confirm))
+            TextButton(onClick = { onLogin(text.trim()) }) {
+                Text("登录")
             }
         },
         dismissButton = {
             Row {
-                TextButton(onClick = { cookie = "" }) {
-                    Text("清空")
+                TextButton(onClick = { text = "" }) {
+                    Text("清除")
                 }
-                TextButton(onClick = onDismiss) {
-                    Text(stringResource(R.string.cancel))
+                TextButton(
+                    onClick = {
+                        val value = text.trim()
+                        if (value.isNotBlank()) {
+                            clipboard.setPrimaryClip(
+                                android.content.ClipData.newPlainText("ncm-cookie", value)
+                            )
+                            Toast.makeText(
+                                LocalContext.current, "已复制到剪贴板", Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                ) {
+                    Text("全选复制")
                 }
             }
         }
     )
 }
-
-private fun Map<String, String>.withDeviceInfo(): MutableMap<String, String> = toMutableMap().apply {
-    this[CookieKeys.DEVICE_ID] = getDeviceID()
-    this[CookieKeys.OS_VER] = Build.VERSION.RELEASE
-    this[CookieKeys.MOBILE_NAME] = Build.MODEL
-}
-
-private fun Map<String, String>.toStoredCookie(): String = json.encodeToString(this)
 
 
