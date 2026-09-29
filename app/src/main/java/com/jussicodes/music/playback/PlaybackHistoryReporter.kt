@@ -161,8 +161,10 @@ internal class PlaybackHistoryReporter(
                     block()
                 } catch (error: CancellationException) {
                     throw error
-                } catch (error: Exception) {
-                    Log.w(TAG, "playback history submit failed op=$operation: $error")
+                } catch (error: Throwable) {
+                    // 拦 Throwable（含 UnsatisfiedLinkError / NoClassDefFoundError）：
+                    // 上报通道任何异常（包括 native 库加载失败）都不得杀死播放主进程。
+                    Log.e(TAG, "playback history submit failed op=$operation: $error")
                 }
             }
         }

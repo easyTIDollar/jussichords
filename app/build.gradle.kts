@@ -114,6 +114,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += setOf(
                 "META-INF/*.version", // https://stackoverflow.com/a/58956288

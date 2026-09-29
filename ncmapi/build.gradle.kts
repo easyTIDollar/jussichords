@@ -37,6 +37,9 @@ dependencies {
     implementation(libs.ktor.client.logging)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.json)
-    implementation(libs.zstd.jni)
+    // zstd-jni 必须用 aar 变体：plain jar 把 .so 当资源塞进 jar，AGP 不提取进 APK
+    //（播放首歌时 NCBL 编码调 Zstd 触发 UnsatisfiedLinkError 崩进程）。
+    // 1.5.6-6 的 aar 无 aar-metadata（minCompileSdk<=34），1.5.7-x 声明 minCompileSdk=37 会挂 checkXxxAarMetadata。
+    implementation("com.github.luben:zstd-jni:${libs.versions.zstd.get()}@aar")
     testImplementation(libs.junit)
 }
