@@ -85,15 +85,16 @@ fun SwipableTabPager(
                     )
                 }
             }
-            // 跟手指示器：
-            // m3 SecondaryTabRow 的 tab 等宽平分整行（槽宽 = 行宽 / tab 数，源码确认）。
-            // 指示器宽度 = 一个槽位宽（onSizeChanged 回的是 px，必须按密度换算成 dp，
-            // 之前直接 px 当 dp 用导致 3x 屏上宽度 = 整行、指示器失效）；
-            // 偏移 = 连续位置 × 槽宽（px），拖拽逐帧跟手。
+            // 跟手指示器：宽度 = 一个 tab 槽位（onSizeChanged 回的是 px，按密度换算成 dp）；
+            // 偏移 = 连续页位置 × 槽宽（px），拖拽逐帧跟手。
+            // 注意 modifier 顺序：height(3dp) 必须在 background 的外层。
+            // 旧代码 .height(3.dp).padding(bottom = 5.dp).background(...) 中，
+            // bottom padding 在 height 的内层，5dp 内边距把 3dp 高度全部吃掉，
+            // background 实际绘制高度 = 0，指示条永远不可见（任何屏幕密度下都没有）。
             if (rowWidthPx > 0 && titles.size > 1) {
                 val slotWidthPx = rowWidthPx / titles.size
                 // onSizeChanged 回的是 px；必须按密度换算成 dp 再交给 Modifier.width，
-                // 之前直接 px 当 dp 用 → 3x 屏指示器宽度 = 整行，视觉上"没有指示"。
+                // 之前直接 px 当 dp 用 → 3x 屏指示器宽度 = 整行。
                 val slotWidthDp = (slotWidthPx / density.density).dp
                 Box(
                     modifier = Modifier
@@ -102,7 +103,6 @@ fun SwipableTabPager(
                         .width(slotWidthDp)
                         .padding(horizontal = 5.dp)
                         .height(3.dp)
-                        .padding(bottom = 5.dp)
                         .background(indicatorColor, RoundedCornerShape(5.dp))
                 )
             }
