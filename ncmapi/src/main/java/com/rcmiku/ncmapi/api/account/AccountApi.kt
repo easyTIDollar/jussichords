@@ -4,10 +4,16 @@ import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.api.apiPostFileOkHttp
 import com.rcmiku.ncmapi.api.apiPostFile
 import com.rcmiku.ncmapi.api.apiPost
+import com.rcmiku.ncmapi.api.toJsonElement
+import com.rcmiku.ncmapi.api.playbackHistoryBaseFields
+import com.rcmiku.ncmapi.api.playbackHistoryPlayFields
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.*
 import com.rcmiku.ncmapi.utils.CookieProvider
 import io.ktor.http.ContentType
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.File
 
 object AccountApi {
@@ -198,54 +204,51 @@ object AccountApi {
         apiGet("/user/record", mapOf("uid" to uid, "type" to type.type))
 
     /**
-     * 提交听歌打卡（NCM 桌面端 NCBL 加密上报 /scrobble/v1）。
-     * 相比旧版 /scrobble（feedback/weblog）落库更稳、鉴权更严格（未登录明确 401，
-     * 不再假成功 200）。v1 需要 time 为已听秒数、total 为歌曲总秒数（缺省用 time）。
-     * sourceId 缺失时按参考实现 fallback 成歌曲自身 ID（v1 本身亦如此处理）。
-     * name/artist 用于上报歌曲信息，缺失时由服务端按歌曲 id 补全。
+     * 听歌打卡 / 播放历史上报 —— 开始事件（对齐 MeiloX recordPlaybackStart）。
+     * 歌曲真正开始播放时调用：提交一条 startplay 日志到 eapi feedback/weblog（osx 桌面 profile）。
+     * 未登录 / songId 非法时返回 failure。
      */
-    suspend fun scrobble(
+    suspend fun recordPlaybackStart(
         songId: Long,
-        time: Int,
-        sourceId: Long? = null,
-        total: Int? = null,
-        name: String? = null,
-        artist: String? = null
-    ): Result<ApiCodeResponse> =
-        apiGet(
-            "/scrobble/v1",
-            buildMap {
-                put("id", songId)
-                put("time", time.coerceAtLeast(1))
-                put("sourceid", sourceId?.takeIf { it > 0 } ?: songId)
-                total?.takeIf { it >= time }?.let { put("total", it) }
-                name?.takeIf { it.isNotBlank() }?.let { put("name", it) }
-                artist?.takeIf { it.isNotBlank() }?.let { put("artist", it) }
-                put("timestamp", System.currentTimeMillis())
-            }
-        )
+        sourceId: Long,
+        source: String,
+        startedAtMs: Long
+    ): Result<PlaybackWeblogResponse> {
+        if (!CookieProvider.isLoggedIn()) {
+            return Result.failure(IllegalStateException("未登录，无法上报播放历史"))
+        }
+        if (songId <= 0L) return Result.failure(IllegalArgumentException("songId 必须为正数"))
+        val fields = playbackHistoryBaseFields(songId, sourceId, source, startedAtMs, startedAtMs)
+        return sendWeblogLogs("startplay", fields)
+    }
 
     /**
-     * 提交播放状态（会话追踪 + 播放模式）。未传 sessionId 时后端自动生成。
-     * 该接口无需 MUSIC_U 鉴权即可调用（与 scrobble 不同）。
+     * 听歌打卡 / 播放历史上报 —— 结束事件（对齐 MeiloX recordPlaybackDuration）。
+     * 会话结束时调用：提交一条 play 日志（实际收听秒 + end 原因）。
+     * 一条 startplay 必须由对应的 play 收尾（time=0 的 play 会产生假完成，勿发）。
      */
-    suspend fun playStateSubmit(
-        songId: Long,
-        sessionId: String? = null,
-        progress: Int = 0,
-        playMode: String = "list_loop",
-        type: String = "song"
-    ): Result<ApiCodeResponse> =
-        apiGet(
-            "/relay/play/state/submit",
-            buildMap {
-                put("id", songId)
-                sessionId?.takeIf { it.isNotBlank() }?.let { put("sessionId", it) }
-                put("progress", progress.coerceAtLeast(0))
-                put("playMode", playMode)
-                put("type", type)
-            }
+    suspend fun recordPlaybackDuration(session: CompletedPlaybackSession): Result<PlaybackWeblogResponse> {
+        if (!CookieProvider.isLoggedIn()) {
+            return Result.failure(IllegalStateException("未登录，无法上报播放历史"))
+        }
+        if (session.songId <= 0L) return Result.failure(IllegalArgumentException("songId 必须为正数"))
+        val fields = playbackHistoryPlayFields(session)
+        return sendWeblogLogs("play", fields)
+    }
+
+    /** 单条 weblog 日志走 /scrobble/weblog（osx 桌面 profile + eapi 直连）。 */
+    private suspend fun sendWeblogLogs(action: String, fields: Map<String, Any>): Result<PlaybackWeblogResponse> {
+        val logsArray = buildJsonArray {
+            add(buildJsonObject {
+                put("action", action)
+                put("json", toJsonElement(fields))
+            })
+        }
+        return apiGet<PlaybackWeblogResponse>(
+            "/scrobble/weblog",
+            mapOf("logs" to logsArray.toString())
         )
+    }
 
     @kotlinx.serialization.Serializable
     data class UserPlaylistRawResponse(

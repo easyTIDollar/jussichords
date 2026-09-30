@@ -261,6 +261,14 @@ fun RoamScreen(
             } else if (target == ROAM_QUEUE && metadata != null) {
                 PlayerQueue(
                     mediaMetadata = metadata,
+                    modifier = Modifier.sharedBounds(
+                        sharedContentState = rememberSharedContentState(key = "roamContainer"),
+                        animatedVisibilityScope = this@AnimatedContent,
+                        placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
+                        boundsTransform = AlbumArtBoundsTransform,
+                        enter = fadeIn(tweenEnter(delayMillis = DURATION_EXIT_SHORT)),
+                        exit = fadeOut(tweenExit(durationMillis = DURATION_EXIT_SHORT))
+                    ),
                     imageModifier = Modifier.sharedElement(
                         state = rememberSharedContentState(
                             key = "roamArtwork-${metadata.artworkUri ?: metadata.title}"
@@ -277,6 +285,22 @@ fun RoamScreen(
                     mediaMetadata = metadata,
                     position = position,
                     duration = duration,
+                    modifier = Modifier.sharedBounds(
+                        sharedContentState = rememberSharedContentState(key = "roamContainer"),
+                        animatedVisibilityScope = this@AnimatedContent,
+                        placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
+                        boundsTransform = AlbumArtBoundsTransform,
+                        enter = fadeIn(tweenEnter(delayMillis = DURATION_EXIT_SHORT)),
+                        exit = fadeOut(tweenExit(durationMillis = DURATION_EXIT_SHORT))
+                    ),
+                    imageModifier = Modifier.sharedElement(
+                        state = rememberSharedContentState(
+                            key = "roamArtwork-${metadata.artworkUri ?: metadata.title}"
+                        ),
+                        animatedVisibilityScope = this@AnimatedContent,
+                        placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
+                        boundsTransform = AlbumArtBoundsTransform
+                    ),
                     onBackPressed = onBackPressed,
                     onClick = { shownPanel = ROAM_LYRIC },
                     onContainerClick = { shownPanel = ROAM_QUEUE },
@@ -364,6 +388,14 @@ fun RoamScreen(
                     } else {
                         Modifier
                     },
+                    containerModifier = Modifier.sharedBounds(
+                        sharedContentState = rememberSharedContentState(key = "roamContainer"),
+                        animatedVisibilityScope = this@AnimatedContent,
+                        placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
+                        boundsTransform = AlbumArtBoundsTransform,
+                        enter = fadeIn(tweenEnter(delayMillis = DURATION_EXIT_SHORT)),
+                        exit = fadeOut(tweenExit(durationMillis = DURATION_EXIT_SHORT))
+                    ),
                     selectedModeIndex = selectedModeIndex
                 )
             }
@@ -402,6 +434,7 @@ private fun RoamPlayerContent(
     onSliderFinished: () -> Unit,
     onBackPressed: () -> Unit,
     artworkModifier: Modifier,
+    containerModifier: Modifier,
     selectedModeIndex: Int
 ) {
     var modeMenuExpanded by rememberSaveable { mutableStateOf(false) }
@@ -455,7 +488,7 @@ private fun RoamPlayerContent(
     }
 
     Surface(
-        modifier = Modifier.fillMaxSize(),
+        modifier = containerModifier.fillMaxSize(),
         color = Color.Transparent
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -481,17 +514,17 @@ private fun RoamPlayerContent(
                     .fillMaxWidth()
                     .height(48.dp)
                     .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // 顶部来源标签：始终展示当前模式（"私人 FM · 探索"），点击展开模式菜单
                 Box {
-                    IconButton(onClick = { modeMenuExpanded = true }) {
-                        Icon(
-                            imageVector = Icons.Outlined.MoreVert,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
+                    Text(
+                        text = "私人 FM · ${personalFmModeOptions[selectedModeIndex].title}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable { modeMenuExpanded = true }
+                    )
                     DropdownMenu(
                         expanded = modeMenuExpanded,
                         onDismissRequest = { modeMenuExpanded = false }
@@ -501,9 +534,9 @@ private fun RoamPlayerContent(
                                 text = {
                                     Text(
                                         text = if (index == selectedModeIndex) {
-                                            "${option.title} · 当前"
+                                            "私人 FM · ${option.title} · 当前"
                                         } else {
-                                            option.title
+                                            "私人 FM · ${option.title}"
                                         }
                                     )
                                 },
@@ -514,6 +547,13 @@ private fun RoamPlayerContent(
                             )
                         }
                     }
+                }
+                IconButton(onClick = { modeMenuExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Outlined.MoreVert,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
 

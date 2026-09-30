@@ -11,6 +11,7 @@ import com.jussicodes.music.data.MsgRecentContactsResponse
 import com.rcmiku.ncmapi.api.apiGet
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,38 +52,39 @@ class MessagesScreenViewModel @Inject constructor() : ViewModel() {
         refresh()
     }
 
-    /** 进页面：只拉私信会话（两路并行，时延=最慢一路）。 */
-    fun refresh() {
-        viewModelScope.launch {
+    /**
+     * 进页面 / 下拉刷新：清掉本地缓存（会话快照 + 手动排序），重新拉私信会话；返回 Job 供下拉指示器等待完成。 */
+    fun refresh(clearCache: Boolean = false): Job {
+        return viewModelScope.launch {
             val uid = AccountApi.account().getOrNull()?.account?.profile?.userId ?: 0L
             _myUid.value = uid
 
-            launch {
-                _sessionsLoading.value = true
-                _sessionsHasMore.value = false
-                rawFetched = 0
-                val p = async {
-                    apiGet<MsgPrivateSessionsResponse>(
-                        "/msg/private",
-                        mapOf("limit" to PAGE_SIZE, "offset" to 0)
-                    ).getOrNull()
-                }
-                val r = async {
-                    withTimeoutOrNull(5_000) {
-                        apiGet<MsgRecentContactsResponse>("/msg/recentcontact").getOrNull()
-                    }
-                }
-                val resp = p.await()
-                rcMap = r.await()?.follow?.associateBy { it.userId } ?: emptyMap()
-                MsgSessionCache.setRecentContacts(rcMap)
-                if (resp != null) {
-                    rawFetched = resp.msgs.size
-                    val items = mergeSessions(resp.msgs, uid)
-                    _sessionsHasMore.value = resp.more
-                    MsgSessionCache.upsert(items, resp.newMsgCount)
-                }
-                _sessionsLoading.value = false
+            _sessionsLoading.value = true
+            _sessionsHasMore.value = false
+            rawFetched = 0
+            // 下拉刷新 = 全量重拉 + 清缓存（旧会话/手动序失效，重新从首页拉）
+            if (clearCache) MsgSessionCache.clearForRefresh()
+            val p = async {
+                apiGet<MsgPrivateSessionsResponse>(
+                    "/msg/private",
+                    mapOf("limit" to PAGE_SIZE, "offset" to 0)
+                ).getOrNull()
             }
+            val r = async {
+                withTimeoutOrNull(5_000) {
+                    apiGet<MsgRecentContactsResponse>("/msg/recentcontact").getOrNull()
+                }
+            }
+            val resp = p.await()
+            rcMap = r.await()?.follow?.associateBy { it.userId } ?: emptyMap()
+            MsgSessionCache.setRecentContacts(rcMap)
+            if (resp != null) {
+                rawFetched = resp.msgs.size
+                val items = mergeSessions(resp.msgs, uid)
+                _sessionsHasMore.value = resp.more
+                MsgSessionCache.upsert(items, resp.newMsgCount)
+            }
+            _sessionsLoading.value = false
         }
     }
 

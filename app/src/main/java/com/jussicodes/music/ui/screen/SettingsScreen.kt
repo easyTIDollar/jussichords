@@ -75,6 +75,7 @@ import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
+import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.lyric.DesktopLyricManager
@@ -83,6 +84,7 @@ import com.jussicodes.music.ui.components.SongQualityDialog
 import com.jussicodes.music.ui.components.ThemeColorSourceDialog
 import com.jussicodes.music.ui.components.UnblockSourceDialog
 import com.jussicodes.music.ui.components.UpdateDialog
+import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.AudioLines
 import com.jussicodes.music.ui.icons.DesktopLyrics
 import com.jussicodes.music.ui.icons.Dns
@@ -97,6 +99,7 @@ import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.theme.ThemeColorSource
 import com.jussicodes.music.utils.AppUpdateManager
+import com.jussicodes.music.utils.NcmCookieNormalizer
 import com.jussicodes.music.utils.ApiServerStatus
 import com.jussicodes.music.utils.UpdateDownloadPhase
 import com.jussicodes.music.utils.UpdateDownloadService
@@ -131,6 +134,7 @@ fun SettingsScreen(navController: NavHostController) {
         defaultValue = ThemeColorSource.WALLPAPER,
     )
     var ncmCookie by rememberPreference(ncmCookieKey, "")
+    var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://8.134.163.111:3000")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
@@ -324,6 +328,22 @@ fun SettingsScreen(navController: NavHostController) {
                         ).show()
                     }
                 }
+            }
+        ),
+        SettingItemData(
+            title = "主页专辑墙",
+            subtitle = if (pinnedAlbumsHidden) {
+                "已关闭，打开开关恢复"
+            } else {
+                "显示在主页的置顶专辑"
+            },
+            imageVector = Album,
+            trailingContent = {
+                Switch(
+                    checked = !pinnedAlbumsHidden,
+                    onCheckedChange = { pinnedAlbumsHidden = !it }
+                )
+                Spacer(Modifier.width(12.dp))
             }
         ),
         SettingItemData(
@@ -561,7 +581,16 @@ fun SettingsScreen(navController: NavHostController) {
             currentCookie = accountCookie,
             onDismiss = { showCookieDialog = false },
             onConfirm = { cookie ->
-                ncmCookie = cookie.toStoredCookieJson()
+                val normalized = NcmCookieNormalizer.normalizeForStorage(cookie)
+                if (normalized == null) {
+                    Toast.makeText(
+                        context,
+                        "Cookie 缺少 MUSIC_U，无法保存登录态",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    ncmCookie = json.encodeToString(normalized)
+                }
             }
         )
     }
@@ -894,7 +923,7 @@ private fun CookieEditDialog(
             OutlinedTextField(
                 value = editedCookie,
                 onValueChange = { editedCookie = it },
-                label = { Text("完整 Cookie") },
+                label = { Text("MUSIC_U 或完整 Cookie") },
                 minLines = 5,
                 maxLines = 10,
                 modifier = Modifier.fillMaxWidth(),
@@ -930,11 +959,6 @@ private fun String.toCookieHeader(): String {
             .entries
             .joinToString("; ") { (key, value) -> "$key=$value" }
     }.getOrElse { this }
-}
-
-private fun String.toStoredCookieJson(): String {
-    if (isBlank()) return ""
-    return json.encodeToString(parseCookieString(this))
 }
 
 @Composable

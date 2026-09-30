@@ -2,16 +2,16 @@ package com.jussicodes.music.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
-import android.os.Looper
-import android.util.Log
+import android.os.Process
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -64,25 +64,22 @@ import com.jussicodes.music.utils.enumPreference
 import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.preference
 import com.jussicodes.music.utils.toEnum
-import com.rcmiku.ncmapi.api.API_BASE_URL
-import com.rcmiku.ncmapi.api.account.AccountApi
+import com.jussicodes.music.BuildConfig
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.Song
+import com.rcmiku.ncmapi.ncbl.NcblDeviceInfo
+import com.rcmiku.ncmapi.ncbl.NeteaseClientLogClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.runBlocking
-import kotlin.random.Random
 import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.json
 
@@ -94,13 +91,91 @@ class PlaybackService : MediaSessionService() {
     private val use40DpIcon by preference(this, use40DpIconKey, false)
     private val desktopLyricEnabled by preference(this, desktopLyricEnabledKey, false)
     private val audioQuality by enumPreference(this, audioQualityKey, SongLevel.STANDARD)
-    private var scrobbleJob: Job? = null
-    private var scrobbleState: ScrobbleState? = null
-    private var playSessionId: String? = null
-    private val TAG_SCROBBLE = "Scrobble"
-    // TEMP-DIAG: 临时诊断 toast，定位完成后可删
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private var diagToastShown = false
+
+    private var playbackHistoryReporter: PlaybackHistoryReporter? = null
+    private val playbackHistorySession = PlaybackHistorySession()
+
+    /**
+     * 播放历史监听器：纯内存计时 + 切歌/结束双通道上报。
+     * 歌曲元数据（songId/来源/时长/曲名）在 begin() 时由 reporter 缓存，
+     * 结束时原 item 已切走仍可用。
+     */
+    private val playbackHistoryListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            // 离开旧曲：结算其会话。
+            playbackHistorySession.onMediaItemTransition(
+                mediaId = mediaItem?.mediaId,
+                reason = reason,
+                realtimeMs = SystemClock.elapsedRealtime(),
+            )?.let { reportDuration(it) }
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            onPlaybackHistoryStateChange()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            when (playbackState) {
+                Player.STATE_ENDED -> playbackHistorySession
+                    .finish(SystemClock.elapsedRealtime(), "playend")
+                    ?.let { reportDuration(it) }
+                Player.STATE_IDLE -> playbackHistorySession
+                    .finish(SystemClock.elapsedRealtime())
+                    ?.let { reportDuration(it) }
+            }
+        }
+
+        override fun onEvents(player: Player, events: Player.Events) {
+            if (events.contains(Player.EVENT_IS_PLAYING_CHANGED) ||
+                events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) ||
+                events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)
+            ) {
+                onPlaybackHistoryStateChange()
+            }
+        }
+    }
+
+    /** 播放状态/曲目变化：更新计时器，必要时上报「开始」。 */
+    private fun onPlaybackHistoryStateChange() {
+        val player = mediaSession?.player ?: return
+        val mediaItem = player.currentMediaItem
+        val update = playbackHistorySession.update(
+            mediaId = mediaItem?.mediaId,
+            isPlaying = player.isPlaying,
+            wallClockMs = System.currentTimeMillis(),
+            realtimeMs = SystemClock.elapsedRealtime(),
+        )
+        update.completed?.let { reportDuration(it) }
+        if (update.startedAtMs != null && mediaItem != null) {
+            startPlaybackHistory(mediaItem, update.startedAtMs)
+        }
+    }
+
+    /** 上报一次会话开始（eapi startplay + NCBL _plv），元数据在此缓存进 reporter。 */
+    private fun startPlaybackHistory(mediaItem: MediaItem, startedAtMs: Long) {
+        val reporter = playbackHistoryReporter ?: return
+        if (!CookieProvider.isLoggedIn()) return
+        val source = mediaItem.playbackHistorySourceContext() ?: return
+        val durationMs = mediaItem.mediaMetadata.extras
+            ?.getLong(MediaSessionConstants.EXTRA_DURATION_MS, 0L)
+            ?.coerceAtLeast(0L) ?: 0L
+        reporter.begin(
+            mediaId = mediaItem.mediaId,
+            songId = source.songId,
+            sourceId = source.sourceId,
+            source = source.source,
+            startedAtMs = startedAtMs,
+            songName = mediaItem.mediaMetadata.title?.toString().orEmpty(),
+            songArtist = mediaItem.mediaMetadata.artist?.toString().orEmpty(),
+            songDurationMs = durationMs,
+        )
+    }
+
+    /** 上报一次会话结束（eapi play + NCBL _pld），元数据用 reporter 内 begin() 时的缓存。 */
+    private fun reportDuration(completed: PlaybackHistorySession.CompletedSession) {
+        playbackHistoryReporter?.end(completed, endedAtMs = System.currentTimeMillis())
+    }
+
 
     private val favoriteButton: CommandButton
         get() = CommandButton.Builder(ICON_UNDEFINED)
@@ -224,6 +299,22 @@ class PlaybackService : MediaSessionService() {
                 setMediaSourceFactory(DefaultMediaSourceFactory(resolvingDataSourceFactory))
             }.build()
         player.repeatMode = REPEAT_MODE_ALL
+        // 播放历史上报（eapi weblog + NCBL 双通道）：MeiloX 式纯内存计时器 + 串行 IO 上报。
+        playbackHistoryReporter = PlaybackHistoryReporter(
+            ncblClient = NeteaseClientLogClient(),
+            ncblDevice = NcblDeviceInfo(
+                deviceId = CookieProvider.getCookieMap()["deviceId"].orEmpty(),
+                osVersion = Build.VERSION.RELEASE.orEmpty(),
+                model = Build.MODEL.orEmpty(),
+                brand = Build.BRAND.orEmpty(),
+                processName = applicationInfo.processName ?: packageName,
+                buildType = BuildConfig.BUILD_TYPE,
+                pid = Process.myPid(),
+                buildId = Build.ID.orEmpty(),
+            ),
+            ncblDeviceId = { CookieProvider.getCookieMap()["deviceId"].orEmpty() },
+        )
+        player.addListener(playbackHistoryListener)
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(
                 PendingIntent.getActivity(
@@ -245,14 +336,21 @@ class PlaybackService : MediaSessionService() {
         observeDesktopLyricPreference()
         observeAudioEffectMode()
         observeAudioEffectParams()
-        observeScrobble(player)
         DesktopLyricManager.syncService(this)
     }
 
     override fun onDestroy() {
-        scrobbleJob?.cancel()
         scope.cancel()
         mediaSession?.run {
+            player.removeListener(playbackHistoryListener)
+            // 服务销毁前结算并排空未上报的播放历史事件。
+            playbackHistoryReporter?.let { reporter ->
+                playbackHistorySession.finish(SystemClock.elapsedRealtime())?.let { completed ->
+                    reporter.end(completed, System.currentTimeMillis())
+                }
+                reporter.close()
+            }
+            playbackHistoryReporter = null
             player.release()
             release()
             mediaSession = null
@@ -293,273 +391,6 @@ class PlaybackService : MediaSessionService() {
                 like = like,
                 song = song
             )
-        }
-    }
-
-    /**
-     * 每首歌的打卡状态。end-only 触发：播放期间用 [maxPositionMs] 记录最大位置（含 seek），
-     * [reached] 标记是否达到时长阈值；真正提交发生在「离开这首歌」时（自然播完 STATE_ENDED
-     * 或切到下一首 onMediaItemTransition）。[totalSeconds]/[sourceId]/[songName]/[songArtist]
-     * 在离开前从当前 MediaItem 缓存，供 leave 时（原 item 已不在 currentMediaItem 上）使用。
-     */
-    private data class ScrobbleState(
-        val mediaId: String,
-        val mediaItemIndex: Int,
-        var maxPositionMs: Long = 0,
-        var reached: Boolean = false,
-        var submitted: Boolean = false,
-        var totalSeconds: Int? = null,
-        var sourceId: Long? = null,
-        var songName: String? = null,
-        var songArtist: String? = null
-    )
-
-    private fun observeScrobble(player: Player) {
-        player.addListener(object : Player.Listener {
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                // 离开上一首：先提交被打卡标记的那首（自然切歌 / seek / 手动切歌）
-                if (mediaItem != null) submitScrobbleForState(scrobbleState)
-                resetScrobble(player)
-                if (player.isPlaying) startScrobbleTicker(player)
-            }
-
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (isPlaying) {
-                    startScrobbleTicker(player)
-                    submitPlayState(player)
-                } else {
-                    stopScrobbleTicker()
-                    submitPlayState(player)
-                }
-            }
-
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_ENDED) {
-                    // 最后一首自然播完：提交本首
-                    stopScrobbleTicker()
-                    submitPlayState(player)
-                    submitScrobbleForState(scrobbleState)
-                }
-            }
-        })
-    }
-
-    private fun resetScrobble(player: Player) {
-        val item = player.currentMediaItem
-        scrobbleState = item?.let {
-            ScrobbleState(
-                mediaId = it.mediaId,
-                mediaItemIndex = player.currentMediaItemIndex,
-                totalSeconds = resolveTotalSeconds(player, it),
-                sourceId = it.mediaMetadata.extras
-                    ?.getLong(MediaSessionConstants.EXTRA_SOURCE_ID)?.takeIf { v -> v > 0 },
-                songName = it.mediaMetadata.title?.toString(),
-                songArtist = it.mediaMetadata.artist?.toString()
-            )
-        }
-        startPlaySession(player)
-        submitPlayState(player)
-    }
-
-    /** 切换曲目时开一个新的 12 位播放会话（不切换则沿用同一会话）。 */
-    private fun startPlaySession(player: Player) {
-        val mediaId = player.currentMediaItem?.mediaId
-        if (mediaId == null) {
-            playSessionId = null
-            return
-        }
-        val alphabet = ('A'..'Z') + ('0'..'9')
-        playSessionId = (1..12).map { alphabet[Random.nextInt(alphabet.size)] }.toString()
-    }
-
-    /** 上报播放状态到 /relay/play/state/submit。 */
-    private fun submitPlayState(player: Player) {
-        val mediaItem = player.currentMediaItem ?: return
-        val songId = mediaItem.mediaId.toLongOrNull() ?: return
-        val progressSeconds = (player.currentPosition / 1000L).toInt()
-        val sessionId = playSessionId
-        scope.launch(Dispatchers.IO) {
-            runCatching {
-                AccountApi.playStateSubmit(
-                    songId = songId,
-                    sessionId = sessionId,
-                    progress = progressSeconds,
-                    playMode = resolvePlayMode(player)
-                ).getOrThrow()
-            }.onFailure {
-                // 网络/鉴权问题不影响播放；仅忽略
-            }
-        }
-    }
-
-    /** 映射到后端 playMode：单曲循环 / 列表循环 / 顺序（默认列表循环）。 */
-    private fun resolvePlayMode(player: Player): String = when {
-        player.repeatMode == Player.REPEAT_MODE_ONE -> "single_loop"
-        else -> "list_loop"
-    }
-
-    private fun startScrobbleTicker(player: Player) {
-        val mediaItem = player.currentMediaItem ?: return
-        if (!CookieProvider.isLoggedIn()) {
-            // TEMP-DIAG
-            if (!diagToastShown) {
-                diagToastShown = true
-                mainHandler.post {
-                    Toast.makeText(applicationContext, "打卡未进行：未登录网易云", Toast.LENGTH_LONG).show()
-                }
-            }
-            return
-        }
-        if (mediaItem.mediaId.toLongOrNull() == null) return
-
-        val currentState = scrobbleState
-        if (currentState?.mediaId == mediaItem.mediaId &&
-            currentState.mediaItemIndex == player.currentMediaItemIndex &&
-            currentState.submitted
-        ) {
-            return
-        }
-
-        if (scrobbleJob?.isActive == true) return
-
-        scrobbleJob = scope.launch {
-            while (isActive) {
-                delay(1000)
-                tickScrobble(player)
-            }
-        }
-    }
-
-    private fun stopScrobbleTicker() {
-        scrobbleJob?.cancel()
-        scrobbleJob = null
-    }
-
-    private fun tickScrobble(player: Player) {
-        if (!CookieProvider.isLoggedIn()) {
-            Log.w(TAG_SCROBBLE, "skip: not logged in (no MUSIC_U in cookie) id=${player.currentMediaItem?.mediaId}")
-            stopScrobbleTicker()
-            return
-        }
-
-        val mediaItem = player.currentMediaItem ?: run {
-            stopScrobbleTicker()
-            return
-        }
-        if (mediaItem.mediaId.toLongOrNull() == null) {
-            stopScrobbleTicker()
-            return
-        }
-        val currentState = scrobbleState
-            ?.takeIf {
-                it.mediaId == mediaItem.mediaId &&
-                    it.mediaItemIndex == player.currentMediaItemIndex
-            }
-            ?: run {
-            // 正常路径下 resetScrobble 已建好 state；此处兜底重建并补缓存元数据
-            val fresh = ScrobbleState(
-                mediaId = mediaItem.mediaId,
-                mediaItemIndex = player.currentMediaItemIndex,
-                totalSeconds = resolveTotalSeconds(player, mediaItem),
-                sourceId = mediaItem.mediaMetadata.extras
-                    ?.getLong(MediaSessionConstants.EXTRA_SOURCE_ID)?.takeIf { v -> v > 0 },
-                songName = mediaItem.mediaMetadata.title?.toString(),
-                songArtist = mediaItem.mediaMetadata.artist?.toString()
-            )
-            scrobbleState = fresh
-            fresh
-            }
-
-        if (currentState.submitted) {
-            stopScrobbleTicker()
-            return
-        }
-
-        // 记录最大位置（含向后 seek），达到时长阈值时置位（真正提交在「离开本曲」时）
-        val positionMs = player.currentPosition
-        if (positionMs > currentState.maxPositionMs) {
-            currentState.maxPositionMs = positionMs
-        }
-        val reachedSeconds = currentState.maxPositionMs / 1000
-        val thresholdSeconds = scrobbleThreshold(currentState.totalSeconds)
-        if (reachedSeconds >= thresholdSeconds && !currentState.reached) {
-            currentState.reached = true
-            Log.d(TAG_SCROBBLE, "reached threshold id=${mediaItem.mediaId} reached=${reachedSeconds}s threshold=${thresholdSeconds}s total=${currentState.totalSeconds}")
-        }
-    }
-
-    /**
-     * 播放时长阈值（对齐 Vutron）：最早达标时间 = min(总时长/2, 30)。
-     * 等价于 Vutron 的 `position >= duration/2 || position >= 30`：长歌 30 秒即算，
-     * 短歌听到总时长一半即算。总时长未知时按 30 秒。
-     */
-    private fun scrobbleThreshold(totalSeconds: Int?): Int = totalSeconds?.let {
-        minOf(maxOf(1, it / 2), 30)
-    } ?: 30
-
-    private fun resolveTotalSeconds(player: Player, mediaItem: MediaItem): Int? {
-        val playerDuration = player.duration
-            .takeIf { it != C.TIME_UNSET && it > 0 }
-        val metadataDuration = mediaItem.mediaMetadata.extras
-            ?.getLong(MediaSessionConstants.EXTRA_DURATION_MS)
-            ?.takeIf { it > 0 }
-
-        return (playerDuration ?: metadataDuration)
-            ?.div(1000L)
-            ?.toInt()
-    }
-
-    /**
-     * 离开某首歌（切歌 / 自然播完）时，若该歌已达到时长阈值且未提交，则提交打卡。
-     * time 上报实际听到的秒数（已封顶到总时长），并带上 total / name / artist（v1 上报所需）。
-     */
-    private fun submitScrobbleForState(state: ScrobbleState?) {
-        if (state == null || !state.reached || state.submitted) return
-        val songId = state.mediaId.toLongOrNull() ?: return
-        if (!CookieProvider.isLoggedIn()) return
-        state.submitted = true
-
-        val playedSeconds = (state.maxPositionMs / 1000).toInt()
-        val reportedSeconds = state.totalSeconds?.let { minOf(playedSeconds, it) } ?: playedSeconds
-        val effectiveSourceId = state.sourceId ?: songId
-
-        scope.launch(Dispatchers.IO) {
-            Log.d(
-                TAG_SCROBBLE,
-                "submit scrobble/v1 id=$songId sourceid=$effectiveSourceId (fallback=${state.sourceId == null}) " +
-                    "played=${reportedSeconds}s total=${state.totalSeconds} api=$API_BASE_URL"
-            )
-            AccountApi.scrobble(
-                songId = songId,
-                time = reportedSeconds,
-                sourceId = state.sourceId,
-                total = state.totalSeconds,
-                name = state.songName,
-                artist = state.songArtist
-            ).onSuccess { resp ->
-                // /scrobble/v1 透传 NCBL 上报结果，code!=200 表示未落库
-                if (resp.code == 200) {
-                    Log.d(TAG_SCROBBLE, "scrobble success id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
-                } else {
-                    Log.e(TAG_SCROBBLE, "scrobble rejected id=$songId code=${resp.code} msg=${resp.msg ?: resp.message}")
-                    mainHandler.post {
-                        Toast.makeText(
-                            applicationContext,
-                            "打卡被服务端拒绝：" + (resp.msg ?: resp.message ?: "code=" + resp.code),
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-            }.onFailure { err ->
-                Log.e(TAG_SCROBBLE, "scrobble FAILED id=$songId api=$API_BASE_URL: ${err.message}", err)
-                mainHandler.post {
-                    Toast.makeText(
-                        applicationContext,
-                        "听歌打卡失败：" + err.message?.take(80),
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
         }
     }
 

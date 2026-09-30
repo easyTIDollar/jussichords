@@ -8,6 +8,8 @@ import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.model.LyricResponse
 import com.rcmiku.ncmapi.model.SongUrl
 import com.rcmiku.ncmapi.model.SongUrlResponse
+import com.rcmiku.ncmapi.utils.CookieProvider
+import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.request
 import io.ktor.client.statement.bodyAsText
@@ -32,29 +34,21 @@ object PlayerApi {
         val parsed = parseSongId(songId)
         val realId = parsed.first
         val fee = parsed.second
-        val privilegeLevel = parsed.third
-        val shouldTryUnblock = fee != 0 || privilegeLevel <= 0
 
-        val primaryResult = if (shouldTryUnblock) {
-            // Restricted song: try the unblock service first, honouring an
-            // optional per-song source override. `null` / "AUTO" keeps the
-            // global UNBLOCK_SOURCE behaviour.
-            val unblockResult = tryUnblockUrl(realId, source)
-            if (unblockResult.hasPlayableUrl()) return unblockResult
-            // Unblock failed or returned a placeholder: fall back to the
-            // main API WITHOUT unblock so a regular NCM CDN URL can still
-            // be used (e.g. free songs that were misjudged as restricted).
-            apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
-        } else {
-            // Free song: use main API directly
-            apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
+        // 只有 fee==1（VIP/黑胶）需要第三方解灰。fee=0（免费）、fee=8（普通）等其它值
+        // 官方直连即可播放，完全不碰 API 服务器。
+        // 用户确认：fee=1 是要解灰的 VIP，fee=8 是直接能听的普通歌。
+        if (fee != 1) {
+            return apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
         }
-        if (primaryResult.hasPlayableUrl()) return primaryResult
 
+        // VIP（fee==1）：走设置里选的 API 服务器解灰。
         val unblockResult = tryUnblockUrl(realId, source)
         if (unblockResult.hasPlayableUrl()) return unblockResult
 
-        return primaryResult
+        // 解灰失败（服务器不可用/该源无版权）：退回官方直连。
+        // 账号有会员则 NCM 直接回完整 url，否则是 30 秒试听占位。
+        return apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
     }
 
     private fun songUrlParams(songId: String, songLevel: SongLevel, unblock: Boolean): Map<String, Any> =
@@ -67,10 +61,9 @@ object PlayerApi {
         !url.isNullOrEmpty() &&
             // NCM 占位/外链（未真正解锁成功时返回），实测返回反爬 HTML 而非音频
             !url.contains("outer/url") &&
-            freeTrialInfo == null &&
-            freeTrialPrivilege == null &&
-            freeTimeTrialPrivilege == null &&
+            // 试听 30 秒占位（time 单位 ms：30040）
             time != 30_040L
+            // 注意：freeTrial* 字段 NCM 对可播歌曲也常回非 null 的空对象，不能用作判据
 
     private fun parseSongId(raw: String): Triple<String, Int, Int> {
         val queryIndex = raw.indexOf('?')
@@ -134,6 +127,9 @@ object PlayerApi {
                 parameter("id", songId)
                 if (!source.isNullOrEmpty()) {
                     parameter("source", source)
+                }
+                CookieProvider.cookie.takeIf { it.isNotEmpty() }?.let {
+                    header("Cookie", it)
                 }
             }
             if (response.status.isSuccess()) {

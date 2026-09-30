@@ -77,11 +77,15 @@ import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.ncmCookieKey
-import com.jussicodes.music.constants.pinnedAlbumIdsKey
+import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
+import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.ui.components.LargeImageDialog
+import com.jussicodes.music.ui.components.PinnedAlbumPickDialog
+import com.jussicodes.music.ui.components.PinnedAlbumsCard
 import com.jussicodes.music.ui.components.TopBar
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.History
+import com.jussicodes.music.ui.icons.Leaderboard
 import com.jussicodes.music.ui.icons.Login
 import com.jussicodes.music.ui.icons.Message
 import com.jussicodes.music.ui.icons.MoreVert
@@ -90,6 +94,7 @@ import com.jussicodes.music.ui.icons.PlaylistAdd
 import com.jussicodes.music.ui.icons.VipFill
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.PlaylistNav
+import com.jussicodes.music.ui.navigation.RecordNav
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.navigation.UserFollowNav
 import com.jussicodes.music.utils.CoverImageSize
@@ -105,7 +110,6 @@ import com.rcmiku.ncmapi.model.Album
 import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.UserInfoBatch
 import java.io.File
-import kotlinx.coroutines.flow.map
 import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.core.view.ViewCompat
 import sh.calvin.reorderable.ReorderableItem
@@ -124,8 +128,6 @@ fun LibraryScreen(
     val userInfoBatchState by libraryScreenViewModel.userInfo.collectAsState()
     val favoriteSongState by libraryScreenViewModel.favoriteSong.collectAsState()
     val userPlaylists by libraryScreenViewModel.userPlaylists.collectAsState()
-    val pinnedAlbums by libraryScreenViewModel.pinnedAlbums.collectAsState()
-    val pinnedAlbumsCacheLoaded by libraryScreenViewModel.pinnedAlbumsCacheLoaded.collectAsState()
     val isAvatarUploading by libraryScreenViewModel.isAvatarUploading.collectAsState()
     val avatarCacheVersion by libraryScreenViewModel.avatarCacheVersion.collectAsState()
     val playlistCoverVersions by PlaylistCoverSyncBus.versions.collectAsState()
@@ -157,27 +159,29 @@ fun LibraryScreen(
             selectedCoverUri = it
         }
     }
-    val pinnedAlbumIdsText by remember {
-        context.dataStore.data.map { it[pinnedAlbumIdsKey] }
-    }.collectAsState(initial = null)
-    val pinnedAlbumIds = remember(pinnedAlbumIdsText) {
-        pinnedAlbumIdsText?.split(",")?.mapNotNull { it.toLongOrNull() }
+    var showPinnedAlbumPickDialog by remember { mutableStateOf(false) }
+    // 专辑墙关闭标志(DataStore)：冷启动首帧 DataStore 未出值前不渲染卡片。
+    // 旧实现用 rememberPreference(key, false) 先给默认 false → 已关闭的墙也会先
+    // 渲染一帧（专辑列表空 → 左上角加号闪现）等真值读回来才消失。
+    // 现在用同一趟 data.collect：首帧值到达时同时落 hidden 真值 + settled 标记，
+    // 卡片只在两值都就绪后才渲染，杜绝加号闪现；设置页恢复时后续值也持续回流。
+    var pinnedAlbumsHidden by remember { mutableStateOf(false) }
+    var pinnedAlbumsHiddenSettled by remember { mutableStateOf(false) }
+    LaunchedEffect(context) {
+        context.dataStore.data.collect { prefs ->
+            pinnedAlbumsHidden = prefs[pinnedAlbumsHiddenKey] ?: false
+            pinnedAlbumsHiddenSettled = true
+        }
     }
 
     LaunchedEffect(ncmCookie) {
-        if (ncmCookie == null) {
-            return@LaunchedEffect
-        }
-        if (ncmCookie?.isNotEmpty() == true) {
-            libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie)
+        val cookie = ncmCookie ?: return@LaunchedEffect
+        if (cookie.isNotEmpty()) {
+            libraryScreenViewModel.fetchUserInfo(cookie = cookie)
+            PinnedAlbumStore.sync()
         } else {
             libraryScreenViewModel.clear()
-        }
-    }
-
-    LaunchedEffect(pinnedAlbumIds, pinnedAlbumsCacheLoaded) {
-        if (pinnedAlbumsCacheLoaded && pinnedAlbumIds != null) {
-            libraryScreenViewModel.fetchPinnedAlbums(pinnedAlbumIds)
+            PinnedAlbumStore.resetOnLogout()
         }
     }
 
@@ -257,6 +261,7 @@ fun LibraryScreen(
                             onRoamClick = { navController.navigate(Screen.Roam.route) },
                             onRecentPlayClick = { navController.navigate(Screen.RecentPlay.route) },
                             onMessagesClick = { navController.navigate(Screen.Messages.route) },
+                            onRecordClick = { navController.navigate(RecordNav(uid = it.account.profile.userId)) },
                             onAvatarClick = {
                                 libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie, force = true)
                                 showAvatarDialog = true
@@ -364,11 +369,11 @@ fun LibraryScreen(
                     }
                 }
 
-                if (pinnedAlbums.isNotEmpty()) {
-                    item {
-                        AlbumShowcaseCard(
-                            albums = pinnedAlbums,
-                            onAlbumClick = { album -> navController.navigate(AlbumNav(albumId = album.id)) }
+                item {
+                    if (pinnedAlbumsHiddenSettled && !pinnedAlbumsHidden) {
+                        PinnedAlbumsCard(
+                            onOpenAlbum = { album -> navController.navigate(AlbumNav(albumId = album.id)) },
+                            onAddClick = { showPinnedAlbumPickDialog = true }
                         )
                     }
                 }
@@ -576,6 +581,10 @@ fun LibraryScreen(
         )
     }
 
+    if (showPinnedAlbumPickDialog) {
+        PinnedAlbumPickDialog(onDismiss = { showPinnedAlbumPickDialog = false })
+    }
+
     selectedAvatarUri?.let { uri ->
         AlertDialog(
             onDismissRequest = { selectedAvatarUri = null },
@@ -658,6 +667,7 @@ private fun LibraryUserCard(
     onRoamClick: () -> Unit,
     onRecentPlayClick: () -> Unit,
     onMessagesClick: () -> Unit,
+    onRecordClick: () -> Unit,
     onAvatarClick: () -> Unit
 ) {
     val profile = userInfo.account.profile
@@ -674,13 +684,21 @@ private fun LibraryUserCard(
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
                 Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp)) {
-                    FilledTonalIconButton(
-                        onClick = onMessagesClick
-                    ) {
-                        androidx.compose.material3.Icon(
-                            imageVector = Message,
-                            contentDescription = stringResource(R.string.messages)
-                        )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalIconButton(
+                            onClick = onMessagesClick
+                        ) {
+                            androidx.compose.material3.Icon(
+                                imageVector = Message,
+                                contentDescription = stringResource(R.string.messages)
+                            )
+                        }
+                        FilledTonalIconButton(onClick = onRecordClick) {
+                            androidx.compose.material3.Icon(
+                                imageVector = Leaderboard,
+                                contentDescription = stringResource(R.string.record)
+                            )
+                        }
                     }
                 }
                 Row(
@@ -830,48 +848,6 @@ private fun Uri.copyToSquareImageCache(
         } ?: return null
         file
     }.getOrNull()
-}
-
-@Composable
-private fun AlbumShowcaseCard(
-    albums: List<Album>,
-    onAlbumClick: (Album) -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            albums.chunked(3).forEach { rowAlbums ->
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    rowAlbums.forEach { album ->
-                        AsyncImage(
-                            model = album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            filterQuality = FilterQuality.High,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .aspectRatio(1f)
-                                .clickable { onAlbumClick(album) }
-                        )
-                    }
-                    repeat(3 - rowAlbums.size) {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable
