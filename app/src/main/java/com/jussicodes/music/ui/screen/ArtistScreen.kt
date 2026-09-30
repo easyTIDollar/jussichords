@@ -114,8 +114,6 @@ fun ArtistScreen(
         ?: artistHeadInfoState?.data?.artist?.picUrl
     val avatarUrl = artistHeadInfoState?.data?.artist?.picUrl ?: heroUrl
 
-    val showTitle = artistHeadInfoState != null
-
     Column(modifier = Modifier.fillMaxSize()) {
         // 固定头部：歌手封面 hero（不随 tab 内容滚动）
         Box(
@@ -406,7 +404,7 @@ fun ArtistScreen(
     TopAppBar(
         title = {
             Text(
-                text = if (showTitle) artistHeadInfoState?.data?.artist?.name ?: "" else "",
+                text = "",
                 maxLines = 1,
                 style = MaterialTheme.typography.titleLarge,
                 overflow = TextOverflow.Ellipsis
@@ -415,7 +413,7 @@ fun ArtistScreen(
         navigationIcon = {
             IconButton(
                 onClick = { navController.navigateUp() },
-                colors = if (showTitle) IconButtonDefaults.iconButtonColors() else IconButtonDefaults.filledIconButtonColors()
+                colors = IconButtonDefaults.filledIconButtonColors()
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -423,7 +421,7 @@ fun ArtistScreen(
                 )
             }
         },
-        colors = if (showTitle) TopAppBarDefaults.topAppBarColors() else TopAppBarDefaults.topAppBarColors(
+        colors = TopAppBarDefaults.topAppBarColors(
             containerColor = Color.Transparent
         )
     )
