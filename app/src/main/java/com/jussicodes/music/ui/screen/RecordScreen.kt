@@ -118,7 +118,8 @@ fun RecordScreen(
                     }
                 }
             }
-            songRecord?.weekData?.let { data ->
+            songRecord?.let { record ->
+                val data = if (state == 0) record.weekData else record.allData
                 itemsIndexed(data) { index, item ->
                     SongListItem(
                         song = item.song,

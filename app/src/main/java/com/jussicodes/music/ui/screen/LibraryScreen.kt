@@ -85,6 +85,7 @@ import com.jussicodes.music.ui.components.PinnedAlbumsCard
 import com.jussicodes.music.ui.components.TopBar
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.History
+import com.jussicodes.music.ui.icons.Leaderboard
 import com.jussicodes.music.ui.icons.Login
 import com.jussicodes.music.ui.icons.Message
 import com.jussicodes.music.ui.icons.MoreVert
@@ -93,6 +94,7 @@ import com.jussicodes.music.ui.icons.PlaylistAdd
 import com.jussicodes.music.ui.icons.VipFill
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.PlaylistNav
+import com.jussicodes.music.ui.navigation.RecordNav
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.navigation.UserFollowNav
 import com.jussicodes.music.utils.CoverImageSize
@@ -259,6 +261,7 @@ fun LibraryScreen(
                             onRoamClick = { navController.navigate(Screen.Roam.route) },
                             onRecentPlayClick = { navController.navigate(Screen.RecentPlay.route) },
                             onMessagesClick = { navController.navigate(Screen.Messages.route) },
+                            onRecordClick = { navController.navigate(RecordNav(uid = it.account.profile.userId)) },
                             onAvatarClick = {
                                 libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie, force = true)
                                 showAvatarDialog = true
@@ -664,6 +667,7 @@ private fun LibraryUserCard(
     onRoamClick: () -> Unit,
     onRecentPlayClick: () -> Unit,
     onMessagesClick: () -> Unit,
+    onRecordClick: () -> Unit,
     onAvatarClick: () -> Unit
 ) {
     val profile = userInfo.account.profile
@@ -680,13 +684,21 @@ private fun LibraryUserCard(
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
                 Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp)) {
-                    FilledTonalIconButton(
-                        onClick = onMessagesClick
-                    ) {
-                        androidx.compose.material3.Icon(
-                            imageVector = Message,
-                            contentDescription = stringResource(R.string.messages)
-                        )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalIconButton(
+                            onClick = onMessagesClick
+                        ) {
+                            androidx.compose.material3.Icon(
+                                imageVector = Message,
+                                contentDescription = stringResource(R.string.messages)
+                            )
+                        }
+                        FilledTonalIconButton(onClick = onRecordClick) {
+                            androidx.compose.material3.Icon(
+                                imageVector = Leaderboard,
+                                contentDescription = stringResource(R.string.record)
+                            )
+                        }
                     }
                 }
                 Row(
