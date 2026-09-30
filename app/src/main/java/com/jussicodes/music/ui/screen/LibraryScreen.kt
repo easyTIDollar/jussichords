@@ -98,8 +98,8 @@ import com.jussicodes.music.ui.navigation.UserFollowNav
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.AvatarUploadLimiter
 import com.jussicodes.music.utils.PlaylistCoverSyncBus
+import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.rememberNullablePreference
-import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.utils.withAvatarCacheBuster
 import com.jussicodes.music.utils.withPlaylistCoverCacheBuster
@@ -158,6 +158,19 @@ fun LibraryScreen(
         }
     }
     var showPinnedAlbumPickDialog by remember { mutableStateOf(false) }
+    // 专辑墙关闭标志(DataStore)：冷启动首帧 DataStore 未出值前不渲染卡片。
+    // 旧实现用 rememberPreference(key, false) 先给默认 false → 已关闭的墙也会先
+    // 渲染一帧（专辑列表空 → 左上角加号闪现）等真值读回来才消失。
+    // 现在用同一趟 data.collect：首帧值到达时同时落 hidden 真值 + settled 标记，
+    // 卡片只在两值都就绪后才渲染，杜绝加号闪现；设置页恢复时后续值也持续回流。
+    var pinnedAlbumsHidden by remember { mutableStateOf(false) }
+    var pinnedAlbumsHiddenSettled by remember { mutableStateOf(false) }
+    LaunchedEffect(context) {
+        context.dataStore.data.collect { prefs ->
+            pinnedAlbumsHidden = prefs[pinnedAlbumsHiddenKey] ?: false
+            pinnedAlbumsHiddenSettled = true
+        }
+    }
 
     LaunchedEffect(ncmCookie) {
         val cookie = ncmCookie ?: return@LaunchedEffect
@@ -354,8 +367,7 @@ fun LibraryScreen(
                 }
 
                 item {
-                    val pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
-                    if (!pinnedAlbumsHidden) {
+                    if (pinnedAlbumsHiddenSettled && !pinnedAlbumsHidden) {
                         PinnedAlbumsCard(
                             onOpenAlbum = { album -> navController.navigate(AlbumNav(albumId = album.id)) },
                             onAddClick = { showPinnedAlbumPickDialog = true }
