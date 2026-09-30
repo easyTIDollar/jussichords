@@ -315,6 +315,8 @@ class PlaybackService : MediaSessionService() {
             ncblDeviceId = { CookieProvider.getCookieMap()["deviceId"].orEmpty() },
         )
         player.addListener(playbackHistoryListener)
+        // 一起听会话：挂到全局播放器上，冷启动恢复/创建房间时接管同步。
+        ListenTogetherSession.attach(player, this)
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(
                 PendingIntent.getActivity(
@@ -351,6 +353,8 @@ class PlaybackService : MediaSessionService() {
                 reporter.close()
             }
             playbackHistoryReporter = null
+            // 一起听会话先于播放器释放解除监听。
+            ListenTogetherSession.detach()
             player.release()
             release()
             mediaSession = null

@@ -83,7 +83,9 @@ import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.PinnedAlbumPickDialog
 import com.jussicodes.music.ui.components.PinnedAlbumsCard
 import com.jussicodes.music.ui.components.TopBar
+import com.jussicodes.music.ui.components.ListenTogetherSheet
 import com.jussicodes.music.ui.icons.Favorite
+import com.jussicodes.music.ui.icons.ListenTogether
 import com.jussicodes.music.ui.icons.History
 import com.jussicodes.music.ui.icons.Leaderboard
 import com.jussicodes.music.ui.icons.Login
@@ -160,6 +162,7 @@ fun LibraryScreen(
         }
     }
     var showPinnedAlbumPickDialog by remember { mutableStateOf(false) }
+    var showListenTogetherSheet by remember { mutableStateOf(false) }
     // 专辑墙关闭标志(DataStore)：冷启动首帧 DataStore 未出值前不渲染卡片。
     // 旧实现用 rememberPreference(key, false) 先给默认 false → 已关闭的墙也会先
     // 渲染一帧（专辑列表空 → 左上角加号闪现）等真值读回来才消失。
@@ -261,6 +264,7 @@ fun LibraryScreen(
                             onRoamClick = { navController.navigate(Screen.Roam.route) },
                             onRecentPlayClick = { navController.navigate(Screen.RecentPlay.route) },
                             onMessagesClick = { navController.navigate(Screen.Messages.route) },
+                            onListenTogetherClick = { showListenTogetherSheet = true },
                             onRecordClick = { navController.navigate(RecordNav(uid = it.account.profile.userId)) },
                             onAvatarClick = {
                                 libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie, force = true)
@@ -382,6 +386,11 @@ fun LibraryScreen(
             }
         }
     }
+
+    ListenTogetherSheet(
+        openBottomSheet = showListenTogetherSheet,
+        onDismiss = { showListenTogetherSheet = false }
+    )
 
     editingPlaylist?.let { playlist ->
         AlertDialog(
@@ -667,6 +676,7 @@ private fun LibraryUserCard(
     onRoamClick: () -> Unit,
     onRecentPlayClick: () -> Unit,
     onMessagesClick: () -> Unit,
+    onListenTogetherClick: () -> Unit,
     onRecordClick: () -> Unit,
     onAvatarClick: () -> Unit
 ) {
@@ -684,14 +694,25 @@ private fun LibraryUserCard(
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
                 Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilledTonalIconButton(
-                            onClick = onMessagesClick
-                        ) {
-                            androidx.compose.material3.Icon(
-                                imageVector = Message,
-                                contentDescription = stringResource(R.string.messages)
-                            )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalIconButton(
+                                onClick = onMessagesClick
+                            ) {
+                                androidx.compose.material3.Icon(
+                                    imageVector = Message,
+                                    contentDescription = stringResource(R.string.messages)
+                                )
+                            }
+                            FilledTonalIconButton(onClick = onListenTogetherClick) {
+                                androidx.compose.material3.Icon(
+                                    imageVector = ListenTogether,
+                                    contentDescription = "一起听"
+                                )
+                            }
                         }
                         FilledTonalIconButton(onClick = onRecordClick) {
                             androidx.compose.material3.Icon(

@@ -514,6 +514,55 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
                 "userIds" to ("[" + str("user_ids") + "]")
             )
         )
+        // 一起听（listen together）：状态读走 weapi，房间写 / 同步 / 心跳走 eapi（对齐 MeiloX 通道选择）。
+        // 上游路径逐条对齐 api-enhanced 代理 module/listentogether_*.js（heartbeat 拼写为 NCM 原样 /heartbeat）。
+        "/listen/together/status" -> weapi("/api/listen/together/status/get", emptyMap())
+        "/listen/together/room/create" -> eapi(
+            "/api/listen/together/room/create",
+            mapOf("refer" to str("refer").ifBlank { "songplay_more" })
+        )
+        "/listen/together/room/check" -> eapi(
+            "/api/listen/together/room/check",
+            mapOf("roomId" to req("roomId"))
+        )
+        "/listen/together/invitation/accept" -> eapi(
+            "/api/listen/together/play/invitation/accept",
+            mapOf(
+                "refer" to str("refer").ifBlank { "inbox_invite" },
+                "roomId" to req("roomId"),
+                "inviterId" to req("inviterId")
+            )
+        )
+        "/listen/together/play/command" -> eapi(
+            "/api/listen/together/play/command/report",
+            mapOf("roomId" to req("roomId"), "commandInfo" to req("commandInfo"))
+        )
+        "/listen/together/sync/playlist" -> eapi(
+            "/api/listen/together/sync/playlist/get",
+            mapOf("roomId" to req("roomId"))
+        )
+        "/listen/together/sync/list" -> eapi(
+            "/api/listen/together/sync/list/command/report",
+            mapOf("roomId" to req("roomId"), "playlistParam" to req("playlistParam"))
+        )
+        "/listen/together/heartbeat" -> eapi(
+            "/api/listen/together/heartbeat",
+            mapOf(
+                "roomId" to req("roomId"),
+                "songId" to req("songId"),
+                "playStatus" to req("playStatus"),
+                "progress" to req("progress")
+            )
+        )
+        "/listen/together/end" -> eapi(
+            "/api/listen/together/end/v2",
+            mapOf("roomId" to req("roomId"))
+        )
+        // 一起听远端队列重建：歌曲批量详情（NCM /v3/song/detail，c 为 [{id:...}] JSON 字符串）
+        "/song/detail/batch" -> weapi(
+            "/api/v3/song/detail",
+            mapOf("c" to str("c"))
+        )
         else -> error("Unsupported NetEase route: $path")
     }
 }
