@@ -94,7 +94,7 @@ object ListenTogetherSession : Player.Listener {
         player = value
         appContext = context.applicationContext
         value.addListener(this)
-        formerSongId = currentSongId()
+        formerSongId = currentSongId() ?: 0L
         if (CookieProvider.isLoggedIn()) refresh()
     }
 
@@ -404,11 +404,13 @@ object ListenTogetherSession : Player.Listener {
         val target = if (targetId > 0L) targetId else currentSongId() ?: return
         val seq = ++clientSeq
         val progress = activePlayer.currentPosition.coerceAtLeast(0L)
+        val formerValue = if (commandType == "GOTO") formerId.takeIf { it > 0L } ?: -1L else -1L
+        val playStatusValue = if (activePlayer.isPlaying) "\"PLAY\"" else "\"PAUSE\""
         val info = "{" +
             "\"commandType\":\"$commandType\"," +
             "\"progress\":$progress," +
-            "\"playStatus\":" + if (activePlayer.isPlaying) "\"PLAY\"" else "\"PAUSE\"" + "," +
-            "\"formerSongId\":" + if (commandType == "GOTO") (formerId.takeIf { it > 0L } ?: -1L) else -1L + "," +
+            "\"playStatus\":$playStatusValue," +
+            "\"formerSongId\":" + formerValue + "," +
             "\"targetSongId\":$target," +
             "\"clientSeq\":$seq}"
         runCatching { ListenTogetherApi.reportCommand(room.id, info) }
