@@ -5,7 +5,6 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,10 +47,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.jussicodes.music.playback.ListenTogetherSession
+import com.jussicodes.music.ui.icons.Copy
+import com.jussicodes.music.ui.icons.Crown
+import com.jussicodes.music.ui.icons.Users
 
 /**
  * 一起听底部面板：未进房时提供「创建房间 / 粘贴官方邀请链接进房」，
- * 进房后展示成员，以及「分享」（点击默认复制链接 + 调系统分享菜单）与「结束」按钮。
+ * 进房后展示房间信息，头部显示人数（👥图标）/成员头像/房主（👑图标），
+ * 「分享」只调系统分享菜单（复制由专用按钮负责），「结束」退出房间。
  * 实际同步逻辑全在 [ListenTogetherSession]（挂在 PlaybackService 上）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -92,15 +96,66 @@ fun ListenTogetherSheet(
                     Text(
                         text = "一起听",
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f)
+                        fontWeight = FontWeight.Bold
                     )
                     uiState.room?.let { room ->
-                        Text(
-                            text = if (uiState.isHost) "房主" else "成员",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Icon(
+                            imageVector = Users,
+                            contentDescription = "房间人数",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "${room.members.size} 人",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            room.members.take(4).forEach { member ->
+                                AsyncImage(
+                                    model = member.avatarUrl,
+                                    contentDescription = member.nickname,
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                )
+                            }
+                            if (room.members.size > 4) {
+                                Text(
+                                    text = "+${room.members.size - 4}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            if (uiState.isHost) {
+                                Icon(
+                                    imageVector = Crown,
+                                    contentDescription = "房主",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "房主",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            } else {
+                                Text(
+                                    text = "成员",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -174,46 +229,44 @@ fun ListenTogetherSheet(
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.weight(1f, fill = false)
                                 )
-                                Text(
-                                    text = "${room.members.size} 人",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                room.members.take(6).forEach { member ->
-                                    Box(
-                                        modifier = Modifier.size(32.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        AsyncImage(
-                                            model = member.avatarUrl,
-                                            contentDescription = member.nickname,
-                                            modifier = Modifier
-                                                .size(32.dp)
-                                                .clip(CircleShape)
-                                        )
-                                    }
-                                }
-                                if (room.members.size > 6) {
-                                    Text(
-                                        text = "+${room.members.size - 6}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                Spacer(modifier = Modifier.width(4.dp))
+                                IconButton(
+                                    onClick = { copyText(room.id, "房间号已复制", context) },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Copy,
+                                        contentDescription = "一键复制房间号",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
                             uiState.inviteUrl?.let { url ->
-                                Text(
-                                    text = url,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = url,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    IconButton(
+                                        onClick = { copyText(url, "邀请链接已复制", context) },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Copy,
+                                            contentDescription = "一键复制链接",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -222,10 +275,7 @@ fun ListenTogetherSheet(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Button(
-                            onClick = {
-                                copyInviteLink(uiState.inviteUrl, context)
-                                shareInviteLink(uiState.inviteUrl, context)
-                            },
+                            onClick = { shareInviteLink(uiState.inviteUrl, context) },
                             enabled = uiState.inviteUrl != null,
                             modifier = Modifier.weight(1f)
                         ) {
@@ -260,11 +310,11 @@ fun ListenTogetherSheet(
     }
 }
 
-private fun copyInviteLink(url: String?, context: android.content.Context) {
-    if (url.isNullOrBlank()) return
+private fun copyText(text: String, toast: String, context: android.content.Context) {
+    if (text.isBlank()) return
     val manager = context.getSystemService(ClipboardManager::class.java) ?: return
-    manager.setPrimaryClip(ClipData.newPlainText("listen-together", url))
-    Toast.makeText(context, "邀请链接已复制", Toast.LENGTH_SHORT).show()
+    manager.setPrimaryClip(ClipData.newPlainText("listen-together", text))
+    Toast.makeText(context, toast, Toast.LENGTH_SHORT).show()
 }
 
 private fun shareInviteLink(url: String?, context: android.content.Context) {
