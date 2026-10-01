@@ -200,6 +200,26 @@ object ListenTogetherSession : Player.Listener {
         }
     }
 
+    /**
+     * 由私信「一起听」卡片进房：[join] 的卡片变体，直接吃 roomId + inviterId。
+     * 调用方先自行 [ListenTogetherApi.checkRoom] 判房间是否存活，此处只负责
+     * accept + establish + 拉快照 + 心跳 + 监测；成功返回 true（调用方据此展开播放界面）。
+     * 非 suspend 前提（登录态 / 播放器就绪）不满足或 accept 失败时返回 false。
+     */
+    suspend fun joinCard(roomId: String, inviterId: String): Boolean {
+        if (!CookieProvider.isLoggedIn()) return false
+        if (player == null) return false
+        val room = ListenTogetherApi.accept(roomId, inviterId).getOrNull() ?: return false
+        loadLocalUid()
+        establish(room)
+        val snapshot = ListenTogetherApi.snapshot(room.id).getOrNull()
+        if (snapshot != null) applyRemote(snapshot, initial = true)
+        sendHeartbeat()
+        startMonitoring()
+        _state.value = _state.value.copy(isLoading = false)
+        return true
+    }
+
     fun end() {
         if (actionJob?.isActive == true) return
         val room = _state.value.room ?: return

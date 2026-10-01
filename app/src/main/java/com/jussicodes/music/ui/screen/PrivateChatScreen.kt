@@ -42,6 +42,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import android.widget.Toast
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -58,14 +60,18 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.data.MsgSessionCache
+import com.jussicodes.music.data.ListenTogetherApi
+import com.jussicodes.music.data.parseListenTogetherInvitation
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
+import com.jussicodes.music.playback.ListenTogetherSession
 import com.jussicodes.music.ui.components.OnlineDot
 import com.jussicodes.music.ui.components.UserStateTags
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.PlaylistNav
 import com.jussicodes.music.ui.navigation.UserNav
 import com.jussicodes.music.utils.CoverImageSize
+import com.jussicodes.music.utils.PlayerExpandBus
 import com.jussicodes.music.utils.formatTimestamp
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.PrivateChatViewModel
@@ -76,6 +82,7 @@ import com.rcmiku.ncmapi.model.MsgPrivatePlaylist
 import com.rcmiku.ncmapi.model.MsgPrivateSong
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.SongAlbum
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -351,9 +358,44 @@ private fun ChatBubble(
     val textBody = body.ifBlank { general?.jStr("inboxBriefContent").orEmpty() }
 
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     fun openExternal(url: String) {
         if (url.isBlank()) return
         runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+    }
+    // 一起听卡片进房：从 generalMsg.nativeUrl 解 roomId+inviterId → 查房间存活 →
+    // 失效弹 toast；有效则 accept 进房成功并展开全屏播放界面。
+    fun onListenTogetherClick() {
+        val nativeUrl = general?.jStr("nativeUrl").orEmpty()
+        val pair = parseListenTogetherInvitation(nativeUrl)
+        if (pair == null) {
+            Toast.makeText(ctx, "邀请链接无效", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val (roomId, inviterId) = pair
+        scope.launch {
+            val check = ListenTogetherApi.checkRoom(roomId).getOrNull()
+            if (check == null) {
+                Toast.makeText(ctx, "网络异常，无法检查房间状态", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val (joinable, statusMsg) = check
+            if (!joinable) {
+                Toast.makeText(
+                    ctx,
+                    statusMsg?.takeIf { it.isNotBlank() } ?: "房间已失效，可邀请好友进入新的一起听",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@launch
+            }
+            val ok = ListenTogetherSession.joinCard(roomId, inviterId)
+            if (ok) {
+                Toast.makeText(ctx, "已进入一起听", Toast.LENGTH_SHORT).show()
+                PlayerExpandBus.expand()
+            } else {
+                Toast.makeText(ctx, "进房失败", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
     val cardColor = if (isMine) MaterialTheme.colorScheme.onPrimary
         else MaterialTheme.colorScheme.onSurface
@@ -452,6 +494,7 @@ private fun ChatBubble(
                         )
                     }
                     // 一起听 / 运营通知卡片：generalMsg（封面 + 标题，文案兜底在正文）
+                    // 带 nativeUrl 的一起听邀请可点进房；其余运营通知保持纯展示。
                     if (showGeneralCard) {
                         Spacer(Modifier.size(6.dp))
                         MsgResourceCard(
@@ -461,7 +504,10 @@ private fun ChatBubble(
                             cover = general?.jStr("cover") ?: "",
                             accent = cardColor,
                             cardBg = cardBg,
-                            clickable = false
+                            clickable = parseListenTogetherInvitation(
+                                general?.jStr("nativeUrl").orEmpty()
+                            ) != null,
+                            onClick = { onListenTogetherClick() }
                         )
                     }
                 }

@@ -12,6 +12,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -70,10 +71,22 @@ fun PlayerTransform(
     duration: Long,
     onPositionUpdate: (Long) -> Unit,
     navController: NavHostController,
+    expandSignal: Long = 0L,
 ) {
 
     var show by remember {
         mutableIntStateOf(MINI_PLAYER)
+    }
+
+    // 外部信号（如私信一起听进房成功）请求展开全屏播放界面。
+    // 只在 expandSignal 相对「已展开过的 token」真实递增时展开，避免进程重建时
+    // rememberSaveable 恢复的旧 token（>0）误触展开（PlayerExpandBus 是内存单例，重建后归 0）。
+    var lastExpanded by remember { mutableStateOf(expandSignal) }
+    LaunchedEffect(expandSignal) {
+        if (expandSignal > lastExpanded) {
+            lastExpanded = expandSignal
+            show = FULL_PLAYER
+        }
     }
 
     SharedTransitionLayout(

@@ -30,6 +30,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -64,6 +65,7 @@ import com.jussicodes.music.ui.components.tabs
 import com.jussicodes.music.ui.navigation.NavGraph
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.extensions.toMediaItemList
+import com.jussicodes.music.utils.PlayerExpandBus
 import com.jussicodes.music.utils.rememberPreference
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -321,7 +323,8 @@ fun MainScreen() {
                             onPositionUpdate = { updatePosition ->
                                 position = updatePosition
                             },
-                            navController = navController
+                            navController = navController,
+                            expandSignal = PlayerExpandBus.token.collectAsState().value
                         )
                     }
                 }
