@@ -140,6 +140,18 @@ val EAPI_PLAYBACK_HISTORY_PROFILE: Map<String, Any> = mapOf(
     "domain" to NCM_EAPI_HISTORY_DOMAIN,
 )
 
+/**
+ * 用户资料修改（jussichords 路由 /user/update）eapi profile。
+ * 对齐代理 createHeaderCookie：eapi 写接口按 Cookie 形态做风控——
+ * 发完整登录 cookie 会被 NCM 静默 403 "illegal request"，
+ * 发「合成 cookie」（eapi header 字段 URL-encode 后按 key 排序）才进入业务层（250 受理）。
+ * os/域名保持移动端默认（interfacepc 域、移动 UA）；synthesizedCookie 开关让 send() 对该 profile
+ * 发合成 cookie 而非完整登录 cookie（域名走默认 eapi 分支，无需在这里覆盖 domain）。
+ */
+val EAPI_USER_UPDATE_PROFILE: Map<String, Any> = mapOf(
+    "synthesizedCookie" to true,
+)
+
 @PublishedApi
 internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
     fun req(key: String): Any = requireNotNull(p[key]) { "Missing $key for $path" }
@@ -154,6 +166,9 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
     // 播放历史上报专用：eapi + osx 桌面 profile（interface 域 + macOS UA + 空 csrf）。
     fun eapiHistory(uri: String, data: Map<String, Any> = emptyMap()) =
         Route(uri, data, Encryption.EAPI, eapiProfile = EAPI_PLAYBACK_HISTORY_PROFILE)
+    // 用户资料修改：eapi + 合成 cookie profile（移动端参数，interfacepc 域）。
+    fun eapiUserUpdate(uri: String, data: Map<String, Any> = emptyMap()) =
+        Route(uri, data, Encryption.EAPI, eapiProfile = EAPI_USER_UPDATE_PROFILE)
 
     val commentTypePrefix = when (int("type", 0)) {
         0 -> "R_SO_4_"
@@ -275,6 +290,16 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
         "/toplist" -> eapi("/api/toplist", emptyMap())
         // 账号 / 云盘 / 收藏
         "/user/account" -> weapi("/api/nuser/account/get", emptyMap())
+        // 用户资料修改（我的页点昵称）：eapi 写接口，需合成 cookie profile（见 send 的 cookie 分支）。
+        // 字段对齐代理 user_update.js：只透传调用方给的字段。本功能只改昵称/签名，
+        // 故只发 nickname + signature —— gender/birthday/province/city 不带，NCM 视作不动，避免误清账号地区/生日。
+        "/user/update" -> eapiUserUpdate(
+            "/api/user/profile/update",
+            mapOf(
+                "nickname" to req("nickname"),
+                "signature" to str("signature")
+            )
+        )
         "/user/cloud" -> weapi(
             "/api/v1/cloud/get",
             mapOf("limit" to int("limit", 30), "offset" to long("offset", 0))
@@ -591,7 +616,12 @@ internal suspend fun send(route: Route): String {
     val musicU = cookie["MUSIC_U"]
     val osValue = cookie["os"] ?: "android"
     val profile = route.eapiProfile
-    val isHistoryProfile = profile != null
+    // 仅「播放历史 osx profile」(os=osx) 走 osx 域/UA/空 csrf/去 mobilename。
+    // 其余 eapi profile（如用户资料修改）保持移动端默认，只借用「合成 cookie」行为。
+    val isHistoryProfile = profile?.get("os")?.toString() == "osx"
+    // 合成 cookie（对齐代理 createHeaderCookie）：播放历史 + 用户资料修改都发它，
+    // 完整登录 cookie 只在普通 eapi/weapi 读接口用。eapi 写接口发完整登录 cookie 会被 NCM 403。
+    val synthesizedCookie = isHistoryProfile || profile?.get("synthesizedCookie") == true
 
     // eapi 身份 header（对齐代理 createHeaderCookie 的字段集）
     // 播放历史 profile：osx 桌面参数（对齐 MeiloX），__csrf 置空、buildver 用秒级时间戳。
@@ -635,11 +665,9 @@ internal suspend fun send(route: Route): String {
     // 请求 Cookie：
     // - 普通 eapi/weapi：对齐 3.0.0 发完整登录 cookie（含 MUSIC_U）；未登录时补稳定 deviceId，
     //   保证匿名读接口（toplist / 搜索等）也能握手成功。
-    // - 播放历史 profile：对齐 MeiloX buildEApiCookieString 发「合成 cookie」——
-    //   只带与加密 header 同源的 11 个字段（os/osver/appver/versioncode 全为 osx 值 +
-    //   空 __csrf + MUSIC_U），值 URL-encode、按 key 排序。发完整登录 cookie（os=android）
-    //   会与加密参数里的 osx 自相矛盾，NCM 交叉校验后静默丢弃。
-    val cookieHeader = if (isHistoryProfile) {
+    // - 播放历史 + 用户资料修改（synthesizedCookie）：对齐代理 createHeaderCookie 发「合成 cookie」
+    //   （header 字段 URL-encode、按 key 排序）。eapi 写接口发完整登录 cookie 会被 NCM 403 静默丢弃。
+    val cookieHeader = if (synthesizedCookie) {
         header.entries
             .sortedBy { it.key }
             .joinToString("; ") { (k, v) -> "${encodeCookieComponent(k)}=${encodeCookieComponent(v.toString())}" }
