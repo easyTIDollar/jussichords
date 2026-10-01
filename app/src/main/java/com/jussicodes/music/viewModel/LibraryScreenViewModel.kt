@@ -17,7 +17,9 @@ import com.jussicodes.music.utils.PlaylistCoverSyncBus
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.account.UserPlaylistType
+import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.api.playlist.PlaylistApi
+import com.rcmiku.ncmapi.model.ApiCodeResponse
 import com.rcmiku.ncmapi.model.FavoriteSongResponse
 import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.UserInfoBatch
@@ -309,6 +311,46 @@ class LibraryScreenViewModel @Inject constructor(
             }
             _isAvatarUploading.value = false
             onResult(success, result.exceptionOrNull()?.message ?: response?.errorMessage)
+        }
+    }
+
+    /**
+     * 修改我的页昵称/签名。直连 NCM /user/update 路由（eapi + 合成 cookie）。
+     * 成功即乐观更新本地 userInfo + 签名，并强制刷新一次保证同步；失败回滚并给出 NCM 原文。
+     * @return 通过 onResult(success, errorMessage) 回传，errorMessage 为 NCM message（如 250 受理失败文案）。
+     */
+    fun updateProfile(
+        nickname: String,
+        signature: String,
+        onResult: (Boolean, String?) -> Unit = { _, _ -> }
+    ) {
+        val trimmed = nickname.trim()
+        if (trimmed.isEmpty()) {
+            onResult(false, "昵称不能为空")
+            return
+        }
+        val previous = _userInfo.value
+        // 只发起请求；成功刷新（refreshUserInfo 会重拉并更新 _userInfo），失败回滚到提交前快照。
+        viewModelScope.launch {
+            val resp: Result<ApiCodeResponse> =
+                apiGet<ApiCodeResponse>(
+                    "/user/update",
+                    mapOf(
+                        "nickname" to trimmed,
+                        "signature" to signature
+                    )
+                )
+            val body = resp.getOrNull()
+            val ok = resp.isSuccess && body?.code == 200
+            if (ok) {
+                refreshUserInfo()
+                onResult(true, null)
+            } else {
+                if (previous != null) _userInfo.value = previous
+                val msg = body?.message ?: body?.msg
+                    ?: resp.exceptionOrNull()?.message ?: "更新失败"
+                onResult(false, msg)
+            }
         }
     }
 

@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -50,6 +51,7 @@ import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.data.SongSourceCache
 import com.jussicodes.music.extensions.withSongSource
+import com.jussicodes.music.playback.ListenTogetherSession
 import com.jussicodes.music.constants.audioEffectEightDEnabledKey
 import com.jussicodes.music.constants.audioEffectIntensityKey
 import com.jussicodes.music.constants.audioEffectModeKey
@@ -58,6 +60,7 @@ import com.jussicodes.music.constants.audioEffectSpeedKey
 import com.jussicodes.music.playback.audio.AudioEffectMode
 import com.jussicodes.music.ui.icons.Dns
 import com.jussicodes.music.ui.icons.AudioLines
+import com.jussicodes.music.ui.icons.ListenTogether
 import com.jussicodes.music.ui.icons.Repeat
 import com.jussicodes.music.ui.icons.RepeatOne
 import com.jussicodes.music.ui.icons.Shuffle
@@ -122,6 +125,10 @@ fun PlayerMenuBottomSheet(
     var cancelSleepTimer by rememberSaveable { mutableStateOf(false) }
     var openSongListBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openShareSheet by rememberSaveable { mutableStateOf(false) }
+    var openListenTogetherSheet by rememberSaveable { mutableStateOf(false) }
+
+    // 一起听会话状态（用于菜单卡右侧显示进房状态）
+    val listenTogetherState by ListenTogetherSession.state.collectAsState()
 
     // Per-song unblock-source picker state.
     val scope = rememberCoroutineScope()
@@ -178,6 +185,25 @@ fun PlayerMenuBottomSheet(
                             shape = RoundedCornerShape(
                                 topStart = 16.dp,
                                 topEnd = 16.dp,
+                                bottomStart = 8.dp,
+                                bottomEnd = 8.dp
+                            ),
+                            icon = ListenTogether,
+                            title = "一起听",
+                            value = listenTogetherState.room?.let { "${it.members.size} 人" } ?: "未进房",
+                            iconAlpha = 1f,
+                            onClick = {
+                                openListenTogetherSheet = true
+                                onDismiss()
+                            }
+                        )
+                    }
+
+                    item {
+                        PlayerMenuActionCard(
+                            shape = RoundedCornerShape(
+                                topStart = 8.dp,
+                                topEnd = 8.dp,
                                 bottomStart = 8.dp,
                                 bottomEnd = 8.dp
                             ),
@@ -373,6 +399,11 @@ fun PlayerMenuBottomSheet(
             onDismiss = { openShareSheet = false }
         )
     }
+
+    ListenTogetherSheet(
+        openBottomSheet = openListenTogetherSheet,
+        onDismiss = { openListenTogetherSheet = false }
+    )
 }
 
 /**

@@ -160,6 +160,10 @@ fun LibraryScreen(
         }
     }
     var showPinnedAlbumPickDialog by remember { mutableStateOf(false) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
+    var editNickname by remember { mutableStateOf("") }
+    var editSignature by remember { mutableStateOf("") }
+    var profileUpdateBusy by remember { mutableStateOf(false) }
     // 专辑墙关闭标志(DataStore)：冷启动首帧 DataStore 未出值前不渲染卡片。
     // 旧实现用 rememberPreference(key, false) 先给默认 false → 已关闭的墙也会先
     // 渲染一帧（专辑列表空 → 左上角加号闪现）等真值读回来才消失。
@@ -265,6 +269,11 @@ fun LibraryScreen(
                             onAvatarClick = {
                                 libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie, force = true)
                                 showAvatarDialog = true
+                            },
+                            onEditProfileClick = {
+                                editNickname = it.account.profile.nickname
+                                editSignature = it.account.profile.signature
+                                showEditProfileDialog = true
                             }
                         )
                     }
@@ -428,6 +437,66 @@ fun LibraryScreen(
             },
             dismissButton = {
                 TextButton(onClick = { editingPlaylist = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    if (showEditProfileDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!profileUpdateBusy) showEditProfileDialog = false
+            },
+            title = { Text("编辑个人信息") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = editNickname,
+                        onValueChange = { editNickname = it },
+                        label = { Text("昵称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editSignature,
+                        onValueChange = { editSignature = it },
+                        label = { Text("签名") },
+                        minLines = 2,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val nick = editNickname
+                        val sig = editSignature
+                        profileUpdateBusy = true
+                        libraryScreenViewModel.updateProfile(nick, sig) { success, msg ->
+                            profileUpdateBusy = false
+                            if (success) {
+                                showEditProfileDialog = false
+                                Toast.makeText(context, "资料已更新", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    msg?.let { "更新失败：$it" } ?: "更新资料失败",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    },
+                    enabled = editNickname.isNotBlank() && !profileUpdateBusy
+                ) {
+                    Text("保存")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showEditProfileDialog = false },
+                    enabled = !profileUpdateBusy
+                ) {
                     Text("取消")
                 }
             }
@@ -668,7 +737,8 @@ private fun LibraryUserCard(
     onRecentPlayClick: () -> Unit,
     onMessagesClick: () -> Unit,
     onRecordClick: () -> Unit,
-    onAvatarClick: () -> Unit
+    onAvatarClick: () -> Unit,
+    onEditProfileClick: () -> Unit
 ) {
     val profile = userInfo.account.profile
     val secondaryText = profile.signature.takeIf { it.isNotBlank() }
@@ -684,14 +754,19 @@ private fun LibraryUserCard(
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
                 Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilledTonalIconButton(
-                            onClick = onMessagesClick
-                        ) {
-                            androidx.compose.material3.Icon(
-                                imageVector = Message,
-                                contentDescription = stringResource(R.string.messages)
-                            )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalIconButton(
+                                onClick = onMessagesClick
+                            ) {
+                                androidx.compose.material3.Icon(
+                                    imageVector = Message,
+                                    contentDescription = stringResource(R.string.messages)
+                                )
+                            }
                         }
                         FilledTonalIconButton(onClick = onRecordClick) {
                             androidx.compose.material3.Icon(
@@ -729,7 +804,10 @@ private fun LibraryUserCard(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .clickable(onClick = onEditProfileClick)
+                            .padding(vertical = 4.dp)
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         TextButton(
