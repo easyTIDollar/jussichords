@@ -61,7 +61,6 @@ import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.data.ListenTogetherApi
-import com.jussicodes.music.data.parseListenTogetherInvitation
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.playback.ListenTogetherSession
@@ -122,6 +121,32 @@ private fun songCoverFromRaw(rawSong: JsonObject?): String {
 /** 原始 JsonObject 取字符串字段（容错：缺失/null 返回空）。 */
 private fun JsonObject?.jStr(key: String): String? =
     (this?.get(key) as? JsonPrimitive)?.content
+
+/**
+ * 一起听卡片的 generalMsg.nativeUrl 是「外层 orpheus://open?url1=<百分号编码的 orpheus 一起听链接>」
+ * 嵌套结构：roomId / inviterId 埋在 url1 的值里（url1=orpheus://nm/play/listenTogether?roomId=…），
+ * 不是外层 query 的兄弟键。整段又 percent-encode 了一层。
+ * 直接对未解码串跑通用 query 解析（parseListenTogetherInvitation）会把整个 url1 当一个值吞掉，
+ * 永远拿不到 roomId —— 故先整串反复 URL-decode 摊平，再用正则抓 roomId / inviterId（两种形态都认）。
+ */
+private fun listenTogetherKeys(general: JsonObject?): Pair<String, String>? {
+    val raw = general?.jStr("nativeUrl").orEmpty()
+    if (raw.isEmpty()) return null
+    // 逐层解码到稳定（嵌套最多 2~3 层）。
+    var decoded = raw
+    repeat(4) {
+        val next = runCatching {
+            java.net.URLDecoder.decode(decoded, Charsets.UTF_8.name())
+        }.getOrDefault(decoded)
+        if (next == decoded) break
+        decoded = next
+    }
+    val room = Regex("roomId=([0-9A-Za-z_]+)").find(decoded) ?: return null
+    val inviter = Regex("inviterId=(\\d+)").find(decoded)
+        ?: Regex("inviterUid=(\\d+)").find(decoded)
+        ?: return null
+    return room.groupValues[1] to inviter.groupValues[1]
+}
 
 /** 原始 JsonObject 取 long 字段（容错）。 */
 private fun JsonObject?.jLong(key: String): Long =
@@ -366,8 +391,7 @@ private fun ChatBubble(
     // 一起听卡片进房：从 generalMsg.nativeUrl 解 roomId+inviterId → 查房间存活 →
     // 失效弹 toast；有效则 accept 进房成功并展开全屏播放界面。
     fun onListenTogetherClick() {
-        val nativeUrl = general?.jStr("nativeUrl").orEmpty()
-        val pair = parseListenTogetherInvitation(nativeUrl)
+        val pair = listenTogetherKeys(general)
         if (pair == null) {
             Toast.makeText(ctx, "邀请链接无效", Toast.LENGTH_SHORT).show()
             return
@@ -504,9 +528,7 @@ private fun ChatBubble(
                             cover = general?.jStr("cover") ?: "",
                             accent = cardColor,
                             cardBg = cardBg,
-                            clickable = parseListenTogetherInvitation(
-                                general?.jStr("nativeUrl").orEmpty()
-                            ) != null,
+                            clickable = listenTogetherKeys(general) != null,
                             onClick = { onListenTogetherClick() }
                         )
                     }
