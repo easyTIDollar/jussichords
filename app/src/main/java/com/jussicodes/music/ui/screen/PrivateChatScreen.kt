@@ -61,6 +61,7 @@ import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.data.ListenTogetherApi
+import com.jussicodes.music.data.parseListenTogetherInvitation
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.playback.ListenTogetherSession
@@ -157,6 +158,16 @@ private fun JsonObject?.jLong(key: String): Long =
 /** 私信内层的歌单小模型。 */
 private fun playlistCardName(p: MsgPrivatePlaylist): String =
     p.name.ifBlank { p.coverImgUrl.takeIf { it.isNotBlank() } ?: "歌单" }
+
+/**
+ * 纯文本消息里的官方一起听邀请链接（/send/text 发的「和我一起听歌：<url>」）。
+ * 官方 App 的富卡片 generalMsg 走私有关卡发不出，故收端把正文里的链接抽出来渲染成可点卡片。
+ */
+private fun listenInviteKeysFromBody(body: String): Pair<String, String>? {
+    val candidate = body.split(Regex("\\s+"))
+        .firstOrNull { it.contains("roomId=", ignoreCase = true) } ?: return null
+    return parseListenTogetherInvitation(candidate)
+}
 
 /**
  * 单人私信聊天页：历史消息气泡（/msg/private/history）+ 底部输入框（/send/text）。
@@ -398,14 +409,11 @@ private fun ChatBubble(
         if (url.isBlank()) return
         runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
     }
-    // 一起听卡片进房：从 generalMsg.nativeUrl 解 roomId+inviterId → 查房间存活 →
-    // 失效弹 toast；有效则 accept 进房成功并展开全屏播放界面。
-    fun onListenTogetherClick() {
-        val pair = listenTogetherKeys(general)
-        if (pair == null) {
-            Toast.makeText(ctx, "邀请链接无效", Toast.LENGTH_SHORT).show()
-            return
-        }
+    // 纯文本私信里官方一起听邀请链接 → 可点卡片（/send/text 发的「和我一起听歌：<url>」，
+    // 以及任何直接贴进私信的官方链接；与 generalMsg 卡片同样可进房）。
+    val textInvite = listenInviteKeysFromBody(body)
+    // 一起听进房：查房间存活 → 失效弹 toast；有效则 accept 进房成功并展开全屏播放界面。
+    fun joinListenInvite(pair: Pair<String, String>) {
         val (roomId, inviterId) = pair
         scope.launch {
             val check = ListenTogetherApi.checkRoom(roomId).getOrNull()
@@ -463,7 +471,7 @@ private fun ChatBubble(
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Column(modifier = Modifier.widthIn(max = 264.dp)) {
-                    if (textBody.isNotBlank()) {
+                    if (textBody.isNotBlank() && textInvite == null) {
                         Text(
                             text = textBody,
                             style = MaterialTheme.typography.bodyMedium,
@@ -539,7 +547,21 @@ private fun ChatBubble(
                             accent = cardColor,
                             cardBg = cardBg,
                             clickable = listenTogetherKeys(general) != null,
-                            onClick = { onListenTogetherClick() }
+                            onClick = { listenTogetherKeys(general)?.let { joinListenInvite(it) } }
+                        )
+                    }
+                    // 纯文本私信里的官方一起听邀请链接（/send/text 发的「和我一起听歌：<url>」，
+                    // 或任何直接贴进私信的链接）：同样渲染成可点卡片直接进房。
+                    if (textInvite != null) {
+                        Spacer(Modifier.size(6.dp))
+                        MsgResourceCard(
+                            title = stringResource(R.string.msg_chat_listen_title),
+                            subtitle = "",
+                            tag = stringResource(R.string.msg_chat_general_hint),
+                            cover = "",
+                            accent = cardColor,
+                            cardBg = cardBg,
+                            onClick = { joinListenInvite(textInvite!!) }
                         )
                     }
                 }
