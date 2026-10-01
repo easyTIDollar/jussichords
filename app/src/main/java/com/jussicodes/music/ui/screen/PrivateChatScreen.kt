@@ -134,12 +134,14 @@ private fun listenTogetherKeys(general: JsonObject?): Pair<String, String>? {
     if (raw.isEmpty()) return null
     // 逐层解码到稳定（嵌套最多 2~3 层）。
     var decoded = raw
-    repeat(4) {
+    var guard = 0
+    while (guard < 4) {
         val next = runCatching {
             java.net.URLDecoder.decode(decoded, Charsets.UTF_8.name())
         }.getOrDefault(decoded)
         if (next == decoded) break
         decoded = next
+        guard++
     }
     val room = Regex("roomId=([0-9A-Za-z_]+)").find(decoded) ?: return null
     val inviter = Regex("inviterId=(\\d+)").find(decoded)
