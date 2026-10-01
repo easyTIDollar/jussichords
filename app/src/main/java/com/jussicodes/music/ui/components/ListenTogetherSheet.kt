@@ -30,6 +30,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -229,16 +230,18 @@ fun ListenTogetherSheet(
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.weight(1f, fill = false)
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                IconButton(
-                                    onClick = { copyText(room.id, "房间号已复制", context) },
-                                    modifier = Modifier.size(24.dp)
+                                TextButton(
+                                    onClick = { copyText(room.id, "房间号已复制", context) }
                                 ) {
                                     Icon(
                                         imageVector = Copy,
-                                        contentDescription = "一键复制房间号",
-                                        modifier = Modifier.size(16.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "复制",
+                                        style = MaterialTheme.typography.labelMedium
                                     )
                                 }
                             }
@@ -254,16 +257,18 @@ fun ListenTogetherSheet(
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f, fill = false)
                                     )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    IconButton(
-                                        onClick = { copyText(url, "邀请链接已复制", context) },
-                                        modifier = Modifier.size(24.dp)
+                                    TextButton(
+                                        onClick = { copyText(url, "邀请链接已复制", context) }
                                     ) {
                                         Icon(
                                             imageVector = Copy,
-                                            contentDescription = "一键复制链接",
-                                            modifier = Modifier.size(16.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "复制",
+                                            style = MaterialTheme.typography.labelMedium
                                         )
                                     }
                                 }
