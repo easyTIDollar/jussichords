@@ -112,11 +112,13 @@ fun ListenTogetherSheet(
                     Toast.makeText(context, "已发送给 ${nickname.ifBlank { "对方" }}", Toast.LENGTH_SHORT).show()
                     onDismiss()
                 } else {
-                    // NCM 的失败原因在响应体 msg 字段里（如 2201 的反垃圾/私信限制），原样透出便于定位
+                    // 已知 NCM 错误码映射（见 NCM API issue #1844：2201 = 私信风控「发送频繁」，
+                    // 账号级冷却，数分钟后自动恢复，与消息内容无关）；其余码原样透出 msg 便于定位。
                     val serverMsg = body.msg?.takeIf { it.isNotBlank() } ?: ""
                     sendNote = when (body.code) {
                         301 -> "登录已失效，请重新登录"
-                        else -> "发送失败（code ${body.code}）${serverMsg}".trim()
+                        2201 -> "发送过于频繁（NCM 私信风控），请过几分钟再试$serverMsg".trim()
+                        else -> "发送失败（code ${body.code}）$serverMsg".trim()
                     }
                 }
             }.onFailure {
