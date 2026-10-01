@@ -24,8 +24,10 @@ jobs:
       APP_VERSION: ''
       # GitHub release 正文（单一来源；Gitee 镜像已废弃）。
       CHANGELOG: |
+        - 一起听（Listen Together）：播放页三点菜单进房，成员播放同步，进房自动展开全屏播放器
+        - 私信里收到一起听链接渲染成可点进房卡片；分享改为复制链接 + 系统分享
+        - 我的页点昵称即可编辑昵称 / 签名
         - 启动图标更新为「红底 · 白色 J + 顶部圆形徽章」新 logo
-        - 修复与补齐上一版 v2.3.9 因图标替换而需重新出包的版本
     steps:
       # 拉取仓库
       - name: Checkout repository
