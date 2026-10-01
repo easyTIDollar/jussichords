@@ -383,12 +383,13 @@ private fun ChatBubble(
         (general.jStr("title").orEmpty().isNotBlank() || general.jStr("cover").orEmpty().isNotBlank())
     // 正文兜底：msg 文本为空时用 generalMsg.inboxBriefContent（"一起听"邀请的文案）
     val rawTextBody = body.ifBlank { general?.jStr("inboxBriefContent").orEmpty() }
-    // NCM 对"一起听结束总结"等富卡片只在接口回占位文案（正文在 App 内才看得到），
-    // 私信页拿不到真内容——把它替换成明确语义的提示，避免渲染成一句"不支持展示"占位。
-    val textBody = if (rawTextBody == "不支持展示该内容，请前往移动端查看") {
-        "一起听报告 暂不支持"
-    } else {
-        rawTextBody
+    // NCM 对"一起听报告/富卡片"在私信接口不给正文：App 端直连常拿到**空** msg，
+    // 降级路径才给"不支持展示…"占位句。两种都没有可显示内容，气泡会渲染成一个空格。
+    // 正文为空或为占位句时统一兜底成明确文案；普通文字消息（body 非空）不受影响。
+    val textBody = when {
+        rawTextBody.isBlank() ||
+            rawTextBody == "不支持展示该内容，请前往移动端查看" -> "一起听报告 暂不支持"
+        else -> rawTextBody
     }
 
     val ctx = LocalContext.current
