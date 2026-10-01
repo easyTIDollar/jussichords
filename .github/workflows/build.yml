@@ -24,12 +24,10 @@ jobs:
       APP_VERSION: ''
       # GitHub release 正文（单一来源；Gitee 镜像已废弃）。
       CHANGELOG: |
-        - 播放历史上报上线（weblog + NCBL 双通道），替代旧打卡链路
-        - 歌曲数据面直连官方，免费/普通歌不再经 API 服务器；仅解灰与文件上传走代理
-        - 主页置顶专辑墙：长按编辑、2~6 列、双击循环播放
-        - 登录态精简为 MUSIC_U 三键：粘贴完整 Cookie 或单个 MUSIC_U 均可
-        - 私信列表下拉刷新；五处 tab 统一跟手滑动
-        - 修复最近播放歌单 tab 空列表、NCBL 闪退（.so 未打包）等若干 bug
+        - 一起听（Listen Together）：播放页三点菜单进房，成员播放同步，进房自动展开全屏播放器
+        - 私信里收到一起听链接渲染成可点进房卡片；分享改为复制链接 + 系统分享
+        - 我的页点昵称即可编辑昵称 / 签名
+        - 启动图标更新为红色 J 形
     steps:
       # 拉取仓库
       - name: Checkout repository
