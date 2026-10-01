@@ -48,7 +48,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.jussicodes.music.playback.ListenTogetherSession
-import com.jussicodes.music.ui.icons.Copy
 import com.jussicodes.music.ui.icons.Crown
 import com.jussicodes.music.ui.icons.Users
 
@@ -233,12 +232,6 @@ fun ListenTogetherSheet(
                                 TextButton(
                                     onClick = { copyText(room.id, "房间号已复制", context) }
                                 ) {
-                                    Icon(
-                                        imageVector = Copy,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
                                     Text(
                                         text = "复制",
                                         style = MaterialTheme.typography.labelMedium
@@ -260,12 +253,6 @@ fun ListenTogetherSheet(
                                     TextButton(
                                         onClick = { copyText(url, "邀请链接已复制", context) }
                                     ) {
-                                        Icon(
-                                            imageVector = Copy,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = "复制",
                                             style = MaterialTheme.typography.labelMedium
