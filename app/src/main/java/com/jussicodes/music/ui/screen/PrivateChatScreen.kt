@@ -382,7 +382,14 @@ private fun ChatBubble(
     val showGeneralCard = general != null &&
         (general.jStr("title").orEmpty().isNotBlank() || general.jStr("cover").orEmpty().isNotBlank())
     // 正文兜底：msg 文本为空时用 generalMsg.inboxBriefContent（"一起听"邀请的文案）
-    val textBody = body.ifBlank { general?.jStr("inboxBriefContent").orEmpty() }
+    val rawTextBody = body.ifBlank { general?.jStr("inboxBriefContent").orEmpty() }
+    // NCM 对"一起听结束总结"等富卡片只在接口回占位文案（正文在 App 内才看得到），
+    // 私信页拿不到真内容——把它替换成明确语义的提示，避免渲染成一句"不支持展示"占位。
+    val textBody = if (rawTextBody == "不支持展示该内容，请前往移动端查看") {
+        "一起听报告 暂不支持"
+    } else {
+        rawTextBody
+    }
 
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
