@@ -152,6 +152,28 @@ val EAPI_USER_UPDATE_PROFILE: Map<String, Any> = mapOf(
     "synthesizedCookie" to true,
 )
 
+/**
+ * 一起听 eapi 桌面 profile（对齐 MeiloX NeteaseInterceptor.EAPI_CONFIG：os=pc 桌面客户端
+ * + interface 域 + NeteaseMusicDesktop UA + 合成 cookie）。
+ * 一起听共享队列 REPLACE 写（/sync/list/command/report）在移动信封下被 NCM 静默拒
+ * （result=false，而 play/command 仍 true）；MeiloX 桌面信封全通。
+ * synthesizedCookie=true：Cookie 头与加密 header 同源（12 字段排序），避免
+ * 「完整登录 cookie os=android 与 header os=pc 矛盾 → 静默丢弃」的打卡同坑。
+ */
+val EAPI_LISTEN_TOGETHER_PROFILE: Map<String, Any> = mapOf(
+    "os" to "pc",
+    "osver" to "Microsoft-Windows-10-Professional-build-22631-64bit",
+    "appver" to "3.0.18.203152",
+    "channel" to "netease",
+    "versioncode" to "6006066",
+    "mobilename" to "Mi+A3",
+    "resolution" to "2268x1080",
+    "userAgent" to "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Safari/537.36 Chrome/91.0.4472.164 NeteaseMusicDesktop/3.0.18.203152",
+    "domain" to "https://interface.music.163.com",
+    "synthesizedCookie" to true,
+)
+
 @PublishedApi
 internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
     fun req(key: String): Any = requireNotNull(p[key]) { "Missing $key for $path" }
@@ -169,6 +191,9 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
     // 用户资料修改：eapi + 合成 cookie profile（移动端参数，interfacepc 域）。
     fun eapiUserUpdate(uri: String, data: Map<String, Any> = emptyMap()) =
         Route(uri, data, Encryption.EAPI, eapiProfile = EAPI_USER_UPDATE_PROFILE)
+    // 一起听：eapi + 桌面 pc 信封（对齐 MeiloX EAPI_CONFIG：interface 域 + 桌面 UA + 合成 cookie）。
+    fun eapiListenTogether(uri: String, data: Map<String, Any> = emptyMap()) =
+        Route(uri, data, Encryption.EAPI, eapiProfile = EAPI_LISTEN_TOGETHER_PROFILE)
 
     val commentTypePrefix = when (int("type", 0)) {
         0 -> "R_SO_4_"
@@ -542,15 +567,15 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
         // 一起听（listen together）：状态读走 weapi，房间写 / 同步 / 心跳走 eapi（对齐 MeiloX 通道选择）。
         // 上游路径逐条对齐 api-enhanced 代理 module/listentogether_*.js（heartbeat 拼写为 NCM 原样 /heartbeat）。
         "/listen/together/status" -> weapi("/api/listen/together/status/get", emptyMap())
-        "/listen/together/room/create" -> eapi(
+        "/listen/together/room/create" -> eapiListenTogether(
             "/api/listen/together/room/create",
             mapOf("refer" to str("refer").ifBlank { "songplay_more" })
         )
-        "/listen/together/room/check" -> eapi(
+        "/listen/together/room/check" -> eapiListenTogether(
             "/api/listen/together/room/check",
             mapOf("roomId" to req("roomId"))
         )
-        "/listen/together/invitation/accept" -> eapi(
+        "/listen/together/invitation/accept" -> eapiListenTogether(
             "/api/listen/together/play/invitation/accept",
             mapOf(
                 "refer" to str("refer").ifBlank { "inbox_invite" },
@@ -558,19 +583,19 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
                 "inviterId" to req("inviterId")
             )
         )
-        "/listen/together/play/command" -> eapi(
+        "/listen/together/play/command" -> eapiListenTogether(
             "/api/listen/together/play/command/report",
             mapOf("roomId" to req("roomId"), "commandInfo" to req("commandInfo"))
         )
-        "/listen/together/sync/playlist" -> eapi(
+        "/listen/together/sync/playlist" -> eapiListenTogether(
             "/api/listen/together/sync/playlist/get",
             mapOf("roomId" to req("roomId"))
         )
-        "/listen/together/sync/list" -> eapi(
+        "/listen/together/sync/list" -> eapiListenTogether(
             "/api/listen/together/sync/list/command/report",
             mapOf("roomId" to req("roomId"), "playlistParam" to req("playlistParam"))
         )
-        "/listen/together/heartbeat" -> eapi(
+        "/listen/together/heartbeat" -> eapiListenTogether(
             "/api/listen/together/heartbeat",
             mapOf(
                 "roomId" to req("roomId"),
@@ -579,7 +604,7 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
                 "progress" to req("progress")
             )
         )
-        "/listen/together/end" -> eapi(
+        "/listen/together/end" -> eapiListenTogether(
             "/api/listen/together/end/v2",
             mapOf("roomId" to req("roomId"))
         )
@@ -631,7 +656,10 @@ internal suspend fun send(route: Route): String {
         put("os", profile?.get("os")?.toString() ?: osValue)
         put("appver", profile?.get("appver")?.toString() ?: cookie["appver"] ?: "9.4.32.251222163637")
         put("versioncode", profile?.get("versioncode")?.toString() ?: cookie["versioncode"] ?: "6006066")
-        if (!isHistoryProfile) put("mobilename", cookie["mobilename"] ?: "")
+        if (!isHistoryProfile) {
+            // 一起听桌面 profile 带 mobilename（对齐 MeiloX EAPI_CONFIG）；否则移动端默认。
+            put("mobilename", profile?.get("mobilename")?.toString() ?: cookie["mobilename"] ?: "")
+        }
         put("buildver", (System.currentTimeMillis() / 1000).toString())
         put("resolution", profile?.get("resolution")?.toString() ?: cookie["resolution"] ?: "2268x1080")
         put("channel", profile?.get("channel")?.toString() ?: cookie["channel"] ?: "xiaomi")
@@ -653,7 +681,7 @@ internal suspend fun send(route: Route): String {
 
     val rest = route.uri.removePrefix("/api/")
     val targetDomain = when {
-        isHistoryProfile -> profile["domain"].toString()
+        profile?.get("domain") != null -> profile["domain"].toString()
         route.encryption == Encryption.WEAPI -> NCM_WEB_DOMAIN
         else -> NCM_API_DOMAIN
     }
@@ -681,7 +709,12 @@ internal suspend fun send(route: Route): String {
     val response = apiClient.request(url) {
         method = HttpMethod.Post
         contentType(ContentType.Application.FormUrlEncoded)
-        header("User-Agent", if (isHistoryProfile) NCM_OSX_UA else NCM_MOBILE_UA)
+        val ua = profile?.get("userAgent")?.toString()
+            ?: when {
+                isHistoryProfile -> NCM_OSX_UA
+                else -> NCM_MOBILE_UA
+            }
+        header("User-Agent", ua)
         if (route.encryption == Encryption.WEAPI) {
             header("Referer", NCM_WEB_DOMAIN)
         }
