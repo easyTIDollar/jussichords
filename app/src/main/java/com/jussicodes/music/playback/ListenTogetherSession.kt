@@ -160,7 +160,7 @@ object ListenTogetherSession : Player.Listener {
                 establish(room)
                 Log.d(TAG, "create ok roomId=${room.id} isHost=${_state.value.isHost} localUid=$localUid")
                 reportPlaylist()
-                reportCommand("GOTO", songId, songId)
+                reportCommand("GOTO", songId, songId, player?.playWhenReady ?: true)
                 sendHeartbeat()
                 startMonitoring()
                 _state.value = _state.value.copy(isLoading = false)
@@ -464,15 +464,17 @@ object ListenTogetherSession : Player.Listener {
     private fun currentSongId(): Long? =
         player?.currentMediaItem?.mediaId?.toLongOrNull()?.takeIf { it > 0L }
 
-    private suspend fun reportCommand(commandType: String, formerId: Long, targetId: Long) {
+    private suspend fun reportCommand(commandType: String, formerId: Long, targetId: Long, isPlaying: Boolean) {
         val room = _state.value.room ?: return
         val activePlayer = player ?: return
         val target = if (targetId > 0L) targetId else currentSongId() ?: return
         val seq = ++clientSeq
         val progress = activePlayer.currentPosition.coerceAtLeast(0L)
-        // MeiloX 原样：formerSongId 所有命令类型都发，缺失兜底 -1。
+        // formerSongId 所有命令类型都发，缺失兜底 -1。
         val formerValue = formerId.takeIf { it > 0L } ?: -1L
-        val playStatusValue = if (activePlayer.isPlaying) "\"PLAY\"" else "\"PAUSE\""
+        // isPlaying 由调用方在回调当下捕获（playWhenReady 表示播放意图）；
+        // 协程不再延迟读 activePlayer.isPlaying（切歌 buffering 态会误判 PAUSE）。
+        val playStatusValue = if (isPlaying) "\"PLAY\"" else "\"PAUSE\""
         val info = "{" +
             "\"commandType\":\"$commandType\"," +
             "\"progress\":$progress," +
@@ -503,11 +505,13 @@ object ListenTogetherSession : Player.Listener {
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         val target = mediaItem?.mediaId?.toLongOrNull() ?: 0L
+        val pwReady = player?.playWhenReady ?: true
         if (shouldReport() && target > 0L) {
-            scope.launch { reportCommand("GOTO", formerSongId, target) }
+            // 切歌时串行化：抑制窗口 1s 挡住并发的 PROGRESS 与 GOTO 竞争同一 seq。
+            suppressReportsUntilMs = SystemClock.elapsedRealtime() + 1_000
+            scope.launch { reportCommand("GOTO", formerSongId, target, pwReady) }
         }
         formerSongId = target
-        // MeiloX 原样：切歌后刷新邀请链接里的 songId。
         updateInviteUrl()
     }
 
@@ -517,7 +521,7 @@ object ListenTogetherSession : Player.Listener {
         if (!playWhenReady && activePlayer.playbackState == Player.STATE_BUFFERING) return
         val target = currentSongId() ?: return
         scope.launch {
-            reportCommand(if (playWhenReady) "PLAY" else "PAUSE", target, target)
+            reportCommand(if (playWhenReady) "PLAY" else "PAUSE", target, target, playWhenReady)
         }
     }
 
@@ -528,7 +532,8 @@ object ListenTogetherSession : Player.Listener {
     ) {
         if (reason != Player.DISCONTINUITY_REASON_SEEK || !shouldReport()) return
         val target = currentSongId() ?: return
-        scope.launch { reportCommand("PROGRESS", target, target) }
+        val pwReady = player?.playWhenReady ?: true
+        scope.launch { reportCommand("PROGRESS", target, target, pwReady) }
     }
 
     override fun onTimelineChanged(timeline: Timeline, reason: Int) {
