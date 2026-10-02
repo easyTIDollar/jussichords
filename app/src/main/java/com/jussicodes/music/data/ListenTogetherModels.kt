@@ -116,6 +116,13 @@ object ListenTogetherApi {
         return o["code"]?.let { if (it is JsonPrimitive) it.content else it.toString() }
     }
 
+    /** 取 data.result 布尔（sync/list REPLACE 是否被受理）；缺失返回 "-"。 */
+    private fun resultFlag(el: JsonElement?): String {
+        val r = ((el as? JsonObject)?.get("data") as? JsonObject)?.get("result")
+            ?: return "-"
+        return if (r is JsonPrimitive) r.content else r.toString()
+    }
+
     suspend fun status(): Result<LTStatus> =
         apiGet<JsonElement>("/listen/together/status", emptyMap()).map { el ->
             Log.d(TAG, "status resp code=${respCode(el)} raw=${el.toString().take(400)}")
@@ -175,23 +182,31 @@ object ListenTogetherApi {
             snap
         }
 
-    /** 上报队列（REPLACE）。 */
-    suspend fun reportPlaylist(roomId: String, userId: Long, version: Long, songIds: List<Long>): Result<Unit> =
-        apiGet<JsonElement>(
-            "/listen/together/sync/list",
-            mapOf(
-                "roomId" to roomId,
-                "playlistParam" to buildString {
-                    append("{\"commandType\":\"REPLACE\",\"version\":[")
-                    append("{\"userId\":").append(userId).append(",\"version\":").append(version).append("]")
-                    append(",\"anchorSongId\":\"\",\"anchorPosition\":-1")
-                    append(",\"randomList\":[").append(songIds.joinToString(",")).append("]")
-                    append(",\"displayList\":[").append(songIds.joinToString(",")).append("]}")
-                }
-            )
-        ).map { el ->
-            Log.d(TAG, "reportPlaylist roomId=$roomId userId=$userId version=$version ids=${songIds.size} resp code=${respCode(el)} raw=${el.toString().take(300)}")
+    /**
+     * 上报队列（REPLACE）。randomList/displayList 用**字符串数组**（对齐 MeiloX
+     * reportListenTogetherPlaylist 与 api-enhanced 权威拼参：split(',') 后
+     * JSON.stringify → ["123","456"]，不是数字数组——NCM 按类型校验，数字数组被拒 result:false）。
+     */
+    suspend fun reportPlaylist(
+        roomId: String,
+        userId: Long,
+        version: Long,
+        songIds: List<Long>
+    ): Result<Unit> {
+        val playlistParam = buildString {
+            append("{\"commandType\":\"REPLACE\",\"version\":[")
+            append("{\"userId\":").append(userId).append(",\"version\":").append(version).append("]")
+            append(",\"anchorSongId\":\"\",\"anchorPosition\":-1")
+            append(",\"randomList\":[").append(songIds.joinToString(",") { "\"$it\"" }).append("]")
+            append(",\"displayList\":[").append(songIds.joinToString(",") { "\"$it\"" }).append("]}")
         }
+        return apiGet<JsonElement>(
+            "/listen/together/sync/list",
+            mapOf("roomId" to roomId, "playlistParam" to playlistParam)
+        ).map { el ->
+            Log.d(TAG, "reportPlaylist roomId=$roomId userId=$userId version=$version ids=${songIds.size} resp code=${respCode(el)} result=${el.resultFlag()} param=${playlistParam.take(400)}")
+        }
+    }
 
     /** 心跳，返回 NCM 建议的下次间隔（秒）。缺失回落 30。 */
     suspend fun heartbeat(roomId: String, songId: Long, isPlaying: Boolean, progressMs: Long): Int {
