@@ -83,13 +83,14 @@ private const val LT_URS_APPID =
 private const val LT_CSRF = "40ab38f0a305fc4c7ff68e636bcf34aa"
 
 // 一起听 eapi 写：MeiloX 风格设备指纹（进程内稳定，对齐 MeiloX interceptor 的 cachedNuid/Nmtid/Wnmcid）。
-private val ltAlnum: String = ('a'..'z').joinToString("") + ('A'..'Z').joinToString("") + ('0'..'9').joinToString("")
-private val LT_NUID: String = (1..32).joinToString("") { ltAlnum.randomAt() }
-private val LT_NMTID: String = (1..16).joinToString("") { ltAlnum.randomAt() }
+private val ltAlnum: String = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+private val ltRnd = java.util.Random()
+private fun randomAlnumString(n: Int): String =
+    (1..n).map { ltAlnum[ltRnd.nextInt(ltAlnum.length)] }.joinToString("")
+private val LT_NUID: String = randomAlnumString(32)
+private val LT_NMTID: String = randomAlnumString(16)
 private val LT_WNMCID: String =
-    "abcdefghijklmnopqrstuvwxyz".let { chars -> (1..6).map { chars.randomAt() }.joinToString("") } +
-        ".${System.currentTimeMillis()}.01.0"
-private fun String.randomAt(): Char = this[indices.random()]
+    randomAlnumString(6).lowercase() + ".${System.currentTimeMillis()}.01.0"
 
 // 一起听 eapi 写：随机国内 IP（X-Real-IP / X-Forwarded-For），照抄 MeiloX ChineseIpUtils 的段表与加权选择。
 private val ltChinaRangesRaw: List<Array<String>> = listOf(
