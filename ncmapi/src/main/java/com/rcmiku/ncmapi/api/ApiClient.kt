@@ -72,6 +72,27 @@ internal const val NCM_OSX_UA =
 // eapi 播放历史上报专用域（对齐 MeiloX：interface 域 + osx 桌面 profile）。
 internal const val NCM_EAPI_HISTORY_DOMAIN = "https://interface.music.163.com"
 
+// 一起听 eapi 设备身份 cookie（逐字对齐 MeiloX NeteaseInterceptor 非播放历史的
+// buildCookieString(cookieMap)：os/appver/osver/channel/versioncode/mobilename/buildver/
+// resolution + deviceId/sDeviceId + ntes_kaola_ad/_ntes_nuid/WNMCID/URS_APPID/WEVNSM/
+// __csrf/NMDI/NMTID + MUSIC_U，共 19 字段；明文值、插入序，不做 URL-encode）。
+// 官方客户端指纹常量（MeiloX 抓包值，逐字照抄）：
+private const val LT_NMDI =
+    "Q1NKTQkBDAAMIEF4coQMHcb6TLA7AAAAciOiJ%2F%2FOO4VQ7m%2FLvLJ1pD9CIsJP5mfzI4SusB%2BaNScGLpThEYBcPxGzj0pL5hLdZ7LqB2UVULdYgc0%3D"
+private const val LT_URS_APPID =
+    "F2219AE9D7828A7D73E2006D000C61031D196A37DB497E3885B8298504867886B6F0E44087D61EFC06BE92279CD6EEC6"
+// MeiloX 一起听 eapi 的 __csrf 为硬编码常量（header 与 cookie 同源），不用登录 cookie 里的。
+private const val LT_CSRF = "40ab38f0a305fc4c7ff68e636bcf34aa"
+
+// 会话级缓存（MeiloX 同形：app 生命周期 lazy 一次，会话内保持稳定）。
+private fun alnumKey(n: Int): String =
+    (1..n).map { (('a'..'z') + ('A'..'Z') + ('0'..'9')).random() }.joinToString("")
+private val LT_NUID = alnumKey(32)
+private val LT_NMTID = alnumKey(16)
+private val LT_WNMCID =
+    (1..6).joinToString("") { "abcdefghijklmnopqrstuvwxyz".random() } +
+        ".${System.currentTimeMillis()}.01.0"
+
 val apiClient = HttpClient(OkHttp) {
     install(Logging) {
         logger = object : Logger {
@@ -171,7 +192,9 @@ val EAPI_LISTEN_TOGETHER_PROFILE: Map<String, Any> = mapOf(
     "userAgent" to "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) " +
         "Safari/537.36 Chrome/91.0.4472.164 NeteaseMusicDesktop/3.0.18.203152",
     "domain" to "https://interface.music.163.com",
-    "synthesizedCookie" to true,
+    // MeiloX 同款 19 字段设备身份 cookie（NMDI/URS_APPID/WNMCID/NMTID/_ntes_nuid 等），
+    // 与加密 header 同源（__csrf 同用常量）。风控对共享队列写校验的是这组身份字段。
+    "ltDeviceCookie" to true,
 )
 
 @PublishedApi
@@ -644,6 +667,9 @@ internal suspend fun send(route: Route): String {
     // 仅「播放历史 osx profile」(os=osx) 走 osx 域/UA/空 csrf/去 mobilename。
     // 其余 eapi profile（如用户资料修改）保持移动端默认，只借用「合成 cookie」行为。
     val isHistoryProfile = profile?.get("os")?.toString() == "osx"
+    // 一起听 eapi 的 MeiloX 同款 19 字段设备身份 cookie（NMDI/URS_APPID/WNMCID/NMTID/
+    // _ntes_nuid/sDeviceId/WEVNSM/ntes_kaola_ad/__csrf=常量，与加密 header 同源）。
+    val isLtProfile = profile?.get("ltDeviceCookie") == true
     // 合成 cookie（对齐代理 createHeaderCookie）：播放历史 + 用户资料修改都发它，
     // 完整登录 cookie 只在普通 eapi/weapi 读接口用。eapi 写接口发完整登录 cookie 会被 NCM 403。
     val synthesizedCookie = isHistoryProfile || profile?.get("synthesizedCookie") == true
@@ -664,7 +690,11 @@ internal suspend fun send(route: Route): String {
         put("resolution", profile?.get("resolution")?.toString() ?: cookie["resolution"] ?: "2268x1080")
         put("channel", profile?.get("channel")?.toString() ?: cookie["channel"] ?: "xiaomi")
         put("requestId", "${System.currentTimeMillis()}_${(0..9999).random()}")
-        put("__csrf", if (isHistoryProfile) "" else csrf)
+        put("__csrf", when {
+            isHistoryProfile -> ""
+            isLtProfile -> LT_CSRF
+            else -> csrf
+        })
         if (musicU != null) put("MUSIC_U", musicU)
     }
 
@@ -695,12 +725,38 @@ internal suspend fun send(route: Route): String {
     //   保证匿名读接口（toplist / 搜索等）也能握手成功。
     // - 播放历史 + 用户资料修改（synthesizedCookie）：对齐代理 createHeaderCookie 发「合成 cookie」
     //   （header 字段 URL-encode、按 key 排序）。eapi 写接口发完整登录 cookie 会被 NCM 403 静默丢弃。
-    val cookieHeader = if (synthesizedCookie) {
-        header.entries
+    val cookieHeader = when {
+        isLtProfile -> {
+            // 逐字对齐 MeiloX NeteaseInterceptor.buildCookieString(cookieMap)（插入序、明文值、
+            // 不做 URL-encode）：基础 8 + 身份/设备字段 + MUSIC_U。与加密 header 同源（同 os/
+            // appver 桌面参数、同 __csrf 常量），避免「cookie os 与 header os 矛盾→静默丢弃」。
+            val cfg = profile!!
+            buildMap {
+                put("os", cfg["os"].toString())
+                put("appver", cfg["appver"].toString())
+                put("osver", cfg["osver"].toString())
+                put("channel", cfg["channel"].toString())
+                put("versioncode", cfg["versioncode"].toString())
+                put("mobilename", cfg["mobilename"].toString())
+                put("buildver", (System.currentTimeMillis() / 1000).toString())
+                put("resolution", cfg["resolution"].toString())
+                put("deviceId", cookie["deviceId"] ?: anonymousDeviceId)
+                put("sDeviceId", cookie["deviceId"] ?: anonymousDeviceId)
+                put("ntes_kaola_ad", "1")
+                put("_ntes_nuid", LT_NUID)
+                put("WNMCID", LT_WNMCID)
+                put("URS_APPID", LT_URS_APPID)
+                put("WEVNSM", "1.0.0")
+                put("__csrf", LT_CSRF)
+                put("NMDI", LT_NMDI)
+                put("NMTID", LT_NMTID)
+                musicU?.let { put("MUSIC_U", it) }
+            }.entries.joinToString("; ") { (k, v) -> "$k=$v" }
+        }
+        synthesizedCookie -> header.entries
             .sortedBy { it.key }
             .joinToString("; ") { (k, v) -> "${encodeCookieComponent(k)}=${encodeCookieComponent(v.toString())}" }
-    } else {
-        buildMap {
+        else -> buildMap {
             putAll(cookie)
             if (cookie["deviceId"] == null) put("deviceId", anonymousDeviceId)
         }.entries.joinToString("; ") { (k, v) -> "$k=$v" }
