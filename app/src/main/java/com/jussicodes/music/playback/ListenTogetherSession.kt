@@ -2,6 +2,7 @@ package com.jussicodes.music.playback
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
@@ -13,6 +14,7 @@ import com.jussicodes.music.data.LTSnapshot
 import com.jussicodes.music.data.buildListenTogetherInviteUrl
 import com.jussicodes.music.data.parseListenTogetherInvitation
 import com.jussicodes.music.extensions.toMediaItemList
+import com.jussicodes.music.utils.PlayerExpandBus
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.utils.CookieProvider
@@ -38,9 +40,10 @@ import kotlinx.coroutines.launch
  *   用「列表签名 + 命令签名」diff，没变化不动播放器；
  * - 本地播放事件（切歌/播放/暂停/拖动/队列变更）带单调递增 clientSeq 上报，
  *   远端命令带 serverSeq，双序号去重排序；
- * - 应用远端状态时置 [applyingRemote] + 1.5s 抑制窗口，防止「应用别人切歌 →
+ * - 应用远端状态时置 [applyingRemote] + 1s 抑制窗口，防止「应用别人切歌 →
  *   触发本地回调 → 又报回去」的回环；
- * - 心跳（/heartbeat）按 NCM 返回的 timeSpan 间隔发送，防止单人群 NCM 自动回收房间。
+ * - 心跳（/heartbeat）随 1s 监控循环每 5 个 tick（tick==1 || tick%5==0）发一次，
+ *   房间状态每 5 tick 复检一次（对齐 MeiloX；timeSpan 仍随响应解析但不再驱动间隔）。
  */
 @OptIn(UnstableApi::class)
 object ListenTogetherSession : Player.Listener {
@@ -57,6 +60,8 @@ object ListenTogetherSession : Player.Listener {
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    private const val TAG = "LT-Debug"
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -76,10 +81,6 @@ object ListenTogetherSession : Player.Listener {
     private var applyingRemote = false
     @Volatile
     private var suppressReportsUntilMs = 0L
-    @Volatile
-    private var lastHeartbeatAt = 0L
-    @Volatile
-    private var heartbeatSpanSec = 30
     private var lastPlaylistSig: String? = null
     private var lastCommandSig: String? = null
     private var consecutiveFailures = 0
@@ -95,20 +96,19 @@ object ListenTogetherSession : Player.Listener {
         appContext = context.applicationContext
         value.addListener(this)
         formerSongId = currentSongId() ?: 0L
-        if (CookieProvider.isLoggedIn()) refresh()
+        // MeiloX 原样：attach 时无条件 refresh()（不按登录态 gating）。
+        refresh()
     }
 
-    fun detach() {
-        player?.removeListener(this)
+    // MeiloX detachPlayer 原样：只摘该播放器监听 + 停监控；房间/序号/本地 uid 保留，
+    // 下次 attach 由 refresh() 重新对账。残留的 playlistReportJob 到期会因 player==null 直接 return。
+    fun detach(value: Player) {
+        if (player !== value) return
+        value.removeListener(this)
         player = null
         appContext = null
         monitorJob?.cancel()
         monitorJob = null
-        playlistReportJob?.cancel()
-        playlistReportJob = null
-        clientSeq = 0L
-        localUid = 0L
-        _state.value = _state.value.copy(room = null, reconnecting = false)
     }
 
     // ------------------------------------------------------------------
@@ -120,15 +120,16 @@ object ListenTogetherSession : Player.Listener {
         actionJob = scope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null)
             try {
-                val status = ListenTogetherApi.status().getOrNull()
-                val room = status?.room
-                if (status?.inRoom != true || room == null) {
+                // MeiloX 原样：status/snapshot 拉取失败不当「不在房」清会话，直接抛给 catch → error。
+                val status = ListenTogetherApi.status().getOrThrow()
+                val room = status.room
+                if (status.inRoom != true || room == null) {
                     clearSession()
                 } else {
                     loadLocalUid()
                     establish(room)
-                    val snapshot = ListenTogetherApi.snapshot(room.id).getOrNull()
-                    if (snapshot != null) applyRemote(snapshot, initial = true)
+                    val snapshot = ListenTogetherApi.snapshot(room.id).getOrThrow()
+                    applyRemote(snapshot, initial = true)
                     sendHeartbeat()
                     startMonitoring()
                 }
@@ -157,8 +158,9 @@ object ListenTogetherSession : Player.Listener {
                 val room = ListenTogetherApi.create().getOrThrow()
                 loadLocalUid()
                 establish(room)
+                Log.d(TAG, "create ok roomId=${room.id} isHost=${_state.value.isHost} localUid=$localUid")
                 reportPlaylist()
-                reportCommand("GOTO", songId, songId)
+                reportCommand("GOTO", songId, songId, player?.playWhenReady ?: true)
                 sendHeartbeat()
                 startMonitoring()
                 _state.value = _state.value.copy(isLoading = false)
@@ -188,10 +190,14 @@ object ListenTogetherSession : Player.Listener {
                 val room = ListenTogetherApi.accept(roomId, inviterId).getOrThrow()
                 loadLocalUid()
                 establish(room)
-                val snapshot = ListenTogetherApi.snapshot(room.id).getOrNull()
-                if (snapshot != null) applyRemote(snapshot, initial = true)
+                Log.d(TAG, "join ok roomId=${room.id} inviterId=$inviterId isHost=${_state.value.isHost} localUid=$localUid")
+                // MeiloX 原样：初始同步失败直接抛 → 下方 catch 置 error（不进监测，不展开播放页）。
+                applyRemote(ListenTogetherApi.snapshot(room.id).getOrThrow(), initial = true)
                 sendHeartbeat()
                 startMonitoring()
+                // 接收端进房成功：自动展开全屏播放界面，落到 host 当前那首歌。
+                // host（自己重进自己的房间）不展开，保持现状。
+                if (!_state.value.isHost) PlayerExpandBus.expand()
                 _state.value = _state.value.copy(isLoading = false)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
@@ -212,9 +218,18 @@ object ListenTogetherSession : Player.Listener {
         val room = ListenTogetherApi.accept(roomId, inviterId).getOrNull() ?: return false
         loadLocalUid()
         establish(room)
-        val snapshot = ListenTogetherApi.snapshot(room.id).getOrNull()
-        if (snapshot != null) applyRemote(snapshot, initial = true)
-        sendHeartbeat()
+        Log.d(TAG, "joinCard ok roomId=${room.id} inviterId=$inviterId isHost=${_state.value.isHost} localUid=$localUid")
+        val snapshot = runCatching { ListenTogetherApi.snapshot(room.id).getOrThrow() }
+            .getOrNull()
+        // applyRemote 现在会抛（targetId 缺失 / 目标不在列表 / 分片拉详情失败）：失败不 crash 进房流程，
+        // 置 reconnecting 交给监控循环计数，随后 startMonitoring 的每 tick 快照会继续重试同步。
+        if (snapshot != null) {
+            runCatching { applyRemote(snapshot, initial = true) }
+                .onFailure { _state.value = _state.value.copy(reconnecting = true) }
+        }
+        // 初始心跳失败不阻断进房：置 reconnecting，交给监控循环的 catch 计数。
+        runCatching { sendHeartbeat() }
+            .onFailure { _state.value = _state.value.copy(reconnecting = true) }
         startMonitoring()
         _state.value = _state.value.copy(isLoading = false)
         return true
@@ -257,10 +272,11 @@ object ListenTogetherSession : Player.Listener {
         _state.value = UiState(
             room = room,
             isHost = room.creatorId == localUid,
+            // MeiloX buildInvitationUrl 原样：无歌可播 / 取不到 inviter 时 inviteUrl 为 null。
             inviteUrl = buildListenTogetherInviteUrl(
                 roomId = room.id,
                 inviterId = localUid.takeIf { it > 0 } ?: room.creatorId,
-                songId = currentSongId() ?: 0L
+                songId = currentSongId()
             ),
             lastSyncMs = System.currentTimeMillis()
         )
@@ -288,18 +304,18 @@ object ListenTogetherSession : Player.Listener {
                 tick++
                 try {
                     val room = _state.value.room ?: break
-                    val snapshot = ListenTogetherApi.snapshot(room.id).getOrNull()
-                    if (snapshot != null) applyRemote(snapshot, initial = tick == 1)
+                    // MeiloX 原样：快照拉取失败直接抛 → catch 计数（连 2 次置 Reconnecting），
+                    // 不再 getOrNull 静默吞掉。
+                    val snapshot = ListenTogetherApi.snapshot(room.id).getOrThrow()
+                    applyRemote(snapshot, initial = tick == 1)
 
-                    if (SystemClock.elapsedRealtime() - lastHeartbeatAt >= heartbeatSpanSec * 1000L) {
+                    // MeiloX 原样：每 5 tick（5s）同时复检房间状态 + 发心跳，失败同样抛给 catch 计数。
+                    if (tick == 1 || tick % 5 == 0) {
+                        refreshRoomStatus()
                         sendHeartbeat()
                     }
-                    if (tick % 10 == 0) refreshRoomStatus()
 
                     consecutiveFailures = 0
-                    if (_state.value.reconnecting) {
-                        _state.value = _state.value.copy(reconnecting = false)
-                    }
                     _state.value = _state.value.copy(
                         lastSyncMs = System.currentTimeMillis(),
                         reconnecting = false
@@ -316,9 +332,22 @@ object ListenTogetherSession : Player.Listener {
         }
     }
 
+    private fun updateInviteUrl() {
+        val room = _state.value.room ?: return
+        // MeiloX updateInvitationUrl 原样：无歌时 buildInvitationUrl 返回 null，inviteUrl 随之清空。
+        _state.value = _state.value.copy(
+            inviteUrl = buildListenTogetherInviteUrl(
+                roomId = room.id,
+                inviterId = localUid.takeIf { it > 0 } ?: room.creatorId,
+                songId = currentSongId()
+            )
+        )
+    }
+
     private suspend fun refreshRoomStatus() {
         val expected = _state.value.room ?: return
-        val status = ListenTogetherApi.status().getOrNull() ?: return
+        // MeiloX 原样：status 拉取失败直接抛 → 监控循环 catch 计数（连 2 次置 Reconnecting）。
+        val status = ListenTogetherApi.status().getOrThrow()
         if (status.inRoom != true || status.room == null) {
             clearSession("房间已结束")
             return
@@ -327,7 +356,16 @@ object ListenTogetherSession : Player.Listener {
             clearSession("你已在另一个一起听房间")
             return
         }
-        _state.value = _state.value.copy(room = status.room)
+        // MeiloX 原样：复检时同步刷新 isHost 判定与 inviteUrl（无歌时 inviteUrl 为 null）。
+        _state.value = _state.value.copy(
+            room = status.room,
+            isHost = status.room.creatorId == localUid,
+            inviteUrl = buildListenTogetherInviteUrl(
+                roomId = status.room.id,
+                inviterId = localUid.takeIf { it > 0 } ?: status.room.creatorId,
+                songId = currentSongId()
+            )
+        )
     }
 
     /** 应用远端快照（签名 diff：列表/命令都没变则直接返回，不动播放器）。 */
@@ -344,29 +382,38 @@ object ListenTogetherSession : Player.Listener {
         val localIds = (0 until activePlayer.mediaItemCount)
             .mapNotNull { activePlayer.getMediaItemAt(it).mediaId.toLongOrNull() }
         val songIds = snapshot.songIds.ifEmpty { localIds }
+        // MeiloX 原样：三处 fallback 全空 → 房间无有效播放状态，抛（监控循环 catch 计数）。
         val targetId = snapshot.targetSongId
             ?: currentSongId()
             ?: songIds.firstOrNull()
-            ?: return
+            ?: error("房间无可同步的播放状态")
+        Log.d(
+            TAG,
+            "applyRemote roomId=${room.id} initial=$initial playlistChanged=$playlistChanged " +
+                "commandChanged=$commandChanged remoteTarget=${snapshot.targetSongId} " +
+                "fallbackTarget=$targetId (fromRemote=${snapshot.targetSongId != null}) " +
+                "localCur=${currentSongId()} localCount=${localIds.size} remoteCount=${songIds.size}"
+        )
         val completeIds = if (targetId in songIds) songIds else songIds + targetId
-        if (completeIds.isEmpty()) return
 
-        val remoteSongs = runCatching {
-            ListenTogetherApi.songsByIds(completeIds).getOrNull()
-        }.getOrNull().orEmpty()
-        val items = completeIds.map { id ->
-            remoteSongs.firstOrNull { it.id == id } ?: Song(id = id, name = "歌曲")
-        }.toMediaItemList(sourceName = "一起听")
-        val targetIndex = items.indexOfFirst { it.mediaId == targetId.toString() }.coerceAtLeast(0)
+        // MeiloX 原样：本地 id 序列与远端一致时直接复用现有 MediaItem，不重拉详情；
+        // 不一致才按 100 条分片拉批量详情，缺详情的歌剔除（不再用占位 Song 兜底）。
+        val items = if (completeIds == localIds) {
+            (0 until activePlayer.mediaItemCount).map { activePlayer.getMediaItemAt(it) }
+        } else {
+            loadMediaItems(completeIds)
+        }
+        val targetIndex = items.indexOfFirst { it.mediaId == targetId.toString() }
+        check(targetIndex >= 0) { "目标歌曲未在播放列表中: $targetId" }
 
         applyingRemote = true
-        suppressReportsUntilMs = SystemClock.elapsedRealtime() + 1500L
+        suppressReportsUntilMs = SystemClock.elapsedRealtime() + 1000L
         try {
             if (completeIds != localIds) {
-                activePlayer.setMediaItems(items, targetIndex, snapshot.progressMs.coerceAtLeast(0L))
+                activePlayer.setMediaItems(items, targetIndex, snapshot.progressMs?.coerceAtLeast(0L) ?: 0L)
                 activePlayer.prepare()
             } else if (initial || commandChanged) {
-                activePlayer.seekTo(targetIndex, snapshot.progressMs.coerceAtLeast(0L))
+                activePlayer.seekTo(targetIndex, snapshot.progressMs?.coerceAtLeast(0L) ?: activePlayer.currentPosition)
             }
             val mode = snapshot.playMode?.uppercase()
             if (mode != null) {
@@ -380,30 +427,29 @@ object ListenTogetherSession : Player.Listener {
         }
         lastPlaylistSig = playlistSig
         lastCommandSig = commandSig
-        _state.value = _state.value.copy(
-            lastSyncMs = System.currentTimeMillis(),
-            inviteUrl = _state.value.inviteUrl
-                ?: buildListenTogetherInviteUrl(room.id, localUid, targetId)
-        )
     }
 
-    /** 按 NCM timeSpan 间隔发心跳，保活房间（单人房 NCM 会回收无心跳房间）。 */
-    private fun sendHeartbeat() {
+    /** MeiloX sendHeartbeat 原样：上报当前歌心跳（Models heartbeat 内部已 getOrThrow+requireOk，失败抛给调用方 catch 计数）；返回的 timeSpan 不再驱动间隔，直接丢弃。 */
+    private suspend fun sendHeartbeat() {
         val room = _state.value.room ?: return
         val activePlayer = player ?: return
         val songId = currentSongId() ?: return
-        scope.launch {
-            val span = runCatching {
-                ListenTogetherApi.heartbeat(
-                    roomId = room.id,
-                    songId = songId,
-                    isPlaying = activePlayer.isPlaying,
-                    progressMs = activePlayer.currentPosition
-                )
-            }.getOrNull()
-            if (span != null) heartbeatSpanSec = span
-            lastHeartbeatAt = SystemClock.elapsedRealtime()
+        ListenTogetherApi.heartbeat(
+            roomId = room.id,
+            songId = songId,
+            isPlaying = activePlayer.isPlaying,
+            progressMs = activePlayer.currentPosition
+        )
+    }
+
+    /** MeiloX loadMediaItems 原样：按 100 条分片拉批量歌曲详情（getOrThrow，任一分片失败整轮中止）；id→Song 保持序，缺详情的歌剔除。 */
+    private suspend fun loadMediaItems(ids: List<Long>): List<MediaItem> {
+        val byId = linkedMapOf<Long, Song>()
+        ids.chunked(100).forEach { page ->
+            ListenTogetherApi.songsByIds(page).getOrThrow()
+                .forEach { byId[it.id] = it }
         }
+        return ids.mapNotNull { id -> byId[id] }.toMediaItemList(sourceName = "一起听")
     }
 
     // ------------------------------------------------------------------
@@ -418,14 +464,17 @@ object ListenTogetherSession : Player.Listener {
     private fun currentSongId(): Long? =
         player?.currentMediaItem?.mediaId?.toLongOrNull()?.takeIf { it > 0L }
 
-    private suspend fun reportCommand(commandType: String, formerId: Long, targetId: Long) {
+    private suspend fun reportCommand(commandType: String, formerId: Long, targetId: Long, isPlaying: Boolean) {
         val room = _state.value.room ?: return
         val activePlayer = player ?: return
         val target = if (targetId > 0L) targetId else currentSongId() ?: return
         val seq = ++clientSeq
         val progress = activePlayer.currentPosition.coerceAtLeast(0L)
-        val formerValue = if (commandType == "GOTO") formerId.takeIf { it > 0L } ?: -1L else -1L
-        val playStatusValue = if (activePlayer.isPlaying) "\"PLAY\"" else "\"PAUSE\""
+        // formerSongId 所有命令类型都发，缺失兜底 -1。
+        val formerValue = formerId.takeIf { it > 0L } ?: -1L
+        // isPlaying 由调用方在回调当下捕获（playWhenReady 表示播放意图）；
+        // 协程不再延迟读 activePlayer.isPlaying（切歌 buffering 态会误判 PAUSE）。
+        val playStatusValue = if (isPlaying) "\"PLAY\"" else "\"PAUSE\""
         val info = "{" +
             "\"commandType\":\"$commandType\"," +
             "\"progress\":$progress," +
@@ -433,7 +482,10 @@ object ListenTogetherSession : Player.Listener {
             "\"formerSongId\":" + formerValue + "," +
             "\"targetSongId\":$target," +
             "\"clientSeq\":$seq}"
-        runCatching { ListenTogetherApi.reportCommand(room.id, info) }
+        // MeiloX 原样：失败真正抛出后 catch → markReconnecting。
+        // 注意：reportCommand 返回 Result（内部 requireOk/网络错都不抛），必须 getOrThrow 把失败
+        // 转成异常，否则 runCatching catch 不到、不会置 reconnecting。
+        runCatching { ListenTogetherApi.reportCommand(room.id, info).getOrThrow() }
             .onFailure { _state.value = _state.value.copy(reconnecting = true) }
     }
 
@@ -442,18 +494,25 @@ object ListenTogetherSession : Player.Listener {
         val activePlayer = player ?: return
         val ids = (0 until activePlayer.mediaItemCount)
             .mapNotNull { activePlayer.getMediaItemAt(it).mediaId.toLongOrNull() }
-        if (ids.isEmpty() || localUid <= 0L) return
+        // MeiloX 原样：队列空 / 账号未读到 → 抛（调用方 catch → markReconnecting）。
+        check(ids.isNotEmpty()) { "请先播放一首歌曲" }
+        check(localUid > 0L) { "当前账号未读取，请重新登录" }
         val version = ++clientSeq
-        runCatching { ListenTogetherApi.reportPlaylist(room.id, localUid, version, ids) }
-            .onFailure { _state.value = _state.value.copy(reconnecting = true) }
+        // MeiloX 原样：API 调用直接抛（不在内部包 runCatching），由调用方处理：
+        // onTimelineChanged → runCatching 置 reconnecting；create → try/catch 中止后续并 error。
+        ListenTogetherApi.reportPlaylist(room.id, localUid, version, ids).getOrThrow()
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         val target = mediaItem?.mediaId?.toLongOrNull() ?: 0L
+        val pwReady = player?.playWhenReady ?: true
         if (shouldReport() && target > 0L) {
-            scope.launch { reportCommand("GOTO", formerSongId, target) }
+            // 切歌时串行化：抑制窗口 1s 挡住并发的 PROGRESS 与 GOTO 竞争同一 seq。
+            suppressReportsUntilMs = SystemClock.elapsedRealtime() + 1_000
+            scope.launch { reportCommand("GOTO", formerSongId, target, pwReady) }
         }
         formerSongId = target
+        updateInviteUrl()
     }
 
     override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -462,7 +521,7 @@ object ListenTogetherSession : Player.Listener {
         if (!playWhenReady && activePlayer.playbackState == Player.STATE_BUFFERING) return
         val target = currentSongId() ?: return
         scope.launch {
-            reportCommand(if (playWhenReady) "PLAY" else "PAUSE", target, target)
+            reportCommand(if (playWhenReady) "PLAY" else "PAUSE", target, target, playWhenReady)
         }
     }
 
@@ -473,15 +532,20 @@ object ListenTogetherSession : Player.Listener {
     ) {
         if (reason != Player.DISCONTINUITY_REASON_SEEK || !shouldReport()) return
         val target = currentSongId() ?: return
-        scope.launch { reportCommand("PROGRESS", target, target) }
+        val pwReady = player?.playWhenReady ?: true
+        scope.launch { reportCommand("PROGRESS", target, target, pwReady) }
     }
 
     override fun onTimelineChanged(timeline: Timeline, reason: Int) {
         if (!shouldReport()) return
         playlistReportJob?.cancel()
+        // MeiloX 原样：reportPlaylist 的 check()/API 失败不 crash，runCatching 置 reconnecting。
         playlistReportJob = scope.launch {
             delay(350)
-            if (shouldReport()) reportPlaylist()
+            if (shouldReport()) {
+                runCatching { reportPlaylist() }
+                    .onFailure { _state.value = _state.value.copy(reconnecting = true) }
+            }
         }
     }
 }

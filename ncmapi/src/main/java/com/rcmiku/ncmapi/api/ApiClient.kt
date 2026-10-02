@@ -72,6 +72,36 @@ internal const val NCM_OSX_UA =
 // eapi 播放历史上报专用域（对齐 MeiloX：interface 域 + osx 桌面 profile）。
 internal const val NCM_EAPI_HISTORY_DOMAIN = "https://interface.music.163.com"
 
+// 一起听 eapi 设备身份 cookie（逐字对齐 MeiloX NeteaseInterceptor 非播放历史的
+// buildCookieString(cookieMap)：os/appver/osver/channel/versioncode/mobilename/buildver/
+// resolution + deviceId/sDeviceId + ntes_kaola_ad/_ntes_nuid/WNMCID/URS_APPID/WEVNSM/
+// __csrf/NMDI/NMTID + MUSIC_U，共 19 字段；明文值、插入序，不做 URL-encode）。
+// 官方客户端指纹常量（MeiloX 抓包值，逐字照抄）：
+private const val LT_NMDI =
+    "Q1NKTQkBDAAMIEF4coQMHcb6TLA7AAAAciOiJ%2F%2FOO4VQ7m%2FLvLJ1pD9CIsJP5mfzI4SusB%2BaNScGLpThEYBcPxGzj0pL5hLdZ7LqB2UVULdYgc0%3D"
+private const val LT_URS_APPID =
+    "F2219AE9D7828A7D73E2006D000C61031D196A37DB497E3885B8298504867886B6F0E44087D61EFC06BE92279CD6EEC6"
+// MeiloX 一起听 eapi 的 __csrf 为硬编码常量（header 与 cookie 同源），不用登录 cookie 里的。
+private const val LT_CSRF = "40ab38f0a305fc4c7ff68e636bcf34aa"
+
+// 会话级缓存（MeiloX 同形：app 生命周期 lazy 一次，会话内保持稳定）。
+private fun alnumKey(n: Int): String =
+    (1..n).map { (('a'..'z') + ('A'..'Z') + ('0'..'9')).random() }.joinToString("")
+private val LT_NUID = alnumKey(32)
+private val LT_NMTID = alnumKey(16)
+private val LT_WNMCID =
+    (1..6).joinToString("") { "abcdefghijklmnopqrstuvwxyz".toCharArray().random().toString() } +
+        ".${System.currentTimeMillis()}.01.0"
+
+// MeiloX NeteaseInterceptor：一起听 eapi 每个请求都自报 X-Real-IP/X-Forwarded-For = 会话稳定的
+// 随机中国 IP（fakeIP lazy 只算一次）。NCM 一起听「写共享队列」按自报国内 IP 信任放行写入；
+// 之前 shape/信封/19字段cookie 的差异都试尽仍 result=false，唯独这个「MeiloX 有、jussichords 完全没发」
+// 的 IP 自报头没试过。会话稳定（顶层 val 调一次），避免每请求换 IP 反而触发风控。
+private val LT_FAKE_IP = ChineseIpUtils.generateRandomChineseIP()
+
+// MeiloX EAPI_CONFIG 桌面 buildver 是常量 1768990079（非动态时间戳）；NCM eapi 客户端指纹认桌面固定 buildver。
+private const val LT_BUILDVER = "1768990079"
+
 val apiClient = HttpClient(OkHttp) {
     install(Logging) {
         logger = object : Logger {
@@ -152,6 +182,30 @@ val EAPI_USER_UPDATE_PROFILE: Map<String, Any> = mapOf(
     "synthesizedCookie" to true,
 )
 
+/**
+ * 一起听 eapi 桌面 profile（对齐 MeiloX NeteaseInterceptor.EAPI_CONFIG：os=pc 桌面客户端
+ * + interface 域 + NeteaseMusicDesktop UA + 合成 cookie）。
+ * 一起听共享队列 REPLACE 写（/sync/list/command/report）在移动信封下被 NCM 静默拒
+ * （result=false，而 play/command 仍 true）；MeiloX 桌面信封全通。
+ * synthesizedCookie=true：Cookie 头与加密 header 同源（12 字段排序），避免
+ * 「完整登录 cookie os=android 与 header os=pc 矛盾 → 静默丢弃」的打卡同坑。
+ */
+val EAPI_LISTEN_TOGETHER_PROFILE: Map<String, Any> = mapOf(
+    "os" to "pc",
+    "osver" to "Microsoft-Windows-10-Professional-build-22631-64bit",
+    "appver" to "3.0.18.203152",
+    "channel" to "netease",
+    "versioncode" to "6006066",
+    "mobilename" to "Mi+A3",
+    "resolution" to "2268x1080",
+    "userAgent" to "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Safari/537.36 Chrome/91.0.4472.164 NeteaseMusicDesktop/3.0.18.203152",
+    "domain" to "https://interface.music.163.com",
+    // MeiloX 同款 19 字段设备身份 cookie（NMDI/URS_APPID/WNMCID/NMTID/_ntes_nuid 等），
+    // 与加密 header 同源（__csrf 同用常量）。风控对共享队列写校验的是这组身份字段。
+    "ltDeviceCookie" to true,
+)
+
 @PublishedApi
 internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
     fun req(key: String): Any = requireNotNull(p[key]) { "Missing $key for $path" }
@@ -169,6 +223,9 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
     // 用户资料修改：eapi + 合成 cookie profile（移动端参数，interfacepc 域）。
     fun eapiUserUpdate(uri: String, data: Map<String, Any> = emptyMap()) =
         Route(uri, data, Encryption.EAPI, eapiProfile = EAPI_USER_UPDATE_PROFILE)
+    // 一起听：eapi + 桌面 pc 信封（对齐 MeiloX EAPI_CONFIG：interface 域 + 桌面 UA + 合成 cookie）。
+    fun eapiListenTogether(uri: String, data: Map<String, Any> = emptyMap()) =
+        Route(uri, data, Encryption.EAPI, eapiProfile = EAPI_LISTEN_TOGETHER_PROFILE)
 
     val commentTypePrefix = when (int("type", 0)) {
         0 -> "R_SO_4_"
@@ -542,15 +599,15 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
         // 一起听（listen together）：状态读走 weapi，房间写 / 同步 / 心跳走 eapi（对齐 MeiloX 通道选择）。
         // 上游路径逐条对齐 api-enhanced 代理 module/listentogether_*.js（heartbeat 拼写为 NCM 原样 /heartbeat）。
         "/listen/together/status" -> weapi("/api/listen/together/status/get", emptyMap())
-        "/listen/together/room/create" -> eapi(
+        "/listen/together/room/create" -> eapiListenTogether(
             "/api/listen/together/room/create",
             mapOf("refer" to str("refer").ifBlank { "songplay_more" })
         )
-        "/listen/together/room/check" -> eapi(
+        "/listen/together/room/check" -> eapiListenTogether(
             "/api/listen/together/room/check",
             mapOf("roomId" to req("roomId"))
         )
-        "/listen/together/invitation/accept" -> eapi(
+        "/listen/together/invitation/accept" -> eapiListenTogether(
             "/api/listen/together/play/invitation/accept",
             mapOf(
                 "refer" to str("refer").ifBlank { "inbox_invite" },
@@ -558,19 +615,19 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
                 "inviterId" to req("inviterId")
             )
         )
-        "/listen/together/play/command" -> eapi(
+        "/listen/together/play/command" -> eapiListenTogether(
             "/api/listen/together/play/command/report",
             mapOf("roomId" to req("roomId"), "commandInfo" to req("commandInfo"))
         )
-        "/listen/together/sync/playlist" -> eapi(
+        "/listen/together/sync/playlist" -> eapiListenTogether(
             "/api/listen/together/sync/playlist/get",
             mapOf("roomId" to req("roomId"))
         )
-        "/listen/together/sync/list" -> eapi(
+        "/listen/together/sync/list" -> eapiListenTogether(
             "/api/listen/together/sync/list/command/report",
             mapOf("roomId" to req("roomId"), "playlistParam" to req("playlistParam"))
         )
-        "/listen/together/heartbeat" -> eapi(
+        "/listen/together/heartbeat" -> eapiListenTogether(
             "/api/listen/together/heartbeat",
             mapOf(
                 "roomId" to req("roomId"),
@@ -579,7 +636,7 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
                 "progress" to req("progress")
             )
         )
-        "/listen/together/end" -> eapi(
+        "/listen/together/end" -> eapiListenTogether(
             "/api/listen/together/end/v2",
             mapOf("roomId" to req("roomId"))
         )
@@ -619,6 +676,9 @@ internal suspend fun send(route: Route): String {
     // 仅「播放历史 osx profile」(os=osx) 走 osx 域/UA/空 csrf/去 mobilename。
     // 其余 eapi profile（如用户资料修改）保持移动端默认，只借用「合成 cookie」行为。
     val isHistoryProfile = profile?.get("os")?.toString() == "osx"
+    // 一起听 eapi 的 MeiloX 同款 19 字段设备身份 cookie（NMDI/URS_APPID/WNMCID/NMTID/
+    // _ntes_nuid/sDeviceId/WEVNSM/ntes_kaola_ad/__csrf=常量，与加密 header 同源）。
+    val isLtProfile = profile?.get("ltDeviceCookie") == true
     // 合成 cookie（对齐代理 createHeaderCookie）：播放历史 + 用户资料修改都发它，
     // 完整登录 cookie 只在普通 eapi/weapi 读接口用。eapi 写接口发完整登录 cookie 会被 NCM 403。
     val synthesizedCookie = isHistoryProfile || profile?.get("synthesizedCookie") == true
@@ -631,12 +691,20 @@ internal suspend fun send(route: Route): String {
         put("os", profile?.get("os")?.toString() ?: osValue)
         put("appver", profile?.get("appver")?.toString() ?: cookie["appver"] ?: "9.4.32.251222163637")
         put("versioncode", profile?.get("versioncode")?.toString() ?: cookie["versioncode"] ?: "6006066")
-        if (!isHistoryProfile) put("mobilename", cookie["mobilename"] ?: "")
-        put("buildver", (System.currentTimeMillis() / 1000).toString())
+        if (!isHistoryProfile) {
+            // 一起听桌面 profile 带 mobilename（对齐 MeiloX EAPI_CONFIG）；否则移动端默认。
+            put("mobilename", profile?.get("mobilename")?.toString() ?: cookie["mobilename"] ?: "")
+        }
+        put("buildver", if (isLtProfile) LT_BUILDVER else (System.currentTimeMillis() / 1000).toString())
         put("resolution", profile?.get("resolution")?.toString() ?: cookie["resolution"] ?: "2268x1080")
         put("channel", profile?.get("channel")?.toString() ?: cookie["channel"] ?: "xiaomi")
-        put("requestId", "${System.currentTimeMillis()}_${(0..9999).random()}")
-        put("__csrf", if (isHistoryProfile) "" else csrf)
+        // MeiloX：requestId 后段 4 位补零（Math.random()*1000 取 0000–0999，padStart 4）；非 LT 保持 0–9999。
+        put("requestId", "${System.currentTimeMillis()}_${if (isLtProfile) (0..999).random().toString().padStart(4, '0') else (0..9999).random()}")
+        put("__csrf", when {
+            isHistoryProfile -> ""
+            isLtProfile -> LT_CSRF
+            else -> csrf
+        })
         if (musicU != null) put("MUSIC_U", musicU)
     }
 
@@ -653,7 +721,7 @@ internal suspend fun send(route: Route): String {
 
     val rest = route.uri.removePrefix("/api/")
     val targetDomain = when {
-        isHistoryProfile -> profile["domain"].toString()
+        profile?.get("domain") != null -> profile["domain"].toString()
         route.encryption == Encryption.WEAPI -> NCM_WEB_DOMAIN
         else -> NCM_API_DOMAIN
     }
@@ -667,12 +735,38 @@ internal suspend fun send(route: Route): String {
     //   保证匿名读接口（toplist / 搜索等）也能握手成功。
     // - 播放历史 + 用户资料修改（synthesizedCookie）：对齐代理 createHeaderCookie 发「合成 cookie」
     //   （header 字段 URL-encode、按 key 排序）。eapi 写接口发完整登录 cookie 会被 NCM 403 静默丢弃。
-    val cookieHeader = if (synthesizedCookie) {
-        header.entries
+    val cookieHeader = when {
+        isLtProfile -> {
+            // 逐字对齐 MeiloX NeteaseInterceptor.buildCookieString(cookieMap)（插入序、明文值、
+            // 不做 URL-encode）：基础 8 + 身份/设备字段 + MUSIC_U。与加密 header 同源（同 os/
+            // appver 桌面参数、同 __csrf 常量），避免「cookie os 与 header os 矛盾→静默丢弃」。
+            val cfg = profile!!
+            buildMap {
+                put("os", cfg["os"].toString())
+                put("appver", cfg["appver"].toString())
+                put("osver", cfg["osver"].toString())
+                put("channel", cfg["channel"].toString())
+                put("versioncode", cfg["versioncode"].toString())
+                put("mobilename", cfg["mobilename"].toString())
+                put("buildver", LT_BUILDVER)
+                put("resolution", cfg["resolution"].toString())
+                put("deviceId", cookie["deviceId"] ?: anonymousDeviceId)
+                put("sDeviceId", cookie["deviceId"] ?: anonymousDeviceId)
+                put("ntes_kaola_ad", "1")
+                put("_ntes_nuid", LT_NUID)
+                put("WNMCID", LT_WNMCID)
+                put("URS_APPID", LT_URS_APPID)
+                put("WEVNSM", "1.0.0")
+                put("__csrf", LT_CSRF)
+                put("NMDI", LT_NMDI)
+                put("NMTID", LT_NMTID)
+                musicU?.let { put("MUSIC_U", it) }
+            }.entries.joinToString("; ") { (k, v) -> "$k=$v" }
+        }
+        synthesizedCookie -> header.entries
             .sortedBy { it.key }
             .joinToString("; ") { (k, v) -> "${encodeCookieComponent(k)}=${encodeCookieComponent(v.toString())}" }
-    } else {
-        buildMap {
+        else -> buildMap {
             putAll(cookie)
             if (cookie["deviceId"] == null) put("deviceId", anonymousDeviceId)
         }.entries.joinToString("; ") { (k, v) -> "$k=$v" }
@@ -681,7 +775,16 @@ internal suspend fun send(route: Route): String {
     val response = apiClient.request(url) {
         method = HttpMethod.Post
         contentType(ContentType.Application.FormUrlEncoded)
-        header("User-Agent", if (isHistoryProfile) NCM_OSX_UA else NCM_MOBILE_UA)
+        val ua = profile?.get("userAgent")?.toString()
+            ?: when {
+                isHistoryProfile -> NCM_OSX_UA
+                else -> NCM_MOBILE_UA
+            }
+        header("User-Agent", ua)
+        if (isLtProfile) {
+            header("X-Real-IP", LT_FAKE_IP)
+            header("X-Forwarded-For", LT_FAKE_IP)
+        }
         if (route.encryption == Encryption.WEAPI) {
             header("Referer", NCM_WEB_DOMAIN)
         }

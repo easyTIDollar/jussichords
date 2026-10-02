@@ -1,5 +1,6 @@
 package com.jussicodes.music.data
 
+import android.util.Log
 import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.utils.json
@@ -28,7 +29,7 @@ data class LTSnapshot(
     val commandType: String?,
     val targetSongId: Long?,
     val formerSongId: Long?,
-    val progressMs: Long,
+    val progressMs: Long?,
     val isPlaying: Boolean?,
     val clientSeq: Long,
     val serverSeq: Long
@@ -97,7 +98,7 @@ fun snapshotFromData(data: JsonElement?): LTSnapshot {
         commandType = commandType,
         targetSongId = targetSongId,
         formerSongId = cmd?.get("formerSongId")?.ltLong(),
-        progressMs = cmd?.get("progress")?.ltLong() ?: 0L,
+        progressMs = cmd?.get("progress")?.ltLong(),
         isPlaying = isPlaying,
         clientSeq = cmd?.get("clientSeq")?.ltLong() ?: 0L,
         serverSeq = cmd?.get("serverSeq")?.ltLong() ?: 0L
@@ -107,8 +108,36 @@ fun snapshotFromData(data: JsonElement?): LTSnapshot {
 /** 一起听端点封装（全部走 ncmapi 直连官方 weapi/eapi，路由在 ApiClient.resolveRoute）。 */
 object ListenTogetherApi {
 
+    private const val TAG = "LT-Debug"
+
+    /** 从 NCM 响应体取 code（数值或字符串都可能），缺失返回 null。 */
+    private fun respCode(el: JsonElement?): String? {
+        val o = el as? JsonObject ?: return null
+        return o["code"]?.let { if (it is JsonPrimitive) it.content else it.toString() }
+    }
+
+    /** 取 data.result 布尔（sync/list REPLACE 是否被受理）；缺失返回 "-"。 */
+    private fun resultFlag(el: JsonElement?): String {
+        val r = ((el as? JsonObject)?.get("data") as? JsonObject)?.get("result")
+            ?: return "-"
+        return if (r is JsonPrimitive) r.content else r.toString()
+    }
+
+    /**
+     * MeiloX validate() 等价：NCM 业务错误码校验。code 缺失按 200 放行（NCM 部分成功响应不带
+     * code 字段），明确非 2xx 抛出——否则 getOrThrow 只挡网络错，NCM 错误 JSON 会被当成功
+     * 喂给 applyRemote（空快照 diff 乱 seek），异常语义就和 MeiloX 对不上。
+     */
+    private fun requireOk(el: JsonElement) {
+        val code = (el as? JsonObject)?.get("code")?.str()?.toIntOrNull() ?: 200
+        check(code in 200..299) { "NetEase request failed (code=$code)" }
+    }
+
+    // MeiloX status 走 weapi（request → validate 拦 NCM 业务码）。
     suspend fun status(): Result<LTStatus> =
         apiGet<JsonElement>("/listen/together/status", emptyMap()).map { el ->
+            requireOk(el)
+            Log.d(TAG, "status resp code=${respCode(el)} raw=${el.toString().take(400)}")
             val data = (el as? JsonObject)?.get("data") as? JsonObject
             LTStatus(
                 inRoom = data?.get("inRoom")?.ltBool() ?: false,
@@ -118,6 +147,8 @@ object ListenTogetherApi {
 
     suspend fun create(): Result<LTRoom> =
         apiGet<JsonElement>("/listen/together/room/create", mapOf("refer" to "songplay_more")).map { el ->
+            requireOk(el)
+            Log.d(TAG, "create resp code=${respCode(el)} raw=${el.toString().take(400)}")
             val info = ((el as? JsonObject)?.get("data") as? JsonObject)?.get("roomInfo") as? JsonObject
                 ?: throw IllegalStateException("NetEase did not return a listen-together room")
             objectToRoom(info) ?: throw IllegalStateException("Invalid listen-together room info")
@@ -125,7 +156,9 @@ object ListenTogetherApi {
 
     suspend fun checkRoom(roomId: String): Result<Pair<Boolean, String?>> =
         apiGet<JsonElement>("/listen/together/room/check", mapOf("roomId" to roomId)).map { el ->
+            requireOk(el)
             val data = (el as? JsonObject)?.get("data") as? JsonObject
+            Log.d(TAG, "checkRoom roomId=$roomId resp code=${respCode(el)} raw=${el.toString().take(400)}")
             (data?.get("joinable")?.ltBool() ?: false) to (data?.get("status")?.str())
         }
 
@@ -134,6 +167,8 @@ object ListenTogetherApi {
             "/listen/together/invitation/accept",
             mapOf("roomId" to roomId, "inviterId" to inviterId, "refer" to "inbox_invite")
         ).map { el ->
+            requireOk(el)
+            Log.d(TAG, "accept roomId=$roomId inviterId=$inviterId resp code=${respCode(el)} raw=${el.toString().take(400)}")
             val info = ((el as? JsonObject)?.get("data") as? JsonObject)?.get("roomInfo") as? JsonObject
                 ?: throw IllegalStateException("NetEase did not return the accepted listen-together room")
             objectToRoom(info) ?: throw IllegalStateException("Invalid accepted listen-together room")
@@ -144,32 +179,56 @@ object ListenTogetherApi {
         apiGet<JsonElement>(
             "/listen/together/play/command",
             mapOf("roomId" to roomId, "commandInfo" to commandInfo)
-        ).map { }
+        ).map { el ->
+            requireOk(el)
+            Log.d(TAG, "reportCommand roomId=$roomId cmd=$commandInfo resp code=${respCode(el)} raw=${el.toString().take(300)}")
+        }
 
     suspend fun snapshot(roomId: String): Result<LTSnapshot> =
         apiGet<JsonElement>("/listen/together/sync/playlist", mapOf("roomId" to roomId)).map { el ->
-            snapshotFromData((el as? JsonObject)?.get("data"))
+            requireOk(el)
+            val snap = snapshotFromData((el as? JsonObject)?.get("data"))
+            Log.d(
+                TAG,
+                "snapshot roomId=$roomId resp code=${respCode(el)} " +
+                    "cmd=${snap.commandType} target=${snap.targetSongId} former=${snap.formerSongId} " +
+                    "progress=${snap.progressMs} playing=${snap.isPlaying} " +
+                    "srvSeq=${snap.serverSeq} cliSeq=${snap.clientSeq} songIds=${snap.songIds.size} " +
+                    "rawData=${((el as? JsonObject)?.get("data")?.toString() ?: "null").take(1000)}"
+            )
+            snap
         }
 
-    /** 上报队列（REPLACE）。 */
-    suspend fun reportPlaylist(roomId: String, userId: Long, version: Long, songIds: List<Long>): Result<Unit> =
-        apiGet<JsonElement>(
+    /**
+     * 上报队列（REPLACE）。randomList/displayList 用**字符串数组**（对齐 MeiloX
+     * reportListenTogetherPlaylist 与 api-enhanced 权威拼参：split(',') 后
+     * JSON.stringify → ["123","456"]，不是数字数组——NCM 按类型校验，数字数组被拒 result:false）。
+     */
+    suspend fun reportPlaylist(
+        roomId: String,
+        userId: Long,
+        version: Long,
+        songIds: List<Long>
+    ): Result<Unit> {
+        val playlistParam = buildString {
+            append("{\"commandType\":\"REPLACE\",\"version\":[")
+            append("{\"userId\":").append(userId).append(",\"version\":").append(version).append("}]")
+            append(",\"anchorSongId\":\"\",\"anchorPosition\":-1")
+            append(",\"randomList\":[").append(songIds.joinToString(",") { "\"$it\"" }).append("]")
+            append(",\"displayList\":[").append(songIds.joinToString(",") { "\"$it\"" }).append("]}")
+        }
+        return apiGet<JsonElement>(
             "/listen/together/sync/list",
-            mapOf(
-                "roomId" to roomId,
-                "playlistParam" to buildString {
-                    append("{\"commandType\":\"REPLACE\",\"version\":[")
-                    append("{\"userId\":").append(userId).append(",\"version\":").append(version).append("]")
-                    append(",\"anchorSongId\":\"\",\"anchorPosition\":-1")
-                    append(",\"randomList\":[").append(songIds.joinToString(",")).append("]")
-                    append(",\"displayList\":[").append(songIds.joinToString(",")).append("]}")
-                }
-            )
-        ).map { }
+            mapOf("roomId" to roomId, "playlistParam" to playlistParam)
+        ).map { el ->
+            requireOk(el)
+            Log.d(TAG, "reportPlaylist roomId=$roomId userId=$userId version=$version ids=${songIds.size} resp code=${respCode(el)} result=${resultFlag(el)} param=${playlistParam.take(400)}")
+        }
+    }
 
-    /** 心跳，返回 NCM 建议的下次间隔（秒）。缺失回落 30。 */
-    suspend fun heartbeat(roomId: String, songId: Long, isPlaying: Boolean, progressMs: Long): Int {
-        val result = apiGet<JsonElement>(
+    /** 心跳（MeiloX 原样）：返回 NCM 建议的下次间隔（秒），缺失返回 null；请求/业务码失败直接抛（调用方 catch 计数，对齐 MeiloX validate）。 */
+    suspend fun heartbeat(roomId: String, songId: Long, isPlaying: Boolean, progressMs: Long): Int? {
+        val body = apiGet<JsonElement>(
             "/listen/together/heartbeat",
             mapOf(
                 "roomId" to roomId,
@@ -177,16 +236,22 @@ object ListenTogetherApi {
                 "playStatus" to if (isPlaying) "PLAY" else "PAUSE",
                 "progress" to progressMs.coerceAtLeast(0).toString()
             )
-        )
-        val span = ((result.getOrNull() as? JsonObject)?.get("data") as? JsonObject)
-            ?.get("timeSpan")?.ltLong()
-        return (span ?: 30L).coerceIn(5, 60).toInt()
+        ).getOrThrow()
+        requireOk(body)
+        return ((body as? JsonObject)?.get("data") as? JsonObject)
+            ?.get("timeSpan")?.ltLong()?.toInt()
     }
 
     suspend fun end(roomId: String): Result<Unit> =
-        apiGet<JsonElement>("/listen/together/end", mapOf("roomId" to roomId)).map { }
+        apiGet<JsonElement>("/listen/together/end", mapOf("roomId" to roomId)).map { el ->
+            requireOk(el)
+        }
 
-    /** 按 id 批量取 [Song]（远端队列重建用，NCM /v3/song/detail；c 为 [{id:...}] 字符串）。 */
+    /**
+     * 按 id 批量取 [Song]（远端队列重建用，NCM /v3/song/detail；c 为 [{id:...}] 字符串）。
+     * 对齐 MeiloX loadMediaItems 的 getSongDetail（Retrofit，不拦 NCM 业务码）：失败/空返回时由调用方
+     * [ListenTogetherSession.loadMediaItems] 的 check(targetIndex>=0) 兜住并计数，不在此校验业务码。
+     */
     suspend fun songsByIds(ids: List<Long>): Result<List<Song>> {
         if (ids.isEmpty()) return Result.success(emptyList())
         val c = "[" + ids.joinToString(",") { """{"id":$it}""" } + "]"
@@ -199,9 +264,16 @@ object ListenTogetherApi {
     }
 }
 
-/** 一起听官方 H5 分享/邀请链接（MeiloX 同款：st.music.163.com）。 */
-fun buildListenTogetherInviteUrl(roomId: String, inviterId: Long, songId: Long): String =
-    "https://st.music.163.com/listen-together/share?songId=$songId&roomId=$roomId&inviterId=$inviterId"
+/**
+ * 一起听官方 H5 分享/邀请链接（MeiloX 同款：st.music.163.com）。
+ * MeiloX buildInvitationUrl 原样：songId 缺失/无歌曲可播时返回 null（UI 据此隐藏分享/邀请按钮），
+ * inviterId 为 0（未取到本地 uid 且房主 id 缺失）同样返回 null，不生成无效链接。
+ */
+fun buildListenTogetherInviteUrl(roomId: String, inviterId: Long, songId: Long?): String? {
+    val song = songId?.takeIf { it > 0L } ?: return null
+    val inviter = inviterId.takeIf { it > 0L } ?: return null
+    return "https://st.music.163.com/listen-together/share?songId=$song&roomId=$roomId&inviterId=$inviter"
+}
 
 /** 从分享的文本里解析 roomId + inviterId（官方链接或用户粘的整段文字都认）。 */
 fun parseListenTogetherInvitation(text: String): Pair<String, String>? {
