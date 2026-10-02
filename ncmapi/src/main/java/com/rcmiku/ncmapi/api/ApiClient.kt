@@ -84,8 +84,8 @@ private const val LT_CSRF = "40ab38f0a305fc4c7ff68e636bcf34aa"
 
 // 一起听 eapi 写：MeiloX 风格设备指纹（进程内稳定，对齐 MeiloX interceptor 的 cachedNuid/Nmtid/Wnmcid）。
 private val ltAlnum: String = ('a'..'z').joinToString("") + ('A'..'Z').joinToString("") + ('0'..'9').joinToString("")
-private val LT_NUID: String = repeat(32) { ltAlnum.randomAt() }
-private val LT_NMTID: String = repeat(16) { ltAlnum.randomAt() }
+private val LT_NUID: String = (1..32).joinToString("") { ltAlnum.randomAt() }
+private val LT_NMTID: String = (1..16).joinToString("") { ltAlnum.randomAt() }
 private val LT_WNMCID: String =
     "abcdefghijklmnopqrstuvwxyz".let { chars -> (1..6).map { chars.randomAt() }.joinToString("") } +
         ".${System.currentTimeMillis()}.01.0"
