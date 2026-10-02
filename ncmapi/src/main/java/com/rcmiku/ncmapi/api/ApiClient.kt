@@ -99,6 +99,9 @@ private val LT_WNMCID =
 // 的 IP 自报头没试过。会话稳定（顶层 val 调一次），避免每请求换 IP 反而触发风控。
 private val LT_FAKE_IP = ChineseIpUtils.generateRandomChineseIP()
 
+// MeiloX EAPI_CONFIG 桌面 buildver 是常量 1768990079（非动态时间戳）；NCM eapi 客户端指纹认桌面固定 buildver。
+private const val LT_BUILDVER = "1768990079"
+
 val apiClient = HttpClient(OkHttp) {
     install(Logging) {
         logger = object : Logger {
@@ -692,10 +695,11 @@ internal suspend fun send(route: Route): String {
             // 一起听桌面 profile 带 mobilename（对齐 MeiloX EAPI_CONFIG）；否则移动端默认。
             put("mobilename", profile?.get("mobilename")?.toString() ?: cookie["mobilename"] ?: "")
         }
-        put("buildver", (System.currentTimeMillis() / 1000).toString())
+        put("buildver", if (isLtProfile) LT_BUILDVER else (System.currentTimeMillis() / 1000).toString())
         put("resolution", profile?.get("resolution")?.toString() ?: cookie["resolution"] ?: "2268x1080")
         put("channel", profile?.get("channel")?.toString() ?: cookie["channel"] ?: "xiaomi")
-        put("requestId", "${System.currentTimeMillis()}_${(0..9999).random()}")
+        // MeiloX：requestId 后段 4 位补零（Math.random()*1000 取 0000–0999，padStart 4）；非 LT 保持 0–9999。
+        put("requestId", "${System.currentTimeMillis()}_${if (isLtProfile) (0..999).random().toString().padStart(4, '0') else (0..9999).random()}")
         put("__csrf", when {
             isHistoryProfile -> ""
             isLtProfile -> LT_CSRF
@@ -744,7 +748,7 @@ internal suspend fun send(route: Route): String {
                 put("channel", cfg["channel"].toString())
                 put("versioncode", cfg["versioncode"].toString())
                 put("mobilename", cfg["mobilename"].toString())
-                put("buildver", (System.currentTimeMillis() / 1000).toString())
+                put("buildver", LT_BUILDVER)
                 put("resolution", cfg["resolution"].toString())
                 put("deviceId", cookie["deviceId"] ?: anonymousDeviceId)
                 put("sDeviceId", cookie["deviceId"] ?: anonymousDeviceId)
