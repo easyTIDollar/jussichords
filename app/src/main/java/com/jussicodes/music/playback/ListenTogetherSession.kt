@@ -2,6 +2,7 @@ package com.jussicodes.music.playback
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
@@ -58,6 +59,8 @@ object ListenTogetherSession : Player.Listener {
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    private const val TAG = "LT-Debug"
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -158,6 +161,7 @@ object ListenTogetherSession : Player.Listener {
                 val room = ListenTogetherApi.create().getOrThrow()
                 loadLocalUid()
                 establish(room)
+                Log.d(TAG, "create ok roomId=${room.id} isHost=${_state.value.isHost} localUid=$localUid")
                 reportPlaylist()
                 reportCommand("GOTO", songId, songId)
                 sendHeartbeat()
@@ -189,6 +193,7 @@ object ListenTogetherSession : Player.Listener {
                 val room = ListenTogetherApi.accept(roomId, inviterId).getOrThrow()
                 loadLocalUid()
                 establish(room)
+                Log.d(TAG, "join ok roomId=${room.id} inviterId=$inviterId isHost=${_state.value.isHost} localUid=$localUid")
                 val snapshot = ListenTogetherApi.snapshot(room.id).getOrNull()
                 if (snapshot != null) applyRemote(snapshot, initial = true)
                 sendHeartbeat()
@@ -216,6 +221,7 @@ object ListenTogetherSession : Player.Listener {
         val room = ListenTogetherApi.accept(roomId, inviterId).getOrNull() ?: return false
         loadLocalUid()
         establish(room)
+        Log.d(TAG, "joinCard ok roomId=${room.id} inviterId=$inviterId isHost=${_state.value.isHost} localUid=$localUid")
         val snapshot = ListenTogetherApi.snapshot(room.id).getOrNull()
         if (snapshot != null) applyRemote(snapshot, initial = true)
         sendHeartbeat()
@@ -294,6 +300,7 @@ object ListenTogetherSession : Player.Listener {
                     val room = _state.value.room ?: break
                     val snapshot = ListenTogetherApi.snapshot(room.id).getOrNull()
                     if (snapshot != null) applyRemote(snapshot, initial = tick == 1)
+                    else Log.d(TAG, "monitor tick=$tick roomId=${room.id} snapshot=NULL (fetch failed, see LT-Debug snapshot line)")
 
                     if (SystemClock.elapsedRealtime() - lastHeartbeatAt >= heartbeatSpanSec * 1000L) {
                         sendHeartbeat()
@@ -352,6 +359,13 @@ object ListenTogetherSession : Player.Listener {
             ?: currentSongId()
             ?: songIds.firstOrNull()
             ?: return
+        Log.d(
+            TAG,
+            "applyRemote roomId=${room.id} initial=$initial playlistChanged=$playlistChanged " +
+                "commandChanged=$commandChanged remoteTarget=${snapshot.targetSongId} " +
+                "fallbackTarget=$targetId (fromRemote=${snapshot.targetSongId != null}) " +
+                "localCur=${currentSongId()} localCount=${localIds.size} remoteCount=${songIds.size}"
+        )
         val completeIds = if (targetId in songIds) songIds else songIds + targetId
         if (completeIds.isEmpty()) return
 

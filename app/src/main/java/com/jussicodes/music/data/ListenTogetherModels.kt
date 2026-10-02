@@ -1,5 +1,6 @@
 package com.jussicodes.music.data
 
+import android.util.Log
 import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.utils.json
@@ -107,8 +108,17 @@ fun snapshotFromData(data: JsonElement?): LTSnapshot {
 /** 一起听端点封装（全部走 ncmapi 直连官方 weapi/eapi，路由在 ApiClient.resolveRoute）。 */
 object ListenTogetherApi {
 
+    private const val TAG = "LT-Debug"
+
+    /** 从 NCM 响应体取 code（数值或字符串都可能），缺失返回 null。 */
+    private fun respCode(el: JsonElement?): String? {
+        val o = el as? JsonObject ?: return null
+        return o["code"]?.let { if (it is JsonPrimitive) it.content else it.toString() }
+    }
+
     suspend fun status(): Result<LTStatus> =
         apiGet<JsonElement>("/listen/together/status", emptyMap()).map { el ->
+            Log.d(TAG, "status resp code=${respCode(el)} raw=${el.toString().take(400)}")
             val data = (el as? JsonObject)?.get("data") as? JsonObject
             LTStatus(
                 inRoom = data?.get("inRoom")?.ltBool() ?: false,
@@ -118,6 +128,7 @@ object ListenTogetherApi {
 
     suspend fun create(): Result<LTRoom> =
         apiGet<JsonElement>("/listen/together/room/create", mapOf("refer" to "songplay_more")).map { el ->
+            Log.d(TAG, "create resp code=${respCode(el)} raw=${el.toString().take(400)}")
             val info = ((el as? JsonObject)?.get("data") as? JsonObject)?.get("roomInfo") as? JsonObject
                 ?: throw IllegalStateException("NetEase did not return a listen-together room")
             objectToRoom(info) ?: throw IllegalStateException("Invalid listen-together room info")
@@ -126,6 +137,7 @@ object ListenTogetherApi {
     suspend fun checkRoom(roomId: String): Result<Pair<Boolean, String?>> =
         apiGet<JsonElement>("/listen/together/room/check", mapOf("roomId" to roomId)).map { el ->
             val data = (el as? JsonObject)?.get("data") as? JsonObject
+            Log.d(TAG, "checkRoom roomId=$roomId resp code=${respCode(el)} raw=${el.toString().take(400)}")
             (data?.get("joinable")?.ltBool() ?: false) to (data?.get("status")?.str())
         }
 
@@ -134,6 +146,7 @@ object ListenTogetherApi {
             "/listen/together/invitation/accept",
             mapOf("roomId" to roomId, "inviterId" to inviterId, "refer" to "inbox_invite")
         ).map { el ->
+            Log.d(TAG, "accept roomId=$roomId inviterId=$inviterId resp code=${respCode(el)} raw=${el.toString().take(400)}")
             val info = ((el as? JsonObject)?.get("data") as? JsonObject)?.get("roomInfo") as? JsonObject
                 ?: throw IllegalStateException("NetEase did not return the accepted listen-together room")
             objectToRoom(info) ?: throw IllegalStateException("Invalid accepted listen-together room")
@@ -144,11 +157,21 @@ object ListenTogetherApi {
         apiGet<JsonElement>(
             "/listen/together/play/command",
             mapOf("roomId" to roomId, "commandInfo" to commandInfo)
-        ).map { }
+        ).map { el ->
+            Log.d(TAG, "reportCommand roomId=$roomId cmd=$commandInfo resp code=${respCode(el)} raw=${el.toString().take(300)}")
+        }
 
     suspend fun snapshot(roomId: String): Result<LTSnapshot> =
         apiGet<JsonElement>("/listen/together/sync/playlist", mapOf("roomId" to roomId)).map { el ->
-            snapshotFromData((el as? JsonObject)?.get("data"))
+            val snap = snapshotFromData((el as? JsonObject)?.get("data"))
+            Log.d(
+                TAG,
+                "snapshot roomId=$roomId resp code=${respCode(el)} " +
+                    "cmd=${snap.commandType} target=${snap.targetSongId} former=${snap.formerSongId} " +
+                    "progress=${snap.progressMs} playing=${snap.isPlaying} " +
+                    "srvSeq=${snap.serverSeq} cliSeq=${snap.clientSeq} songIds=${snap.songIds.size}"
+            )
+            snap
         }
 
     /** 上报队列（REPLACE）。 */
@@ -165,7 +188,9 @@ object ListenTogetherApi {
                     append(",\"displayList\":[").append(songIds.joinToString(",")).append("]}")
                 }
             )
-        ).map { }
+        ).map { el ->
+            Log.d(TAG, "reportPlaylist roomId=$roomId userId=$userId version=$version ids=${songIds.size} resp code=${respCode(el)} raw=${el.toString().take(300)}")
+        }
 
     /** 心跳，返回 NCM 建议的下次间隔（秒）。缺失回落 30。 */
     suspend fun heartbeat(roomId: String, songId: Long, isPlaying: Boolean, progressMs: Long): Int {
