@@ -72,88 +72,6 @@ internal const val NCM_OSX_UA =
 // eapi 播放历史上报专用域（对齐 MeiloX：interface 域 + osx 桌面 profile）。
 internal const val NCM_EAPI_HISTORY_DOMAIN = "https://interface.music.163.com"
 
-// 一起听 eapi 写专用桌面 pc 常量（值照抄 MeiloX NeteaseInterceptor / EAPI_CONFIG）。
-internal const val NCM_PC_UA =
-    "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-        "Safari/537.36 Chrome/91.0.4472.164 NeteaseMusicDesktop/3.0.18.203152"
-private const val LT_NMDI =
-    "Q1NKTQkBDAAMIEF4coQMHcb6TLA7AAAAciOiJ%2F%2FOO4VQ7m%2FLvLJ1pD9CIsJP5mfzI4SusB%2BaNScGLpThEYBcPxGzj0pL5hLdZ7LqB2UVULdYgc0%3D"
-private const val LT_URS_APPID =
-    "F2219AE9D7828A7D73E2006D000C61031D196A37DB497E3885B8298504867886B6F0E44087D61EFC06BE92279CD6EEC6"
-private const val LT_CSRF = "40ab38f0a305fc4c7ff68e636bcf34aa"
-
-// 一起听 eapi 写：MeiloX 风格设备指纹（进程内稳定，对齐 MeiloX interceptor 的 cachedNuid/Nmtid/Wnmcid）。
-private val ltAlnum: String = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-private val ltRnd = java.util.Random()
-private fun randomAlnumString(n: Int): String =
-    (1..n).map { ltAlnum[ltRnd.nextInt(ltAlnum.length)] }.joinToString("")
-private val LT_NUID: String = randomAlnumString(32)
-private val LT_NMTID: String = randomAlnumString(16)
-private val LT_WNMCID: String =
-    randomAlnumString(6).lowercase() + ".${System.currentTimeMillis()}.01.0"
-
-// 一起听 eapi 写：随机国内 IP（X-Real-IP / X-Forwarded-For），照抄 MeiloX ChineseIpUtils 的段表与加权选择。
-private val ltChinaRangesRaw: List<Array<String>> = listOf(
-    arrayOf("1.0.1.0", "1.0.3.255", "768"),
-    arrayOf("1.0.8.0", "1.0.15.255", "2048"),
-    arrayOf("1.0.32.0", "1.0.63.255", "8192"),
-    arrayOf("1.1.0.0", "1.1.0.255", "256"),
-    arrayOf("1.1.2.0", "1.1.63.255", "15872"),
-    arrayOf("1.2.0.0", "1.2.2.255", "768"),
-    arrayOf("1.2.4.0", "1.2.127.255", "31744"),
-    arrayOf("1.3.0.0", "1.3.255.255", "65536"),
-    arrayOf("1.4.1.0", "1.4.127.255", "32512"),
-    arrayOf("1.8.0.0", "1.8.255.255", "65536"),
-    arrayOf("1.10.0.0", "1.10.9.255", "2560"),
-    arrayOf("1.10.11.0", "1.10.127.255", "29952"),
-    arrayOf("1.12.0.0", "1.15.255.255", "262144"),
-    arrayOf("1.18.128.0", "1.18.128.255", "256"),
-    arrayOf("1.24.0.0", "1.31.255.255", "524288"),
-    arrayOf("1.45.0.0", "1.45.255.255", "65536"),
-    arrayOf("1.48.0.0", "1.51.255.255", "262144"),
-    arrayOf("1.56.0.0", "1.63.255.255", "524288"),
-    arrayOf("1.68.0.0", "1.71.255.255", "262144"),
-    arrayOf("1.80.0.0", "1.95.255.255", "1048576"),
-    arrayOf("1.116.0.0", "1.117.255.255", "131072"),
-    arrayOf("1.119.0.0", "1.119.255.255", "65536"),
-    arrayOf("1.180.0.0", "1.185.255.255", "393216"),
-    arrayOf("1.188.0.0", "1.199.255.255", "786432"),
-    arrayOf("1.202.0.0", "1.207.255.255", "393216")
-)
-private val ltChinaRanges: List<Triple<Long, Long, Long>> = ltChinaRangesRaw.map {
-    Triple(it[0].ipToLong(), it[1].ipToLong(), it[2].toLong())
-}
-private val ltChinaTotal: Long = ltChinaRanges.sumOf { it.third }
-private val ltIpRandom = java.util.Random()
-
-private fun String.ipToLong(): Long {
-    val p = split(".")
-    if (p.size != 4) return 0L
-    return (p[0].toLong() shl 24) + (p[1].toLong() shl 16) + (p[2].toLong() shl 8) + p[3].toLong()
-}
-private fun Long.longToIp(): String {
-    val sb = StringBuilder()
-    sb.append((this ushr 24) and 0xFF).append('.')
-    sb.append((this ushr 16) and 0xFF).append('.')
-    sb.append((this ushr 8) and 0xFF).append('.')
-    sb.append(this and 0xFF)
-    return sb.toString()
-}
-
-/** 一起听 eapi 写：生成一个随机国内 IP（对齐 MeiloX generateRandomChineseIP）。 */
-fun randomListenChineseIP(): String {
-    if (ltChinaTotal == 0L) return "116.${(25..94).random()}.${(1..255).random()}.${(1..255).random()}"
-    var offset = (ltIpRandom.nextDouble() * ltChinaTotal).toLong()
-    var chosen = ltChinaRanges.last()
-    for (range in ltChinaRanges) {
-        if (offset < range.third) { chosen = range; break }
-        offset -= range.third
-    }
-    val segSize = chosen.second - chosen.first + 1
-    val randomInSeg = (ltIpRandom.nextDouble() * segSize).toLong()
-    return (chosen.first + randomInSeg).longToIp()
-}
-
 val apiClient = HttpClient(OkHttp) {
     install(Logging) {
         logger = object : Logger {
@@ -234,22 +152,6 @@ val EAPI_USER_UPDATE_PROFILE: Map<String, Any> = mapOf(
     "synthesizedCookie" to true,
 )
 
-/**
- * 一起听（listen-together）eapi 写 profile：对齐 MeiloX EAPI_CONFIG 的桌面 pc 上下文
- * （os=pc + Windows 参数 + 桌面 UA + 设备指纹 cookie），让 NCM 把房间写命令当可信来源
- * 接受并广播给其他成员，而非按移动端风控静默丢弃。
- */
-val EAPI_LISTEN_PROFILE: Map<String, Any> = mapOf(
-    "os" to "pc",
-    "osver" to "Microsoft-Windows-10-Professional-build-22631-64bit",
-    "appver" to "3.0.18.203152",
-    "versioncode" to "6006066",
-    "channel" to "netease",
-    "mobilename" to "Mi+A3",
-    "resolution" to "2268x1080",
-    "listen" to true,
-)
-
 @PublishedApi
 internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
     fun req(key: String): Any = requireNotNull(p[key]) { "Missing $key for $path" }
@@ -267,9 +169,6 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
     // 用户资料修改：eapi + 合成 cookie profile（移动端参数，interfacepc 域）。
     fun eapiUserUpdate(uri: String, data: Map<String, Any> = emptyMap()) =
         Route(uri, data, Encryption.EAPI, eapiProfile = EAPI_USER_UPDATE_PROFILE)
-    // 一起听 eapi 写：桌面 pc profile（对齐 MeiloX EAPI_CONFIG）。
-    fun eapiListen(uri: String, data: Map<String, Any> = emptyMap()) =
-        Route(uri, data, Encryption.EAPI, eapiProfile = EAPI_LISTEN_PROFILE)
 
     val commentTypePrefix = when (int("type", 0)) {
         0 -> "R_SO_4_"
@@ -640,18 +539,18 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
                 "userIds" to ("[" + str("user_ids") + "]")
             )
         )
-        // 一起听（listen together）：状态读走 weapi，房间写 / 同步 / 心跳走 eapi 桌面 pc profile（对齐 MeiloX）。
+        // 一起听（listen together）：状态读走 weapi，房间写 / 同步 / 心跳走 eapi（对齐 MeiloX 通道选择）。
         // 上游路径逐条对齐 api-enhanced 代理 module/listentogether_*.js（heartbeat 拼写为 NCM 原样 /heartbeat）。
         "/listen/together/status" -> weapi("/api/listen/together/status/get", emptyMap())
-        "/listen/together/room/create" -> eapiListen(
+        "/listen/together/room/create" -> eapi(
             "/api/listen/together/room/create",
             mapOf("refer" to str("refer").ifBlank { "songplay_more" })
         )
-        "/listen/together/room/check" -> eapiListen(
+        "/listen/together/room/check" -> eapi(
             "/api/listen/together/room/check",
             mapOf("roomId" to req("roomId"))
         )
-        "/listen/together/invitation/accept" -> eapiListen(
+        "/listen/together/invitation/accept" -> eapi(
             "/api/listen/together/play/invitation/accept",
             mapOf(
                 "refer" to str("refer").ifBlank { "inbox_invite" },
@@ -659,19 +558,19 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
                 "inviterId" to req("inviterId")
             )
         )
-        "/listen/together/play/command" -> eapiListen(
+        "/listen/together/play/command" -> eapi(
             "/api/listen/together/play/command/report",
             mapOf("roomId" to req("roomId"), "commandInfo" to req("commandInfo"))
         )
-        "/listen/together/sync/playlist" -> eapiListen(
+        "/listen/together/sync/playlist" -> eapi(
             "/api/listen/together/sync/playlist/get",
             mapOf("roomId" to req("roomId"))
         )
-        "/listen/together/sync/list" -> eapiListen(
+        "/listen/together/sync/list" -> eapi(
             "/api/listen/together/sync/list/command/report",
             mapOf("roomId" to req("roomId"), "playlistParam" to req("playlistParam"))
         )
-        "/listen/together/heartbeat" -> eapiListen(
+        "/listen/together/heartbeat" -> eapi(
             "/api/listen/together/heartbeat",
             mapOf(
                 "roomId" to req("roomId"),
@@ -680,7 +579,7 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
                 "progress" to req("progress")
             )
         )
-        "/listen/together/end" -> eapiListen(
+        "/listen/together/end" -> eapi(
             "/api/listen/together/end/v2",
             mapOf("roomId" to req("roomId"))
         )
@@ -720,8 +619,6 @@ internal suspend fun send(route: Route): String {
     // 仅「播放历史 osx profile」(os=osx) 走 osx 域/UA/空 csrf/去 mobilename。
     // 其余 eapi profile（如用户资料修改）保持移动端默认，只借用「合成 cookie」行为。
     val isHistoryProfile = profile?.get("os")?.toString() == "osx"
-    // 一起听 eapi 写：桌面 pc profile（os=pc），走 MeiloX 风格设备指纹 cookie + 假国内 IP + 桌面 UA。
-    val isListenProfile = profile?.get("listen") == true
     // 合成 cookie（对齐代理 createHeaderCookie）：播放历史 + 用户资料修改都发它，
     // 完整登录 cookie 只在普通 eapi/weapi 读接口用。eapi 写接口发完整登录 cookie 会被 NCM 403。
     val synthesizedCookie = isHistoryProfile || profile?.get("synthesizedCookie") == true
@@ -734,16 +631,12 @@ internal suspend fun send(route: Route): String {
         put("os", profile?.get("os")?.toString() ?: osValue)
         put("appver", profile?.get("appver")?.toString() ?: cookie["appver"] ?: "9.4.32.251222163637")
         put("versioncode", profile?.get("versioncode")?.toString() ?: cookie["versioncode"] ?: "6006066")
-        if (!isHistoryProfile) put("mobilename", profile?.get("mobilename")?.toString() ?: cookie["mobilename"] ?: "")
+        if (!isHistoryProfile) put("mobilename", cookie["mobilename"] ?: "")
         put("buildver", (System.currentTimeMillis() / 1000).toString())
         put("resolution", profile?.get("resolution")?.toString() ?: cookie["resolution"] ?: "2268x1080")
         put("channel", profile?.get("channel")?.toString() ?: cookie["channel"] ?: "xiaomi")
         put("requestId", "${System.currentTimeMillis()}_${(0..9999).random()}")
-        put("__csrf", when {
-            isHistoryProfile -> ""
-            isListenProfile -> LT_CSRF
-            else -> csrf
-        })
+        put("__csrf", if (isHistoryProfile) "" else csrf)
         if (musicU != null) put("MUSIC_U", musicU)
     }
 
@@ -761,8 +654,6 @@ internal suspend fun send(route: Route): String {
     val rest = route.uri.removePrefix("/api/")
     val targetDomain = when {
         isHistoryProfile -> profile["domain"].toString()
-        // 一起听 eapi 写：对齐 MeiloX 走 interface.music.163.com（默认域，非 interfacepc）。
-        isListenProfile -> NCM_EAPI_HISTORY_DOMAIN
         route.encryption == Encryption.WEAPI -> NCM_WEB_DOMAIN
         else -> NCM_API_DOMAIN
     }
@@ -776,59 +667,26 @@ internal suspend fun send(route: Route): String {
     //   保证匿名读接口（toplist / 搜索等）也能握手成功。
     // - 播放历史 + 用户资料修改（synthesizedCookie）：对齐代理 createHeaderCookie 发「合成 cookie」
     //   （header 字段 URL-encode、按 key 排序）。eapi 写接口发完整登录 cookie 会被 NCM 403 静默丢弃。
-    // - 一起听 eapi 写（isListenProfile）：对齐 MeiloX NeteaseInterceptor 的桌面 pc cookie ——
-    //   登录 MUSIC_U + 全套设备指纹（NMDI/NMTID/NNCID/URS_APPID/sDeviceId/ntes_kaola_ad/WEVNSM）
-    //   + os=pc，按 key 排序；NCM 据此把房间写当可信来源接受并广播给其他成员。
-    val cookieHeader = when {
-        isListenProfile -> {
-            val device = cookie["deviceId"] ?: anonymousDeviceId
-            buildMap {
-                putAll(cookie)
-                put("os", "pc")
-                put("deviceId", device)
-                put("sDeviceId", device)
-                put("ntes_kaola_ad", "1")
-                put("_ntes_nuid", LT_NUID)
-                put("WNMCID", LT_WNMCID)
-                put("URS_APPID", LT_URS_APPID)
-                put("WEVNSM", "1.0.0")
-                put("__csrf", LT_CSRF)
-                put("NMDI", LT_NMDI)
-                put("NMTID", LT_NMTID)
-            }.entries
-                .sortedBy { it.key }
-                .joinToString("; ") { (k, v) -> "$k=$v" }
-        }
-        synthesizedCookie ->
-            header.entries
-                .sortedBy { it.key }
-                .joinToString("; ") { (k, v) -> "${encodeCookieComponent(k)}=${encodeCookieComponent(v.toString())}" }
-        else ->
-            buildMap {
-                putAll(cookie)
-                if (cookie["deviceId"] == null) put("deviceId", anonymousDeviceId)
-            }.entries.joinToString("; ") { (k, v) -> "$k=$v" }
+    val cookieHeader = if (synthesizedCookie) {
+        header.entries
+            .sortedBy { it.key }
+            .joinToString("; ") { (k, v) -> "${encodeCookieComponent(k)}=${encodeCookieComponent(v.toString())}" }
+    } else {
+        buildMap {
+            putAll(cookie)
+            if (cookie["deviceId"] == null) put("deviceId", anonymousDeviceId)
+        }.entries.joinToString("; ") { (k, v) -> "$k=$v" }
     }
 
     val response = apiClient.request(url) {
         method = HttpMethod.Post
         contentType(ContentType.Application.FormUrlEncoded)
-        header("User-Agent", when {
-            isHistoryProfile -> NCM_OSX_UA
-            isListenProfile -> NCM_PC_UA
-            else -> NCM_MOBILE_UA
-        })
+        header("User-Agent", if (isHistoryProfile) NCM_OSX_UA else NCM_MOBILE_UA)
         if (route.encryption == Encryption.WEAPI) {
             header("Referer", NCM_WEB_DOMAIN)
         }
         if (isHistoryProfile) {
             header("Accept", "*/*")
-        }
-        // 一起听 eapi 写：对齐 MeiloX 每次带随机国内 IP 假头（X-Real-IP / X-Forwarded-For）。
-        if (isListenProfile) {
-            val fakeIp = randomListenChineseIP()
-            header("X-Real-IP", fakeIp)
-            header("X-Forwarded-For", fakeIp)
         }
         header("Cookie", cookieHeader)
         setBody(fields.entries.joinToString("&") { (k, v) -> "${k.encodeURLParameter()}=${v.encodeURLParameter()}" })
