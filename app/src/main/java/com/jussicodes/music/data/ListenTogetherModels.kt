@@ -169,7 +169,8 @@ object ListenTogetherApi {
                 "snapshot roomId=$roomId resp code=${respCode(el)} " +
                     "cmd=${snap.commandType} target=${snap.targetSongId} former=${snap.formerSongId} " +
                     "progress=${snap.progressMs} playing=${snap.isPlaying} " +
-                    "srvSeq=${snap.serverSeq} cliSeq=${snap.clientSeq} songIds=${snap.songIds.size}"
+                    "srvSeq=${snap.serverSeq} cliSeq=${snap.clientSeq} songIds=${snap.songIds.size} " +
+                    "rawData=${((el as? JsonObject)?.get("data")?.toString() ?: "null").take(1000)}"
             )
             snap
         }
