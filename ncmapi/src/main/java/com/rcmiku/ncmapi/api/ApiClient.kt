@@ -90,7 +90,7 @@ private fun alnumKey(n: Int): String =
 private val LT_NUID = alnumKey(32)
 private val LT_NMTID = alnumKey(16)
 private val LT_WNMCID =
-    (1..6).joinToString("") { "abcdefghijklmnopqrstuvwxyz".toCharArray().random() } +
+    (1..6).joinToString("") { "abcdefghijklmnopqrstuvwxyz".toCharArray().random().toString() } +
         ".${System.currentTimeMillis()}.01.0"
 
 val apiClient = HttpClient(OkHttp) {
