@@ -212,7 +212,7 @@ object ListenTogetherApi {
     ): Result<Unit> {
         val playlistParam = buildString {
             append("{\"commandType\":\"REPLACE\",\"version\":[")
-            append("{\"userId\":").append(userId).append(",\"version\":").append(version).append("]")
+            append("{\"userId\":").append(userId).append(",\"version\":").append(version).append("}]")
             append(",\"anchorSongId\":\"\",\"anchorPosition\":-1")
             append(",\"randomList\":[").append(songIds.joinToString(",") { "\"$it\"" }).append("]")
             append(",\"displayList\":[").append(songIds.joinToString(",") { "\"$it\"" }).append("]}")
