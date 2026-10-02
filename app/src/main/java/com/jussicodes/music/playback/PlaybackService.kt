@@ -353,8 +353,8 @@ class PlaybackService : MediaSessionService() {
                 reporter.close()
             }
             playbackHistoryReporter = null
-            // 一起听会话先于播放器释放解除监听。
-            ListenTogetherSession.detach()
+            // 一起听会话先于播放器释放解除监听（MeiloX 原样：只摘监听 + 停监控）。
+            ListenTogetherSession.detach(player)
             player.release()
             release()
             mediaSession = null

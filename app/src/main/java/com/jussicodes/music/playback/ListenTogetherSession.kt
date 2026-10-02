@@ -40,9 +40,10 @@ import kotlinx.coroutines.launch
  *   用「列表签名 + 命令签名」diff，没变化不动播放器；
  * - 本地播放事件（切歌/播放/暂停/拖动/队列变更）带单调递增 clientSeq 上报，
  *   远端命令带 serverSeq，双序号去重排序；
- * - 应用远端状态时置 [applyingRemote] + 1.5s 抑制窗口，防止「应用别人切歌 →
+ * - 应用远端状态时置 [applyingRemote] + 1s 抑制窗口，防止「应用别人切歌 →
  *   触发本地回调 → 又报回去」的回环；
- * - 心跳（/heartbeat）按 NCM 返回的 timeSpan 间隔发送，防止单人群 NCM 自动回收房间。
+ * - 心跳（/heartbeat）随 1s 监控循环每 5 个 tick（tick==1 || tick%5==0）发一次，
+ *   房间状态每 5 tick 复检一次（对齐 MeiloX；timeSpan 仍随响应解析但不再驱动间隔）。
  */
 @OptIn(UnstableApi::class)
 object ListenTogetherSession : Player.Listener {
@@ -80,10 +81,6 @@ object ListenTogetherSession : Player.Listener {
     private var applyingRemote = false
     @Volatile
     private var suppressReportsUntilMs = 0L
-    @Volatile
-    private var lastHeartbeatAt = 0L
-    @Volatile
-    private var heartbeatSpanSec = 30
     private var lastPlaylistSig: String? = null
     private var lastCommandSig: String? = null
     private var consecutiveFailures = 0
@@ -99,20 +96,19 @@ object ListenTogetherSession : Player.Listener {
         appContext = context.applicationContext
         value.addListener(this)
         formerSongId = currentSongId() ?: 0L
-        if (CookieProvider.isLoggedIn()) refresh()
+        // MeiloX 原样：attach 时无条件 refresh()（不按登录态 gating）。
+        refresh()
     }
 
-    fun detach() {
-        player?.removeListener(this)
+    // MeiloX detachPlayer 原样：只摘该播放器监听 + 停监控；房间/序号/本地 uid 保留，
+    // 下次 attach 由 refresh() 重新对账。残留的 playlistReportJob 到期会因 player==null 直接 return。
+    fun detach(value: Player) {
+        if (player !== value) return
+        value.removeListener(this)
         player = null
         appContext = null
         monitorJob?.cancel()
         monitorJob = null
-        playlistReportJob?.cancel()
-        playlistReportJob = null
-        clientSeq = 0L
-        localUid = 0L
-        _state.value = _state.value.copy(room = null, reconnecting = false)
     }
 
     // ------------------------------------------------------------------
@@ -302,10 +298,11 @@ object ListenTogetherSession : Player.Listener {
                     if (snapshot != null) applyRemote(snapshot, initial = tick == 1)
                     else Log.d(TAG, "monitor tick=$tick roomId=${room.id} snapshot=NULL (fetch failed, see LT-Debug snapshot line)")
 
-                    if (SystemClock.elapsedRealtime() - lastHeartbeatAt >= heartbeatSpanSec * 1000L) {
+                    // MeiloX 原样：每 5 tick（5s）同时发心跳 + 复检房间状态；timeSpan 仅透传不驱动间隔。
+                    if (tick == 1 || tick % 5 == 0) {
+                        refreshRoomStatus()
                         sendHeartbeat()
                     }
-                    if (tick % 10 == 0) refreshRoomStatus()
 
                     consecutiveFailures = 0
                     if (_state.value.reconnecting) {
@@ -327,6 +324,17 @@ object ListenTogetherSession : Player.Listener {
         }
     }
 
+    private fun updateInviteUrl() {
+        val room = _state.value.room ?: return
+        _state.value = _state.value.copy(
+            inviteUrl = buildListenTogetherInviteUrl(
+                roomId = room.id,
+                inviterId = localUid.takeIf { it > 0 } ?: room.creatorId,
+                songId = currentSongId() ?: 0L
+            )
+        )
+    }
+
     private suspend fun refreshRoomStatus() {
         val expected = _state.value.room ?: return
         val status = ListenTogetherApi.status().getOrNull() ?: return
@@ -338,7 +346,16 @@ object ListenTogetherSession : Player.Listener {
             clearSession("你已在另一个一起听房间")
             return
         }
-        _state.value = _state.value.copy(room = status.room)
+        // MeiloX 原样：复检时同步刷新 isHost 判定与 inviteUrl。
+        _state.value = _state.value.copy(
+            room = status.room,
+            isHost = status.room.creatorId == localUid,
+            inviteUrl = buildListenTogetherInviteUrl(
+                roomId = status.room.id,
+                inviterId = localUid.takeIf { it > 0 } ?: status.room.creatorId,
+                songId = currentSongId() ?: 0L
+            )
+        )
     }
 
     /** 应用远端快照（签名 diff：列表/命令都没变则直接返回，不动播放器）。 */
@@ -369,16 +386,17 @@ object ListenTogetherSession : Player.Listener {
         val completeIds = if (targetId in songIds) songIds else songIds + targetId
         if (completeIds.isEmpty()) return
 
-        val remoteSongs = runCatching {
-            ListenTogetherApi.songsByIds(completeIds).getOrNull()
-        }.getOrNull().orEmpty()
-        val items = completeIds.map { id ->
-            remoteSongs.firstOrNull { it.id == id } ?: Song(id = id, name = "歌曲")
-        }.toMediaItemList(sourceName = "一起听")
+        // MeiloX 原样：本地 id 序列与远端一致时直接复用现有 MediaItem，不重拉详情；
+        // 不一致才按 100 条分片拉批量详情，缺详情的歌剔除（不再用占位 Song 兜底）。
+        val items = if (completeIds == localIds) {
+            (0 until activePlayer.mediaItemCount).map { activePlayer.getMediaItemAt(it) }
+        } else {
+            loadMediaItems(completeIds)
+        }
         val targetIndex = items.indexOfFirst { it.mediaId == targetId.toString() }.coerceAtLeast(0)
 
         applyingRemote = true
-        suppressReportsUntilMs = SystemClock.elapsedRealtime() + 1500L
+        suppressReportsUntilMs = SystemClock.elapsedRealtime() + 1000L
         try {
             if (completeIds != localIds) {
                 activePlayer.setMediaItems(items, targetIndex, snapshot.progressMs?.coerceAtLeast(0L) ?: 0L)
@@ -405,23 +423,32 @@ object ListenTogetherSession : Player.Listener {
         )
     }
 
-    /** 按 NCM timeSpan 间隔发心跳，保活房间（单人房 NCM 会回收无心跳房间）。 */
+    /** MeiloX sendHeartbeat 原样：上报当前歌心跳；timeSpan 仅原样透传，不再用它调间隔。 */
     private fun sendHeartbeat() {
         val room = _state.value.room ?: return
         val activePlayer = player ?: return
         val songId = currentSongId() ?: return
         scope.launch {
-            val span = runCatching {
+            runCatching {
                 ListenTogetherApi.heartbeat(
                     roomId = room.id,
                     songId = songId,
                     isPlaying = activePlayer.isPlaying,
                     progressMs = activePlayer.currentPosition
                 )
-            }.getOrNull()
-            if (span != null) heartbeatSpanSec = span
-            lastHeartbeatAt = SystemClock.elapsedRealtime()
+            }
         }
+    }
+
+    /** MeiloX loadMediaItems 原样：按 100 条分片拉批量歌曲详情，id→Song 保持序，缺详情的歌剔除。 */
+    private suspend fun loadMediaItems(ids: List<Long>): List<MediaItem> {
+        val byId = linkedMapOf<Long, Song>()
+        ids.chunked(100).forEach { page ->
+            runCatching { ListenTogetherApi.songsByIds(page).getOrNull() }
+                .getOrNull().orEmpty()
+                .forEach { byId[it.id] = it }
+        }
+        return ids.mapNotNull { id -> byId[id] }.toMediaItemList(sourceName = "一起听")
     }
 
     // ------------------------------------------------------------------
@@ -472,6 +499,8 @@ object ListenTogetherSession : Player.Listener {
             scope.launch { reportCommand("GOTO", formerSongId, target) }
         }
         formerSongId = target
+        // MeiloX 原样：切歌后刷新邀请链接里的 songId。
+        updateInviteUrl()
     }
 
     override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
