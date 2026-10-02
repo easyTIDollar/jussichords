@@ -204,7 +204,7 @@ object ListenTogetherApi {
             "/listen/together/sync/list",
             mapOf("roomId" to roomId, "playlistParam" to playlistParam)
         ).map { el ->
-            Log.d(TAG, "reportPlaylist roomId=$roomId userId=$userId version=$version ids=${songIds.size} resp code=${respCode(el)} result=${el.resultFlag()} param=${playlistParam.take(400)}")
+            Log.d(TAG, "reportPlaylist roomId=$roomId userId=$userId version=$version ids=${songIds.size} resp code=${respCode(el)} result=${resultFlag(el)} param=${playlistParam.take(400)}")
         }
     }
 
