@@ -93,6 +93,12 @@ private val LT_WNMCID =
     (1..6).joinToString("") { "abcdefghijklmnopqrstuvwxyz".toCharArray().random().toString() } +
         ".${System.currentTimeMillis()}.01.0"
 
+// MeiloX NeteaseInterceptor：一起听 eapi 每个请求都自报 X-Real-IP/X-Forwarded-For = 会话稳定的
+// 随机中国 IP（fakeIP lazy 只算一次）。NCM 一起听「写共享队列」按自报国内 IP 信任放行写入；
+// 之前 shape/信封/19字段cookie 的差异都试尽仍 result=false，唯独这个「MeiloX 有、jussichords 完全没发」
+// 的 IP 自报头没试过。会话稳定（顶层 val 调一次），避免每请求换 IP 反而触发风控。
+private val LT_FAKE_IP = ChineseIpUtils.generateRandomChineseIP()
+
 val apiClient = HttpClient(OkHttp) {
     install(Logging) {
         logger = object : Logger {
@@ -771,6 +777,10 @@ internal suspend fun send(route: Route): String {
                 else -> NCM_MOBILE_UA
             }
         header("User-Agent", ua)
+        if (isLtProfile) {
+            header("X-Real-IP", LT_FAKE_IP)
+            header("X-Forwarded-For", LT_FAKE_IP)
+        }
         if (route.encryption == Encryption.WEAPI) {
             header("Referer", NCM_WEB_DOMAIN)
         }
