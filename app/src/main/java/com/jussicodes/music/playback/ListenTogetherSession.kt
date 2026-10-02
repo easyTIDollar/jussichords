@@ -13,6 +13,7 @@ import com.jussicodes.music.data.LTSnapshot
 import com.jussicodes.music.data.buildListenTogetherInviteUrl
 import com.jussicodes.music.data.parseListenTogetherInvitation
 import com.jussicodes.music.extensions.toMediaItemList
+import com.jussicodes.music.utils.PlayerExpandBus
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.utils.CookieProvider
@@ -192,6 +193,9 @@ object ListenTogetherSession : Player.Listener {
                 if (snapshot != null) applyRemote(snapshot, initial = true)
                 sendHeartbeat()
                 startMonitoring()
+                // 接收端进房成功：自动展开全屏播放界面，落到 host 当前那首歌。
+                // host（自己重进自己的房间）不展开，保持现状。
+                if (!_state.value.isHost) PlayerExpandBus.expand()
                 _state.value = _state.value.copy(isLoading = false)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error

@@ -74,6 +74,18 @@ fun ListenTogetherSheet(
         }
     }
 
+    // 接收端「刚进房」过渡（room 从 null → 有 id 且非房主）：收起本面板，露出
+    // join()/joinCard() 里展开的全屏播放界面，让用户直接落在 host 当前那首歌上。
+    // 用 transition 判定而非当前值：已在房里又手动打开面板看成员/分享时（首次合成
+    // 即非 null）不会误收。房主自建/重进（isHost=true）不收。
+    var prevRoomId by remember { mutableStateOf(uiState.room?.id) }
+    LaunchedEffect(uiState.room?.id) {
+        val nowId = uiState.room?.id
+        val justEntered = prevRoomId == null && nowId != null
+        prevRoomId = nowId
+        if (justEntered && !uiState.isHost) onDismiss()
+    }
+
     if (openBottomSheet) {
         ModalBottomSheet(onDismissRequest = onDismiss, sheetState = bottomSheetState) {
             Column(
