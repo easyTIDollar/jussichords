@@ -367,10 +367,10 @@ object ListenTogetherSession : Player.Listener {
         suppressReportsUntilMs = SystemClock.elapsedRealtime() + 1500L
         try {
             if (completeIds != localIds) {
-                activePlayer.setMediaItems(items, targetIndex, snapshot.progressMs.coerceAtLeast(0L))
+                activePlayer.setMediaItems(items, targetIndex, snapshot.progressMs?.coerceAtLeast(0L) ?: 0L)
                 activePlayer.prepare()
             } else if (initial || commandChanged) {
-                activePlayer.seekTo(targetIndex, snapshot.progressMs.coerceAtLeast(0L))
+                activePlayer.seekTo(targetIndex, snapshot.progressMs?.coerceAtLeast(0L) ?: activePlayer.currentPosition)
             }
             val mode = snapshot.playMode?.uppercase()
             if (mode != null) {

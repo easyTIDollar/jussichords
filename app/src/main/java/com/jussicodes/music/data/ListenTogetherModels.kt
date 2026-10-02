@@ -28,7 +28,7 @@ data class LTSnapshot(
     val commandType: String?,
     val targetSongId: Long?,
     val formerSongId: Long?,
-    val progressMs: Long,
+    val progressMs: Long?,
     val isPlaying: Boolean?,
     val clientSeq: Long,
     val serverSeq: Long
@@ -97,7 +97,7 @@ fun snapshotFromData(data: JsonElement?): LTSnapshot {
         commandType = commandType,
         targetSongId = targetSongId,
         formerSongId = cmd?.get("formerSongId")?.ltLong(),
-        progressMs = cmd?.get("progress")?.ltLong() ?: 0L,
+        progressMs = cmd?.get("progress")?.ltLong(),
         isPlaying = isPlaying,
         clientSeq = cmd?.get("clientSeq")?.ltLong() ?: 0L,
         serverSeq = cmd?.get("serverSeq")?.ltLong() ?: 0L
