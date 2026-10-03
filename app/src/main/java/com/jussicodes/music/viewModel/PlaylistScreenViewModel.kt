@@ -138,7 +138,15 @@ class PlaylistScreenViewModel @Inject constructor(
                     prefs[libraryPlaylistRefreshTokenKey] = System.currentTimeMillis()
                 }
 
-                PlaylistApi.playlistSub(id = it, isSub = shouldSubscribe).onFailure {
+                PlaylistApi.playlistSub(id = it, isSub = shouldSubscribe)
+                    .onSuccess {
+                        Toast.makeText(
+                            context,
+                            if (shouldSubscribe) "已收藏歌单" else "已取消收藏",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    .onFailure {
                     _playlistInfo.value = previousPlaylistInfo
                     playlist?.let { item ->
                         PlaylistCollectionSyncBus.setCollected(item, !shouldSubscribe)
