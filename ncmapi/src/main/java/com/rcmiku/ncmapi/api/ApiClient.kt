@@ -772,6 +772,10 @@ internal suspend fun send(route: Route): String {
         }.entries.joinToString("; ") { (k, v) -> "$k=$v" }
     }
 
+    // [debug] 关注歌手 toast 排查：请求前打出路由/加密方式/实际发送的 data JSON，
+    // 响应后打 HTTP 状态 + NCM 原始 body（weapi 写接口的业务错误在 200 体里，Ktor INFO 看不到）。
+    Log.d("ApiClient", "[route] path=${route.uri} enc=${route.encryption} jsonBody=$jsonBody")
+
     val response = apiClient.request(url) {
         method = HttpMethod.Post
         contentType(ContentType.Application.FormUrlEncoded)
@@ -795,6 +799,10 @@ internal suspend fun send(route: Route): String {
         setBody(fields.entries.joinToString("&") { (k, v) -> "${k.encodeURLParameter()}=${v.encodeURLParameter()}" })
     }
     var body = response.bodyAsText()
+    Log.d(
+        "ApiClient",
+        "[route] resp path=${route.uri} http=${response.status} body=${body.take(800)}"
+    )
     if (!response.status.isSuccess()) {
         throw Exception("HTTP ${response.status} ${response.status.description}: ${body.take(500)}")
     }
