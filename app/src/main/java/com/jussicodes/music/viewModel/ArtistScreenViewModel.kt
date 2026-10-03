@@ -243,6 +243,11 @@ class ArtistScreenViewModel @Inject constructor(
             ArtistApi.artistSub(id, nextSubscribed)
                 .onSuccess {
                     refreshFollowStats()
+                    Toast.makeText(
+                        context,
+                        if (nextSubscribed) "已关注该歌手" else "已取消关注",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
                 .onFailure {
                     _isArtistSubscribed.value = !nextSubscribed

@@ -71,6 +71,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -154,6 +156,7 @@ fun PlaylistScreen(
     var selectSong by remember { mutableStateOf<Song?>(null) }
     val context = LocalContext.current
     val view = LocalView.current
+    val haptics = LocalHapticFeedback.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val searchFocusRequester = remember { FocusRequester() }
     var searchActive by rememberSaveable { mutableStateOf(false) }
@@ -413,6 +416,7 @@ fun PlaylistScreen(
                                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     OutlinedButton(
                                         onClick = {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                             playlistScreenViewModel.playlistSub(
                                                 shouldSubscribe = !subscribed
                                             )

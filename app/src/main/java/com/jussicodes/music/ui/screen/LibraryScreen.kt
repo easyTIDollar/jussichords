@@ -66,6 +66,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -742,6 +744,7 @@ private fun LibraryUserCard(
 ) {
     val profile = userInfo.account.profile
     val secondaryText = profile.signature.takeIf { it.isNotBlank() }
+    val haptics = LocalHapticFeedback.current
 
     Box(
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -760,7 +763,10 @@ private fun LibraryUserCard(
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilledTonalIconButton(
-                                onClick = onMessagesClick
+                                onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onMessagesClick()
+                                }
                             ) {
                                 androidx.compose.material3.Icon(
                                     imageVector = Message,
@@ -768,7 +774,12 @@ private fun LibraryUserCard(
                                 )
                             }
                         }
-                        FilledTonalIconButton(onClick = onRecordClick) {
+                        FilledTonalIconButton(
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onRecordClick()
+                            }
+                        ) {
                             androidx.compose.material3.Icon(
                                 imageVector = Leaderboard,
                                 contentDescription = stringResource(R.string.record)
@@ -780,13 +791,23 @@ private fun LibraryUserCard(
                     modifier = Modifier.align(Alignment.CenterEnd).padding(end = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    FilledTonalIconButton(onClick = onRecentPlayClick) {
+                    FilledTonalIconButton(
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onRecentPlayClick()
+                        }
+                    ) {
                         androidx.compose.material3.Icon(
                             imageVector = History,
                             contentDescription = stringResource(R.string.recent_play)
                         )
                     }
-                    FilledTonalIconButton(onClick = onRoamClick) {
+                    FilledTonalIconButton(
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onRoamClick()
+                        }
+                    ) {
                         androidx.compose.material3.Icon(
                             imageVector = PersonalRadio,
                             contentDescription = stringResource(R.string.roam)

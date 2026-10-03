@@ -16,6 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -101,6 +103,7 @@ fun ArtistScreen(
     var previewArtistImageUrl by remember { mutableStateOf<String?>(null) }
     val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
+    val haptics = LocalHapticFeedback.current
     val isPlaying = playerState?.isPlaying == true
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
 
@@ -176,7 +179,10 @@ fun ArtistScreen(
                 }
             }
             OutlinedButton(
-                onClick = artistScreenViewModel::toggleArtistSub,
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    artistScreenViewModel.toggleArtistSub()
+                },
                 enabled = !isArtistSubUpdating && artistHeadInfoState != null,
                 modifier = Modifier.padding(start = 8.dp)
             ) {

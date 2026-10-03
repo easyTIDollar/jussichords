@@ -28,7 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -93,7 +92,7 @@ private val CARD_GRID_SPACING = 8.dp
  * - 默认 3 列封面网格（编辑模式可改 2~6 列，持久化）：单击进专辑页（系统双击窗口防误触），
  *   双击循环播放该专辑；**长按任意封面进入编辑模式**。
  * - 编辑模式：顶部图标工具条 刷新 / 列数（弹窗滑杆调 2~6 列）/ 完成 / 关闭（红色叉，最右；
- *   隐藏整张墙，设置页可恢复）；封面右上角为实心圆删除钮（MD 风格，无磨砂）；
+ *   隐藏整张墙，设置页可恢复）；封面右上角为深灰半透明圆底白色 'x' 删除钮；
  *   长按拖拽排序；系统返回手势拦截为"退出编辑模式"。
  * - 专辑为空时网格内是一个圆角矩形边框的加号格（占位格与封面等大），
  *   点它打开收藏专辑多选弹窗。
@@ -427,23 +426,22 @@ private fun PinnedAlbumCover(
             modifier = Modifier.fillMaxSize()
         )
         if (editing) {
-            // MD 风格删除钮：实心 error 圆 + 白色图标（去掉磨砂背景），置顶右上；
-            // 放大 150%（圆 33dp / 图标 21dp）并留 6dp 内边距，不贴封面圆角边界。
+            // 右上角圆形 'x' 删除钮：深灰半透明圆底 + 白色 Close 图标（沿用现成图标，非 error 红）。
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .size(33.dp)
+                    .padding(4.dp)
+                    .size(24.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.error)
+                    .background(Color.Black.copy(alpha = 0.55f))
                     .clickable(onClick = onRemove),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.Delete,
+                    imageVector = Icons.Outlined.Close,
                     contentDescription = "删除",
                     tint = Color.White,
-                    modifier = Modifier.size(21.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }

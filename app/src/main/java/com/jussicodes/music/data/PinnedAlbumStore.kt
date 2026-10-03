@@ -233,11 +233,15 @@ object PinnedAlbumStore {
     private fun readIds(prefs: Preferences): List<Long> =
         prefs[pinnedAlbumIdsKey].orEmpty().split(",").mapNotNull { it.toLongOrNull() }
 
-    /** 按当前 cookie 算账号指纹（sha256 前 16 hex）；未登录为 "guest"。 */
+    /**
+     * 按 MUSIC_U 算账号指纹（sha256 前 16 hex）；未登录为 "guest"。
+     * 不能哈希整串 cookie：其中 deviceId 在每次冷启动可能重新生成，
+     * 会让指纹跟着变，重启后 [loadCache] 误判"账号不匹配"清空专辑墙缓存。
+     */
     private fun accountKey(): String {
-        val cookie = CookieProvider.cookie
-        if (cookie.isEmpty()) return GUEST_KEY
-        val digest = MessageDigest.getInstance("SHA-256").digest(cookie.toByteArray())
+        val musicU = CookieProvider.getCookieMap()["MUSIC_U"].orEmpty()
+        if (musicU.isEmpty()) return GUEST_KEY
+        val digest = MessageDigest.getInstance("SHA-256").digest(musicU.toByteArray())
         return digest.take(8).joinToString("") { "%02x".format(it) }
     }
 }

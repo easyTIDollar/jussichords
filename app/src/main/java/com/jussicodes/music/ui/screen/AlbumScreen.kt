@@ -49,6 +49,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -112,6 +114,7 @@ fun AlbumScreen(
     var previewCoverUrl by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
     val pinnedAlbums by PinnedAlbumStore.albums.collectAsState()
     val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
         .collectAsState(emptyList())
@@ -237,6 +240,7 @@ fun AlbumScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedButton(
                                 onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     albumInfoState?.isSub?.let { isSub -> albumScreenViewModel.albumSub(isSub = !isSub) }
                                 },
                                 contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
