@@ -8,11 +8,11 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.jussicodes.music.constants.pinnedAlbumIdsKey
 import com.jussicodes.music.constants.pinnedAlbumsAccountKey
 import com.jussicodes.music.constants.pinnedAlbumsCacheKey
+import com.jussicodes.music.constants.userIdKye
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.album.AlbumApi
 import com.rcmiku.ncmapi.model.Album
 import com.rcmiku.ncmapi.model.Song
-import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -25,7 +25,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
-import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -91,7 +90,9 @@ object PinnedAlbumStore {
         val prefs = s.data.first()
         val storedAccount = prefs[pinnedAlbumsAccountKey].orEmpty()
         val acc = accountKey()
-        if (storedAccount.isNotEmpty() && acc != GUEST_KEY && storedAccount != acc) {
+        // 旧版指纹是 cookie 哈希 hex（会误判掉墙）；非 uid: 前缀一律视为旧格式，不清墙，
+        // 下次 persist 自动改写为新格式。
+        if (storedAccount.startsWith("uid:") && storedAccount != acc) {
             _albums.value = emptyList()
             _cacheLoaded.value = true
             return
@@ -128,8 +129,10 @@ object PinnedAlbumStore {
             if (acc == GUEST_KEY) return@withLock false
             val ids = (_albums.value.map { it.id } + extraIds).distinct()
             if (ids.isEmpty()) {
+                // 内存空不等于用户清空：可能刚 [loadCache] 因账号不匹配被清（旧数据还在磁盘）。
+                // 这里只清内存、不动磁盘——真清空由 togglePin/applyPinned 显式 persist，
+                // 旧的账号数据保留在磁盘，切回原账号还能恢复。
                 _albums.value = emptyList()
-                persist(emptyList(), emptyList())
                 return@withLock true
             }
             val now = System.currentTimeMillis()
@@ -234,14 +237,14 @@ object PinnedAlbumStore {
         prefs[pinnedAlbumIdsKey].orEmpty().split(",").mapNotNull { it.toLongOrNull() }
 
     /**
-     * 按 MUSIC_U 算账号指纹（sha256 前 16 hex）；未登录为 "guest"。
-     * 不能哈希整串 cookie：其中 deviceId 在每次冷启动可能重新生成，
-     * 会让指纹跟着变，重启后 [loadCache] 误判"账号不匹配"清空专辑墙缓存。
+     * 账号作用域用 DataStore 的 userId（登录时由 LibraryScreenViewModel 写入，退出归 0）：
+     * "uid:<id>"，未登录为 "guest"。
+     * 历史上这里哈希 cookie 的 MUSIC_U——NCM 刷新会话会换发新 MUSIC_U，指纹跟着变，
+     * 重启后 [loadCache] 误判"账号不匹配"清掉专辑墙缓存。展示缓存的账号隔离不需要 cookie。
      */
-    private fun accountKey(): String {
-        val musicU = CookieProvider.getCookieMap()["MUSIC_U"].orEmpty()
-        if (musicU.isEmpty()) return GUEST_KEY
-        val digest = MessageDigest.getInstance("SHA-256").digest(musicU.toByteArray())
-        return digest.take(8).joinToString("") { "%02x".format(it) }
+    private suspend fun accountKey(): String {
+        val s = store ?: return GUEST_KEY
+        val userId = s.data.first()[userIdKye] ?: 0L
+        return if (userId == 0L) GUEST_KEY else "uid:$userId"
     }
 }
