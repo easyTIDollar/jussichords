@@ -254,8 +254,10 @@ fun PinnedAlbumPickDialog(onDismiss: () -> Unit) {
                             finalIds = selected.toList(),
                             seeds = albums.filter { it.id in selected }.map { it.toSeedAlbum() }
                         )
+                        // 写盘完成后再关弹窗：onDismiss 会让本 scope 取消，若在 persist 之前
+                        // 触发，DataStore 事务会在挂起点被丢弃——专辑只在内存、重启即掉。
+                        onDismiss()
                     }
-                    onDismiss()
                 }) {
                     Text(text = "应用")
                 }

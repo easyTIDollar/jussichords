@@ -129,8 +129,10 @@ object PinnedAlbumStore {
             if (acc == GUEST_KEY) return@withLock false
             val ids = (_albums.value.map { it.id } + extraIds).distinct()
             if (ids.isEmpty()) {
+                // 内存空不等于用户清空：可能刚 [loadCache] 因账号不匹配被清（旧数据还在磁盘）。
+                // 这里只清内存、不动磁盘——真清空由 togglePin/applyPinned 显式 persist，
+                // 旧的账号数据保留在磁盘，切回原账号还能恢复。
                 _albums.value = emptyList()
-                persist(emptyList(), emptyList())
                 return@withLock true
             }
             val now = System.currentTimeMillis()
