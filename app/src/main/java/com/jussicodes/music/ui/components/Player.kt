@@ -453,17 +453,26 @@ fun Player(
                                 }
                             },
                             onDragEnd = {
-                                when {
-                                    coverOffsetX <= -swipeThresholdPx -> mediaController?.seekToNextMediaItem()
-                                    coverOffsetX >= swipeThresholdPx -> mediaController?.seekToPreviousMediaItem()
+                                val switched = when {
+                                    coverOffsetX <= -swipeThresholdPx -> {
+                                        mediaController?.seekToNextMediaItem()
+                                        true
+                                    }
+                                    coverOffsetX >= swipeThresholdPx -> {
+                                        mediaController?.seekToPreviousMediaItem()
+                                        true
+                                    }
+                                    else -> false
                                 }
-                                if (swipeThresholdHapticFired && !swipeCancelHapticFired) {
-                                    // 三段震动之三：曾经越过分段线、但反悔回中（未切歌）
+                                if (switched) {
+                                    // 已切歌：重置两个标记
+                                    swipeThresholdHapticFired = false
+                                    swipeCancelHapticFired = false
+                                } else if (swipeThresholdHapticFired && !swipeCancelHapticFired) {
+                                    // 三段震动之三：曾越过分段线、但反悔回中（未切歌）
                                     swipeCancelHapticFired = true
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 }
-                                swipeThresholdHapticFired = false
-                                swipeCancelHapticFired = false
                                 animateCoverOffsetTo(0f)
                             },
                             onDragCancel = {
