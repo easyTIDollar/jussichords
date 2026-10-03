@@ -10,6 +10,7 @@ object CookieProvider {
             putAll(cookieMap)
             put(CookieKeys.OS, "android")
             put(CookieKeys.APP_VER, "9.4.32.251222163637")
+            put(CookieKeys.OS_VER, "14")
             put("channel", "xiaomi")
             put("versioncode", "6006066")
             put("resolution", "2268x1080")
