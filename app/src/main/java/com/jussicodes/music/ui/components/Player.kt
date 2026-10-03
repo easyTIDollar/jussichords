@@ -66,6 +66,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -257,6 +259,8 @@ fun Player(
     }
     var coverOffsetX by remember { mutableFloatStateOf(0f) }
     var coverOffsetY by remember { mutableFloatStateOf(0f) }
+    var swipeThresholdHapticFired by remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
     var coverAnimationJob by remember { mutableStateOf<Job?>(null) }
     var coverDismissAnimationJob by remember { mutableStateOf<Job?>(null) }
 
@@ -429,6 +433,9 @@ fun Player(
                         detectHorizontalDragGestures(
                             onDragStart = {
                                 coverAnimationJob?.cancel()
+                                swipeThresholdHapticFired = false
+                                // 两段震动之一：起手
+                                haptics.performHapticFeedback(HapticFeedbackType.Click)
                             },
                             onHorizontalDrag = { change, dragAmount ->
                                 change.consume()
@@ -436,15 +443,22 @@ fun Player(
                                     -coverDragLimitPx,
                                     coverDragLimitPx
                                 )
+                                // 两段震动之二：首次越过切歌阈值（临近切歌边缘）
+                                if (abs(coverOffsetX) >= swipeThresholdPx && !swipeThresholdHapticFired) {
+                                    swipeThresholdHapticFired = true
+                                    haptics.performHapticFeedback(HapticFeedbackType.Click)
+                                }
                             },
                             onDragEnd = {
                                 when {
                                     coverOffsetX <= -swipeThresholdPx -> mediaController?.seekToNextMediaItem()
                                     coverOffsetX >= swipeThresholdPx -> mediaController?.seekToPreviousMediaItem()
                                 }
+                                swipeThresholdHapticFired = false
                                 animateCoverOffsetTo(0f)
                             },
                             onDragCancel = {
+                                swipeThresholdHapticFired = false
                                 animateCoverOffsetTo(0f)
                             }
                         )
@@ -610,6 +624,7 @@ fun Player(
                         }
                         FilledIconButton(
                             onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.Click)
                                 mediaId?.toLongOrNull()?.let { songId ->
                                     scope.launch {
                                         FavoriteSongAction.toggle(

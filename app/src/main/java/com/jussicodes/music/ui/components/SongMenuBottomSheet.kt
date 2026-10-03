@@ -40,6 +40,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
@@ -81,6 +83,7 @@ fun SongMenuBottomSheet(
     var openSongListBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openShareSheet by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
     val mediaController = LocalPlayerController.current.controller
     val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
         .collectAsState(emptyList())
@@ -314,6 +317,7 @@ fun SongMenuBottomSheet(
                                 .fillMaxWidth()
                                 .height(64.dp)
                                 .clickable {
+                                    haptics.performHapticFeedback(HapticFeedbackType.Click)
                                     song?.id?.let { songId ->
                                         scope.launch {
                                             FavoriteSongAction.toggle(
