@@ -260,6 +260,7 @@ fun Player(
     var coverOffsetX by remember { mutableFloatStateOf(0f) }
     var coverOffsetY by remember { mutableFloatStateOf(0f) }
     var swipeThresholdHapticFired by remember { mutableStateOf(false) }
+    var swipeCancelHapticFired by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
     var coverAnimationJob by remember { mutableStateOf<Job?>(null) }
     var coverDismissAnimationJob by remember { mutableStateOf<Job?>(null) }
@@ -273,6 +274,7 @@ fun Player(
     val screenHeight = LocalConfiguration.current.screenHeightDp
     val swipeThresholdPx = with(density) { 72.dp.toPx() }
     val coverDragLimitPx = swipeThresholdPx * 1.6f
+    val swipeEdgeHapticPx = swipeThresholdPx * 0.7f
     val dismissThresholdPx = with(density) { 96.dp.toPx() }
     val coverDismissLimitPx = dismissThresholdPx * 1.1f
     val dragDirectionSlopPx = with(density) { 3.dp.toPx() }
@@ -434,7 +436,8 @@ fun Player(
                             onDragStart = {
                                 coverAnimationJob?.cancel()
                                 swipeThresholdHapticFired = false
-                                // 两段震动之一：起手
+                                swipeCancelHapticFired = false
+                                // 三段震动之一：起手
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             },
                             onHorizontalDrag = { change, dragAmount ->
@@ -443,8 +446,8 @@ fun Player(
                                     -coverDragLimitPx,
                                     coverDragLimitPx
                                 )
-                                // 两段震动之二：首次越过切歌阈值（临近切歌边缘）
-                                if (abs(coverOffsetX) >= swipeThresholdPx && !swipeThresholdHapticFired) {
+                                // 三段震动之二：贴近切歌边界（比实际切歌阈值再早一点，但比起手更靠近边缘）
+                                if (abs(coverOffsetX) >= swipeEdgeHapticPx && !swipeThresholdHapticFired) {
                                     swipeThresholdHapticFired = true
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 }
@@ -454,11 +457,18 @@ fun Player(
                                     coverOffsetX <= -swipeThresholdPx -> mediaController?.seekToNextMediaItem()
                                     coverOffsetX >= swipeThresholdPx -> mediaController?.seekToPreviousMediaItem()
                                 }
+                                if (swipeThresholdHapticFired && !swipeCancelHapticFired) {
+                                    // 三段震动之三：曾经越过分段线、但反悔回中（未切歌）
+                                    swipeCancelHapticFired = true
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                }
                                 swipeThresholdHapticFired = false
+                                swipeCancelHapticFired = false
                                 animateCoverOffsetTo(0f)
                             },
                             onDragCancel = {
                                 swipeThresholdHapticFired = false
+                                swipeCancelHapticFired = false
                                 animateCoverOffsetTo(0f)
                             }
                         )
@@ -769,7 +779,10 @@ fun Player(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             FilledTonalIconButton(
-                                onClick = { mediaController?.seekToPrevious() },
+                                onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    mediaController?.seekToPrevious()
+                                },
                                 modifier = Modifier.size(48.dp)
                             ) {
                                 Icon(SkipPreviousFill, contentDescription = null)
@@ -777,6 +790,7 @@ fun Player(
                             FilledIconButton(
                                 modifier = Modifier.size(72.dp),
                                 onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     if (!isPlaying) mediaController?.play() else mediaController?.pause()
                                 }
                             ) {
@@ -787,7 +801,10 @@ fun Player(
                                 )
                             }
                             FilledTonalIconButton(
-                                onClick = { mediaController?.seekToNext() },
+                                onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    mediaController?.seekToNext()
+                                },
                                 modifier = Modifier.size(48.dp)
                             ) {
                                 Icon(SkipNextFill, contentDescription = null)
