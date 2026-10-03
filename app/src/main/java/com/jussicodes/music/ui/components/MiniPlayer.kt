@@ -109,9 +109,9 @@ fun MiniPlayer(
     val miniPlayerCorner = 16.dp
     val miniPlayerShape = RoundedCornerShape(topStart = miniPlayerCorner, topEnd = miniPlayerCorner)
     val openProgress = (-animatedPlayerDragOffsetY / swipePreviewLimitPx).coerceIn(0f, 1f)
-    // 上滑预览：玻璃弹层随手指向上生长（不改变 64dp 布局高度，仅向上溢出渲染）
-    val sheetGrowMaxDp = 160.dp
-    val growHeightDp = sheetGrowMaxDp * openProgress
+    // 上滑预览（YTM 式）：封面跟手放大+上移，整条小播放器不再上移
+    val coverLiftPx = with(density) { 64.dp.toPx() }
+    val coverScaleRange = 0.5f
     val horizontalProgress = (abs(animatedPlayerDragOffsetX) / horizontalPreviewLimitPx).coerceIn(0f, 1f)
     val previewProgress = ((horizontalProgress - 0.42f) / 0.58f).coerceIn(0f, 1f)
     // 上滑预览：弹层向上生长（YTM 式），松手过线才提交共享元素全屏；封面随拖动放大
@@ -143,9 +143,6 @@ fun MiniPlayer(
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .graphicsLayer {
-                    translationY = animatedPlayerDragOffsetY * 0.65f
-                }
                 .pointerInput(
                     swipeOpenThresholdPx,
                     swipePreviewLimitPx,
@@ -239,7 +236,7 @@ fun MiniPlayer(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(MiniPlayerHeight + growHeightDp)
+                    .height(MiniPlayerHeight)
                     .clip(miniPlayerShape)
                     .clickable { onClick() }
                     .clipToBounds()
@@ -254,7 +251,7 @@ fun MiniPlayer(
                     .align(Alignment.BottomCenter)
                     .graphicsLayer {
                         alpha = openProgress * (0.45f + arrowBreath * 0.55f)
-                        translationY = -animatedPlayerDragOffsetY * 0.65f - 6f - arrowBreath * 8f
+                        translationY = -10f - arrowBreath * 8f
                         rotationZ = 180f
                     }
                     .size(28.dp)
@@ -295,13 +292,18 @@ fun MiniPlayer(
                         .graphicsLayer {
                             translationX = animatedPlayerDragOffsetX
                             alpha = 1f - previewProgress
+                            // 封面跟手放大 + 上移（YTM 式 shared-element 预览）
+                            val growScale = 1f + coverScaleRange * openProgress
+                            scaleX = growScale
+                            scaleY = growScale
+                            translationY = -coverLiftPx * openProgress
                         }
                 ) {
                     MiniMediaInfo(
                         mediaMetadata = mediaMetadata,
                         modifier = Modifier.padding(horizontal = 6.dp),
                         imageModifier = imageModifier,
-                        artworkCorner = miniPlayerCorner
+                        artworkCorner = miniPlayerCorner * (1f + openProgress)
                     )
                 }
 
