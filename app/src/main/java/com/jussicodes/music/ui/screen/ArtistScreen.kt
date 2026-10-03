@@ -180,7 +180,7 @@ fun ArtistScreen(
             }
             OutlinedButton(
                 onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.Click)
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     artistScreenViewModel.toggleArtistSub()
                 },
                 enabled = !isArtistSubUpdating && artistHeadInfoState != null,

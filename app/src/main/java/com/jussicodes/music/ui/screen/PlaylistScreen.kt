@@ -416,7 +416,7 @@ fun PlaylistScreen(
                                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     OutlinedButton(
                                         onClick = {
-                                            haptics.performHapticFeedback(HapticFeedbackType.Click)
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                             playlistScreenViewModel.playlistSub(
                                                 shouldSubscribe = !subscribed
                                             )

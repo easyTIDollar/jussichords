@@ -240,7 +240,7 @@ fun AlbumScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedButton(
                                 onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.Click)
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     albumInfoState?.isSub?.let { isSub -> albumScreenViewModel.albumSub(isSub = !isSub) }
                                 },
                                 contentPadding = ButtonDefaults.ButtonWithIconContentPadding,

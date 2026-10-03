@@ -435,7 +435,7 @@ fun Player(
                                 coverAnimationJob?.cancel()
                                 swipeThresholdHapticFired = false
                                 // 两段震动之一：起手
-                                haptics.performHapticFeedback(HapticFeedbackType.Click)
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             },
                             onHorizontalDrag = { change, dragAmount ->
                                 change.consume()
@@ -446,7 +446,7 @@ fun Player(
                                 // 两段震动之二：首次越过切歌阈值（临近切歌边缘）
                                 if (abs(coverOffsetX) >= swipeThresholdPx && !swipeThresholdHapticFired) {
                                     swipeThresholdHapticFired = true
-                                    haptics.performHapticFeedback(HapticFeedbackType.Click)
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 }
                             },
                             onDragEnd = {
@@ -624,7 +624,7 @@ fun Player(
                         }
                         FilledIconButton(
                             onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.Click)
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 mediaId?.toLongOrNull()?.let { songId ->
                                     scope.launch {
                                         FavoriteSongAction.toggle(

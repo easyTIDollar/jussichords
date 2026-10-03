@@ -317,7 +317,7 @@ fun SongMenuBottomSheet(
                                 .fillMaxWidth()
                                 .height(64.dp)
                                 .clickable {
-                                    haptics.performHapticFeedback(HapticFeedbackType.Click)
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     song?.id?.let { songId ->
                                         scope.launch {
                                             FavoriteSongAction.toggle(
