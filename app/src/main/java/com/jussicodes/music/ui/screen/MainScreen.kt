@@ -194,18 +194,16 @@ fun MainScreen() {
     LaunchedEffect(Unit) {
         coroutineScope.launch {
             MenuSnackbarBus.events.collect { event ->
-                coroutineScope.launch {
-                    val undo = event.onUndo
-                    val label = event.undoLabel
-                    if (undo != null && label != null) {
-                        snackbarHostState.showSnackbar(
-                            message = event.message,
-                            actionLabel = label,
-                            withAction = { coroutineScope.launch { undo() } },
-                        )
-                    } else {
-                        snackbarHostState.showSnackbar(event.message)
-                    }
+                val undo = event.onUndo
+                val label = event.undoLabel
+                if (undo != null && label != null) {
+                    snackbarHostState.showSnackbar(
+                        message = event.message,
+                        actionLabel = label,
+                        withAction = { _ -> undo() },
+                    )
+                } else {
+                    snackbarHostState.showSnackbar(event.message)
                 }
             }
         }
