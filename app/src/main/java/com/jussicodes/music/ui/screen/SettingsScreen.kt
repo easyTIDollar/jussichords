@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -520,7 +521,7 @@ fun SettingsScreen(navController: NavHostController) {
         LazyColumn(
             contentPadding = PaddingValues(
                 start = 12.dp,
-                top = padding.top,
+                top = padding.calculateTopPadding(),
                 end = 12.dp,
                 bottom = bottomInset
             ),
