@@ -1,7 +1,6 @@
 package com.jussicodes.music
 
 import android.app.Application
-import androidx.datastore.preferences.core.edit
 import androidx.media3.common.util.UnstableApi
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -19,7 +18,6 @@ import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.data.ExplorePreloader
 import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.data.PinnedAlbumStore
-import com.jussicodes.music.data.SongSourceCache
 import com.jussicodes.music.utils.AppVisibilityTracker
 import com.jussicodes.music.utils.AppUpdateManager
 import com.jussicodes.music.utils.UserAgentUtil
@@ -50,7 +48,6 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         AppVisibilityTracker.register(this)
-        SongSourceCache.init(this)
         ExplorePreloader.init(this)
         PinnedAlbumStore.init(this)
         MsgSessionCache.init(this)
@@ -94,24 +91,6 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                     UNBLOCK_SOURCE = unblockSource ?: "AUTO"
                     LocalSourceSettings.SONG_SOURCE = localSource ?: "OFF"
                 }
-        }
-        // First launch (no API server ever configured): auto-select the fastest
-        // of the user's server list so the app's default is the lowest-latency
-        // one instead of a hardcoded address. A user-set server always wins.
-        applicationScope.launch {
-            val configured = runCatching { dataStore.data.first()[apiBaseUrlKey] }.getOrNull()
-            if (configured != null) return@launch
-            val servers = runCatching {
-                json.decodeFromString<List<String>>(
-                    dataStore.data.first()[apiServerListKey] ?: ""
-                )
-            }.getOrNull()?.takeIf { it.isNotEmpty() } ?: apiServers
-            val fastest = AppUpdateManager.measureApiServers(servers).let { statuses ->
-                AppUpdateManager.pickFastestApiServer(statuses)
-            }
-            if (fastest != null) {
-                dataStore.edit { it[apiBaseUrlKey] = fastest }
-            }
         }
     }
 

@@ -6,7 +6,6 @@ import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.jussicodes.music.constants.MediaSessionConstants
-import com.jussicodes.music.data.SongSourceCache
 import com.rcmiku.ncmapi.api.player.PlayerApi
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.jussicodes.music.utils.CoverImageSize
@@ -16,11 +15,10 @@ import com.rcmiku.ncmapi.model.Radio
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.utils.json
 
-private fun Song.encodeUri(source: String? = null): String {
+private fun Song.encodeUri(): String {
     val base = id.toString()
     val pl = privilege?.pl ?: 0
-    val srcParam = if (source != null && source != "AUTO") "&src=$source" else ""
-    return "$base?fee=$fee&pl=$pl$srcParam"
+    return "$base?fee=$fee&pl=$pl"
 }
 
 fun Song.toMediaItem(
@@ -140,10 +138,9 @@ fun List<Radio>.toRadioMediaItemList(
 /**
  * Resolve a MediaItem URI (a raw `id?fee=&pl=` string) to a playable URL.
  *
- * The URI may itself carry a `src=` query param — the per-song source chosen
- * in this session. When absent, we fall back to the persisted per-song
- * override so a source chosen before a restart keeps applying. A `src` value
- * of "AUTO" / "Global" is treated as "follow the global setting".
+ * There is no per-song source override: the app-wide local/unblock source
+ * settings (LocalSourceSettings / UNBLOCK_SOURCE) decide the channel, so we
+ * always resolve with a null per-song source.
  */
 suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel): Uri? {
     if (uri.scheme == "http" || uri.scheme == "https") {
@@ -154,46 +151,7 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel): Uri? {
     val query = uri.query
     val songId = if (query != null) "$path?$query" else path
 
-    // 1) Per-song source chosen in this session (carried on the URI itself).
-    val uriSource = uri.getQueryParameter("src")?.takeIf { it != "AUTO" }
-
-    // 2) Persisted per-song override (survives restarts).
-    val songIdLong = path.toLongOrNull()
-    val cachedSource = songIdLong?.let { SongSourceCache.getForSong(it) }?.takeIf { it != "AUTO" }
-
-    val source = uriSource ?: cachedSource
-
-    return PlayerApi.songPlayUrlV1(songId, songLevel = songLevel, source = source)
+    return PlayerApi.songPlayUrlV1(songId, songLevel = songLevel)
         .getOrNull()?.data?.firstOrNull()?.url?.toUri()
 }
-
-/**
- * Rebuild a MediaItem's URI to carry a per-song unblock source, used to
- * force the player to re-resolve the song from a chosen source. Passing null
- * (or "AUTO"/"Global") clears the `src=` param, deferring to the persisted
- * cache / global setting.
- */
-fun MediaItem.withSongSource(source: String?): MediaItem {
-    // The playable URI is stored in localConfiguration, not as a top-level field.
-    val oldUri = localConfiguration?.uri ?: return this
-
-    // Rebuild the Uri: keep all existing params, drop `src`, then add the new value.
-    val uriBuilder = oldUri.buildUpon().clearQuery()
-    oldUri.queryParameterNames.forEach { name ->
-        if (name != "src") {
-            oldUri.getQueryParameter(name)?.let { uriBuilder.appendQueryParameter(name, it) }
-        }
-    }
-    val effective = source?.takeIf { it != "AUTO" }
-    if (effective != null) uriBuilder.appendQueryParameter("src", effective)
-
-    // buildUpon() copies mediaId, metadata, request metadata, and all other
-    // fields; we only override the URI.
-    return buildUpon()
-        .setUri(uriBuilder.build())
-        .build()
-}
-
-/** Read the per-song `src=` override off a song URI, or null. */
-fun Uri.songSource(): String? = getQueryParameter("src")?.takeIf { it != "AUTO" }
 

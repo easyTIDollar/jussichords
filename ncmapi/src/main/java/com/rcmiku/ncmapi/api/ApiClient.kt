@@ -44,7 +44,8 @@ import okhttp3.MediaType.Companion.toMediaType
 // NCM 数据面已改为直连官方接口（music.163.com / interfacepc.music.163.com），
 // 不再经 ncmapi 代理。API_BASE_URL / UNBLOCK_SOURCE 仍保留给「解灰音源 unblock」与「文件上传」
 // 两条仍走代理的通道（见 PlayerApi.tryUnblockUrl、apiPostFile*）。
-var API_BASE_URL = "http://8.134.163.111:3000"
+// 默认不设服务器（空串）：首启不自动选默认，用户在设置里挑。本地音乐源开启时不依赖此值。
+var API_BASE_URL = ""
 var UNBLOCK_SOURCE = "AUTO"
 @PublishedApi
 internal val okHttpUploadClient = OkHttpClient()

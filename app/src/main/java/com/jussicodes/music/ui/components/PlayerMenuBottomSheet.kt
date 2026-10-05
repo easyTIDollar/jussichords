@@ -36,7 +36,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -49,9 +48,7 @@ import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MediaSessionConstants
-import com.jussicodes.music.constants.unblockSourceKey
-import com.jussicodes.music.data.SongSourceCache
-import com.jussicodes.music.extensions.withSongSource
+import com.jussicodes.music.constants.localSourceKey
 import com.jussicodes.music.playback.ListenTogetherSession
 import com.jussicodes.music.constants.audioEffectEightDEnabledKey
 import com.jussicodes.music.constants.audioEffectIntensityKey
@@ -69,11 +66,10 @@ import com.jussicodes.music.ui.icons.Timelapse
 import com.jussicodes.music.ui.icons.Timer
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
+import com.jussicodes.music.ui.components.localSourceOptions
 import com.rcmiku.ncmapi.model.Song
-import androidx.media3.common.C
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import kotlinx.coroutines.launch
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
 
@@ -130,23 +126,11 @@ fun PlayerMenuBottomSheet(
     // 一起听会话状态（用于菜单卡右侧显示进房状态）
     val listenTogetherState by ListenTogetherSession.state.collectAsState()
 
-    // Per-song unblock-source picker state.
-    val scope = rememberCoroutineScope()
-    var globalSource by rememberPreference(unblockSourceKey, "AUTO")
+    // Global local-source picker state (no per-song override: a pick applies to
+    // the whole app until the user changes it again).
+    var localSource by rememberPreference(localSourceKey, "AUTO")
     var showSourcePicker by rememberSaveable { mutableStateOf(false) }
-    var perSongSourceOverride by remember { mutableStateOf<String?>(null) }
-    val sourceLabel = when (val effectiveSource = perSongSourceOverride ?: globalSource.takeIf { it != "AUTO" }) {
-        null -> "自动（全局）"
-        else -> selectedLabel(effectiveSource)
-    }
-
-    LaunchedEffect(openBottomSheet, currentSong?.id) {
-        if (openBottomSheet) {
-            currentSong?.id?.let { perSongSourceOverride = SongSourceCache.getForSong(it) }
-        } else {
-            perSongSourceOverride = null
-        }
-    }
+    val sourceLabel = localSourceOptions.firstOrNull { it.value == localSource }?.label ?: localSource
 
     LaunchedEffect(openBottomSheet) {
         if (openBottomSheet) {
@@ -259,7 +243,7 @@ fun PlayerMenuBottomSheet(
                                 MenuDivider()
                                 MenuRow(
                                     icon = Dns,
-                                    title = "音源",
+                                    title = "本地音源",
                                     value = sourceLabel,
                                     iconAlpha = 1f,
                                     onClick = {
@@ -327,42 +311,17 @@ fun PlayerMenuBottomSheet(
     }
 
     if (showSourcePicker) {
-        SourcePickerSheet(
-            songId = currentSong?.id,
-            currentSource = perSongSourceOverride ?: globalSource,
+        LocalSourcePickerSheet(
+            currentSource = localSource,
             onDismiss = { showSourcePicker = false },
             onApply = { selected ->
+                localSource = selected
                 showSourcePicker = false
-                currentSong?.id?.let { songId ->
-                    scope.launch {
-                        val effective = selected.takeIf { it != "AUTO" }
-                        SongSourceCache.setForSong(songId, effective)
-                        val controller = mediaController
-                        val current = playerState?.currentMediaItem
-                        val index = controller?.currentMediaItemIndex
-                        if (controller != null && current != null &&
-                            index != null && index != C.INDEX_UNSET
-                        ) {
-                            // Replace only the current item (queue preserved). The
-                            // changed URI makes ResolvingDataSource re-resolve the
-                            // song under the new per-song source, then reload it.
-                            //
-                            // Media3 1.4.1 MediaController has no setMediaItem(index, item)
-                            // overload; replaceMediaItems(start, stopExclusive, list) is
-                            // the intended API for queue in-place replacement.
-                            controller.replaceMediaItems(
-                                index,
-                                index + 1,
-                                listOf(current.withSongSource(effective))
-                            )
-                        }
-                        Toast.makeText(
-                            context,
-                            if (effective == null) "已恢复自动音源" else "已切换到 ${selectedLabel(selected)} 音源",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                }
+                Toast.makeText(
+                    context,
+                    "本地音源：${localSourceOptions.firstOrNull { it.value == selected }?.label ?: selected}",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         )
     }
@@ -386,20 +345,13 @@ fun PlayerMenuBottomSheet(
 }
 
 /**
- * Map a raw unblock source value to its friendly label for toast/preview text.
- */
-private fun selectedLabel(source: String): String =
-    unblockSourceOptions.firstOrNull { it.value == source }?.label ?: source
-
-/**
- * Picker for the per-song unblock source. Selecting "AUTO"/"自动" clears the
- * per-song override so the song follows the global setting; any other value is
- * persisted per-song and immediately re-resolves the current track.
+ * Picker for the global local source (关闭 / 智能切换 / 单个源). Selecting a
+ * value persists it to [localSourceKey]; the whole app follows it until the
+ * user picks something else — no per-song override.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SourcePickerSheet(
-    songId: Long?,
+private fun LocalSourcePickerSheet(
     currentSource: String,
     onDismiss: () -> Unit,
     onApply: (String) -> Unit,
@@ -417,11 +369,11 @@ private fun SourcePickerSheet(
                 .padding(vertical = 12.dp)
         ) {
             Text(
-                text = "为「${songId ?: 0L}」选择音源",
+                text = "选择本地音源",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
-            unblockSourceOptions.forEach { option ->
+            localSourceOptions.forEach { option ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

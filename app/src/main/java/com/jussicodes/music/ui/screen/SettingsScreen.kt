@@ -144,9 +144,9 @@ fun SettingsScreen(navController: NavHostController) {
     )
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
-    var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://8.134.163.111:3000")
+    var apiBaseUrl by rememberPreference(apiBaseUrlKey, "")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
-    var localSource by rememberPreference(localSourceKey, "OFF")
+    var localSource by rememberPreference(localSourceKey, "AUTO")
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     var playerGestureTutorialVersion by rememberPreference(
         playerGestureTutorialVersionKey,
@@ -415,19 +415,6 @@ fun SettingsScreen(navController: NavHostController) {
         name = "高级",
         items = listOf(
             SettingItemData(
-                title = stringResource(R.string.api_server),
-                subtitle = apiBaseUrl,
-                warning = httpWarning,
-                imageVector = Dns,
-                onClick = { showApiServerDialog = true }
-            ),
-            SettingItemData(
-                title = "音乐源",
-                subtitle = unblockSourceOptions.firstOrNull { it.value == unblockSource }?.label,
-                imageVector = MusicNote,
-                onClick = { showUnblockSourceDialog = true }
-            ),
-            SettingItemData(
                 title = "本地音乐源",
                 subtitle = localSourceOptions.firstOrNull { it.value == localSource }?.label,
                 imageVector = MusicNote,
@@ -478,6 +465,26 @@ fun SettingsScreen(navController: NavHostController) {
         )
     )
 
+    val advanced2Group = SettingGroupData(
+        name = "进阶",
+        note = "支持自建 api-enhanced 服务器",
+        items = listOf(
+            SettingItemData(
+                title = stringResource(R.string.api_server),
+                subtitle = apiBaseUrl.ifBlank { "未设置" },
+                warning = httpWarning,
+                imageVector = Dns,
+                onClick = { showApiServerDialog = true }
+            ),
+            SettingItemData(
+                title = "音乐源",
+                subtitle = unblockSourceOptions.firstOrNull { it.value == unblockSource }?.label,
+                imageVector = MusicNote,
+                onClick = { showUnblockSourceDialog = true }
+            )
+        )
+    )
+
     val aboutGroup = SettingGroupData(
         name = "关于",
         items = listOf(
@@ -495,7 +502,7 @@ fun SettingsScreen(navController: NavHostController) {
         )
     )
 
-    val groups = listOf(accountGroup, uiGroup, playbackGroup, advancedGroup, aboutGroup)
+    val groups = listOf(accountGroup, uiGroup, playbackGroup, advancedGroup, advanced2Group, aboutGroup)
 
     // 搜索：按标题 / 副标题 / 分组名过滤，无结果的分组整组隐藏
     val query = searchQuery.trim().lowercase()
@@ -736,6 +743,14 @@ private fun SettingGroupCard(group: SettingGroupData) {
             colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer)
         ) {
             Column {
+                group.note?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                    )
+                }
                 group.items.forEachIndexed { index, item ->
                     SettingRow(item)
                     if (index < group.items.lastIndex) {
@@ -837,6 +852,7 @@ data class SettingItemData(
 data class SettingGroupData(
     val name: String,
     val items: List<SettingItemData>,
+    val note: String? = null,
 )
 
 @Composable
