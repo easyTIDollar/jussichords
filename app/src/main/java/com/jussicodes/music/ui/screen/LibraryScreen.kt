@@ -36,7 +36,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -47,7 +46,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -797,7 +795,7 @@ private fun LibraryUserCard(
                 }
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Text(
                         text = profile.nickname,
@@ -805,16 +803,14 @@ private fun LibraryUserCard(
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .clickable(onClick = onEditProfileClick)
-                            .padding(vertical = 4.dp)
+                        modifier = Modifier.clickable(onClick = onEditProfileClick)
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        TextButton(
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                            onClick = {
+                        Text(
+                            text = followsLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clickable {
                                 navController.navigate(
                                     UserFollowNav(
                                         userId = profile.userId,
@@ -822,35 +818,31 @@ private fun LibraryUserCard(
                                         showArtistFollows = true
                                     )
                                 )
-                            },
-                        ) { Text(text = followsLabel, style = MaterialTheme.typography.labelMedium) }
-                        TextButton(
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                            onClick = {
+                            }
+                        )
+                        Text(
+                            text = followedsLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clickable {
                                 navController.navigate(
                                     UserFollowNav(
                                         userId = profile.userId,
                                         type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWEDS.name
                                     )
                                 )
-                            },
-                        ) { Text(text = followedsLabel, style = MaterialTheme.typography.labelMedium) }
+                            }
+                        )
                     }
-                }
-            }
-
-            secondaryText?.let {
-                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    secondaryText?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
 
