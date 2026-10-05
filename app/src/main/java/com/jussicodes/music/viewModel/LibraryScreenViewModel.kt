@@ -18,11 +18,13 @@ import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.account.UserPlaylistType
 import com.rcmiku.ncmapi.api.apiGet
+import com.rcmiku.ncmapi.api.artist.ArtistApi
 import com.rcmiku.ncmapi.api.playlist.PlaylistApi
 import com.rcmiku.ncmapi.model.ApiCodeResponse
 import com.rcmiku.ncmapi.model.FavoriteSongResponse
 import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.UserInfoBatch
+import com.rcmiku.ncmapi.model.UserDetailResponse
 import com.rcmiku.ncmapi.utils.json
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -60,6 +62,9 @@ class LibraryScreenViewModel @Inject constructor(
 
     private var lastUserInfoRefreshAt = 0L
     private var lastUserInfoCookieHash = 0
+    private var lastUserDetailUid = 0L
+    private val _userDetail = MutableStateFlow<UserDetailResponse?>(null)
+    val userDetail: StateFlow<UserDetailResponse?> = _userDetail.asStateFlow()
     private var favoriteSongCount = 0
     private val _isAvatarUploading = MutableStateFlow(false)
     val isAvatarUploading: StateFlow<Boolean> = _isAvatarUploading.asStateFlow()
@@ -100,6 +105,16 @@ class LibraryScreenViewModel @Inject constructor(
                 prefs[libraryUserInfoCacheKey] = json.encodeToString(it)
                 prefs[userIdKye] = it.account.profile.userId
             }
+            fetchUserDetail(it.account.profile.userId)
+        }
+    }
+
+    /** 关注/粉丝数：/user/account 不带，走 /user/detail；失败保持上值，UI 侧无数据时不显示数字。 */
+    private fun fetchUserDetail(userId: Long) {
+        if (userId <= 0L || userId == lastUserDetailUid) return
+        lastUserDetailUid = userId
+        viewModelScope.launch {
+            _userDetail.value = ArtistApi.userDetail(userId).getOrNull()
         }
     }
 
@@ -393,6 +408,8 @@ class LibraryScreenViewModel @Inject constructor(
     fun clear() {
         _userInfo.value = null
         _favoriteSong.value = null
+        _userDetail.value = null
+        lastUserDetailUid = 0L
         baseUserPlaylists = emptyList()
         _userPlaylists.value = emptyList()
         lastUserInfoRefreshAt = 0L
