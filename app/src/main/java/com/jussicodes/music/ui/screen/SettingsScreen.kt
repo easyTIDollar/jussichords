@@ -623,6 +623,10 @@ fun SettingsScreen(navController: NavHostController) {
                 apiBaseUrl = server
                 showApiServerDialog = false
             },
+            onDeactivate = {
+                apiBaseUrl = ""
+                showApiServerDialog = false
+            },
             onDismiss = { showApiServerDialog = false },
         )
     }
@@ -935,13 +939,14 @@ private fun ApiServerPingDialog(
     onServersChanged: (List<String>) -> Unit,
     onMeasured: (List<ApiServerStatus>, activateFastest: Boolean) -> Unit,
     onActivate: (String) -> Unit,
+    onDeactivate: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var testing by remember { mutableStateOf(false) }
     var newServer by remember { mutableStateOf("") }
-    val currentNotListed = currentServer !in servers
+    val currentNotListed = currentServer.isNotBlank() && currentServer !in servers
 
     fun runPing(activateFastest: Boolean) {
         if (testing) return
@@ -1014,6 +1019,32 @@ private fun ApiServerPingDialog(
                         }
                     }
                     Spacer(Modifier.height(4.dp))
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { if (!testing) onDeactivate() },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = currentServer.isBlank(),
+                        onClick = { if (!testing) onDeactivate() }
+                    )
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(vertical = 8.dp)
+                    ) {
+                        Text(
+                            "不使用自建服务器",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = "走官方直连 API，不经过任何自建/代理服务器",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 servers.forEach { server ->
                     val status = statuses.firstOrNull { it.server == server }
