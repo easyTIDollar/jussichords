@@ -13,6 +13,7 @@ import coil3.request.CachePolicy
 import coil3.request.crossfade
 import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.apiServerListKey
+import com.jussicodes.music.constants.localSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.data.ExplorePreloader
@@ -25,6 +26,7 @@ import com.jussicodes.music.utils.UserAgentUtil
 import com.jussicodes.music.utils.apiServers
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.API_BASE_URL
+import com.rcmiku.ncmapi.api.LocalSourceSettings
 import com.rcmiku.ncmapi.api.UNBLOCK_SOURCE
 import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.UserAgentProvider
@@ -80,15 +82,17 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         applicationScope.launch {
             dataStore.data
                 .map { prefs ->
-                    Pair(
+                    Triple(
                         prefs[apiBaseUrlKey],
-                        prefs[unblockSourceKey]
+                        prefs[unblockSourceKey],
+                        prefs[localSourceKey]
                     )
                 }
                 .distinctUntilChanged()
-                .collect { (apiUrl, unblockSource) ->
+                .collect { (apiUrl, unblockSource, localSource) ->
                     if (!apiUrl.isNullOrEmpty()) API_BASE_URL = apiUrl
                     UNBLOCK_SOURCE = unblockSource ?: "AUTO"
+                    LocalSourceSettings.SONG_SOURCE = localSource ?: "OFF"
                 }
         }
         // First launch (no API server ever configured): auto-select the fastest

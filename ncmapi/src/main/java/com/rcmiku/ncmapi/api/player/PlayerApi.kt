@@ -2,6 +2,9 @@ package com.rcmiku.ncmapi.api.player
 
 import android.util.Log
 import com.rcmiku.ncmapi.api.API_BASE_URL
+import com.rcmiku.ncmapi.api.LocalSourceFetcher
+import com.rcmiku.ncmapi.api.LocalSourceSettings
+import com.rcmiku.ncmapi.api.LocalSources
 import com.rcmiku.ncmapi.api.UNBLOCK_SOURCE
 import com.rcmiku.ncmapi.api.apiClient
 import com.rcmiku.ncmapi.api.apiGet
@@ -42,7 +45,17 @@ object PlayerApi {
             return apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
         }
 
-        // VIP（fee==1）：走设置里选的 API 服务器解灰。
+        // VIP（fee==1）：先试设置里选的本地直连源（客户端直接 GET 第三方公开接口，
+        // 不经代理、不经 NCM 加密通道，照抄 Melodia 六源）。
+        val localUrl = tryLocalSourceUrl(realId)
+        if (localUrl != null) {
+            Log.d("PlayerApi", "Local source resolved songId=$realId url=$localUrl")
+            return Result.success(SongUrlResponse(data = listOf(
+                SongUrl(id = realId.toLong(), url = localUrl, br = 320000)
+            )))
+        }
+
+        // 本地源未命中：退回官方接口走设置里选的 API 服务器解灰。
         val unblockResult = tryUnblockUrl(realId, source)
         if (unblockResult.hasPlayableUrl()) return unblockResult
 
@@ -53,6 +66,26 @@ object PlayerApi {
 
     private fun songUrlParams(songId: String, songLevel: SongLevel, unblock: Boolean): Map<String, Any> =
         mapOf("id" to songId, "level" to songLevel.value, "unblock" to unblock)
+
+    /**
+     * 本地直连音源探测（照 Melodia）：OFF 直接跳过；AUTO 按序轮询全部源；
+     * 单源则只试它。命中返回直链，否则 null（交回代理解灰链）。
+     */
+    private fun tryLocalSourceUrl(songId: String): String? {
+        val chosen = LocalSourceSettings.SONG_SOURCE
+        if (chosen == LocalSources.OFF) return null
+        val modules = if (chosen == LocalSources.AUTO) LocalSources.LOCAL_KEYS
+            else listOf(chosen.lowercase())
+        for (m in modules) {
+            val url = LocalSourceFetcher.fetch(m, songId)
+            if (url != null) {
+                Log.d("PlayerApi", "Local source '$m' hit for songId=$songId")
+                return url
+            }
+        }
+        return null
+    }
+
 
     private fun Result<SongUrlResponse>.hasPlayableUrl(): Boolean =
         getOrNull()?.data?.any { it.isPlayableFullUrl() } == true

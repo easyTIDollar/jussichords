@@ -76,6 +76,7 @@ import com.jussicodes.music.constants.apiServerListKey
 import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
+import com.jussicodes.music.constants.localSourceKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
@@ -83,11 +84,13 @@ import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.lyric.DesktopLyricManager
+import com.jussicodes.music.ui.components.LocalSourceDialog
 import com.jussicodes.music.ui.components.Dialog
 import com.jussicodes.music.ui.components.SongQualityDialog
 import com.jussicodes.music.ui.components.ThemeColorSourceDialog
 import com.jussicodes.music.ui.components.UnblockSourceDialog
 import com.jussicodes.music.ui.components.UpdateDialog
+import com.jussicodes.music.ui.components.localSourceOptions
 import com.jussicodes.music.ui.components.unblockSourceOptions
 import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.AudioLines
@@ -143,6 +146,7 @@ fun SettingsScreen(navController: NavHostController) {
     var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://8.134.163.111:3000")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
+    var localSource by rememberPreference(localSourceKey, "OFF")
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     var playerGestureTutorialVersion by rememberPreference(
         playerGestureTutorialVersionKey,
@@ -156,6 +160,7 @@ fun SettingsScreen(navController: NavHostController) {
     var showQualityDialog by remember { mutableStateOf(false) }
     var showThemeColorSourceDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
+    var showLocalSourceDialog by remember { mutableStateOf(false) }
     var showCookieDialog by remember { mutableStateOf(false) }
     var showGithubSourceDialog by remember { mutableStateOf(false) }
     var githubSourceStatuses by remember { mutableStateOf<List<UpdateSourceStatus>>(emptyList()) }
@@ -423,6 +428,12 @@ fun SettingsScreen(navController: NavHostController) {
                 onClick = { showUnblockSourceDialog = true }
             ),
             SettingItemData(
+                title = "本地音乐源",
+                subtitle = localSourceOptions.firstOrNull { it.value == localSource }?.label,
+                imageVector = MusicNote,
+                onClick = { showLocalSourceDialog = true }
+            ),
+            SettingItemData(
                 title = if (updating) "正在检查" else "检查更新",
                 subtitle = if (updating) "正在检查更新" else BuildConfig.VERSION_NAME,
                 imageVector = Github,
@@ -614,6 +625,14 @@ fun SettingsScreen(navController: NavHostController) {
             currentSource = unblockSource,
             onDismiss = { showUnblockSourceDialog = false },
             onSourceSelected = { unblockSource = it }
+        )
+    }
+
+    if (showLocalSourceDialog) {
+        LocalSourceDialog(
+            currentSource = localSource,
+            onDismiss = { showLocalSourceDialog = false },
+            onSourceSelected = { localSource = it }
         )
     }
 
