@@ -32,7 +32,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -41,12 +40,10 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -109,15 +106,8 @@ fun MiniPlayer(
     val miniPlayerCorner = 16.dp
     val miniPlayerShape = RoundedCornerShape(topStart = miniPlayerCorner, topEnd = miniPlayerCorner)
     val openProgress = (-animatedPlayerDragOffsetY / swipePreviewLimitPx).coerceIn(0f, 1f)
-    // 上滑预览（YTM 式）：封面跟手放大+上移，整条小播放器不再上移
-    val coverLiftPx = with(density) { 64.dp.toPx() }
-    val coverScaleRange = 0.5f
     val horizontalProgress = (abs(animatedPlayerDragOffsetX) / horizontalPreviewLimitPx).coerceIn(0f, 1f)
     val previewProgress = ((horizontalProgress - 0.42f) / 0.58f).coerceIn(0f, 1f)
-    // 上滑预览：弹层向上生长（YTM 式），松手过线才提交共享元素全屏；封面随拖动放大
-    val haptics = LocalHapticFeedback.current
-    var openHapticFired by remember { mutableStateOf(false) }
-    val openHapticThresholdPx = swipeOpenThresholdPx * 0.7f
     val player = playerState?.player
     val currentIndex = playerState?.mediaItemIndex ?: player?.currentMediaItemIndex ?: 0
     val previousMediaMetadata = if (currentIndex > 0) {
@@ -143,6 +133,9 @@ fun MiniPlayer(
         Box(
             modifier = modifier
                 .fillMaxWidth()
+                .graphicsLayer {
+                    translationY = animatedPlayerDragOffsetY * 0.65f
+                }
                 .pointerInput(
                     swipeOpenThresholdPx,
                     swipePreviewLimitPx,
@@ -155,7 +148,6 @@ fun MiniPlayer(
                         var totalDragX = 0f
                         var totalDragY = 0f
                         var isHorizontalDrag: Boolean? = null
-                        openHapticFired = false
 
                         while (true) {
                             val event = awaitPointerEvent()
@@ -188,10 +180,6 @@ fun MiniPlayer(
                                             -swipePreviewLimitPx,
                                             0f
                                         )
-                                        if (!openHapticFired && -playerDragOffsetY >= openHapticThresholdPx) {
-                                            openHapticFired = true
-                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        }
                                     }
                                 }
 
@@ -251,7 +239,7 @@ fun MiniPlayer(
                     .align(Alignment.BottomCenter)
                     .graphicsLayer {
                         alpha = openProgress * (0.45f + arrowBreath * 0.55f)
-                        translationY = -10f - arrowBreath * 8f
+                        translationY = -animatedPlayerDragOffsetY * 0.65f - 6f - arrowBreath * 8f
                         rotationZ = 180f
                     }
                     .size(28.dp)
@@ -292,18 +280,13 @@ fun MiniPlayer(
                         .graphicsLayer {
                             translationX = animatedPlayerDragOffsetX
                             alpha = 1f - previewProgress
-                            // 封面跟手放大 + 上移（YTM 式 shared-element 预览）
-                            val growScale = 1f + coverScaleRange * openProgress
-                            scaleX = growScale
-                            scaleY = growScale
-                            translationY = -coverLiftPx * openProgress
                         }
                 ) {
                     MiniMediaInfo(
                         mediaMetadata = mediaMetadata,
                         modifier = Modifier.padding(horizontal = 6.dp),
                         imageModifier = imageModifier,
-                        artworkCorner = miniPlayerCorner * (1f + openProgress)
+                        artworkCorner = miniPlayerCorner
                     )
                 }
 
