@@ -28,6 +28,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -65,6 +68,7 @@ import com.jussicodes.music.ui.components.tabs
 import com.jussicodes.music.ui.navigation.NavGraph
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.extensions.toMediaItemList
+import com.jussicodes.music.utils.MenuSnackbarBus
 import com.jussicodes.music.utils.PlayerExpandBus
 import com.jussicodes.music.utils.rememberPreference
 import kotlinx.coroutines.delay
@@ -186,7 +190,31 @@ fun MainScreen() {
         }
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) {
+        coroutineScope.launch {
+            MenuSnackbarBus.events.collect { event ->
+                coroutineScope.launch {
+                    val undo = event.onUndo
+                    val label = event.undoLabel
+                    if (undo != null && label != null) {
+                        snackbarHostState.showSnackbar(
+                            message = event.message,
+                            actionLabel = label,
+                            withAction = { coroutineScope.launch { undo() } },
+                        )
+                    } else {
+                        snackbarHostState.showSnackbar(event.message)
+                    }
+                }
+            }
+        }
+    }
+
     Scaffold(
+        snackbarHost = {
+            SnackbarHost(hostState = snackbarHostState)
+        },
         bottomBar = {
             Column {
                 AnimatedVisibility(

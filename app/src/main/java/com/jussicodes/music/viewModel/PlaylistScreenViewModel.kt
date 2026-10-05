@@ -240,6 +240,11 @@ class PlaylistScreenViewModel @Inject constructor(
         }
     }
 
+    /** 重新拉取歌单详情（用于「从歌单移除」成功后的即时刷新）。 */
+    fun refresh() {
+        refreshPlaylistDetail()
+    }
+
     private suspend fun refreshLibraryPlaylists() {
         context.dataStore.edit { prefs ->
             prefs[libraryPlaylistRefreshTokenKey] = System.currentTimeMillis()

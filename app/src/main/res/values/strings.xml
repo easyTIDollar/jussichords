@@ -73,13 +73,13 @@
     <string name="higer">高</string>
     <string name="standard">标准</string>
     <string name="logout">退出登录</string>
-    <string name="like">喜爱</string>
+    <string name="like">喜欢</string>
     <string name="view_artist">查看歌手</string>
     <string name="view_album">查看专辑</string>
-    <string name="add_to_playlist">添加到播放列表</string>
-    <string name="unlike">撤销喜爱</string>
-    <string name="insert_to_playlist">添加到下一首播放</string>
+    <string name="unlike">取消喜欢</string>
+    <string name="add_to_playlist">加入播放队列</string>
     <string name="add_to_songList">添加到歌单</string>
+    <string name="insert_to_playlist">下一首播放</string>
     <string name="add_success">添加成功</string>
     <string name="add_fail">添加失败</string>
     <string name="track_count">%d首</string>

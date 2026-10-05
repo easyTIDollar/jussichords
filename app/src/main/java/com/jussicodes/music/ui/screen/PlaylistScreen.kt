@@ -540,11 +540,15 @@ fun PlaylistScreen(
         }
     }
 
+    val isOwnPlaylist = playlistDetailState?.playlist?.creator?.userId == userId
+    val currentPlaylistId = playlistDetailState?.playlist?.id
     SongMenuBottomSheet(
         navController = navController,
         song = selectSong,
         onDismiss = { openBottomSheet = false },
-        openBottomSheet = openBottomSheet
+        openBottomSheet = openBottomSheet,
+        playlistId = if (isOwnPlaylist) currentPlaylistId else null,
+        onSongRemoved = { _ -> playlistScreenViewModel.refresh() },
     )
 
     sharePayload?.let { payload ->
