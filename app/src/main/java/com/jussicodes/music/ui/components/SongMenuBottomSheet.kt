@@ -1,6 +1,7 @@
 package com.jussicodes.music.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -67,6 +68,7 @@ import com.jussicodes.music.utils.FavoriteSongAction
 import com.jussicodes.music.utils.MenuSnackbarBus
 import com.jussicodes.music.utils.makeTimeString
 import com.jussicodes.music.utils.toCoverImageUrl
+import com.jussicodes.music.ui.theme.JetMeloTheme
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.account.PlayManipulateType
 import com.rcmiku.ncmapi.model.Song
@@ -116,11 +118,15 @@ fun SongMenuBottomSheet(
 
     val s = song
     if (openBottomSheet && s != null) {
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = bottomSheetState,
-        ) {
-            SongMenuContent(
+        // 面板随本歌封面动态取色（artworkForced 强制用封面，不随全局取色来源设置），
+        // 容器用 surfaceContainerHigh 带上适量强调色，和整体不割裂。
+        JetMeloTheme(artwork = s.al.picUrl.toCoverImageUrl(CoverImageSize.LIST), artworkForced = true) {
+            ModalBottomSheet(
+                onDismissRequest = onDismiss,
+                sheetState = bottomSheetState,
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            ) {
+                SongMenuContent(
                 song = s,
                 onDismiss = onDismiss,
                 navController = navController,
@@ -182,6 +188,7 @@ fun SongMenuBottomSheet(
                     }
                 },
             )
+            }
         }
     }
 
@@ -267,7 +274,7 @@ private fun SongMenuContent(
         SongMenuItem(
             label = stringResource(R.string.view_artist),
             icon = Artist,
-            trailing = if (song.ar.size > 1) null else artistLabel.takeIf { it.isNotBlank() },
+            trailing = artistLabel.takeIf { it.isNotBlank() },
             danger = false,
             onClick = {
                 onDismiss()
@@ -381,6 +388,9 @@ private fun SongHeader(song: Song) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .basicMarquee(),
                 )
                 if (tags.isNotEmpty()) {
                     Spacer(Modifier.size(6.dp))
@@ -470,7 +480,7 @@ private fun MenuRow(item: SongMenuItem) {
             color = if (item.danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f, fill = false),
         )
         item.trailing?.let {
             Text(
@@ -479,6 +489,10 @@ private fun MenuRow(item: SongMenuItem) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 8.dp)
+                    .basicMarquee(),
             )
         }
     }
