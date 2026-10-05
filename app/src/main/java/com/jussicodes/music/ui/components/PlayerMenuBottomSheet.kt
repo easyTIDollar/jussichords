@@ -2,8 +2,10 @@
 
 import android.widget.Toast
 import android.os.Bundle
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -64,7 +65,6 @@ import com.jussicodes.music.ui.icons.ListenTogether
 import com.jussicodes.music.ui.icons.Repeat
 import com.jussicodes.music.ui.icons.RepeatOne
 import com.jussicodes.music.ui.icons.Shuffle
-import com.jussicodes.music.ui.icons.SongListAdd
 import com.jussicodes.music.ui.icons.Timelapse
 import com.jussicodes.music.ui.icons.Timer
 import com.jussicodes.music.utils.rememberEnumPreference
@@ -135,6 +135,10 @@ fun PlayerMenuBottomSheet(
     var globalSource by rememberPreference(unblockSourceKey, "AUTO")
     var showSourcePicker by rememberSaveable { mutableStateOf(false) }
     var perSongSourceOverride by remember { mutableStateOf<String?>(null) }
+    val sourceLabel = when (val effectiveSource = perSongSourceOverride ?: globalSource.takeIf { it != "AUTO" }) {
+        null -> "自动（全局）"
+        else -> selectedLabel(effectiveSource)
+    }
 
     LaunchedEffect(openBottomSheet, currentSong?.id) {
         if (openBottomSheet) {
@@ -177,145 +181,120 @@ fun PlayerMenuBottomSheet(
                 )
             } else {
                 LazyColumn(
-                    Modifier.padding(horizontal = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                    Modifier.padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     item {
-                        PlayerMenuActionCard(
-                            shape = RoundedCornerShape(
-                                topStart = 16.dp,
-                                topEnd = 16.dp,
-                                bottomStart = 8.dp,
-                                bottomEnd = 8.dp
-                            ),
-                            icon = ListenTogether,
-                            title = "一起听",
-                            value = listenTogetherState.room?.let { "${it.members.size} 人" } ?: "未进房",
-                            iconAlpha = 1f,
-                            onClick = {
-                                openListenTogetherSheet = true
-                                onDismiss()
-                            }
-                        )
-                    }
-
-                    item {
-                        PlayerMenuActionCard(
-                            shape = RoundedCornerShape(
-                                topStart = 8.dp,
-                                topEnd = 8.dp,
-                                bottomStart = 8.dp,
-                                bottomEnd = 8.dp
-                            ),
-                            icon = if (isSleepTimerSet) Timelapse else Timer,
-                            title = stringResource(if (isSleepTimerSet) R.string.remaining_time else R.string.sleep_timer),
-                            value = if (isSleepTimerSet) remainingTimeText else null,
-                            onClick = {
-                                if (isSleepTimerSet) {
-                                    cancelSleepTimer = true
-                                } else {
-                                    timePicker = true
-                                }
-                            }
-                        )
-                    }
-
-                    item {
-                        PlayerMenuActionCard(
-                            shape = RoundedCornerShape(8.dp),
-                            icon = Shuffle,
-                            title = stringResource(R.string.shuffle_mode),
-                            value = stringResource(if (shuffleMode) R.string.shuffle_on else R.string.shuffle_off),
-                            iconAlpha = if (shuffleMode) 1f else 0.4f,
-                            onClick = {
-                                mediaController?.sendCustomCommand(
-                                    MediaSessionConstants.CommandToggleShuffle,
-                                    Bundle.EMPTY
+                        Column(Modifier.fillMaxWidth()) {
+                            MenuSectionLabel("播放")
+                            Spacer(Modifier.height(8.dp))
+                            MenuGroupContainer {
+                                MenuRow(
+                                    icon = ListenTogether,
+                                    title = "一起听",
+                                    value = listenTogetherState.room?.let { "${it.members.size} 人" } ?: "未进房",
+                                    onClick = {
+                                        openListenTogetherSheet = true
+                                        onDismiss()
+                                    }
+                                )
+                                MenuDivider()
+                                MenuRow(
+                                    icon = Shuffle,
+                                    title = stringResource(R.string.shuffle_mode),
+                                    value = stringResource(if (shuffleMode) R.string.shuffle_on else R.string.shuffle_off),
+                                    iconAlpha = if (shuffleMode) 1f else 0.4f,
+                                    onClick = {
+                                        mediaController?.sendCustomCommand(
+                                            MediaSessionConstants.CommandToggleShuffle,
+                                            Bundle.EMPTY
+                                        )
+                                    }
+                                )
+                                MenuDivider()
+                                MenuRow(
+                                    icon = repeatIcon,
+                                    title = stringResource(R.string.playback_mode),
+                                    value = repeatModeText,
+                                    iconAlpha = if (repeatMode == 0) 0.4f else 1f,
+                                    onClick = {
+                                        mediaController?.repeatMode = when (repeatMode) {
+                                            0 -> 2
+                                            1 -> 0
+                                            2 -> 1
+                                            else -> 0
+                                        }
+                                    }
+                                )
+                                MenuDivider()
+                                MenuRow(
+                                    icon = if (isSleepTimerSet) Timelapse else Timer,
+                                    title = stringResource(if (isSleepTimerSet) R.string.remaining_time else R.string.sleep_timer),
+                                    value = if (isSleepTimerSet) remainingTimeText else null,
+                                    iconAlpha = if (isSleepTimerSet) 1f else 0.4f,
+                                    onClick = {
+                                        if (isSleepTimerSet) {
+                                            cancelSleepTimer = true
+                                        } else {
+                                            timePicker = true
+                                        }
+                                    }
                                 )
                             }
-                        )
-                    }
-
-                    item {
-                        PlayerMenuActionCard(
-                            shape = RoundedCornerShape(8.dp),
-                            icon = repeatIcon,
-                            title = stringResource(R.string.playback_mode),
-                            value = repeatModeText,
-                            iconAlpha = if (repeatMode == 0) 0.4f else 1f,
-                            onClick = {
-                                mediaController?.repeatMode = when (repeatMode) {
-                                    0 -> 2
-                                    1 -> 0
-                                    2 -> 1
-                                    else -> 0
-                                }
-                            }
-                        )
-                    }
-
-                    item {
-                        PlayerMenuActionCard(
-                            shape = RoundedCornerShape(8.dp),
-                            icon = AudioLines,
-                            title = "音效",
-                            value = audioEffectModeText,
-                            iconAlpha = if (eightDEnabled || reverbEnabled) 1f else 0.4f,
-                            onClick = { showAudioEffectPage = true }
-                        )
-                    }
-
-                    item {
-                        val effectiveSource = perSongSourceOverride
-                            ?: globalSource.takeIf { it != "AUTO" }
-                        val sourceLabel = when (effectiveSource) {
-                            null -> "自动（全局）"
-                            else -> selectedLabel(effectiveSource)
                         }
-                        PlayerMenuActionCard(
-                            shape = RoundedCornerShape(8.dp),
-                            icon = Dns,
-                            title = "音源",
-                            value = sourceLabel,
-                            iconAlpha = 1f,
-                            onClick = {
-                                showSourcePicker = true
-                                onDismiss()
-                            }
-                        )
                     }
 
                     item {
-                        PlayerMenuActionCard(
-                            shape = RoundedCornerShape(8.dp),
-                            icon = SongListAdd,
-                            title = stringResource(R.string.add_to_songList),
-                            onClick = {
-                                openSongListBottomSheet = true
-                                onDismiss()
+                        Column(Modifier.fillMaxWidth()) {
+                            MenuSectionLabel("音频")
+                            Spacer(Modifier.height(8.dp))
+                            MenuGroupContainer {
+                                MenuRow(
+                                    icon = AudioLines,
+                                    title = "音效",
+                                    value = audioEffectModeText,
+                                    iconAlpha = if (eightDEnabled || reverbEnabled) 1f else 0.4f,
+                                    onClick = { showAudioEffectPage = true }
+                                )
+                                MenuDivider()
+                                MenuRow(
+                                    icon = Dns,
+                                    title = "音源",
+                                    value = sourceLabel,
+                                    iconAlpha = 1f,
+                                    onClick = {
+                                        showSourcePicker = true
+                                        onDismiss()
+                                    }
+                                )
                             }
-                        )
+                        }
                     }
 
                     item {
-                        PlayerMenuActionCard(
-                            shape = RoundedCornerShape(
-                                topStart = 8.dp,
-                                topEnd = 8.dp,
-                                bottomStart = 16.dp,
-                                bottomEnd = 16.dp
-                            ),
-                            icon = Icons.Outlined.Share,
-                            title = stringResource(R.string.share),
-                            onClick = {
-                                openShareSheet = true
-                                onDismiss()
+                        Column(Modifier.fillMaxWidth()) {
+                            MenuSectionLabel("操作")
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                MenuActionButton(
+                                    text = stringResource(R.string.add_to_songList),
+                                    onClick = {
+                                        openSongListBottomSheet = true
+                                        onDismiss()
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                MenuActionButton(
+                                    text = stringResource(R.string.share),
+                                    onClick = {
+                                        openShareSheet = true
+                                        onDismiss()
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
-                        )
-                    }
-
-                    item {
-                        Spacer(Modifier.height(12.dp))
+                            Spacer(Modifier.height(8.dp))
+                        }
                     }
                 }
             }
@@ -654,6 +633,135 @@ private fun PlayerMenuActionCard(
                 )
             }
         }
+    }
+}
+
+/**
+ * A small, uppercase-feel section label that heads a grouped container.
+ * Lower visual weight than a card title so the grouping reads as structure,
+ * not as another item.
+ */
+@Composable
+private fun MenuSectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 6.dp)
+    )
+}
+
+/**
+ * A rounded container that holds a set of sibling [MenuRow]s. The container
+ * paints a single primaryContainer surface; each row is a transparent row and
+ * the dividers between them are thin, low-contrast lines. This collapses the
+ * old "one big card per item" look into one compact, levelled block.
+ */
+@Composable
+private fun MenuGroupContainer(content: @Composable () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                MaterialTheme.colorScheme.primaryContainer,
+                RoundedCornerShape(14.dp)
+            )
+            .padding(vertical = 4.dp)
+    ) {
+        content()
+    }
+}
+
+/**
+ * A uniform-height, low-decoration list row: icon + title on the left, the
+ * (de-emphasized) status value pushed to the right. Sits inside a
+ * [MenuGroupContainer]; the row itself carries no background so the container
+ * surface is what gives it shape.
+ */
+@Composable
+private fun MenuRow(
+    icon: ImageVector,
+    title: String,
+    value: String?,
+    iconAlpha: Float = 1f,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier
+                .padding(end = 12.dp)
+                .alpha(iconAlpha)
+        )
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onPrimaryContainer
+        )
+        Spacer(Modifier.weight(1f))
+        value?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f),
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * A hairline divider between two [MenuRow]s inside a [MenuGroupContainer].
+ * Indented past the icon and kept faint so it reads as grouping, not as a
+ * card border.
+ */
+@Composable
+private fun MenuDivider() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 52.dp, end = 14.dp)
+            .height(1.dp)
+            .background(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.08f))
+    )
+}
+
+/**
+ * A compact, de-emphasized action button used for the 操作 section
+ * (添加到歌单 / 分享). Rendered side-by-side via RowScope weight at the
+ * call site; visually lighter than the setting rows above it.
+ */
+@Composable
+private fun MenuActionButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant,
+                RoundedCornerShape(12.dp)
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
     }
 }
 
