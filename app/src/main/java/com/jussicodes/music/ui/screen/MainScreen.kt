@@ -199,8 +199,8 @@ fun MainScreen() {
                 if (undo != null && label != null) {
                     snackbarHostState.showSnackbar(
                         message = event.message,
-                        actionLabel = label,
-                        withAction = { _ -> undo() },
+                        action = label,
+                        withAction = { _ -> coroutineScope.launch { undo() } },
                     )
                 } else {
                     snackbarHostState.showSnackbar(event.message)
