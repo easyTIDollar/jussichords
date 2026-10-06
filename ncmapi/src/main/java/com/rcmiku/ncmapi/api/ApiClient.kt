@@ -878,7 +878,7 @@ private fun postNosBytes(objectKey: String, token: String, file: File): String {
         .url(url.toHttpUrl())
         .header("x-nos-token", token)
         .header("Content-Type", "image/jpeg")
-        .post(file.asRequestBody(ContentType.Image.JPEG.toMediaType()))
+        .post(file.asRequestBody(ContentType.Image.JPEG.toString().toMediaType()))
         .build()
     val resp = okHttpUploadClient.newCall(req).execute()
     val body = resp.body?.string().orEmpty()
