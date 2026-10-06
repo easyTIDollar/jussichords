@@ -252,25 +252,28 @@ fun PlaylistScreen(
                                 expanded = playlistMenuExpanded,
                                 onDismissRequest = { playlistMenuExpanded = false }
                             ) {
-                                DropdownMenuItem(
-                                    text = { Text("编辑信息") },
-                                    onClick = {
-                                        val playlist = playlistDetailState?.playlist
-                                        playlistMenuExpanded = false
-                                        if (playlist != null) {
-                                            editPlaylistName = playlist.name
-                                            editPlaylistDescription = playlist.description
-                                            showEditPlaylistDialog = true
+                                val isOwnPlaylist = playlistDetailState?.playlist?.creator?.userId == userId
+                                if (isOwnPlaylist) {
+                                    DropdownMenuItem(
+                                        text = { Text("编辑信息") },
+                                        onClick = {
+                                            val playlist = playlistDetailState?.playlist
+                                            playlistMenuExpanded = false
+                                            if (playlist != null) {
+                                                editPlaylistName = playlist.name
+                                                editPlaylistDescription = playlist.description
+                                                showEditPlaylistDialog = true
+                                            }
                                         }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("上传封面") },
-                                    onClick = {
-                                        playlistMenuExpanded = false
-                                        coverPicker.launch("image/*")
-                                    }
-                                )
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("上传封面") },
+                                        onClick = {
+                                            playlistMenuExpanded = false
+                                            coverPicker.launch("image/*")
+                                        }
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text("分享歌单") },
                                     onClick = {
@@ -540,11 +543,15 @@ fun PlaylistScreen(
         }
     }
 
+    val isOwnPlaylist = playlistDetailState?.playlist?.creator?.userId == userId
+    val currentPlaylistId = playlistDetailState?.playlist?.id
     SongMenuBottomSheet(
         navController = navController,
         song = selectSong,
         onDismiss = { openBottomSheet = false },
-        openBottomSheet = openBottomSheet
+        openBottomSheet = openBottomSheet,
+        playlistId = if (isOwnPlaylist) currentPlaylistId else null,
+        onSongRemoved = { _ -> playlistScreenViewModel.refresh() },
     )
 
     sharePayload?.let { payload ->

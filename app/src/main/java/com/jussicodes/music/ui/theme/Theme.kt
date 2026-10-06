@@ -23,6 +23,8 @@ import com.jussicodes.music.utils.rememberEnumPreference
 fun JetMeloTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     artwork: Any? = null,
+    /** 为 true 时无论「取色来源」设置如何，都优先用封面 artwork 取色（用于局部面板跟随歌曲封面）。 */
+    artworkForced: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -31,18 +33,19 @@ fun JetMeloTheme(
         themeColorSourceKey,
         defaultValue = ThemeColorSource.WALLPAPER,
     )
+    val useArtwork = artworkForced || themeColorSource == ThemeColorSource.ARTWORK
     val artworkSeed = rememberArtworkSeed(
-        artwork = artwork.takeIf { themeColorSource == ThemeColorSource.ARTWORK },
+        artwork = artwork.takeIf { useArtwork },
     )
     val colorScheme = remember(
         artworkSeed,
         darkTheme,
-        themeColorSource,
+        useArtwork,
         dynamicColorAvailable,
         context,
     ) {
         val generatedScheme = when {
-            themeColorSource == ThemeColorSource.ARTWORK && artworkSeed != null -> {
+            useArtwork && artworkSeed != null -> {
                 if (darkTheme) createDarkScheme(artworkSeed) else createLightScheme(artworkSeed)
             }
 

@@ -36,7 +36,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -47,7 +46,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -128,6 +126,7 @@ fun LibraryScreen(
 ) {
     val ncmCookie by rememberNullablePreference(ncmCookieKey)
     val userInfoBatchState by libraryScreenViewModel.userInfo.collectAsState()
+    val userDetailState by libraryScreenViewModel.userDetail.collectAsState()
     val favoriteSongState by libraryScreenViewModel.favoriteSong.collectAsState()
     val userPlaylists by libraryScreenViewModel.userPlaylists.collectAsState()
     val isAvatarUploading by libraryScreenViewModel.isAvatarUploading.collectAsState()
@@ -264,6 +263,8 @@ fun LibraryScreen(
                             navController = navController,
                             userInfo = it,
                             avatarCacheVersion = avatarCacheVersion,
+                            followsCount = userDetailState?.profile?.followsCount,
+                            followedsCount = userDetailState?.profile?.followedsCount,
                             onRoamClick = { navController.navigate(Screen.Roam.route) },
                             onRecentPlayClick = { navController.navigate(Screen.RecentPlay.route) },
                             onMessagesClick = { navController.navigate(Screen.Messages.route) },
@@ -735,6 +736,8 @@ private fun LibraryUserCard(
     navController: NavHostController,
     userInfo: UserInfoBatch,
     avatarCacheVersion: Long,
+    followsCount: Int?,
+    followedsCount: Int?,
     onRoamClick: () -> Unit,
     onRecentPlayClick: () -> Unit,
     onMessagesClick: () -> Unit,
@@ -745,51 +748,145 @@ private fun LibraryUserCard(
     val profile = userInfo.account.profile
     val secondaryText = profile.signature.takeIf { it.isNotBlank() }
     val haptics = LocalHapticFeedback.current
+    val followsLabel = if (followsCount != null) "$followsCount 关注" else "关注"
+    val followedsLabel = if (followedsCount != null) "$followedsCount 粉丝" else "粉丝"
 
-    Box(
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        contentAlignment = Alignment.TopCenter
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
-        Card(
-            modifier = Modifier.fillMaxWidth().padding(top = 38.dp),
-            shape = MaterialTheme.shapes.extraLarge,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                Box(modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp)) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilledTonalIconButton(
-                                onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onMessagesClick()
-                                }
-                            ) {
-                                androidx.compose.material3.Icon(
-                                    imageVector = Message,
-                                    contentDescription = stringResource(R.string.messages)
-                                )
-                            }
-                        }
-                        FilledTonalIconButton(
-                            onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onRecordClick()
-                            }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(76.dp)
+                        .clip(CircleShape)
+                        .clickable(enabled = profile.avatarUrl.isNotBlank(), onClick = onAvatarClick),
+                    contentAlignment = Alignment.BottomEnd
+                ) {
+                    AsyncImage(
+                        model = profile.avatarUrl.withAvatarCacheBuster(avatarCacheVersion),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.clip(CircleShape).border(3.dp, MaterialTheme.colorScheme.surface, CircleShape).size(76.dp)
+                    )
+                    if (profile.vipType != 0) {
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+                                .padding(6.dp)
                         ) {
                             androidx.compose.material3.Icon(
-                                imageVector = Leaderboard,
-                                contentDescription = stringResource(R.string.record)
+                                imageVector = VipFill,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(12.dp)
                             )
                         }
                     }
                 }
-                Row(
-                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = profile.nickname,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable(onClick = onEditProfileClick)
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = followsLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clickable {
+                                navController.navigate(
+                                    UserFollowNav(
+                                        userId = profile.userId,
+                                        type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWS.name,
+                                        showArtistFollows = true
+                                    )
+                                )
+                            }
+                        )
+                        Text(
+                            text = followedsLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clickable {
+                                navController.navigate(
+                                    UserFollowNav(
+                                        userId = profile.userId,
+                                        type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWEDS.name
+                                    )
+                                )
+                            }
+                        )
+                    }
+                    secondaryText?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    FilledTonalIconButton(
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onMessagesClick()
+                        }
+                    ) {
+                        androidx.compose.material3.Icon(
+                            imageVector = Message,
+                            contentDescription = stringResource(R.string.messages)
+                        )
+                    }
+                    Text(text = "消息", style = MaterialTheme.typography.labelSmall)
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    FilledTonalIconButton(
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onRecordClick()
+                        }
+                    ) {
+                        androidx.compose.material3.Icon(
+                            imageVector = Leaderboard,
+                            contentDescription = stringResource(R.string.record)
+                        )
+                    }
+                    Text(text = "排行", style = MaterialTheme.typography.labelSmall)
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     FilledTonalIconButton(
                         onClick = {
@@ -802,6 +899,13 @@ private fun LibraryUserCard(
                             contentDescription = stringResource(R.string.recent_play)
                         )
                     }
+                    Text(text = "历史", style = MaterialTheme.typography.labelSmall)
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     FilledTonalIconButton(
                         onClick = {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -813,94 +917,7 @@ private fun LibraryUserCard(
                             contentDescription = stringResource(R.string.roam)
                         )
                     }
-                }
-
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(top = 48.dp, bottom = 16.dp, start = 16.dp, end = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = profile.nickname,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .clickable(onClick = onEditProfileClick)
-                            .padding(vertical = 4.dp)
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        TextButton(
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                            onClick = {
-                                navController.navigate(
-                                    UserFollowNav(
-                                        userId = profile.userId,
-                                        type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWS.name,
-                                        showArtistFollows = true
-                                    )
-                                )
-                            },
-                        ) { Text(text = "关注") }
-                        TextButton(
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                            onClick = {
-                                navController.navigate(
-                                    UserFollowNav(
-                                        userId = profile.userId,
-                                        type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWEDS.name
-                                    )
-                                )
-                            },
-                        ) { Text(text = "粉丝") }
-                    }
-                    secondaryText?.let {
-                        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
-                            Text(
-                                text = it,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .size(76.dp)
-                .clip(CircleShape)
-                .clickable(enabled = profile.avatarUrl.isNotBlank(), onClick = onAvatarClick),
-            contentAlignment = Alignment.BottomEnd
-        ) {
-            AsyncImage(
-                model = profile.avatarUrl.withAvatarCacheBuster(avatarCacheVersion),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.clip(CircleShape).border(3.dp, MaterialTheme.colorScheme.surface, CircleShape).size(76.dp)
-            )
-            if (profile.vipType != 0) {
-                Box(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
-                        .padding(6.dp)
-                ) {
-                    androidx.compose.material3.Icon(
-                        imageVector = VipFill,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(12.dp)
-                    )
+                    Text(text = "电台", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }

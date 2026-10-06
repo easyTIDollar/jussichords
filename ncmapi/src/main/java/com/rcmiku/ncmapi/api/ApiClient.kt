@@ -27,6 +27,8 @@ import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -42,9 +44,11 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 
 // NCM 数据面已改为直连官方接口（music.163.com / interfacepc.music.163.com），
-// 不再经 ncmapi 代理。API_BASE_URL / UNBLOCK_SOURCE 仍保留给「解灰音源 unblock」与「文件上传」
-// 两条仍走代理的通道（见 PlayerApi.tryUnblockUrl、apiPostFile*）。
-var API_BASE_URL = "http://8.134.163.111:3000"
+// 不再经 ncmapi 代理。API_BASE_URL / UNBLOCK_SOURCE 现仅保留给「解灰音源 unblock」
+// 一条仍走代理的通道（见 PlayerApi.tryUnblockUrl）；头像/歌单封面上传已改 NOS 直连。
+// apiPostFile*（经 API_BASE_URL 的 multipart）已无人调用，仅保留以防 unblock 旁路复用。
+// 默认不设服务器（空串）：首启不自动选默认，用户在设置里挑。本地音乐源开启时不依赖此值。
+var API_BASE_URL = ""
 var UNBLOCK_SOURCE = "AUTO"
 @PublishedApi
 internal val okHttpUploadClient = OkHttpClient()
@@ -347,6 +351,25 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
         "/toplist" -> eapi("/api/toplist", emptyMap())
         // 账号 / 云盘 / 收藏
         "/user/account" -> weapi("/api/nuser/account/get", emptyMap())
+        // 头像上传落库：NOS 直连三步链路第三步（imgid = uploadFileToNos 拿到的 docId）。
+        // 走默认 eapi（interfacepc 域 + 完整登录 cookie）；探针确认该端点存在。
+        "/user/avatar/upload" -> eapi(
+            "/api/user/avatar/upload/v1",
+            mapOf("imgid" to req("imgid"))
+        )
+        // NOS 预签名 token 申请（头像/歌单封面上传第一步，对齐代理 plugins/upload.js）。
+        "/nos/token/alloc" -> eapi(
+            "/api/nos/token/alloc",
+            mapOf(
+                "bucket" to str("bucket").ifBlank { "yyimgs" },
+                "ext" to str("ext").ifBlank { "jpg" },
+                "filename" to req("filename"),
+                "local" to false,
+                "nos_product" to 0,
+                "return_body" to str("return_body").ifBlank { "{\"code\":200,\"size\":\"$(ObjectSize)\"}" },
+                "type" to str("type").ifBlank { "other" }
+            )
+        )
         // 用户资料修改（我的页点昵称）：eapi 写接口，需合成 cookie profile（见 send 的 cookie 分支）。
         // 字段对齐代理 user_update.js：只透传调用方给的字段。本功能只改昵称/签名，
         // 故只发 nickname + signature —— gender/birthday/province/city 不带，NCM 视作不动，避免误清账号地区/生日。
@@ -417,6 +440,15 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
             val sub = (int("t", 0) == 1)
             eapi("/api/playlist/${if (sub) "subscribe" else "unsubscribe"}", mapOf("id" to req("id")))
         }
+        // 歌单封面更新落库：NOS 直连三步链路第三步（coverImgId = uploadFileToNos 拿到的 docId）。
+        // 走默认 eapi（interfacepc 域 + 完整登录 cookie）；探针确认该端点存在。
+        "/playlist/cover/update" -> eapi(
+            "/api/playlist/cover/update",
+            mapOf(
+                "id" to req("id"),
+                "coverImgId" to req("coverImgId")
+            )
+        )
         "/playlist/create" -> weapi(
             "/api/playlist/create",
             mapOf(
@@ -832,7 +864,73 @@ internal fun toJsonElement(value: Any?): JsonElement = when (value) {
 }
 
 // ---------------------------------------------------------------------------
-// 文件上传（头像 / 歌单封面）：仍走代理 API_BASE_URL，保持不变。
+// 文件上传（头像 / 歌单封面）已直连 NCM，对齐 api-enhanced 代理 plugins/upload.js 的三步链路：
+//   1. eapi /nos/token/alloc 申请预签名 token + objectKey + docId（bucket=yyimgs）；
+//   2. 裸 POST 图片字节到 NOS 预签名 URL（x-nos-token 头，公开接口、无登录/无加密）；
+//   3. eapi /user/avatar/upload（imgid=docId）或 /playlist/cover/update（coverImgId=docId）落库。
+// 加密/cookie 全部走 send() 的默认 eapi 移动端通道，不再依赖代理 API_BASE_URL。
+// ---------------------------------------------------------------------------
+
+/** 直连 NCM NOS 裸上传：POST 原始字节到预签名 URL（x-nos-token 头，无登录/无加密）。 */
+private fun postNosBytes(objectKey: String, token: String, file: File): String {
+    val url = "https://nosup-hz1.127.net/yyimgs/$objectKey?offset=0&complete=true&version=1.0"
+    val req = Request.Builder()
+        .url(url.toHttpUrl())
+        .header("x-nos-token", token)
+        .header("Content-Type", "image/jpeg")
+        .post(file.asRequestBody(ContentType.Image.JPEG.toString().toMediaType()))
+        .build()
+    val resp = okHttpUploadClient.newCall(req).execute()
+    val body = resp.body?.string().orEmpty()
+    Log.d("ApiClient", "postNosBytes http=${resp.code} body=${body.take(200)}")
+    if (!resp.isSuccessful) throw Exception("NOS 上传失败 HTTP ${resp.code}: ${body.take(200)}")
+    resp.close()
+    return body
+}
+
+/** NOS 上传结果：docId 用于 eapi 落库（imgid/coverImgId），urlPre 为公开 CDN 地址。 */
+data class NosUploadResult(
+    val docId: String,
+    val urlPre: String
+)
+
+/** 完成「申请预签名 token + 裸上传字节」两步，返回 docId / urlPre，供 eapi 落库使用。 */
+suspend fun uploadFileToNos(file: File): Result<NosUploadResult> = runCatching {
+    val alloc = apiGet<NosTokenAllocResponse>("/nos/token/alloc", mapOf(
+        "bucket" to "yyimgs",
+        "ext" to "jpg",
+        "filename" to file.name,
+        "local" to false,
+        "nos_product" to 0,
+        "return_body" to "{\"code\":200,\"size\":\"$(ObjectSize)\"}",
+        "type" to "other"
+    )).getOrThrow()
+    val r = alloc.result ?: throw Exception("NOS alloc 未返回 result")
+    if (r.token.isEmpty()) throw Exception("NOS alloc 返回空 token")
+    if (r.objectKey.isEmpty()) throw Exception("NOS alloc 返回空 objectKey")
+    withContext(Dispatchers.IO) { postNosBytes(r.objectKey, r.token, file) }
+    NosUploadResult(docId = r.docId, urlPre = "https://p1.music.126.net/${r.objectKey}")
+}
+
+/** NOS 分配响应（eapi /nos/token/alloc → result 块，字段对齐代理 plugins/upload.js 消费的结构）。 */
+@Serializable
+internal data class NosTokenAllocResponse(
+    val code: Int = 0,
+    val message: String? = null,
+    val msg: String? = null,
+    val result: NosTokenAllocResult? = null
+)
+
+@Serializable
+internal data class NosTokenAllocResult(
+    val token: String = "",
+    @SerialName("objectKey") val objectKey: String = "",
+    @SerialName("docId") val docId: String = ""
+)
+
+// ---------------------------------------------------------------------------
+// 遗留：经代理 API_BASE_URL 的 multipart 上传（保留供 unblock 等仍走代理的通道复用；
+// 头像/歌单封面已改直连，不再调用这两个函数）。
 // ---------------------------------------------------------------------------
 
 suspend inline fun <reified T> apiPostFile(

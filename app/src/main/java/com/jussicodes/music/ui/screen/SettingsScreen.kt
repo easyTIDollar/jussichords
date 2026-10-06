@@ -2,30 +2,36 @@ package com.jussicodes.music.ui.screen
 
 import android.os.Build
 import android.widget.Toast
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.KeyboardArrowRight
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -37,6 +43,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -49,8 +56,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -64,14 +70,13 @@ import androidx.navigation.NavHostController
 import com.jussicodes.music.BuildConfig
 import com.jussicodes.music.LocalUiScaleController
 import com.jussicodes.music.R
-import com.jussicodes.music.constants.SettingItemCorner
-import com.jussicodes.music.constants.SettingItemHeight
-import com.jussicodes.music.constants.SettingItemSubCorner
+import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.apiServerListKey
 import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
+import com.jussicodes.music.constants.localSourceKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
@@ -79,22 +84,25 @@ import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.lyric.DesktopLyricManager
+import com.jussicodes.music.ui.components.LocalSourceDialog
 import com.jussicodes.music.ui.components.Dialog
 import com.jussicodes.music.ui.components.SongQualityDialog
 import com.jussicodes.music.ui.components.ThemeColorSourceDialog
 import com.jussicodes.music.ui.components.UnblockSourceDialog
 import com.jussicodes.music.ui.components.UpdateDialog
+import com.jussicodes.music.ui.components.localSourceOptions
+import com.jussicodes.music.ui.components.unblockSourceOptions
 import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.AudioLines
 import com.jussicodes.music.ui.icons.DesktopLyrics
 import com.jussicodes.music.ui.icons.Dns
+import com.jussicodes.music.ui.icons.Gesture
 import com.jussicodes.music.ui.icons.Github
 import com.jussicodes.music.ui.icons.Login
 import com.jussicodes.music.ui.icons.Logout
-import com.jussicodes.music.ui.icons.PlayPause
-import com.jussicodes.music.ui.icons.ModeComment
+import com.jussicodes.music.ui.icons.MusicNote
+import com.jussicodes.music.ui.icons.Palette
 import com.jussicodes.music.ui.icons.Remove
-import com.jussicodes.music.ui.icons.Star
 import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.theme.ThemeColorSource
@@ -104,13 +112,14 @@ import com.jussicodes.music.utils.ApiServerStatus
 import com.jussicodes.music.utils.UpdateDownloadPhase
 import com.jussicodes.music.utils.UpdateDownloadService
 import com.jussicodes.music.utils.UpdateDownloadStateStore
-import com.jussicodes.music.utils.UpdateSourceStatus
 import com.jussicodes.music.utils.UpdateInfo
+import com.jussicodes.music.utils.UpdateSourceStatus
 import com.jussicodes.music.utils.apiServers
 import com.jussicodes.music.utils.downloadSources
-import com.jussicodes.music.utils.getItemShape
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
+import com.jussicodes.music.utils.sourceById
+import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.utils.json
 import com.rcmiku.ncmapi.utils.parseCookieString
@@ -135,8 +144,9 @@ fun SettingsScreen(navController: NavHostController) {
     )
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
-    var apiBaseUrl by rememberPreference(apiBaseUrlKey, "http://8.134.163.111:3000")
+    var apiBaseUrl by rememberPreference(apiBaseUrlKey, "")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
+    var localSource by rememberPreference(localSourceKey, "AUTO")
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     var playerGestureTutorialVersion by rememberPreference(
         playerGestureTutorialVersionKey,
@@ -150,6 +160,7 @@ fun SettingsScreen(navController: NavHostController) {
     var showQualityDialog by remember { mutableStateOf(false) }
     var showThemeColorSourceDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
+    var showLocalSourceDialog by remember { mutableStateOf(false) }
     var showCookieDialog by remember { mutableStateOf(false) }
     var showGithubSourceDialog by remember { mutableStateOf(false) }
     var githubSourceStatuses by remember { mutableStateOf<List<UpdateSourceStatus>>(emptyList()) }
@@ -174,11 +185,25 @@ fun SettingsScreen(navController: NavHostController) {
     var overlayPermissionGranted by remember {
         mutableStateOf(DesktopLyricManager.canDrawOverlays(context))
     }
+    var pendingOverlayGrant by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var accountNickname by rememberSaveable { mutableStateOf("") }
 
     DisposableEffect(lifecycleOwner, context) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 overlayPermissionGranted = DesktopLyricManager.canDrawOverlays(context)
+                // 从系统悬浮窗授权页返回且已授权 → 自动开启桌面歌词
+                if (pendingOverlayGrant && overlayPermissionGranted) {
+                    pendingOverlayGrant = false
+                    coroutineScope.launch {
+                        DesktopLyricManager.setEnabled(
+                            context = context,
+                            enabled = true,
+                            requestPermissionIfNeeded = false,
+                        )
+                    }
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -187,7 +212,17 @@ fun SettingsScreen(navController: NavHostController) {
         }
     }
 
-    androidx.compose.runtime.LaunchedEffect(Unit) {
+    // 退出登录副标题显示当前账号昵称
+    LaunchedEffect(ncmCookie) {
+        if (ncmCookie.isEmpty()) {
+            accountNickname = ""
+            return@LaunchedEffect
+        }
+        accountNickname = AccountApi.account().getOrNull()
+            ?.account?.profile?.nickname.orEmpty()
+    }
+
+    LaunchedEffect(Unit) {
         UpdateDownloadStateStore.state.collectLatest { snapshot ->
             val pendingVersion = pendingUpdateInfo?.versionName ?: return@collectLatest
             val snapshotVersion = snapshot.updateInfo?.versionName
@@ -237,6 +272,24 @@ fun SettingsScreen(navController: NavHostController) {
         }
     }
 
+    // 桌面歌词有效开关 = 存储开启 && 悬浮窗权限已授予
+    val lyricOn = desktopLyricEnabled && overlayPermissionGranted
+    fun setLyricTarget(on: Boolean) {
+        if (on && !overlayPermissionGranted) {
+            // 未授权：记录意图并直接跳系统授权页，返回后自动开启
+            pendingOverlayGrant = true
+            DesktopLyricManager.requestOverlayPermission(context)
+        } else {
+            coroutineScope.launch {
+                DesktopLyricManager.setEnabled(
+                    context = context,
+                    enabled = on,
+                    requestPermissionIfNeeded = false,
+                )
+            }
+        }
+    }
+
     val appearanceTitle = "外观"
     val appearanceSubtitle = when (themeColorSource) {
         ThemeColorSource.WALLPAPER -> if (dynamicColorAvailable) {
@@ -247,192 +300,224 @@ fun SettingsScreen(navController: NavHostController) {
 
         ThemeColorSource.ARTWORK -> "从当前播放音乐的封面取色"
     }
-
     val appearanceWithScale = "$appearanceSubtitle · 缩放 ${(uiScaleController.scale * 100).toInt()}%"
     val accountCookie = remember(ncmCookie) { ncmCookie.toCookieHeader() }
     val accountCookieMap = remember(accountCookie) { parseCookieString(accountCookie) }
+    val loggedOut = ncmCookie.isEmpty()
+    val httpWarning = if (apiBaseUrl.startsWith("http://")) {
+        "未加密连接，建议使用 HTTPS"
+    } else {
+        null
+    }
 
-    val baseSettingItems = listOf(
-        SettingItemData(
-            title = appearanceTitle,
-            subtitle = appearanceWithScale,
-            imageVector = Star,
-            onClick = { showThemeColorSourceDialog = true }
-        ),
-        SettingItemData(
-            title = stringResource(if (ncmCookie.isNotEmpty()) R.string.logout else R.string.login),
-            imageVector = if (ncmCookie.isNotEmpty()) Logout else Login,
-            onClick = {
-                if (ncmCookie.isNotEmpty()) {
-                    logout = true
+    val accountGroup = SettingGroupData(
+        name = "账号",
+        items = listOf(
+            SettingItemData(
+                title = "账号 Cookie",
+                subtitle = if (accountCookie.isBlank()) {
+                    "未保存 Cookie"
                 } else {
-                    navController.navigate(Screen.Login.route)
+                    "已保存 ${accountCookieMap.size} 项 · 请勿泄露给他人"
+                },
+                imageVector = UserRound,
+                onClick = { showCookieDialog = true }
+            ),
+            SettingItemData(
+                title = stringResource(if (loggedOut) R.string.login else R.string.logout),
+                imageVector = if (loggedOut) Login else Logout,
+                danger = !loggedOut,
+                subtitle = if (loggedOut) null else "当前账号：${accountNickname.ifEmpty { "点击退出" }}",
+                onClick = {
+                    if (loggedOut) {
+                        navController.navigate(Screen.Login.route)
+                    } else {
+                        logout = true
+                    }
                 }
-            }
-        ),
-        SettingItemData(
-            title = "账号 Cookie",
-            subtitle = if (accountCookie.isBlank()) {
-                "未保存 Cookie"
-            } else {
-                "已保存 ${accountCookieMap.size} 项，点击查看或更改"
-            },
-            imageVector = UserRound,
-            onClick = { showCookieDialog = true }
-        ),
-        SettingItemData(
-            title = "桌面歌词",
-            subtitle = when {
-                desktopLyricEnabled && overlayPermissionGranted -> "已开启悬浮歌词"
-                !overlayPermissionGranted -> "需要悬浮窗权限"
-                else -> "已关闭"
-            },
-            imageVector = DesktopLyrics,
-            trailingContent = {
-                Switch(
-                    checked = desktopLyricEnabled && overlayPermissionGranted,
-                    onCheckedChange = {
+            )
+        )
+    )
+
+    val uiGroup = SettingGroupData(
+        name = "界面",
+        items = listOf(
+            SettingItemData(
+                title = appearanceTitle,
+                subtitle = appearanceWithScale,
+                imageVector = Palette,
+                onClick = { showThemeColorSourceDialog = true }
+            ),
+            SettingItemData(
+                title = "桌面歌词",
+                subtitle = if (lyricOn) "已开启" else "需要悬浮窗权限",
+                imageVector = DesktopLyrics,
+                trailingContent = {
+                    Switch(
+                        checked = lyricOn,
+                        onCheckedChange = { setLyricTarget(it) }
+                    )
+                    Spacer(Modifier.width(12.dp))
+                },
+                onClick = { setLyricTarget(!lyricOn) }
+            ),
+            SettingItemData(
+                title = "主页专辑墙",
+                subtitle = if (pinnedAlbumsHidden) {
+                    "已关闭，打开开关恢复"
+                } else {
+                    "显示在主页的置顶专辑"
+                },
+                imageVector = Album,
+                trailingContent = {
+                    Switch(
+                        checked = !pinnedAlbumsHidden,
+                        onCheckedChange = { pinnedAlbumsHidden = !it }
+                    )
+                    Spacer(Modifier.width(12.dp))
+                }
+            )
+        )
+    )
+
+    val playbackGroup = SettingGroupData(
+        name = "播放",
+        items = listOf(
+            SettingItemData(
+                title = stringResource(R.string.audio_quality),
+                subtitle = when (audioQuality) {
+                    SongLevel.STANDARD -> stringResource(R.string.standard)
+                    SongLevel.HIGHER -> stringResource(R.string.higer)
+                    SongLevel.EXHIGH -> stringResource(R.string.exhigh)
+                    SongLevel.LOSSLESS -> stringResource(R.string.lossless)
+                    SongLevel.HIRES -> stringResource(R.string.hi_res)
+                    SongLevel.JYEFFECT -> stringResource(R.string.jyeffect)
+                    SongLevel.SKY -> stringResource(R.string.sky)
+                    SongLevel.DOLBY -> stringResource(R.string.dolby)
+                    SongLevel.JYMASTER -> stringResource(R.string.jymaster)
+                },
+                imageVector = AudioLines,
+                onClick = { showQualityDialog = true }
+            ),
+            SettingItemData(
+                title = "播放器手势教程",
+                subtitle = "重新显示点按和上滑提示",
+                imageVector = Gesture,
+                onClick = {
+                    playerGestureTutorialVersion = 0
+                    Toast.makeText(context, "播放器手势教程已重新开启", Toast.LENGTH_SHORT).show()
+                }
+            )
+        )
+    )
+
+    val advancedGroup = SettingGroupData(
+        name = "高级",
+        items = listOf(
+            SettingItemData(
+                title = "本地音乐源",
+                subtitle = localSourceOptions.firstOrNull { it.value == localSource }?.label,
+                imageVector = MusicNote,
+                onClick = { showLocalSourceDialog = true }
+            ),
+            SettingItemData(
+                title = if (updating) "正在检查" else "检查更新",
+                subtitle = if (updating) "正在检查更新" else BuildConfig.VERSION_NAME,
+                imageVector = Github,
+                onClick = {
+                    if (!updating) {
+                        updating = true
                         coroutineScope.launch {
-                            val result = DesktopLyricManager.setEnabled(
-                                context = context,
-                                enabled = it,
-                                requestPermissionIfNeeded = it
-                            )
-                            overlayPermissionGranted = DesktopLyricManager.canDrawOverlays(context)
-                            if (it && !result) {
+                            val updateResult = AppUpdateManager.checkUpdate()
+                            val updateInfo = updateResult.getOrElse {
                                 Toast.makeText(
                                     context,
-                                    "请先授予悬浮窗权限",
-                                    Toast.LENGTH_SHORT
+                                    it.message ?: "更新失败",
+                                    Toast.LENGTH_LONG
                                 ).show()
+                                updating = false
+                                return@launch
+                            }
+
+                            updating = false
+                            if (updateInfo == null) {
+                                Toast.makeText(context, "当前已是最新版本", Toast.LENGTH_SHORT).show()
+                            } else {
+                                pendingUpdateInfo = updateInfo
                             }
                         }
                     }
-                )
-                Spacer(Modifier.width(12.dp))
-            },
-            onClick = {
-                coroutineScope.launch {
-                    val target = !(desktopLyricEnabled && overlayPermissionGranted)
-                    val result = DesktopLyricManager.setEnabled(
-                        context = context,
-                        enabled = target,
-                        requestPermissionIfNeeded = target
-                    )
-                    overlayPermissionGranted = DesktopLyricManager.canDrawOverlays(context)
-                    if (target && !result) {
-                        Toast.makeText(
-                            context,
-                            "请先授予悬浮窗权限",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
                 }
-            }
-        ),
-        SettingItemData(
-            title = "主页专辑墙",
-            subtitle = if (pinnedAlbumsHidden) {
-                "已关闭，打开开关恢复"
-            } else {
-                "显示在主页的置顶专辑"
-            },
-            imageVector = Album,
-            trailingContent = {
-                Switch(
-                    checked = !pinnedAlbumsHidden,
-                    onCheckedChange = { pinnedAlbumsHidden = !it }
-                )
-                Spacer(Modifier.width(12.dp))
-            }
-        ),
-        SettingItemData(
-            title = stringResource(R.string.audio_quality),
-            subtitle = when (audioQuality) {
-                SongLevel.STANDARD -> stringResource(R.string.standard)
-                SongLevel.HIGHER -> stringResource(R.string.higer)
-                SongLevel.EXHIGH -> stringResource(R.string.exhigh)
-                SongLevel.LOSSLESS -> stringResource(R.string.lossless)
-                SongLevel.HIRES -> stringResource(R.string.hi_res)
-                SongLevel.JYEFFECT -> stringResource(R.string.jyeffect)
-                SongLevel.SKY -> stringResource(R.string.sky)
-                SongLevel.DOLBY -> stringResource(R.string.dolby)
-                SongLevel.JYMASTER -> stringResource(R.string.jymaster)
-            },
-            imageVector = AudioLines,
-            onClick = { showQualityDialog = true }
-        ),
-        SettingItemData(
-            title = "重新学播放器手势",
-            subtitle = "在播放页重新显示点击和上滑操作提示",
-            imageVector = ModeComment,
-            onClick = {
-                playerGestureTutorialVersion = 0
-                Toast.makeText(context, "播放器手势教程已重新开启", Toast.LENGTH_SHORT).show()
-            }
-        ),
-        SettingItemData(
-            title = stringResource(R.string.api_server),
-            subtitle = "当前：$apiBaseUrl · 点按更换API服务器 · 长按更换音乐源",
-            imageVector = Dns,
-            onClick = { showApiServerDialog = true },
-            onLongClick = { showUnblockSourceDialog = true }
-        ),
-        SettingItemData(
-            title = if (updating) "正在检查" else "检查版本更新",
-            subtitle = when {
-                updating -> "正在检查更新"
-                else -> "当前版本：${BuildConfig.VERSION_NAME} · 点按检查更新 · 长按切换更新源"
-            },
-            imageVector = Github,
-            onLongClick = {
-                showGithubSourceDialog = true
-                testingGithubSources = true
-                coroutineScope.launch {
-                    githubSourceStatuses = AppUpdateManager.measureDownloadSources()
-                    testingGithubSources = false
-                }
-            },
-            onClick = {
-                if (!updating) {
-                    updating = true
+            ),
+            SettingItemData(
+                title = "更新源",
+                subtitle = sourceById(githubDownloadSource)?.name,
+                imageVector = Github,
+                onClick = {
+                    showGithubSourceDialog = true
+                    testingGithubSources = true
                     coroutineScope.launch {
-                        val updateResult = AppUpdateManager.checkUpdate()
-                        val updateInfo = updateResult.getOrElse {
-                            Toast.makeText(
-                                context,
-                                it.message ?: "更新失败",
-                                Toast.LENGTH_LONG
-                            ).show()
-                            updating = false
-                            return@launch
-                        }
-
-                        updating = false
-                        if (updateInfo == null) {
-                            Toast.makeText(context, "当前已是最新版本", Toast.LENGTH_SHORT).show()
-                        } else {
-                            pendingUpdateInfo = updateInfo
-                        }
+                        githubSourceStatuses = AppUpdateManager.measureDownloadSources()
+                        testingGithubSources = false
                     }
                 }
-            }
+            )
         )
     )
 
-    val settingsItems = listOf(
-        SettingItemData(
-            title = "jussichords",
-            subtitle = "简洁的第三方网易云音乐客户端",
-            imageVector = PlayPause
-        ),
-        SettingItemData(
-            title = "jussicodes",
-            subtitle = "项目作者",
-            imageVector = UserRound,
-            onClick = { uriHandler.openUri("https://github.com/easyTIDollar") }
+    val advanced2Group = SettingGroupData(
+        name = "进阶",
+        note = "支持自建 api-enhanced 服务器",
+        items = listOf(
+            SettingItemData(
+                title = stringResource(R.string.api_server),
+                subtitle = apiBaseUrl.ifBlank { "未设置" },
+                warning = httpWarning,
+                imageVector = Dns,
+                onClick = { showApiServerDialog = true }
+            ),
+            SettingItemData(
+                title = "音乐源",
+                subtitle = unblockSourceOptions.firstOrNull { it.value == unblockSource }?.label,
+                imageVector = MusicNote,
+                onClick = { showUnblockSourceDialog = true }
+            )
         )
     )
+
+    val aboutGroup = SettingGroupData(
+        name = "关于",
+        items = listOf(
+            SettingItemData(
+                title = "jussichords",
+                subtitle = "简洁的第三方网易云音乐客户端",
+                imageVector = MusicNote
+            ),
+            SettingItemData(
+                title = "jussicodes",
+                subtitle = "项目作者",
+                imageVector = UserRound,
+                onClick = { uriHandler.openUri("https://github.com/easyTIDollar") }
+            )
+        )
+    )
+
+    val groups = listOf(accountGroup, uiGroup, playbackGroup, advancedGroup, advanced2Group, aboutGroup)
+
+    // 搜索：按标题 / 副标题 / 分组名过滤，无结果的分组整组隐藏
+    val query = searchQuery.trim().lowercase()
+    val visibleGroups = groups
+        .map { group ->
+            group.copy(
+                items = group.items.filter { item ->
+                    query.isEmpty() ||
+                        item.title.lowercase().contains(query) ||
+                        (item.subtitle?.lowercase()?.contains(query) == true) ||
+                        group.name.lowercase().contains(query)
+                }
+            )
+        }
+        .filter { it.items.isNotEmpty() }
 
     Scaffold(
         topBar = {
@@ -441,7 +526,7 @@ fun SettingsScreen(navController: NavHostController) {
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = null
                         )
                     }
@@ -449,64 +534,37 @@ fun SettingsScreen(navController: NavHostController) {
             )
         }
     ) { padding ->
+        val bottomInset = MiniPlayerHeight +
+            WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         LazyColumn(
-            modifier = Modifier.padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-            contentPadding = padding
+            contentPadding = PaddingValues(
+                start = 12.dp,
+                top = padding.calculateTopPadding(),
+                end = 12.dp,
+                bottom = bottomInset
+            ),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                Text(
-                    stringResource(R.string.basic_settings),
-                    modifier = Modifier.padding(12.dp),
-                    style = MaterialTheme.typography.titleSmall
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("搜索设置") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 
-            itemsIndexed(baseSettingItems) { index, item ->
-                val shape = getItemShape(
-                    prevItem = baseSettingItems.getOrNull(index - 1),
-                    nextItem = baseSettingItems.getOrNull(index + 1),
-                    corner = SettingItemCorner,
-                    subCorner = SettingItemSubCorner,
-                )
-
-                SettingCard(
-                    title = item.title,
-                    description = item.subtitle,
-                    shape = shape,
-                    imageVector = item.imageVector,
-                    onClick = item.onClick,
-                    onLongClick = item.onLongClick,
-                    trailingContent = item.trailingContent,
-                    progress = item.progress,
-                )
-            }
-
-            item {
-                Text(
-                    stringResource(R.string.about),
-                    modifier = Modifier.padding(12.dp),
-                    style = MaterialTheme.typography.titleSmall
-                )
-            }
-
-            itemsIndexed(settingsItems) { index, item ->
-                val shape = getItemShape(
-                    prevItem = settingsItems.getOrNull(index - 1),
-                    nextItem = settingsItems.getOrNull(index + 1),
-                    corner = SettingItemCorner,
-                    subCorner = SettingItemSubCorner,
-                )
-                SettingCard(
-                    title = item.title,
-                    description = item.subtitle,
-                    imageVector = item.imageVector,
-                    shape = shape,
-                    onClick = item.onClick,
-                    onLongClick = item.onLongClick,
-                    trailingContent = item.trailingContent,
-                    progress = item.progress,
-                )
+            items(visibleGroups) { group ->
+                SettingGroupCard(group)
             }
         }
     }
@@ -540,6 +598,7 @@ fun SettingsScreen(navController: NavHostController) {
                 logout = false
             },
             dialogTitle = stringResource(R.string.logout),
+            dialogText = "退出后将清除本地保存的登录信息",
         )
     }
 
@@ -564,6 +623,10 @@ fun SettingsScreen(navController: NavHostController) {
                 apiBaseUrl = server
                 showApiServerDialog = false
             },
+            onDeactivate = {
+                apiBaseUrl = ""
+                showApiServerDialog = false
+            },
             onDismiss = { showApiServerDialog = false },
         )
     }
@@ -573,6 +636,14 @@ fun SettingsScreen(navController: NavHostController) {
             currentSource = unblockSource,
             onDismiss = { showUnblockSourceDialog = false },
             onSourceSelected = { unblockSource = it }
+        )
+    }
+
+    if (showLocalSourceDialog) {
+        LocalSourceDialog(
+            currentSource = localSource,
+            onDismiss = { showLocalSourceDialog = false },
+            onSourceSelected = { localSource = it }
         )
     }
 
@@ -660,6 +731,134 @@ fun SettingsScreen(navController: NavHostController) {
 
 }
 
+/** 一个分组：主色小标题 + 同组所有项放一张圆角卡片，行间细分割线。 */
+@Composable
+private fun SettingGroupCard(group: SettingGroupData) {
+    val colors = MaterialTheme.colorScheme
+    Column {
+        Text(
+            text = group.name,
+            style = MaterialTheme.typography.titleSmall,
+            color = colors.primary,
+            modifier = Modifier.padding(start = 6.dp, bottom = 6.dp)
+        )
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer)
+        ) {
+            Column {
+                group.note?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                    )
+                }
+                group.items.forEachIndexed { index, item ->
+                    SettingRow(item)
+                    if (index < group.items.lastIndex) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 62.dp, end = 14.dp),
+                            thickness = 1.dp,
+                            color = colors.outlineVariant.copy(alpha = 0.5f)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 统一行高设置行：36dp 圆角底色图标块 + 标题/副标题(/弱提示) + 可选 Switch/箭头。 */
+@Composable
+private fun SettingRow(item: SettingItemData) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .then(
+                if (item.onClick != null) {
+                    Modifier.clickable { item.onClick?.invoke() }
+                } else {
+                    Modifier
+                }
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(
+                    if (item.danger) colors.errorContainer else colors.surfaceVariant
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = item.imageVector,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = if (item.danger) colors.error else colors.primary
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (item.danger) colors.error else colors.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            item.subtitle?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            item.warning?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.error,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
+        item.trailingContent?.invoke()
+        if (item.onClick != null && item.trailingContent == null) {
+            Icon(
+                imageVector = Icons.Outlined.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = colors.onSurfaceVariant
+            )
+        }
+    }
+}
+
+data class SettingItemData(
+    val title: String,
+    val subtitle: String? = null,
+    val imageVector: ImageVector,
+    val onClick: (() -> Unit)? = null,
+    val trailingContent: @Composable (() -> Unit)? = null,
+    val danger: Boolean = false,
+    val warning: String? = null,
+)
+
+data class SettingGroupData(
+    val name: String,
+    val items: List<SettingItemData>,
+    val note: String? = null,
+)
+
 @Composable
 private fun GitHubDownloadSourceDialog(
     currentSourceId: String,
@@ -740,13 +939,14 @@ private fun ApiServerPingDialog(
     onServersChanged: (List<String>) -> Unit,
     onMeasured: (List<ApiServerStatus>, activateFastest: Boolean) -> Unit,
     onActivate: (String) -> Unit,
+    onDeactivate: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var testing by remember { mutableStateOf(false) }
     var newServer by remember { mutableStateOf("") }
-    val currentNotListed = currentServer !in servers
+    val currentNotListed = currentServer.isNotBlank() && currentServer !in servers
 
     fun runPing(activateFastest: Boolean) {
         if (testing) return
@@ -819,6 +1019,32 @@ private fun ApiServerPingDialog(
                         }
                     }
                     Spacer(Modifier.height(4.dp))
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { if (!testing) onDeactivate() },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = currentServer.isBlank(),
+                        onClick = { if (!testing) onDeactivate() }
+                    )
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(vertical = 8.dp)
+                    ) {
+                        Text(
+                            "不使用自建服务器",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = "走官方直连 API，不经过任何自建/代理服务器",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 servers.forEach { server ->
                     val status = statuses.firstOrNull { it.server == server }
@@ -960,98 +1186,3 @@ private fun String.toCookieHeader(): String {
             .joinToString("; ") { (key, value) -> "$key=$value" }
     }.getOrElse { this }
 }
-
-@Composable
-fun SettingCard(
-    title: String,
-    description: String? = null,
-    imageVector: ImageVector,
-    shape: Shape,
-    onClick: (() -> Unit)? = null,
-    onLongClick: (() -> Unit)? = null,
-    trailingContent: @Composable (() -> Unit)? = null,
-    progress: Float? = null,
-) {
-    Card(
-        shape = shape,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-    ) {
-        SettingItem(
-            imageVector = imageVector,
-            title = title,
-            description = description,
-            onClick = onClick,
-            onLongClick = onLongClick,
-            trailingContent = trailingContent,
-            progress = progress,
-        )
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun SettingItem(
-    imageVector: ImageVector,
-    title: String,
-    description: String? = null,
-    onClick: (() -> Unit)? = null,
-    onLongClick: (() -> Unit)? = null,
-    trailingContent: @Composable (() -> Unit)? = null,
-    progress: Float? = null,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = SettingItemHeight)
-            .combinedClickable(
-                onClick = { onClick?.invoke() },
-                onLongClick = { onLongClick?.invoke() }
-            ),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Image(
-            imageVector = imageVector,
-            contentDescription = null,
-            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.surfaceTint),
-            modifier = Modifier.padding(start = 12.dp)
-        )
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(12.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                overflow = TextOverflow.Ellipsis,
-                maxLines = 1
-            )
-            if (description != null) {
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            if (progress != null) {
-                LinearProgressIndicator(
-                    progress = { progress.coerceIn(0f, 1f) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                )
-            }
-        }
-        trailingContent?.invoke()
-    }
-}
-
-data class SettingItemData(
-    val title: String,
-    val subtitle: String? = null,
-    val imageVector: ImageVector,
-    val onClick: (() -> Unit)? = null,
-    val onLongClick: (() -> Unit)? = null,
-    val trailingContent: @Composable (() -> Unit)? = null,
-    val progress: Float? = null,
-)

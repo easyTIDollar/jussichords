@@ -1,9 +1,9 @@
 package com.rcmiku.ncmapi.api.playlist
 
 import com.rcmiku.ncmapi.api.apiGet
-import com.rcmiku.ncmapi.api.apiPostFileOkHttp
+import com.rcmiku.ncmapi.api.apiPost
+import com.rcmiku.ncmapi.api.uploadFileToNos
 import com.rcmiku.ncmapi.model.*
-import io.ktor.http.ContentType
 import java.io.File
 
 object PlaylistApi {
@@ -59,6 +59,12 @@ object PlaylistApi {
         apiGet<ApiCodeResponse>("/playlist/desc/update", mapOf("id" to id, "desc" to description))
             .onSuccess { clearPlaylistCaches(id) }
 
+    /**
+     * 歌单封面更新：NOS 直连三步链路（对齐 api-enhanced 代理 plugins/upload.js + playlist_cover_update.js）。
+     *  1) uploadFileToNos：eapi /nos/token/alloc 申请预签名 token + 裸 POST 图片字节到 NOS → docId；
+     *  2) eapi /playlist/cover/update（coverImgId=docId）落库。
+     * 不再依赖代理 API_BASE_URL。imgSize/imgX/imgY 参数保留仅为兼容旧调用方，直连链路 NCM 端点不收。
+     */
     suspend fun updatePlaylistCover(
         id: Long,
         file: File,
@@ -66,19 +72,13 @@ object PlaylistApi {
         imgX: Int = 0,
         imgY: Int = 0
     ): Result<ApiCodeResponse> =
-        apiPostFileOkHttp<ApiCodeResponse>(
-            "/playlist/cover/update",
-            "imgFile",
-            file,
-            contentType = ContentType.Image.JPEG,
-            params = mapOf(
-                "id" to id,
-                "imgSize" to imgSize,
-                "imgX" to imgX,
-                "imgY" to imgY
-            ),
-            includeCommonParams = true
-        ).onSuccess { clearPlaylistCaches(id) }
+        runCatching {
+            val nos = uploadFileToNos(file).getOrThrow()
+            apiPost<ApiCodeResponse>(
+                "/playlist/cover/update",
+                mapOf("id" to id, "coverImgId" to nos.docId)
+            ).getOrThrow()
+        }.onSuccess { clearPlaylistCaches(id) }
 
     suspend fun updatePlaylistOrder(ids: List<Long>): Result<ApiCodeResponse> =
         apiGet<ApiCodeResponse>("/playlist/order/update", mapOf("ids" to ids.joinToString(prefix = "[", postfix = "]")))

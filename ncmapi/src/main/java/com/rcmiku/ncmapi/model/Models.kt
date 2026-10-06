@@ -603,8 +603,9 @@ data class ApiCodeResponse(
 )
 
 /**
- * The avatar endpoint is proxied by some NCM API servers. Those servers can
- * return an outer 200 while the actual Netease result is in data.code.
+ * 头像上传落库响应。直连 NCM eapi /user/avatar/upload/v1 时顶层 code 即业务码
+ * （成功 200，未登录/风控 301，参数错 400），不再有代理的外层 200 包装。
+ * data 块为可选透传（NCM 可能回 url_pre / imgId），不再作为成功判定依据。
  */
 @Serializable
 data class AvatarUploadResponse(
@@ -613,9 +614,9 @@ data class AvatarUploadResponse(
     val msg: String? = null,
     val data: AvatarUploadData? = null
 ) {
-    val isSuccess: Boolean get() = code == 200 && data?.code == 200
+    val isSuccess: Boolean get() = code == 200
     val errorMessage: String?
-        get() = data?.message ?: message ?: msg
+        get() = message ?: msg ?: data?.message
 }
 
 @Serializable

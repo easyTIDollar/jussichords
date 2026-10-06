@@ -28,6 +28,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -65,6 +70,7 @@ import com.jussicodes.music.ui.components.tabs
 import com.jussicodes.music.ui.navigation.NavGraph
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.extensions.toMediaItemList
+import com.jussicodes.music.utils.MenuSnackbarBus
 import com.jussicodes.music.utils.PlayerExpandBus
 import com.jussicodes.music.utils.rememberPreference
 import kotlinx.coroutines.delay
@@ -186,7 +192,34 @@ fun MainScreen() {
         }
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) {
+        coroutineScope.launch {
+            MenuSnackbarBus.events.collect { event ->
+                val undo = event.onUndo
+                val label = event.undoLabel
+                if (undo != null && label != null) {
+                    // material3 1.3.1 的 showSnackbar 没有 withAction 参数：
+                    // 传 actionLabel + Indefinite，等用户点击返回 ActionPerformed 再执行撤销。
+                    val result = snackbarHostState.showSnackbar(
+                        message = event.message,
+                        actionLabel = label,
+                        duration = SnackbarDuration.Indefinite,
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        undo()
+                    }
+                } else {
+                    snackbarHostState.showSnackbar(event.message)
+                }
+            }
+        }
+    }
+
     Scaffold(
+        snackbarHost = {
+            SnackbarHost(hostState = snackbarHostState)
+        },
         bottomBar = {
             Column {
                 AnimatedVisibility(

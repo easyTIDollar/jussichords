@@ -26,9 +26,9 @@ import kotlin.system.measureTimeMillis
 
 /** 默认的 ncmapi 后端地址列表。用户可在设置页的 API 服务器对话框增删（DataStore apiServerListKey）。 */
 val apiServers = listOf(
-    "https://api.jussichords.indevs.in",
-    "http://8.134.163.111:3000",
     "https://api.jussichords.kdns.fr",
+    "https://api.jussicodes.kdns.fr",
+    "https://api.jussichords.indevs.in",
 )
 
 /** 应用仓库固定坐标（GitHub 系下载链接与 API 的公共前缀）。 */
