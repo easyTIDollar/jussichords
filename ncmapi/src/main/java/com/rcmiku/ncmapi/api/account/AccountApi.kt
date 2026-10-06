@@ -1,16 +1,14 @@
 package com.rcmiku.ncmapi.api.account
 
 import com.rcmiku.ncmapi.api.apiGet
-import com.rcmiku.ncmapi.api.apiPostFileOkHttp
-import com.rcmiku.ncmapi.api.apiPostFile
 import com.rcmiku.ncmapi.api.apiPost
 import com.rcmiku.ncmapi.api.toJsonElement
 import com.rcmiku.ncmapi.api.playbackHistoryBaseFields
 import com.rcmiku.ncmapi.api.playbackHistoryPlayFields
 import com.rcmiku.ncmapi.api.player.SongLevel
+import com.rcmiku.ncmapi.api.uploadFileToNos
 import com.rcmiku.ncmapi.model.*
 import com.rcmiku.ncmapi.utils.CookieProvider
-import io.ktor.http.ContentType
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -30,19 +28,17 @@ object AccountApi {
         return result.map { fixAccountProfile(it) }
     }
 
+    /**
+     * 头像上传：NOS 直连三步链路（对齐 api-enhanced 代理 plugins/upload.js + avatar_upload.js）。
+     *  1) uploadFileToNos：eapi /nos/token/alloc 申请预签名 token + 裸 POST 图片字节到 NOS → docId；
+     *  2) eapi /user/avatar/upload（imgid=docId）落库。
+     * 不再依赖代理 API_BASE_URL。imgSize 参数保留仅为兼容旧调用方，直连链路 NCM 端点不收该字段。
+     */
     suspend fun uploadAvatar(file: File, imgSize: Int = 800): Result<AvatarUploadResponse> =
-        apiPostFileOkHttp(
-            "/avatar/upload",
-            "imgFile",
-            file,
-            contentType = ContentType.Image.JPEG,
-            params = mapOf(
-                "imgSize" to imgSize,
-                "imgX" to 0,
-                "imgY" to 0
-            ),
-            includeCommonParams = true
-        )
+        runCatching {
+            val nos = uploadFileToNos(file).getOrThrow()
+            apiPost<AvatarUploadResponse>("/user/avatar/upload", mapOf("imgid" to nos.docId)).getOrThrow()
+        }
 
     private fun fixAccountProfile(batch: UserInfoBatch): UserInfoBatch {
         return batch.copy(account = batch.account.copy(profile = batch.profile))
