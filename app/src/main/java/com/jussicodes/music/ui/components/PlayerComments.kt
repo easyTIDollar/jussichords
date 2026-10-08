@@ -1,11 +1,6 @@
 package com.jussicodes.music.ui.components
 
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowIn
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
@@ -50,6 +45,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -265,7 +261,7 @@ fun PlayerComments(
     }
 
     LaunchedEffect(lazyListState, comments.size, hasMore, isLoading, isLoadingMore) {
-        kotlinx.coroutines.flow.snapshotFlow {
+        snapshotFlow {
             val layoutInfo = lazyListState.layoutInfo
             val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
             val totalItemsCount = layoutInfo.totalItemsCount
@@ -282,12 +278,8 @@ fun PlayerComments(
     val surfaceColor = MaterialTheme.colorScheme.surfaceContainer
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 遮罩：点击收起面板。
-        AnimatedVisibility(
-            visible = visible,
-            enter = androidx.compose.animation.fadeIn(),
-            exit = androidx.compose.animation.fadeOut()
-        ) {
+        // 遮罩：点击收起面板（scrim → visible=false → LaunchedEffect 触发 onBackPressed 移除宿主）。
+        if (visible) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -300,17 +292,7 @@ fun PlayerComments(
 
         // 底部面板：半屏(50%) / 全屏(100%)，imePadding 让键盘弹出时整体上移，
         // 输入框始终贴键盘上沿可见。
-        AnimatedVisibility(
-            visible = visible,
-            enter = slideInVertically(
-                animationSpec = tween(durationMillis = 180, easing = FastOutSlowIn),
-                initialOffsetY = { it.height }
-            ),
-            exit = slideOutVertically(
-                animationSpec = tween(durationMillis = 180, easing = FastOutSlowIn),
-                targetOffsetY = { it.height }
-            )
-        ) {
+        if (visible) {
             Surface(
                 shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
                 color = surfaceColor,
