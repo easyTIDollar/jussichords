@@ -187,6 +187,23 @@ val EAPI_USER_UPDATE_PROFILE: Map<String, Any> = mapOf(
 )
 
 /**
+ * 评论写（发/回复/删除，jussichords 路由 /comment/write）eapi profile：
+ * 与播放历史同款的 osx 桌面信封（osx 域 + macOS UA + 空 csrf + 合成 cookie）。
+ * send() 对 os=osx profile 自动走「合成 cookie + interface 域 + 空 __csrf」分支，
+ * 风控认这组 osx 桌面身份；身份识别靠合成 cookie 里的 MUSIC_U。
+ */
+val EAPI_COMMENT_WRITE_PROFILE: Map<String, Any> = mapOf(
+    "os" to "osx",
+    "osver" to "15.5",
+    "appver" to "3.1.10.5100",
+    "versioncode" to "140",
+    "channel" to "netease",
+    "resolution" to "1920x1080",
+    "userAgent" to NCM_OSX_UA,
+    "domain" to NCM_EAPI_HISTORY_DOMAIN,
+)
+
+/**
  * 一起听 eapi 桌面 profile（对齐 MeiloX NeteaseInterceptor.EAPI_CONFIG：os=pc 桌面客户端
  * + interface 域 + NeteaseMusicDesktop UA + 合成 cookie）。
  * 一起听共享队列 REPLACE 写（/sync/list/command/report）在移动信封下被 NCM 静默拒
@@ -230,6 +247,9 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
     // 一起听：eapi + 桌面 pc 信封（对齐 MeiloX EAPI_CONFIG：interface 域 + 桌面 UA + 合成 cookie）。
     fun eapiListenTogether(uri: String, data: Map<String, Any> = emptyMap()) =
         Route(uri, data, Encryption.EAPI, eapiProfile = EAPI_LISTEN_TOGETHER_PROFILE)
+    // 评论写（发/回复/删除）：eapi + osx 桌面信封（同播放历史，见 EAPI_COMMENT_WRITE_PROFILE）。
+    fun eapiCommentWrite(uri: String, data: Map<String, Any> = emptyMap()) =
+        Route(uri, data, Encryption.EAPI, eapiProfile = EAPI_COMMENT_WRITE_PROFILE)
 
     val commentTypePrefix = when (int("type", 0)) {
         0 -> "R_SO_4_"
@@ -558,6 +578,44 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
             val threadId = if (str("type") == "6") str("threadId") else commentTypePrefix + id
             weapi(
                 "/api/v1/comment/${if (like) "like" else "unlike"}",
+                mapOf("threadId" to threadId, "commentId" to req("cid"))
+            )
+        }
+        // 发评论（type 6 动态用 threadId，其余用 前缀+id）；body 对齐代理 comment_add.js。
+        "/comment/add" -> {
+            val id = str("id")
+            val threadId = if (str("type") == "6") str("threadId") else commentTypePrefix + id
+            eapiCommentWrite(
+                "/api/resource/comments/add",
+                mapOf(
+                    "threadId" to threadId,
+                    "content" to req("content"),
+                    "resourceType" to "0",
+                    "expressionPicId" to "-1",
+                    "bubbleId" to "-1"
+                )
+            )
+        }
+        // 回复评论：同 /comment/add 端点 + commentId（对齐代理 comment_reply.js）。
+        "/comment/reply" -> {
+            val id = str("id")
+            val threadId = if (str("type") == "6") str("threadId") else commentTypePrefix + id
+            eapiCommentWrite(
+                "/api/v1/resource/comments/reply",
+                mapOf(
+                    "threadId" to threadId,
+                    "commentId" to req("cid"),
+                    "content" to req("content"),
+                    "resourceType" to "0"
+                )
+            )
+        }
+        // 删除评论：body 对齐代理 comment_delete.js（threadId + commentId，代理传 query.cid）。
+        "/comment/delete" -> {
+            val id = str("id")
+            val threadId = if (str("type") == "6") str("threadId") else commentTypePrefix + id
+            eapiCommentWrite(
+                "/api/resource/comments/delete",
                 mapOf("threadId" to threadId, "commentId" to req("cid"))
             )
         }
