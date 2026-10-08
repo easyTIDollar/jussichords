@@ -316,7 +316,9 @@ data class CommentNewData(
     val comments: List<Comment> = emptyList(),
     @SerialName("totalCount") val totalCount: Long = 0,
     @SerialName("hasMore") val hasMore: Boolean = false,
-    val cursor: Long = 0
+    // NCM /comment/new 的 cursor 形状不固定：热度排序回字符串（如 "normalHot# 032"），
+    // 时间排序回数字时间戳。统一按 JsonElement 解析，UI 侧取 jsonPrimitive.content。
+    @SerialName("cursor") val cursor: JsonElement? = null
 )
 
 @Serializable

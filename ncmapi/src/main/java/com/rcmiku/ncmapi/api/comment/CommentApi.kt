@@ -12,7 +12,7 @@ object CommentApi {
         pageNo: Int = 1,
         pageSize: Int = 20,
         sortType: Int = 3,
-        cursor: Long? = null
+        cursor: String? = null
     ): Result<CommentNewResponse> {
         val params = mutableMapOf<String, Any>(
             "id" to id,
@@ -21,7 +21,7 @@ object CommentApi {
             "pageSize" to pageSize,
             "sortType" to sortType
         )
-        if (sortType == 3 && pageNo > 1 && cursor != null) {
+        if (pageNo > 1 && !cursor.isNullOrBlank()) {
             params["cursor"] = cursor
         }
         return apiGet("/comment/new", params)

@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -49,7 +48,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,6 +61,7 @@ import com.jussicodes.music.ui.icons.FilterList
 import com.rcmiku.ncmapi.api.comment.CommentApi
 import com.rcmiku.ncmapi.model.Comment
 import com.rcmiku.ncmapi.model.CommentNewData
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
@@ -93,17 +92,15 @@ fun PlayerComments(
     var commentData by remember(resolvedMediaId) { mutableStateOf<CommentNewData?>(null) }
     var comments by remember(resolvedMediaId, selectedSort.type) { mutableStateOf(emptyList<Comment>()) }
     var pageNo by remember(resolvedMediaId, selectedSort.type) { mutableIntStateOf(1) }
-    var cursor by remember(resolvedMediaId, selectedSort.type) { mutableLongStateOf(0L) }
+    var cursor by remember(resolvedMediaId, selectedSort.type) { mutableStateOf("") }
     var hasMore by remember(resolvedMediaId, selectedSort.type) { mutableStateOf(false) }
     var isLoading by remember(resolvedMediaId) { mutableStateOf(false) }
     var isLoadingMore by remember(resolvedMediaId, selectedSort.type) { mutableStateOf(false) }
     var errorMessage by remember(resolvedMediaId) { mutableStateOf<String?>(null) }
-    // 和其他半屏页一致：M3 ModalBottomSheet（skipPartiallyExpanded=true，与
-    // 更多菜单/专辑歌手详情同构）。内容高度上限约 50% 屏高，保证按"半屏"打开；
-    // 下滑由 M3 自带的 grab handle 收起。
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val configuration = LocalConfiguration.current
-    val halfScreenHeight = configuration.screenHeightDp.dp * 0.5f
+    // 和其他半屏页一致：M3 ModalBottomSheet。skipPartiallyExpanded=false 保留
+    // 半屏(50%)→上滑全屏两态（和原来固定半屏+上滑全屏行为一致），下滑由 M3
+    // grab handle 收起；全屏态内容铺满。
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lazyListState = rememberLazyListState()
@@ -126,14 +123,14 @@ fun PlayerComments(
                 sortType = selectedSort.type,
                 pageSize = 20,
                 pageNo = nextPage,
-                cursor = cursor.takeIf { selectedSort.type == 3 && it > 0L }
+                cursor = cursor.takeIf { it.isNotBlank() }
             ).onSuccess {
                 commentData = it.data
                 comments = comments + it.data.comments
                 pageNo = nextPage
                 hasMore = it.data.hasMore
-                cursor = it.data.cursor.takeIf { value -> value > 0L }
-                    ?: it.data.comments.lastOrNull()?.time
+                cursor = (it.data.cursor as? JsonPrimitive)?.content?.takeIf { c -> c.isNotBlank() }
+                    ?: it.data.comments.lastOrNull()?.time?.toString()
                     ?: cursor
             }.onFailure {
                 Toast.makeText(
@@ -152,7 +149,7 @@ fun PlayerComments(
         errorMessage = null
         comments = emptyList()
         pageNo = 1
-        cursor = 0L
+        cursor = ""
         hasMore = false
         CommentApi.newComments(
             id = songId,
@@ -164,9 +161,9 @@ fun PlayerComments(
             commentData = it.data
             comments = it.data.comments
             hasMore = it.data.hasMore
-            cursor = it.data.cursor.takeIf { value -> value > 0L }
-                ?: it.data.comments.lastOrNull()?.time
-                ?: 0L
+            cursor = (it.data.cursor as? JsonPrimitive)?.content?.takeIf { c -> c.isNotBlank() }
+                ?: it.data.comments.lastOrNull()?.time?.toString()
+                ?: ""
         }.onFailure {
             errorMessage = it.message ?: "评论加载失败"
         }
@@ -193,11 +190,7 @@ fun PlayerComments(
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         containerColor = MaterialTheme.colorScheme.surfaceContainer
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = halfScreenHeight)
-        ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
