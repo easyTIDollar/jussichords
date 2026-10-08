@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightAtMost
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -196,7 +196,7 @@ fun PlayerComments(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightAtMost(halfScreenHeight)
+                .heightIn(max = halfScreenHeight)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
