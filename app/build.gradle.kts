@@ -31,8 +31,8 @@ android {
         applicationId = "com.jussicodes.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 37
-        versionName = "2.3.7"
+        versionCode = 38
+        versionName = "2.3.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
