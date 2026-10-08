@@ -311,6 +311,27 @@ data class CommentNewResponse(
     val code: Int = 0
 )
 
+/**
+ * 楼中楼（/comment/floor）响应。NCM 端点 /api/resource/comment/floor/get，weapi 明文读。
+ * ownerComment=父评论回显，comments=楼层（Comment 同款结构），time=下一页游标（毫秒时间戳，
+ * 缺省 -1 取第一页），hasMore/totalCount 同 /comment/new 语义。
+ */
+@Serializable
+data class CommentFloorResponse(
+    val data: CommentFloorData = CommentFloorData(),
+    val code: Int = 0
+)
+
+@Serializable
+data class CommentFloorData(
+    val comments: List<Comment> = emptyList(),
+    @SerialName("ownerComment") val ownerComment: Comment? = null,
+    @SerialName("hasMore") val hasMore: Boolean = false,
+    @SerialName("totalCount") val totalCount: Long = 0,
+    // 翻页游标：下一页传上一页最后一项的 time（毫秒）。
+    val time: Long = -1
+)
+
 @Serializable
 data class CommentNewData(
     val comments: List<Comment> = emptyList(),
@@ -329,8 +350,17 @@ data class Comment(
     @SerialName("timeStr") val timeStr: String = "",
     @SerialName("likedCount") val likedCount: Long = 0,
     val liked: Boolean = false,
+    @SerialName("replyCount") val replyCount: Int = 0,
     val user: CommentUser = CommentUser(),
+    // 省级 IP 归属地（NCM 脱敏：ip 恒 null，location=省份；空串=未定位，UI 侧不展示）。
+    val ipLocation: IpLocation? = null,
     @SerialName("beReplied") val beReplied: List<CommentReply> = emptyList()
+)
+
+@Serializable
+data class IpLocation(
+    val ip: String? = null,
+    val location: String = ""
 )
 
 @Serializable

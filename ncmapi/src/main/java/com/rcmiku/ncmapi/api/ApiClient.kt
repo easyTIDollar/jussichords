@@ -581,6 +581,21 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
                 mapOf("threadId" to threadId, "commentId" to req("cid"))
             )
         }
+        // 楼中楼（代理 comment_floor.js）：weapi /api/resource/comment/floor/get。
+        // 翻页：time 传上一页最后一项的 time（毫秒），缺省 -1 取第一页；limit 默认 20。
+        "/comment/floor" -> {
+            val id = req("id")
+            val threadId = if (str("type") == "6") str("threadId") else commentTypePrefix + id
+            weapi(
+                "/api/resource/comment/floor/get",
+                mapOf(
+                    "parentCommentId" to req("parentCommentId"),
+                    "threadId" to threadId,
+                    "time" to long("time", -1L),
+                    "limit" to int("limit", 20)
+                )
+            )
+        }
         // 发评论（type 6 动态用 threadId，其余用 前缀+id）；body 对齐代理 comment_add.js。
         "/comment/add" -> {
             val id = str("id")

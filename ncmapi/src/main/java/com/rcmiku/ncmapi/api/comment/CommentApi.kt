@@ -2,6 +2,7 @@ package com.rcmiku.ncmapi.api.comment
 
 import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.model.ApiCodeResponse
+import com.rcmiku.ncmapi.model.CommentFloorResponse
 import com.rcmiku.ncmapi.model.CommentNewResponse
 import com.rcmiku.ncmapi.utils.CookieProvider
 
@@ -113,5 +114,29 @@ object CommentApi {
                 throw IllegalStateException(it.message ?: it.msg ?: "删除评论失败 code ${it.code}")
             }
         }
+    }
+
+    /**
+     * 楼中楼（父评论下的楼层回复，路由 /comment/floor → weapi /api/resource/comment/floor/get）。
+     * 翻页：time 传上一页最后一项的 time（毫秒时间戳），缺省 -1L 取第一页；limit 默认 20。
+     * 读接口，无需登录（匿名也可看）。
+     */
+    suspend fun floorComments(
+        id: Long,
+        parentCommentId: Long,
+        type: Int = 0,
+        time: Long = -1L,
+        limit: Int = 20
+    ): Result<CommentFloorResponse> {
+        return apiGet(
+            "/comment/floor",
+            mapOf(
+                "id" to id,
+                "parentCommentId" to parentCommentId,
+                "type" to type,
+                "time" to time,
+                "limit" to limit
+            )
+        )
     }
 }
