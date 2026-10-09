@@ -11,13 +11,11 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.LocalWindowInsets
-import androidx.compose.foundation.layout.align
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.matchParentSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -56,7 +54,6 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -274,22 +271,22 @@ fun PlayerComments(
         // 点遮罩收起
         Box(
             modifier = Modifier
-                .matchParentSize()
+                .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.4f))
                 .clickable { onBackPressed() }
         )
 
-        // 底部落点：键盘弹出 → 抬到键盘上沿；无键盘 → 抬到系统导航栏上沿。
-        // 取两者最大，避免键盘弹出时 ime+导航栏两层叠加导致输入条"飞天"。
-        val insets = LocalWindowInsets.current
-        val keyboardLift = insets.ime.getBottom()
-        val navBarLift = insets.navigationBars.getBottom()
-        val bottomLift = with(LocalDensity.current) { maxOf(keyboardLift, navBarLift).toDp() }
-
-        BoxWithConstraints(modifier = Modifier.padding(bottom = bottomLift)) {
+        // 底部落点：imePadding 把容器裁到键盘上沿（无键盘不裁）。键盘弹出时面板在
+        // “键盘以上空间”内按 fillMaxHeight 比例收缩，输入条贴面板底边——半屏/全屏/键盘
+        // 弹出三态都可见、不飞天、点输入框不再 settle 回半屏。
+        BoxWithConstraints(
+            modifier = Modifier
+                .imePadding()
+                .fillMaxSize(),
+            contentAlignment = Alignment.BottomStart
+        ) {
             Surface(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
                     .fillMaxWidth()
                     .fillMaxHeight(if (expanded) 1f else 0.5f)
                     .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
