@@ -81,6 +81,7 @@ import com.jussicodes.music.ui.icons.ModeComment
 import com.jussicodes.music.ui.icons.PushPin
 import com.jussicodes.music.ui.icons.PushPinFill
 import com.jussicodes.music.ui.navigation.ArtistNav
+import com.jussicodes.music.ui.navigation.UserNav
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.formatTimestamp
 import com.jussicodes.music.utils.toCoverImageUrl
@@ -356,7 +357,8 @@ fun AlbumScreen(
                 mediaId = album.id,
                 mediaMetadata = albumMetadata,
                 commentType = 3,
-                onBackPressed = { openAlbumComments = false }
+                onBackPressed = { openAlbumComments = false },
+                onUserClick = { userId -> navController.navigate(UserNav(userId = userId)) }
             )
         }
     }

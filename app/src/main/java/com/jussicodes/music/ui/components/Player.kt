@@ -93,6 +93,7 @@ import com.jussicodes.music.ui.icons.SkipNextFill
 import com.jussicodes.music.ui.icons.SkipPreviousFill
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.ArtistNav
+import com.jussicodes.music.ui.navigation.UserNav
 import com.jussicodes.music.ui.navigation.CloudSongNav
 import com.jussicodes.music.ui.navigation.PlaylistNav
 import com.jussicodes.music.ui.navigation.RadioNav
@@ -919,7 +920,8 @@ fun Player(
             PlayerComments(
                 mediaId = mediaId?.toLongOrNull(),
                 mediaMetadata = mediaMetadata,
-                onBackPressed = { openComments = false }
+                onBackPressed = { openComments = false },
+                onUserClick = { userId -> navController.navigate(UserNav(userId = userId)) }
             )
         }
         }

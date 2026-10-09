@@ -104,6 +104,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
 import androidx.navigation.NavHostController
+import com.jussicodes.music.ui.navigation.UserNav
 
 private const val ROAM_PLAYER = 0
 private const val ROAM_LYRIC = 1
@@ -404,7 +405,8 @@ fun RoamScreen(
             PlayerComments(
                 mediaId = mediaId?.toLongOrNull(),
                 mediaMetadata = metadata,
-                onBackPressed = { openComments = false }
+                onBackPressed = { openComments = false },
+                onUserClick = { userId -> navController.navigate(UserNav(userId = userId)) }
             )
         }
     }

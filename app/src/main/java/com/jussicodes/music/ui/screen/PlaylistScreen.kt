@@ -84,6 +84,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
+import com.jussicodes.music.ui.navigation.UserNav
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
@@ -704,7 +705,8 @@ fun PlaylistScreen(
                 mediaId = playlist.id,
                 mediaMetadata = playlistMetadata,
                 commentType = 2,
-                onBackPressed = { openPlaylistComments = false }
+                onBackPressed = { openPlaylistComments = false },
+                onUserClick = { userId -> navController.navigate(UserNav(userId = userId)) }
             )
         }
     }

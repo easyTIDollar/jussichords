@@ -113,7 +113,8 @@ fun PlayerComments(
     mediaMetadata: MediaMetadata,
     commentType: Int = 0,
     modifier: Modifier = Modifier,
-    onBackPressed: () -> Unit = {}
+    onBackPressed: () -> Unit = {},
+    onUserClick: (userId: Long) -> Unit = {}
 ) {
     val resolvedMediaId = mediaId ?: LocalPlayerState.current?.currentMediaItem?.mediaId?.toLongOrNull()
     var sortMenuExpanded by remember { mutableStateOf(false) }
@@ -430,7 +431,8 @@ fun PlayerComments(
                                                     message ?: "操作失败",
                                                     Toast.LENGTH_SHORT
                                                 ).show()
-                                            }
+                                            },
+                                            onUserClick = { onUserClick(it) }
                                         )
                                     }
                                     if (hasMore || isLoadingMore) {
@@ -493,7 +495,8 @@ private fun CommentItem(
     currentUid: Long?,
     onReply: (Comment) -> Unit,
     onDelete: (Comment) -> Unit,
-    onToast: (String?) -> Unit
+    onToast: (String?) -> Unit,
+    onUserClick: (Long) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var liked by remember(comment.commentId) { mutableStateOf(comment.liked) }
@@ -567,17 +570,21 @@ private fun CommentItem(
             modifier = Modifier
                 .size(36.dp)
                 .clip(MaterialTheme.shapes.small)
+                .clickable { if (comment.user.userId != 0L) onUserClick(comment.user.userId) }
         )
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
-            // 昵称（与头像上沿对齐：外层 Row 已 Top 对齐，此为 Column 首个子元素）
+            // 昵称（与头像上沿对齐：外层 Row 已 Top 对齐，此为 Column 首个子元素；点击跳主页）
             Text(
                 text = comment.user.nickname,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.labelLarge,
                 fontSize = 13.5.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clickable {
+                    if (comment.user.userId != 0L) onUserClick(comment.user.userId)
+                }
             )
             Spacer(Modifier.height(4.dp))
             // 正文 + 点赞（移至正文右侧并列）
@@ -766,7 +773,8 @@ private fun CommentItem(
                                     currentUid = currentUid,
                                     onReply = { onReply(it) },
                                     onDelete = { floorDeleteTarget = it },
-                                    onToast = { onToast(it) }
+                                    onToast = { onToast(it) },
+                                    onUserClick = { onUserClick(it) }
                                 )
                             }
                         }
@@ -824,7 +832,8 @@ private fun FloorReplyItem(
     currentUid: Long?,
     onReply: (Comment) -> Unit,
     onDelete: (Comment) -> Unit,
-    onToast: (String?) -> Unit
+    onToast: (String?) -> Unit,
+    onUserClick: (Long) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var liked by remember(floor.commentId) { mutableStateOf(floor.liked) }
@@ -846,16 +855,20 @@ private fun FloorReplyItem(
             modifier = Modifier
                 .size(28.dp)
                 .clip(MaterialTheme.shapes.small)
+                .clickable { if (floor.user.userId != 0L) onUserClick(floor.user.userId) }
         )
         Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
-            // 昵称（与头像上沿对齐：外层 Row 已 Top 对齐，此为 Column 首个子元素）
+            // 昵称（与头像上沿对齐：外层 Row 已 Top 对齐，此为 Column 首个子元素；点击跳主页）
             Text(
                 text = floor.user.nickname,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clickable {
+                    if (floor.user.userId != 0L) onUserClick(floor.user.userId)
+                }
             )
             Spacer(Modifier.height(4.dp))
             // 正文 + 点赞（移至正文右侧并列）
