@@ -663,7 +663,7 @@ private fun CommentItem(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .clickable { onDelete(comment) }
-                            .padding(start = 8.dp, end = 8.dp, vertical = 4.dp)
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Icon(
                             imageVector = Delete,
