@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -113,11 +114,15 @@ fun PlayerComments(
     var isLoadingMore by remember(resolvedMediaId, selectedSort.type) { mutableStateOf(false) }
     var errorMessage by remember(resolvedMediaId) { mutableStateOf<String?>(null) }
 
-    // 和播放页右上角菜单（PlayerMenuBottomSheet）/ 一起听（ListenTogetherSheet）一致：
-    // M3 ModalBottomSheet + skipPartiallyExpanded = true 单高全屏 sheet（仓里这两处参照都是 true）。
-    // M3 内建 imePadding：键盘弹出时 sheet 顶到键盘上方、列表 weight 收缩、输入条贴键盘上沿，
-    // 没有 半屏 clip 输入框 / 键盘弹出塌回半屏 的问题。
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // 和现有评论页绿包（9b45cf6）外壳一致：M3 ModalBottomSheet + 半屏/全屏两态
+    //（skipPartiallyExpanded=false）。打开后落在半屏,上滑到全屏,下滑收起。
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+
+    LaunchedEffect(sheetState) {
+        if (!sheetState.isVisible) {
+            sheetState.show()
+        }
+    }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
