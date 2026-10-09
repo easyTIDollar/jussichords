@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -115,9 +116,10 @@ fun PlayerComments(
     var isLoadingMore by remember(resolvedMediaId, selectedSort.type) { mutableStateOf(false) }
     var errorMessage by remember(resolvedMediaId) { mutableStateOf<String?>(null) }
 
-    // 和现有评论页绿包（9b45cf6）外壳一致：M3 ModalBottomSheet + 半屏/全屏两态
-    //（skipPartiallyExpanded=false）。打开后落在半屏,上滑到全屏,下滑收起。
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    // 外壳：M3 ModalBottomSheet。skipPartiallyExpanded=true —— 只保留 全屏↔收起 两态，
+    // 无半屏停靠位；这样点击输入框呼起软键盘、窗口随 adjustResize 收缩时，
+    // sheet 不会被结算逻辑拉回半屏，始终停在 fullscreen。
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     LaunchedEffect(sheetState) {
         if (!sheetState.isVisible) {
@@ -275,7 +277,12 @@ fun PlayerComments(
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         containerColor = MaterialTheme.colorScheme.surfaceContainer
     ) {
-        Column(modifier = Modifier.fillMaxWidth().fillMaxHeight()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .imePadding()
+        ) {
 
                     // 标题行（封面 + 标题 + 排序）
                     Row(
@@ -549,17 +556,30 @@ private fun CommentItem(
         )
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
-            // 昵称 + 点赞(右上)
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // 昵称（与头像上沿对齐：外层 Row 已 Top 对齐，此为 Column 首个子元素）
+            Text(
+                text = comment.user.nickname,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.labelLarge,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(4.dp))
+            // 正文 + 点赞（移至正文右侧并列）
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text(
-                    text = comment.user.nickname,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    text = comment.content,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 14.sp,
+                        lineHeight = 22.sp
+                    ),
                     modifier = Modifier.weight(1f)
                 )
+                Spacer(Modifier.width(8.dp))
                 IconButton(
                     onClick = {
                         val songId = resourceId ?: return@IconButton
@@ -600,17 +620,8 @@ private fun CommentItem(
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = comment.content,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = 14.sp,
-                    lineHeight = 22.sp
-                )
-            )
-
-            // 操作行：时间·属地 + 回复 + 本人删除（紧凑一行）
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
+            // 操作行：时间·属地 + 回复(胶囊) + 本人删除（紧凑一行）
             val date = comment.timeStr
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -634,21 +645,25 @@ private fun CommentItem(
                             )
                         }
                     }
+                    Spacer(Modifier.width(12.dp))
                 }
                 Text(
                     text = "回复",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
                         .clickable { onReply(comment) }
-                        .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
+                        .padding(horizontal = 12.dp, vertical = 5.dp)
                 )
                 if (isOwn) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .clickable { onDelete(comment) }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .padding(start = 8.dp, end = 8.dp, vertical = 4.dp)
                     ) {
                         Icon(
                             imageVector = Delete,
@@ -820,15 +835,29 @@ private fun FloorReplyItem(
         )
         Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // 昵称（与头像上沿对齐：外层 Row 已 Top 对齐，此为 Column 首个子元素）
+            Text(
+                text = floor.user.nickname,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(4.dp))
+            // 正文 + 点赞（移至正文右侧并列）
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text(
-                    text = floor.user.nickname,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    text = floor.content,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 14.sp,
+                        lineHeight = 22.sp
+                    ),
                     modifier = Modifier.weight(1f)
                 )
+                Spacer(Modifier.width(8.dp))
                 IconButton(
                     onClick = {
                         val songId = resourceId ?: return@IconButton
@@ -865,13 +894,6 @@ private fun FloorReplyItem(
                     )
                 }
             }
-            Text(
-                text = floor.content,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = 14.sp,
-                    lineHeight = 22.sp
-                )
-            )
             Spacer(Modifier.height(4.dp))
             val date = floor.timeStr
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -893,14 +915,18 @@ private fun FloorReplyItem(
                             )
                         }
                     }
+                    Spacer(Modifier.width(12.dp))
                 }
                 Text(
                     text = "回复",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
                         .clickable { onReply(floor) }
-                        .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
                 )
                 if (isOwn) {
                     Row(
