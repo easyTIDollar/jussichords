@@ -133,10 +133,15 @@ fun PlayerComments(
     // sheet 不会被结算逻辑拉回半屏，始终停在 fullscreen。
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    // 存在即要求展开：本组件只在 openXxxComments=true 时被组合。持续监听 sheet 可见性，
+    // 跳转(如点头像进用户主页)返回后若 sheet 被折叠/隐藏，自动重新展开 —— 评论区不会
+    // 因跳转而收起。守卫 userDismissed：用户手动下滑收起时置 true，不弹回；下滑会走
+    // onDismissRequest→openComments=false→组件离场，LaunchedEffect 取消。
     LaunchedEffect(sheetState) {
-        if (!sheetState.isVisible) {
-            sheetState.show()
-        }
+        snapshotFlow { sheetState.isVisible to sheetState.userDismissed }
+            .collect { (visible, userDismissed) ->
+                if (!visible && !userDismissed) sheetState.show()
+            }
     }
 
     val context = LocalContext.current
