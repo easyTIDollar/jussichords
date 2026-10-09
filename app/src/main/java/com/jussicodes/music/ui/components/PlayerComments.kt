@@ -113,9 +113,11 @@ fun PlayerComments(
     var isLoadingMore by remember(resolvedMediaId, selectedSort.type) { mutableStateOf(false) }
     var errorMessage by remember(resolvedMediaId) { mutableStateOf<String?>(null) }
 
-    // 和其他半屏页（播放页右上角菜单 PlayerMenuBottomSheet）一致：M3 ModalBottomSheet。
-    // skipPartiallyExpanded = false 保留 半屏(50%) → 上滑全屏 两态；下滑由 M3 grab handle 收起。
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    // 和播放页右上角菜单（PlayerMenuBottomSheet）/ 一起听（ListenTogetherSheet）一致：
+    // M3 ModalBottomSheet + skipPartiallyExpanded = true 单高全屏 sheet（仓里这两处参照都是 true）。
+    // M3 内建 imePadding：键盘弹出时 sheet 顶到键盘上方、列表 weight 收缩、输入条贴键盘上沿，
+    // 没有 半屏 clip 输入框 / 键盘弹出塌回半屏 的问题。
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
