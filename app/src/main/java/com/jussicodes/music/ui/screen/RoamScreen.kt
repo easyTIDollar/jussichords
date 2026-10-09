@@ -406,7 +406,10 @@ fun RoamScreen(
                 mediaId = mediaId?.toLongOrNull(),
                 mediaMetadata = metadata,
                 onBackPressed = { openComments = false },
-                onUserClick = { userId -> navController.navigate(UserNav(userId = userId)) }
+                onUserClick = { userId ->
+                    openComments = false
+                    navController.navigate(UserNav(userId = userId))
+                }
             )
         }
     }

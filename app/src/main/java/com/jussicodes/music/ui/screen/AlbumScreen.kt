@@ -358,7 +358,10 @@ fun AlbumScreen(
                 mediaMetadata = albumMetadata,
                 commentType = 3,
                 onBackPressed = { openAlbumComments = false },
-                onUserClick = { userId -> navController.navigate(UserNav(userId = userId)) }
+                onUserClick = { userId ->
+                    openAlbumComments = false
+                    navController.navigate(UserNav(userId = userId))
+                }
             )
         }
     }

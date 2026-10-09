@@ -706,7 +706,10 @@ fun PlaylistScreen(
                 mediaMetadata = playlistMetadata,
                 commentType = 2,
                 onBackPressed = { openPlaylistComments = false },
-                onUserClick = { userId -> navController.navigate(UserNav(userId = userId)) }
+                onUserClick = { userId ->
+                    openPlaylistComments = false
+                    navController.navigate(UserNav(userId = userId))
+                }
             )
         }
     }

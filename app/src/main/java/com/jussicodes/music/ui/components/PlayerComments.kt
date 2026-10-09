@@ -133,19 +133,10 @@ fun PlayerComments(
     // sheet 不会被结算逻辑拉回半屏，始终停在 fullscreen。
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    // 本地"用户主动下滑收起"标记：仅下滑触发 onDismissRequest 时置 true。
-    // material3 1.3.1 的 ModalBottomSheetState 没有 userDismissed 属性(1.4 才有)，故自持。
-    var userDismissed by remember { mutableStateOf(false) }
-
-    // 存在即要求展开：本组件只在 openXxxComments=true 时被组合。持续监听 sheet 可见性，
-    // 跳转(如点头像进用户主页)返回后若 sheet 被折叠/隐藏且非用户主动下滑，自动重新展开 ——
-    // 评论区不会因跳转而收起。用户下滑收起时 onDismissRequest→userDismissed=true→openComments
-    // 置 false→组件离场，LaunchedEffect 取消，不弹回。
     LaunchedEffect(sheetState) {
-        snapshotFlow { sheetState.isVisible to userDismissed }
-            .collect { (visible, dismissed) ->
-                if (!visible && !dismissed) sheetState.show()
-            }
+        if (!sheetState.isVisible) {
+            sheetState.show()
+        }
     }
 
     val context = LocalContext.current
@@ -293,12 +284,7 @@ fun PlayerComments(
     }
 
     ModalBottomSheet(
-        // 用户主动收起（下滑/点 scrim/系统返回）时先标记 userDismissed，避免返回后自动弹回；
-        // 导航跳转返回时 onDismissRequest 不触发、标记保持 false，评论区会自动重展开。
-        onDismissRequest = {
-            userDismissed = true
-            onBackPressed()
-        },
+        onDismissRequest = onBackPressed,
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
