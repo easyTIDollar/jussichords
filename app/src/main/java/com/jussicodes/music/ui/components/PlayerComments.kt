@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -31,11 +31,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,7 +52,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,16 +88,11 @@ private val commentSortOptions = listOf(
 )
 
 /**
- * 播放页半屏评论面板（自定义底部面板，非 M3 ModalBottomSheet）。
- *
- * 为什么不用 ModalBottomSheet：M3 半屏是 Dialog 独立 window，软键盘弹出时
- * imePadding 不可靠，输入框会被键盘盖住。本面板是主 activity 窗口内的
- * Box 叠层，`imePadding()` 稳定生效——半屏 / 全屏 / 键盘弹出三种状态输入框
- * 都固定在面板底部可见，满足需求。
- *
- * 高度：半屏 = 屏幕 50%，全屏 = 100%（点顶部把手切换）。M3 视觉风格保留
- * （16dp 圆角顶、MaterialTheme 配色、拖把样式）。
+ * 播放页半屏评论面板（M3 ModalBottomSheet，和播放页右上角菜单 PlayerMenuBottomSheet 同款）。
+ * 半屏→上滑全屏两态由 M3 grab handle 内建；ModalBottomSheet 内建处理键盘 insets，
+ * 键盘弹出时 sheet 收缩、底部输入条贴键盘上沿可见（半屏 / 全屏 / 键盘弹出三态均可见）。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerComments(
     mediaId: Long?,
@@ -118,16 +113,13 @@ fun PlayerComments(
     var isLoadingMore by remember(resolvedMediaId, selectedSort.type) { mutableStateOf(false) }
     var errorMessage by remember(resolvedMediaId) { mutableStateOf<String?>(null) }
 
-    // 面板可见性（首帧滑入，下滑/点 scrim/返回 → 滑出后回调 onBackPressed）。
-    var visible by remember { mutableStateOf(true) }
-    // 半屏 ↔ 全屏：半屏 = 屏幕 50%，全屏 = 100%（点顶部把手切换）。
-    var expanded by remember { mutableStateOf(false) }
+    // 和其他半屏页（播放页右上角菜单 PlayerMenuBottomSheet）一致：M3 ModalBottomSheet。
+    // skipPartiallyExpanded = false 保留 半屏(50%) → 上滑全屏 两态；下滑由 M3 grab handle 收起。
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lazyListState = rememberLazyListState()
-    val screenHeightDp = LocalConfiguration.current.screenHeightDp
-    val panelHeightDp = if (expanded) screenHeightDp else screenHeightDp / 2
 
     // 发/回复/删除评论所需的身份与输入状态（登录态才渲染输入条）。
     val isLoggedIn = remember { CookieProvider.isLoggedIn() }
@@ -145,11 +137,6 @@ fun PlayerComments(
                 currentProfile = info.account?.profile
             }
         }
-    }
-
-    // 隐藏后通知宿主移除本面板。
-    LaunchedEffect(visible) {
-        if (!visible) onBackPressed()
     }
 
     fun loadMoreComments() {
@@ -274,59 +261,13 @@ fun PlayerComments(
             }
     }
 
-    val dimColor = MaterialTheme.colorScheme.scrim
-    val surfaceColor = MaterialTheme.colorScheme.surfaceContainer
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        // 遮罩：点击收起面板（scrim → visible=false → LaunchedEffect 触发 onBackPressed 移除宿主）。
-        if (visible) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(dimColor.copy(alpha = 0.4f))
-                    .clickable {
-                        visible = false
-                    }
-            )
-        }
-
-        // 底部面板：半屏(50%) / 全屏(100%)，imePadding 让键盘弹出时整体上移，
-        // 输入框始终贴键盘上沿可见。
-        if (visible) {
-            Surface(
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-                color = surfaceColor,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .imePadding()
-                    .fillMaxWidth()
-                    .height(panelHeightDp.dp)
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // 顶部把手：点按切换 半屏 ↔ 全屏。
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { expanded = !expanded }
-                            .padding(vertical = 8.dp)
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = ChevronDown,
-                                contentDescription = if (expanded) "收起" else "展开",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                text = if (expanded) "收起" else "展开",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+    ModalBottomSheet(
+        onDismissRequest = onBackPressed,
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
 
                     // 标题行（封面 + 标题 + 排序）
                     Row(
@@ -510,10 +451,7 @@ fun PlayerComments(
                     }
                 }
             }
-        }
-    }
 }
-
 /**
  * 主评论条目：头像 + 昵称 + 归属地(省)·日期 + 内容 + 点赞(右上) + 「查看 N 条回复」
  * 折叠入口(点按才拉楼中楼) + 本人删除。头像保持方头(需求：不改圆头)。
@@ -963,7 +901,7 @@ private fun FloorReplyItem(
 
 /**
  * 底部输入条：登录态才渲染。左侧输入框 + 发送按钮；回复态时上方挂「回复 @昵称 ×」胶囊。
- * 未登录点发送 → toast 提示登录。位于面板底部（imePadding 保证键盘弹出时贴键盘上沿）。
+ * 未登录点发送 → toast 提示登录。位于 ModalBottomSheet 内容底部，键盘弹出时贴键盘上沿。
  */
 @Composable
 private fun CommentInputBar(
