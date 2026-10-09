@@ -57,6 +57,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaMetadata
 import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerState
@@ -535,7 +536,7 @@ private fun CommentItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Top
     ) {
         AsyncImage(
@@ -555,6 +556,7 @@ private fun CommentItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.labelLarge,
+                    fontSize = 13.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f)
                 )
@@ -577,7 +579,7 @@ private fun CommentItem(
                             }
                         }
                     },
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
                         imageVector = if (liked) FavoriteFill else Favorite,
@@ -598,31 +600,24 @@ private fun CommentItem(
                     )
                 }
             }
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = comment.content,
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 14.sp,
+                    lineHeight = 22.sp
+                )
             )
 
-            // 操作行：回复 + 归属地·日期 + 本人删除（紧凑一行）
-            Spacer(Modifier.height(4.dp))
+            // 操作行：时间·属地 + 回复 + 本人删除（紧凑一行）
+            Spacer(Modifier.height(8.dp))
             val date = comment.timeStr
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = "回复",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .clickable { onReply(comment) }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                )
                 if (location != null || date.isNotBlank()) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(start = 4.dp)
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         if (location != null) {
                             Text(
                                 text = location,
@@ -640,6 +635,14 @@ private fun CommentItem(
                         }
                     }
                 }
+                Text(
+                    text = "回复",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clickable { onReply(comment) }
+                        .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
+                )
                 if (isOwn) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -696,17 +699,28 @@ private fun CommentItem(
                     )
                 }
 
-                // 楼层回复区（按需展开）
+                // 楼层回复区（按需展开）：左侧引用竖线 + 浅色胶囊底，拉开层级
                 if (floorExpanded) {
-                    Column(
+                    Row(
                         modifier = Modifier
                             .padding(top = 6.dp, start = 8.dp)
-                            .background(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.06f),
-                                RoundedCornerShape(8.dp)
-                            )
-                            .padding(start = 8.dp, top = 4.dp, bottom = 4.dp)
+                            .fillMaxWidth(),
+                        verticalAlignment = Alignment.Top
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .fillMaxHeight()
+                                .background(
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                    RoundedCornerShape(2.dp)
+                                )
+                        )
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(start = 8.dp, top = 4.dp, bottom = 4.dp)
+                        ) {
                         if (floorError != null) {
                             Text(
                                 text = floorError.orEmpty(),
@@ -750,6 +764,7 @@ private fun CommentItem(
                                     .padding(8.dp)
                             )
                         }
+                    }
                     }
 
                     floorDeleteTarget?.let { target ->
@@ -852,24 +867,16 @@ private fun FloorReplyItem(
             }
             Text(
                 text = floor.content,
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontSize = 14.sp,
+                    lineHeight = 22.sp
+                )
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
             val date = floor.timeStr
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "回复",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .clickable { onReply(floor) }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                )
                 if (location != null || date.isNotBlank()) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(start = 2.dp)
-                    ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         if (location != null) {
                             Text(
                                 text = location,
@@ -887,6 +894,14 @@ private fun FloorReplyItem(
                         }
                     }
                 }
+                Text(
+                    text = "回复",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clickable { onReply(floor) }
+                        .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
+                )
                 if (isOwn) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
