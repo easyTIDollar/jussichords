@@ -1,20 +1,23 @@
 package com.jussicodes.music.ui.components
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.LocalWindowInsets
+import androidx.compose.foundation.layout.align
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,7 +27,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -32,12 +34,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,9 +52,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -89,11 +92,13 @@ private val commentSortOptions = listOf(
 )
 
 /**
- * 播放页半屏评论面板（M3 ModalBottomSheet，和播放页右上角菜单 PlayerMenuBottomSheet 同款）。
- * 半屏→上滑全屏两态由 M3 grab handle 内建；ModalBottomSheet 内建处理键盘 insets，
- * 键盘弹出时 sheet 收缩、底部输入条贴键盘上沿可见（半屏 / 全屏 / 键盘弹出三态均可见）。
+ * 播放页半屏评论面板（主窗口叠层 Surface，非 M3 Dialog）。
+ * 为什么不用 M3 ModalBottomSheet：半屏态不裁底部、键盘弹出后 sheet 又 settle
+ * 回半屏，输入条两态都不可见。本面板在主 activity 窗口内叠层：
+ * `imePadding()` 把面板抬到键盘上沿，`fillMaxHeight(比例)` 按键盘以上空间收缩，
+ * 半屏 / 全屏 / 键盘弹出三态输入条都贴面板底边可见，点输入框不再触发 settle。
+ * 顶部把手切换 半屏 ↔ 全屏；点遮罩 / 系统返回收起。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerComments(
     mediaId: Long?,
@@ -114,15 +119,12 @@ fun PlayerComments(
     var isLoadingMore by remember(resolvedMediaId, selectedSort.type) { mutableStateOf(false) }
     var errorMessage by remember(resolvedMediaId) { mutableStateOf<String?>(null) }
 
-    // 和现有评论页绿包（9b45cf6）外壳一致：M3 ModalBottomSheet + 半屏/全屏两态
-    //（skipPartiallyExpanded=false）。打开后落在半屏,上滑到全屏,下滑收起。
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    // 主窗口叠层面板：非 M3 Dialog。半屏 = 屏幕 50%，全屏 = 100%（点顶部把手切换）。
+    // 键盘弹出时由 imePadding 自动把面板抬到键盘上沿，输入条三态都可见。
+    var expanded by remember { mutableStateOf(false) }
 
-    LaunchedEffect(sheetState) {
-        if (!sheetState.isVisible) {
-            sheetState.show()
-        }
-    }
+    // 系统返回 / 手势收起面板（M3 sheet 自带 back，叠层面板需手动接）。
+    BackHandler(onBack = onBackPressed)
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -268,13 +270,50 @@ fun PlayerComments(
             }
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onBackPressed,
-        sheetState = sheetState,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+    Box(modifier = modifier.fillMaxSize()) {
+        // 点遮罩收起
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(Color.Black.copy(alpha = 0.4f))
+                .clickable { onBackPressed() }
+        )
+
+        // 底部落点：键盘弹出 → 抬到键盘上沿；无键盘 → 抬到系统导航栏上沿。
+        // 取两者最大，避免键盘弹出时 ime+导航栏两层叠加导致输入条"飞天"。
+        val insets = LocalWindowInsets.current
+        val keyboardLift = insets.ime.getBottom()
+        val navBarLift = insets.navigationBars.getBottom()
+        val bottomLift = with(LocalDensity.current) { maxOf(keyboardLift, navBarLift).toDp() }
+
+        BoxWithConstraints(modifier = Modifier.padding(bottom = bottomLift)) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .fillMaxHeight(if (expanded) 1f else 0.5f)
+                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
+                color = MaterialTheme.colorScheme.surfaceContainer
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // 顶部把手：点按切换 半屏 ↔ 全屏（chevron 朝上=半屏/展开中，朝下=全屏）
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp, bottom = 4.dp)
+                            .clickable { expanded = !expanded },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = ChevronDown,
+                            contentDescription = if (expanded) "切到半屏" else "切到全屏",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .rotate(if (expanded) 0f else 180f)
+                        )
+                    }
 
                     // 标题行（封面 + 标题 + 排序）
                     Row(
@@ -388,8 +427,7 @@ fun PlayerComments(
                                 LazyColumn(
                                     modifier = Modifier.fillMaxSize(),
                                     state = lazyListState,
-                                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                                    contentPadding = WindowInsets.navigationBars.asPaddingValues()
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
                                     items(
                                         items = comments,
@@ -458,6 +496,8 @@ fun PlayerComments(
                     }
                 }
             }
+        }
+    }
 }
 /**
  * 主评论条目：头像 + 昵称 + 归属地(省)·日期 + 内容 + 点赞(右上) + 「查看 N 条回复」
