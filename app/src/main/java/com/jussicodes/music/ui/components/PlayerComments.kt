@@ -53,6 +53,8 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorUtils
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -89,6 +91,14 @@ private val commentSortOptions = listOf(
     CommentSortOption("热度", 2),
     CommentSortOption("时间", 3)
 )
+
+/**
+ * 整页"不透明"辅助：把半透明 tint 色烘焙到面板底色(surfaceContainer)上，
+ * 返回不透明实色。避免任何 copy(alpha=…) 引入透明像素。视觉与半透明叠在面板上一致。
+ */
+@Composable
+private fun opaqueTint(fg: Color, ratio: Float): Color =
+    Color(ColorUtils.blendARGB(MaterialTheme.colorScheme.surfaceContainer.toArgb(), fg.toArgb(), ratio))
 
 /**
  * 播放页半屏评论面板（M3 ModalBottomSheet，和播放页右上角菜单 PlayerMenuBottomSheet 同款）。
@@ -275,7 +285,10 @@ fun PlayerComments(
         onDismissRequest = onBackPressed,
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        // 整页不透明：scrim 用不透明 background 实色，半屏/全屏时彻底挡住下层播放器，
+        // 不再让下层隐约透出（M3 默认 scrim 是半透明 surface）。
+        scrimColor = MaterialTheme.colorScheme.background
     ) {
         Column(
             modifier = Modifier
@@ -354,7 +367,7 @@ fun PlayerComments(
                         }
                     }
 
-                    HorizontalDivider(color = DividerDefaults.color.copy(alpha = 0.4f))
+                    HorizontalDivider(color = opaqueTint(DividerDefaults.color, 0.4f))
 
                     // 列表区：占中间弹性空间，底部固定输入条不被挤掉。
                     Column(modifier = Modifier.weight(1f)) {
@@ -568,7 +581,7 @@ private fun CommentItem(
             Spacer(Modifier.height(4.dp))
             // 正文 + 点赞（移至正文右侧并列）
             Row(
-                verticalAlignment = Alignment.Bottom,
+                verticalAlignment = Alignment.Top,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
@@ -654,7 +667,7 @@ private fun CommentItem(
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+                        .background(opaqueTint(MaterialTheme.colorScheme.primary, 0.10f))
                         .clickable { onReply(comment) }
                         .padding(horizontal = 12.dp, vertical = 5.dp)
                 )
@@ -697,7 +710,7 @@ private fun CommentItem(
                                 floorExpanded = false
                             }
                         }
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+                        .background(opaqueTint(MaterialTheme.colorScheme.primary, 0.08f))
                         .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 4.dp)
                 ) {
                     Icon(
@@ -727,7 +740,7 @@ private fun CommentItem(
                                 .width(3.dp)
                                 .fillMaxHeight()
                                 .background(
-                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                    opaqueTint(MaterialTheme.colorScheme.outlineVariant, 0.5f),
                                     RoundedCornerShape(2.dp)
                                 )
                         )
@@ -846,7 +859,7 @@ private fun FloorReplyItem(
             Spacer(Modifier.height(4.dp))
             // 正文 + 点赞（移至正文右侧并列）
             Row(
-                verticalAlignment = Alignment.Bottom,
+                verticalAlignment = Alignment.Top,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
@@ -924,7 +937,7 @@ private fun FloorReplyItem(
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+                        .background(opaqueTint(MaterialTheme.colorScheme.primary, 0.10f))
                         .clickable { onReply(floor) }
                         .padding(horizontal = 12.dp, vertical = 4.dp)
                 )
@@ -981,7 +994,7 @@ private fun CommentInputBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                        opaqueTint(MaterialTheme.colorScheme.primary, 0.08f),
                         RoundedCornerShape(8.dp)
                     )
                     .padding(horizontal = 10.dp, vertical = 6.dp)
