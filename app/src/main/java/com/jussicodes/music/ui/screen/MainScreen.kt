@@ -76,6 +76,7 @@ import com.jussicodes.music.ui.components.HomeBackgroundLayer
 import com.jussicodes.music.ui.components.rememberHomeBackground
 import com.jussicodes.music.ui.components.tabs
 import com.jussicodes.music.ui.navigation.NavGraph
+import com.jussicodes.music.ui.navigation.PrivateChatNav
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.extensions.toMediaItemList
 import com.jussicodes.music.utils.MenuSnackbarBus
@@ -113,8 +114,11 @@ fun MainScreen() {
     val coroutineScope = rememberCoroutineScope()
     val isHomeRoute = isTabRoute
     val isRoamRoute = currentDestination?.route == Screen.Roam.route
+    // 私信聊天页输入框贴底（imePadding），小播放器会盖住输入框，进聊天页隐藏
+    val isPrivateChatRoute =
+        currentDestination?.route == PrivateChatNav::class.qualifiedName
     val showNavigationBar = isTabRoute
-    val showMiniPlayerChrome = showMiniPlayer && !isRoamRoute
+    val showMiniPlayerChrome = showMiniPlayer && !isRoamRoute && !isPrivateChatRoute
     // 主页背景（"我的"/"探索"底层）：提升到 MainScreen 全屏层渲染，布局与 bottomPadding
     // 解耦——路由切换时不再随内容区高度突变重裁切（"背景跟着小播放器下滑"的根因）。
     val homeBackground = rememberHomeBackground()
