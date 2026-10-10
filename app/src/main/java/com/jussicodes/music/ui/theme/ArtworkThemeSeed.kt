@@ -41,26 +41,25 @@ internal fun rememberArtworkSeed(artwork: Any?): Color? {
 }
 
 /**
- * 主页背景图取色种子：[enabled] 为 true 且 [path] 指向的图片可读时，
- * 用与封面取色完全一致的统计方式提取种子色；无图/读失败返回 null（回落壁纸配色）。
+ * 主页背景图取色种子：[path] 指向的图片可读时，
+ * 用与封面取色完全一致的统计方式提取种子色；空路径/读失败返回 null（回落壁纸配色）。
+ * 与 [rememberArtworkSeed] 同构：produceState 无条件，key 为 path，空值在闭包内处理，
+ * 避免 enabled 翻转时 remember/produceState 数量变化破坏组合稳定性。
  */
 @Composable
-internal fun rememberHomeBgSeed(enabled: Boolean, path: String): Color? {
-    if (!enabled) return null
-    return rememberPathSeed(path)
-}
-
-/** 通用的「本地路径 → 种子色」，按路径缓存，路径变化即失效。 */
-@Composable
-internal fun rememberPathSeed(path: String): Color? {
+internal fun rememberHomeBgSeed(path: String): Color? {
     val context = LocalContext.current.applicationContext
-    val trimmed = path.trim()
-    if (trimmed.isEmpty()) return null
-    return produceState<Color?>(initialValue = null, trimmed, context) {
+    val model = path.trim().takeIf { it.isNotEmpty() }
+    return produceState<Color?>(initialValue = null, model, context) {
+        if (model == null) {
+            value = null
+            return@produceState
+        }
+
         value = withContext(Dispatchers.IO) {
             try {
                 val request = ImageRequest.Builder(context)
-                    .data(trimmed)
+                    .data(model)
                     .allowHardware(false)
                     .build()
                 val result = context.imageLoader.execute(request) as? SuccessResult

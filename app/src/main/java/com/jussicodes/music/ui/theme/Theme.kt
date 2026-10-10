@@ -41,10 +41,8 @@ fun JetMeloTheme(
     val artworkSeed = rememberArtworkSeed(
         artwork = artwork.takeIf { useArtwork },
     )
-    val homeBgSeed = rememberHomeBgSeed(
-        enabled = useHomeBg,
-        path = homeBgPath,
-    )
+    // 仅 HOME_BG 来源时喂真实路径，其余传空串 → 种子 null，回落壁纸配色。
+    val homeBgSeed = rememberHomeBgSeed(if (useHomeBg) homeBgPath else "")
     val colorScheme = remember(
         artworkSeed,
         homeBgSeed,
