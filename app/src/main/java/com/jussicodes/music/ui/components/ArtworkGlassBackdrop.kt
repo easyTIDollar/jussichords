@@ -34,7 +34,7 @@ fun ArtworkGlassBackdrop(
         ArtworkBackdropStyle.FullScreen -> if (isLightSurface) 0.26f else 0.34f
     }
     val glassOverlayAlpha = when (style) {
-        ArtworkBackdropStyle.Compact -> if (isLightSurface) 0.62f else 0.80f
+        ArtworkBackdropStyle.Compact -> if (isLightSurface) 0.78f else 0.90f
         ArtworkBackdropStyle.FullScreen -> if (isLightSurface) 0.78f else 0.72f
     }
     val colorTintAlpha = when (style) {
