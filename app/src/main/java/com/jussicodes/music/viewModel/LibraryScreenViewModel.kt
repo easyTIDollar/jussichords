@@ -390,8 +390,11 @@ class LibraryScreenViewModel @Inject constructor(
     }
 
     private fun isFavoritePlaylist(playlist: Playlist, userId: Long): Boolean {
-        return playlist.specialType == LIKED_PLAYLIST_SPECIAL_TYPE ||
-            (playlist.creator?.userId == userId && playlist.name.contains(LIKED_PLAYLIST_NAME_FRAGMENT))
+        // 必须是"自己的"我喜欢的歌：收藏别人(specialType=5)的歌单时 creator 是对方，
+        // 不能当成本地喜欢的歌去覆盖数量/叠加本地喜欢列表。
+        val isOwner = playlist.creator?.userId == userId
+        return isOwner && (playlist.specialType == LIKED_PLAYLIST_SPECIAL_TYPE ||
+            playlist.name.contains(LIKED_PLAYLIST_NAME_FRAGMENT))
     }
 
     private fun mergeFavoritePlaylistState(playlists: List<Playlist>): List<Playlist> {

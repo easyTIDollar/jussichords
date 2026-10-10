@@ -186,8 +186,9 @@ fun LibraryScreen(
 
     val userId = userInfoBatchState?.account?.profile?.userId ?: 0L
     val favoritePlaylistId = userPlaylists.firstOrNull { playlist ->
-        playlist.specialType == 5 ||
-            (playlist.creator?.userId == userId && playlist.name.contains(LIKED_PLAYLIST_NAME_FRAGMENT))
+        playlist.creator?.userId == userId && (
+            playlist.specialType == 5 ||
+            playlist.name.contains(LIKED_PLAYLIST_NAME_FRAGMENT))
     }?.id
     val favoritePlaylist = userPlaylists.firstOrNull { it.id == favoritePlaylistId }
     val normalPlaylists = userPlaylists.filterNot { it.id == favoritePlaylistId }
