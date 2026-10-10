@@ -29,26 +29,25 @@ fun ArtworkGlassBackdrop(
 ) {
     val surface = MaterialTheme.colorScheme.surfaceContainer
     val isLightSurface = surface.luminance() > 0.5f
-    // Compact（小播放器）：实色底，封面完全不透出——磨砂 overlay 提满 1.0，
-    // 封面图层不渲染（alpha 0），primary 微染保留层次。
     val artworkBackdropAlpha = when (style) {
-        ArtworkBackdropStyle.Compact -> 0f
+        ArtworkBackdropStyle.Compact -> if (isLightSurface) 0.50f else 0.34f
         ArtworkBackdropStyle.FullScreen -> if (isLightSurface) 0.26f else 0.34f
     }
     val glassOverlayAlpha = when (style) {
-        ArtworkBackdropStyle.Compact -> 1f
+        ArtworkBackdropStyle.Compact -> if (isLightSurface) 0.58f else 0.78f
         ArtworkBackdropStyle.FullScreen -> if (isLightSurface) 0.78f else 0.72f
     }
     val colorTintAlpha = when (style) {
-        ArtworkBackdropStyle.Compact -> 0.05f
+        ArtworkBackdropStyle.Compact -> if (isLightSurface) 0.08f else 0.06f
         ArtworkBackdropStyle.FullScreen -> if (isLightSurface) 0.05f else 0.08f
     }
-    val imageScale = if (style == ArtworkBackdropStyle.FullScreen) 1.45f else 1.24f
-    val blurRadius: Dp = if (style == ArtworkBackdropStyle.FullScreen) 64.dp else 40.dp
+    val imageScale = if (style == ArtworkBackdropStyle.FullScreen) 1.45f else 1.18f
+    val blurRadius: Dp = if (style == ArtworkBackdropStyle.FullScreen) 64.dp else 28.dp
 
     Box(
         modifier = modifier
             .fillMaxSize()
+            .background(surface)
             .clipToBounds()
     ) {
         AsyncImage(
