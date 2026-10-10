@@ -33,7 +33,6 @@ import androidx.compose.material.icons.outlined.KeyboardArrowRight
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -808,15 +807,10 @@ private fun SettingGroupCard(group: SettingGroupData) {
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
                     )
                 }
-                group.items.forEachIndexed { index, item ->
+                // 各选项之间不再画横向分割线（HorizontalDivider），靠行内 56dp 最小高度 +
+                // 卡片底色区分；同组多行直接相邻堆叠。
+                group.items.forEach { item ->
                     SettingRow(item)
-                    if (index < group.items.lastIndex) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 62.dp, end = 14.dp),
-                            thickness = 1.dp,
-                            color = colors.outlineVariant.copy(alpha = 0.5f)
-                        )
-                    }
                 }
             }
         }

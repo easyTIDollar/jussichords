@@ -28,8 +28,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.jussicodes.music.ui.theme.ThemeColorSource
 
-private const val UiScaleSnapDistance = 0.045f
-
 @Composable
 fun ThemeColorSourceDialog(
     currentSource: ThemeColorSource,
@@ -46,10 +44,21 @@ fun ThemeColorSourceDialog(
     onHomeBgBlurChanged: (Float) -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
-    // 界面缩放吸附档：70/80/90/100/110 对应 index 0..4（value 0.7f..1.1f，步进 0.1）。
+    // 界面缩放五档：70/80/90/100/110，index 0..4（value = 0.7f + index * 0.1f）。
+    // 与下方主页背景滑块同款吸附（detent）手感；档位用离散 index 状态驱动，
+    // 不传连续 Float（连续值会顶在卡里、滑块无法渲染出 0.7/1.1 的端点）。
+    // 初值四舍五入到最近档并夹在 0..4：旧版自由拖动可能存过 0.75 等非整档值。
     val uiScaleTicks = listOf(0.7f, 0.8f, 0.9f, 1f, 1.1f)
-    var lastUiScaleTick by remember {
-        mutableIntStateOf(uiScaleTicks.indexOfFirst { kotlin.math.abs(it - currentUiScale) < 0.001f })
+    var uiScaleTick by remember {
+        mutableIntStateOf(
+            ((currentUiScale - 0.7f) / 0.1f + 0.5f).toInt().coerceIn(0, uiScaleTicks.lastIndex)
+        )
+    }
+    fun selectUiScaleTick(index: Int) {
+        if (index !in uiScaleTicks.indices || index == uiScaleTick) return
+        uiScaleTick = index
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        onUiScaleSelected(uiScaleTicks[index])
     }
     Dialog(onDismissRequest = onDismiss) {
         ScaledDialogContent {
@@ -138,28 +147,19 @@ fun ThemeColorSourceDialog(
                             .padding(horizontal = 14.dp, vertical = 4.dp),
                     ) {
                         Text(
-                            text = "${(currentUiScale * 100).toInt()}%",
+                            text = "${(uiScaleTicks[uiScaleTick] * 100).toInt()}%",
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp),
                         )
-                        // 自由拖动；拖到 70/80/90/100/110 档位附近时吸附并震动（detent 手感）。
+                        // 跟下方「主页背景」滑块同款：分档步进（steps=4 → 5 档），
+                        // 不可自由调节，每档震动反馈；档位 index 离散驱动端点可渲染。
                         Slider(
-                            value = currentUiScale,
+                            value = uiScaleTick / 4f,
                             onValueChange = { v ->
-                                val nearestIdx = uiScaleTicks.indexOfFirst { kotlin.math.abs(it - v) < UiScaleSnapDistance }
-                                if (nearestIdx >= 0) {
-                                    val snapped = uiScaleTicks[nearestIdx]
-                                    if (nearestIdx != lastUiScaleTick) {
-                                        lastUiScaleTick = nearestIdx
-                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    }
-                                    onUiScaleSelected(snapped)
-                                } else {
-                                    lastUiScaleTick = -1
-                                    onUiScaleSelected(v)
-                                }
+                                selectUiScaleTick(Math.round(v * 4f))
                             },
-                            valueRange = 0.7f..1.1f,
+                            valueRange = 0f..1f,
+                            steps = 4,
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
