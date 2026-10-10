@@ -372,7 +372,6 @@ fun MainScreen() {
             NavGraph(
                 navController = navController,
                 bottomPadding = bottomPadding,
-                showMiniPlayer = showMiniPlayerChrome,
                 homePagerState = homePagerState,
                 onHomePageChange = { homePage = it },
                 onHomePageScroll = { homePageScroll = it }

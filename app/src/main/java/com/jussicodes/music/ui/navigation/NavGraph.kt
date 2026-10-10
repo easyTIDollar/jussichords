@@ -30,7 +30,6 @@ import com.jussicodes.music.constants.DURATION_ENTER
 import com.jussicodes.music.constants.DURATION_EXIT_SHORT
 import com.jussicodes.music.constants.EmphasizedAccelerateEasing
 import com.jussicodes.music.constants.EmphasizedDecelerateEasing
-import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.components.HomeBackgroundLayer
 import com.jussicodes.music.ui.components.rememberHomeBackground
 import com.jussicodes.music.ui.screen.AlbumScreen
@@ -59,7 +58,6 @@ import com.jussicodes.music.viewModel.UserFollowType
 fun NavGraph(
     navController: NavHostController,
     bottomPadding: Dp,
-    showMiniPlayer: Boolean,
     homePagerState: PagerState,
     onHomePageChange: (Int) -> Unit,
     onHomePageScroll: (Float) -> Unit
@@ -81,7 +79,7 @@ fun NavGraph(
             startDestination = Screen.Library.route,
             Modifier
                 .background(MaterialTheme.colorScheme.background)
-                .windowInsetsPadding(WindowInsets(bottom = bottomPadding + if (showMiniPlayer) MiniPlayerHeight else 0.dp)),
+                .windowInsetsPadding(WindowInsets(bottom = bottomPadding)),
             enterTransition = {
                 if (targetState.destination.route in homeRoutes) {
                     EnterTransition.None
