@@ -30,19 +30,19 @@ fun ArtworkGlassBackdrop(
     val surface = MaterialTheme.colorScheme.surfaceContainer
     val isLightSurface = surface.luminance() > 0.5f
     val artworkBackdropAlpha = when (style) {
-        ArtworkBackdropStyle.Compact -> if (isLightSurface) 0.50f else 0.34f
+        ArtworkBackdropStyle.Compact -> 0.40f
         ArtworkBackdropStyle.FullScreen -> if (isLightSurface) 0.26f else 0.34f
     }
     val glassOverlayAlpha = when (style) {
-        ArtworkBackdropStyle.Compact -> if (isLightSurface) 0.58f else 0.78f
+        ArtworkBackdropStyle.Compact -> if (isLightSurface) 0.62f else 0.80f
         ArtworkBackdropStyle.FullScreen -> if (isLightSurface) 0.78f else 0.72f
     }
     val colorTintAlpha = when (style) {
-        ArtworkBackdropStyle.Compact -> if (isLightSurface) 0.08f else 0.06f
+        ArtworkBackdropStyle.Compact -> 0.05f
         ArtworkBackdropStyle.FullScreen -> if (isLightSurface) 0.05f else 0.08f
     }
-    val imageScale = if (style == ArtworkBackdropStyle.FullScreen) 1.45f else 1.18f
-    val blurRadius: Dp = if (style == ArtworkBackdropStyle.FullScreen) 64.dp else 28.dp
+    val imageScale = if (style == ArtworkBackdropStyle.FullScreen) 1.45f else 1.24f
+    val blurRadius: Dp = if (style == ArtworkBackdropStyle.FullScreen) 64.dp else 40.dp
 
     Box(
         modifier = modifier
