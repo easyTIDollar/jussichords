@@ -53,8 +53,11 @@ fun ThemeColorSourceDialog(
     }
     val uiScaleTicks = listOf(0.7f, 0.8f, 0.9f, 1f, 1.1f)
     fun commitUiScale() {
-        val snapped = uiScaleTicks.minByOrNull { kotlin.math.abs(it - uiScaleValue) } ?: return
-        if (snapped == uiScaleValue) return
+        // 松手时把当前档位吸附值 commit 出去（写 liveUiScale + ScaledDialogDensity，触发弹窗
+        // 缩放重排）。分档滑块拖出的值已是档位值，这里**不判等、无条件 commit**：
+        // 若保留 `snapped == uiScaleValue` 早返回，因拖出值恒等于最近档，判等恒成立、
+        // onUiScaleSelected 永不触发 → 松手后缩放不生效（用户报告的 bug）。
+        val snapped = uiScaleTicks.minByOrNull { kotlin.math.abs(it - uiScaleValue) } ?: 1f
         uiScaleValue = snapped
         onUiScaleSelected(snapped)
     }
@@ -151,7 +154,7 @@ fun ThemeColorSourceDialog(
                         HomeBgSliderRow(
                             label = "缩放",
                             value = uiScaleValue,
-                            valueText = "${(uiScaleValue * 100).toInt()}%",
+                            valueText = "${(uiScaleValue * 100).roundToInt()}%",
                             valueRange = 0.7f..1.1f,
                             steps = 4,
                             onValueChanged = { v ->
@@ -213,7 +216,7 @@ fun ThemeColorSourceDialog(
                         HomeBgSliderRow(
                             label = "缩放",
                             value = homeBg.scale,
-                            valueText = "${(homeBg.scale * 100).toInt()}%",
+                            valueText = "${(homeBg.scale * 100).roundToInt()}%",
                             valueRange = 1f..2f,
                             steps = 10,
                             onValueChanged = onHomeBgScaleChanged,
@@ -221,7 +224,7 @@ fun ThemeColorSourceDialog(
                         HomeBgSliderRow(
                             label = "透明度",
                             value = homeBg.opacity,
-                            valueText = "${(homeBg.opacity * 100).toInt()}%",
+                            valueText = "${(homeBg.opacity * 100).roundToInt()}%",
                             valueRange = 0.1f..1f,
                             steps = 9,
                             onValueChanged = onHomeBgOpacityChanged,
@@ -229,7 +232,7 @@ fun ThemeColorSourceDialog(
                         HomeBgSliderRow(
                             label = "模糊度",
                             value = homeBg.blur,
-                            valueText = "${homeBg.blur.toInt()}",
+                            valueText = "${homeBg.blur.roundToInt()}",
                             valueRange = 0f..40f,
                             steps = 20,
                             onValueChanged = onHomeBgBlurChanged,
