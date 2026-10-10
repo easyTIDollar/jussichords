@@ -156,7 +156,7 @@ fun ThemeColorSourceDialog(
                             value = uiScaleValue,
                             valueText = "${(uiScaleValue * 100).roundToInt()}%",
                             valueRange = 0.7f..1.1f,
-                            steps = 4,
+                            steps = 3,
                             onValueChanged = { v ->
                                 uiScaleValue = v
                             },
@@ -218,7 +218,7 @@ fun ThemeColorSourceDialog(
                             value = homeBg.scale,
                             valueText = "${(homeBg.scale * 100).roundToInt()}%",
                             valueRange = 1f..2f,
-                            steps = 10,
+                            steps = 9,
                             onValueChanged = onHomeBgScaleChanged,
                         )
                         HomeBgSliderRow(
@@ -226,7 +226,7 @@ fun ThemeColorSourceDialog(
                             value = homeBg.opacity,
                             valueText = "${(homeBg.opacity * 100).roundToInt()}%",
                             valueRange = 0.1f..1f,
-                            steps = 9,
+                            steps = 8,
                             onValueChanged = onHomeBgOpacityChanged,
                         )
                         HomeBgSliderRow(
@@ -234,7 +234,7 @@ fun ThemeColorSourceDialog(
                             value = homeBg.blur,
                             valueText = "${homeBg.blur.roundToInt()}",
                             valueRange = 0f..40f,
-                            steps = 20,
+                            steps = 7,
                             onValueChanged = onHomeBgBlurChanged,
                         )
                     }
