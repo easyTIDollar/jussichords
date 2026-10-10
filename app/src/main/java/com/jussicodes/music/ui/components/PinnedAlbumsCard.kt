@@ -65,7 +65,6 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.ThumbnailCornerRadius
-import com.jussicodes.music.constants.pinnedAlbumColumnsKey
 import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.extensions.playMediaAt
@@ -108,7 +107,10 @@ fun PinnedAlbumsCard(
     val view = LocalView.current
     val mediaController = LocalPlayerController.current.controller
     var editing by remember { mutableStateOf(false) }
-    var columns by rememberPreference(pinnedAlbumColumnsKey, 3)
+    // 列数走 PinnedAlbumStore 进程级 StateFlow（启动时 watchColumns 从 DataStore 灌入）：
+    // rememberPreference 首帧出默认 3 列、下一帧才回流真实列数，每次回主页重组合
+    // 都会把非 3 列的 grid 重排一次——进程级状态跨切页稳定，不再闪跳。
+    val columns = PinnedAlbumStore.columnsState.collectAsState().value ?: 3
     var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
     var displayed by remember {
         mutableStateOf(PinnedAlbumStore.albums.value)
@@ -244,7 +246,9 @@ fun PinnedAlbumsCard(
                 if (showColumnsDialog) {
                     PinnedAlbumsColumnsDialog(
                         columns = columns,
-                        onColumnsChange = { columns = it },
+                        onColumnsChange = { value ->
+                            coroutineScope.launch { PinnedAlbumStore.setColumns(value) }
+                        },
                         onDismiss = { showColumnsDialog = false }
                     )
                 }

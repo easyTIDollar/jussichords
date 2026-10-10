@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.jussicodes.music.constants.pinnedAlbumIdsKey
+import com.jussicodes.music.constants.pinnedAlbumColumnsKey
 import com.jussicodes.music.constants.pinnedAlbumsAccountKey
 import com.jussicodes.music.constants.pinnedAlbumsCacheKey
 import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
@@ -192,6 +193,29 @@ object PinnedAlbumStore {
             }
             true
         }
+    }
+
+    /**
+     * 专辑墙封面列数（进程级，null = DataStore 尚未出值）：
+     * 与 [hiddenState] 同款提到单例——卡片若用 rememberPreference 首帧出默认 3 列、
+     * 下一帧才回流真实列数，从任意界面回主页的每次重组合都会把 grid 重排一次
+     * （"专辑墙非 3 列时回主页要动一下"的根因）；进程级状态跨 tab 切换稳定。
+     */
+    private val _columnsState = MutableStateFlow<Int?>(null)
+    val columnsState: StateFlow<Int?> = _columnsState.asStateFlow()
+
+    /** 启动时调用一次：持续跟 DataStore 的列数回流进 [columnsState]。 */
+    fun watchColumns(context: Context) {
+        val ds = context.applicationContext.dataStore
+        watcherScope.launch {
+            ds.data.collect { prefs -> _columnsState.value = prefs[pinnedAlbumColumnsKey] ?: 3 }
+        }
+    }
+
+    /** 写列数（DataStore），watcher 回流后 UI 自动跟上。 */
+    suspend fun setColumns(value: Int) {
+        val s = store ?: return
+        s.edit { it[pinnedAlbumColumnsKey] = value }
     }
 
     /** 置顶 / 取消置顶单个专辑（内存 + 落盘；新增时顺带拉取详情 + 曲目）。 */

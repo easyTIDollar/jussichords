@@ -1,6 +1,8 @@
 package com.jussicodes.music.ui.screen
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -65,6 +67,7 @@ import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.BottomNavigationHeight
 import com.jussicodes.music.constants.DURATION_ENTER
+import com.jussicodes.music.constants.DURATION_EXIT
 import com.jussicodes.music.constants.DURATION_EXIT_SHORT
 import com.jussicodes.music.constants.EmphasizedDecelerateEasing
 import com.jussicodes.music.constants.MiniPlayerHeight
@@ -339,15 +342,37 @@ fun MainScreen() {
             }
         },
         content = { padding ->
-            var bottomPadding = if (!showPlayer) {
-                padding.calculateBottomPadding()
-            } else {
-                0.dp
+            // 小播放器贴底间距（与 main 一致的位置逻辑：首页=底栏上方，二级页=贴系统导航栏，
+            // 不加额外高度避免和底栏顶开缝），套 200ms 缓入缓出：进出设置页时下滑/回位平滑。
+            val targetMiniBottomPadding = when {
+                showPlayer -> 0.dp
+                showNavigationBar -> padding.calculateBottomPadding()
+                else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             }
-
-            if (!showPlayer && !showNavigationBar && showMiniPlayerChrome) {
-                bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            val miniBottomPadding by animateDpAsState(
+                targetValue = targetMiniBottomPadding,
+                animationSpec = tween(
+                    durationMillis = DURATION_EXIT,
+                    easing = FastOutSlowInEasing
+                ),
+                label = "MiniPlayerBottomPadding"
+            )
+            // 内容区贴底间距：首页 Tab 额外加小播放器高度——任意列表滚到底时最后一段
+            // 停在小播放器上方不被挡；二级页不加（内容仍到最底）。同参数动画，跟小播放器同步。
+            val targetContentBottomPadding = when {
+                showPlayer -> 0.dp
+                showNavigationBar ->
+                    padding.calculateBottomPadding() + if (showMiniPlayerChrome) MiniPlayerHeight else 0.dp
+                else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             }
+            val contentBottomPadding by animateDpAsState(
+                targetValue = targetContentBottomPadding,
+                animationSpec = tween(
+                    durationMillis = DURATION_EXIT,
+                    easing = FastOutSlowInEasing
+                ),
+                label = "ContentBottomPadding"
+            )
 
             // 主页背景（"我的"/"探索"底层）：全屏渲染，高度与路由/bottomPadding 完全解耦——
             // 进二级页不再随内容区高度突变重裁切。
@@ -373,7 +398,7 @@ fun MainScreen() {
                 Box(
                     modifier = Modifier
                         .defaultMinSize(minHeight = MiniPlayerHeight)
-                        .windowInsetsPadding(WindowInsets(bottom = bottomPadding)),
+                        .windowInsetsPadding(WindowInsets(bottom = miniBottomPadding)),
                 ) {
                     if (showMiniPlayerChrome) playerState?.mediaMetadata?.let {
                         PlayerTransform(
@@ -394,7 +419,7 @@ fun MainScreen() {
 
             NavGraph(
                 navController = navController,
-                bottomPadding = bottomPadding,
+                bottomPadding = contentBottomPadding,
                 homePagerState = homePagerState,
                 onHomePageChange = { homePage = it },
                 onHomePageScroll = { homePageScroll = it }

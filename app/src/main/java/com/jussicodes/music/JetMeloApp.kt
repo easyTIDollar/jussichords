@@ -55,6 +55,7 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         ExplorePreloader.init(this)
         PinnedAlbumStore.init(this)
         PinnedAlbumStore.watchHidden(this)
+        PinnedAlbumStore.watchColumns(this)
         MsgSessionCache.init(this)
         UserAgentProvider.init(UserAgentUtil.DEFAULT_USER_AGENT)
         // Fill the explore flows from disk cache immediately, so the explore
