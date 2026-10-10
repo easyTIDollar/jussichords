@@ -77,7 +77,6 @@ import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.ncmCookieKey
-import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.PinnedAlbumPickDialog
@@ -100,7 +99,6 @@ import com.jussicodes.music.ui.navigation.UserFollowNav
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.AvatarUploadLimiter
 import com.jussicodes.music.utils.PlaylistCoverSyncBus
-import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.rememberNullablePreference
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.utils.withAvatarCacheBuster
@@ -165,19 +163,11 @@ fun LibraryScreen(
     var editNickname by remember { mutableStateOf("") }
     var editSignature by remember { mutableStateOf("") }
     var profileUpdateBusy by remember { mutableStateOf(false) }
-    // 专辑墙关闭标志(DataStore)：冷启动首帧 DataStore 未出值前不渲染卡片。
-    // 旧实现用 rememberPreference(key, false) 先给默认 false → 已关闭的墙也会先
-    // 渲染一帧（专辑列表空 → 左上角加号闪现）等真值读回来才消失。
-    // 现在用同一趟 data.collect：首帧值到达时同时落 hidden 真值 + settled 标记，
-    // 卡片只在两值都就绪后才渲染，杜绝加号闪现；设置页恢复时后续值也持续回流。
-    var pinnedAlbumsHidden by remember { mutableStateOf(false) }
-    var pinnedAlbumsHiddenSettled by remember { mutableStateOf(false) }
-    LaunchedEffect(context) {
-        context.dataStore.data.collect { prefs ->
-            pinnedAlbumsHidden = prefs[pinnedAlbumsHiddenKey] ?: false
-            pinnedAlbumsHiddenSettled = true
-        }
-    }
+    // 专辑墙关闭标志读进程级 PinnedAlbumStore.hiddenState（启动时 DataStore→单例回流）：
+    // null = 冷启动首帧 DataStore 尚未出值，不渲染卡片（加号不会闪现）；
+    // 切 tab 重组合时不丢——旧实现用 remember 存本地状态,切回主页会复位成
+    // (false, settled=false) 先闪一帧再恢复,就是用户看到的"闪一下"。
+    val pinnedAlbumsHidden by PinnedAlbumStore.hiddenState.collectAsState()
 
     LaunchedEffect(ncmCookie) {
         val cookie = ncmCookie ?: return@LaunchedEffect
@@ -381,7 +371,7 @@ fun LibraryScreen(
                 }
 
                 item {
-                    if (pinnedAlbumsHiddenSettled && !pinnedAlbumsHidden) {
+                    if (pinnedAlbumsHidden == false) {
                         PinnedAlbumsCard(
                             onOpenAlbum = { album -> navController.navigate(AlbumNav(albumId = album.id)) },
                             onAddClick = { showPinnedAlbumPickDialog = true }

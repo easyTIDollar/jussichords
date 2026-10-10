@@ -110,7 +110,12 @@ fun PinnedAlbumsCard(
     var editing by remember { mutableStateOf(false) }
     var columns by rememberPreference(pinnedAlbumColumnsKey, 3)
     var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
-    var displayed by remember { mutableStateOf<List<Album>>(emptyList()) }
+    var displayed by remember {
+        mutableStateOf(PinnedAlbumStore.albums.value)
+        // 重组合（tab 切换切 NavHost）时以 store 当前值初始化，而不是空列表：
+        // 空初始化会先渲染一帧"空墙+加号格"，LaunchedEffect 下一帧才回填，
+        // 切回主页时用户看到的就是那一跳（"闪一下"）。
+    }
     var dragChanged by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
