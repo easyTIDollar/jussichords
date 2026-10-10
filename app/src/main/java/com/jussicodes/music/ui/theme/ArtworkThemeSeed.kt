@@ -3,6 +3,7 @@ package com.jussicodes.music.ui.theme
 import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import coil3.imageLoader
@@ -39,7 +40,41 @@ internal fun rememberArtworkSeed(artwork: Any?): Color? {
     }.value
 }
 
-private fun extractArtworkSeed(bitmap: Bitmap): Color? {
+/**
+ * 主页背景图取色种子：[enabled] 为 true 且 [path] 指向的图片可读时，
+ * 用与封面取色完全一致的统计方式提取种子色；无图/读失败返回 null（回落壁纸配色）。
+ */
+@Composable
+internal fun rememberHomeBgSeed(enabled: Boolean, path: String): Color? {
+    if (!enabled) return null
+    return rememberPathSeed(path)
+}
+
+/** 通用的「本地路径 → 种子色」，按路径缓存，路径变化即失效。 */
+@Composable
+internal fun rememberPathSeed(path: String): Color? {
+    val context = LocalContext.current.applicationContext
+    val trimmed = path.trim()
+    if (trimmed.isEmpty()) return null
+    return produceState<Color?>(initialValue = null, trimmed, context) {
+        value = withContext(Dispatchers.IO) {
+            try {
+                val request = ImageRequest.Builder(context)
+                    .data(trimmed)
+                    .allowHardware(false)
+                    .build()
+                val result = context.imageLoader.execute(request) as? SuccessResult
+                result?.image
+                    ?.toBitmap(width = SampleSize, height = SampleSize)
+                    ?.let(::extractArtworkSeed)
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }.value
+}
+
+internal fun extractArtworkSeed(bitmap: Bitmap): Color? {
     val pixels = IntArray(bitmap.width * bitmap.height)
     bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
 

@@ -11,7 +11,9 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,9 +30,13 @@ fun ThemeColorSourceDialog(
     onDismiss: () -> Unit,
     onSourceSelected: (ThemeColorSource) -> Unit,
     onUiScaleSelected: (Float) -> Unit,
+    homeBg: HomeBackgroundConfig,
+    onHomeBgPick: () -> Unit,
+    onHomeBgRemoved: () -> Unit,
+    onHomeBgScaleChanged: (Float) -> Unit,
+    onHomeBgOpacityChanged: (Float) -> Unit,
+    onHomeBgBlurChanged: (Float) -> Unit,
 ) {
-    val uiScaleOptions = listOf(0.7f, 0.8f, 0.9f, 1f, 1.1f)
-
     Dialog(onDismissRequest = onDismiss) {
         Card(shape = MaterialTheme.shapes.extraLarge) {
             Column(
@@ -84,6 +90,9 @@ fun ThemeColorSourceDialog(
 
                                         ThemeColorSource.ARTWORK ->
                                             "切歌时更新；无封面时自动使用壁纸配色"
+
+                                        ThemeColorSource.HOME_BG ->
+                                            "未设置主页背景图时使用默认配色"
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -101,39 +110,154 @@ fun ThemeColorSourceDialog(
                     modifier = Modifier.padding(top = 8.dp),
                 )
 
-                uiScaleOptions.forEach { scale ->
-                    val selected = kotlin.math.abs(currentUiScale - scale) < 0.01f
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainer
-                            },
-                        ),
-                        shape = RoundedCornerShape(20.dp),
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ),
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                onUiScaleSelected(scale)
-                            },
+                            .padding(horizontal = 14.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = "${(currentUiScale * 100).toInt()}%",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp),
+                        )
+                        Slider(
+                            value = currentUiScale,
+                            onValueChange = onUiScaleSelected,
+                            valueRange = 0.7f..1.1f,
+                            steps = 4,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = "70%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                text = "110%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = "主页背景",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                Text(
+                    text = "在「我的」和「探索」页使用的本地图片背景",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ),
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                text = "${(scale * 100).toInt()}%",
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.weight(1f),
+                                text = if (homeBg.enabled) "已设置背景图" else "未设置背景图",
+                                style = MaterialTheme.typography.bodyMedium,
                             )
-                            RadioButton(selected = selected, onClick = null)
+                            Row {
+                                TextButton(onClick = onHomeBgPick) {
+                                    Text(if (homeBg.enabled) "更换" else "选取图片")
+                                }
+                                if (homeBg.enabled) {
+                                    TextButton(onClick = onHomeBgRemoved) {
+                                        Text("移除")
+                                    }
+                                }
+                            }
                         }
+
+                        HomeBgSliderRow(
+                            label = "缩放",
+                            value = homeBg.scale,
+                            valueText = "${(homeBg.scale * 100).toInt()}%",
+                            valueRange = 1f..2f,
+                            steps = 10,
+                            onValueChanged = onHomeBgScaleChanged,
+                        )
+                        HomeBgSliderRow(
+                            label = "透明度",
+                            value = homeBg.opacity,
+                            valueText = "${(homeBg.opacity * 100).toInt()}%",
+                            valueRange = 0.1f..1f,
+                            steps = 9,
+                            onValueChanged = onHomeBgOpacityChanged,
+                        )
+                        HomeBgSliderRow(
+                            label = "模糊度",
+                            value = homeBg.blur,
+                            valueText = "${homeBg.blur.toInt()}",
+                            valueRange = 0f..40f,
+                            steps = 20,
+                            onValueChanged = onHomeBgBlurChanged,
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HomeBgSliderRow(
+    label: String,
+    value: Float,
+    valueText: String,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    onValueChanged: (Float) -> Unit,
+) {
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = valueText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Slider(
+            value = value.coerceIn(valueRange),
+            onValueChange = onValueChanged,
+            valueRange = valueRange,
+            steps = steps,
+        )
     }
 }

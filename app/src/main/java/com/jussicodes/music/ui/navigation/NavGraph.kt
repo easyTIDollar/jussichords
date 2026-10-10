@@ -7,6 +7,7 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -30,6 +31,8 @@ import com.jussicodes.music.constants.DURATION_EXIT_SHORT
 import com.jussicodes.music.constants.EmphasizedAccelerateEasing
 import com.jussicodes.music.constants.EmphasizedDecelerateEasing
 import com.jussicodes.music.constants.MiniPlayerHeight
+import com.jussicodes.music.ui.components.HomeBackgroundLayer
+import com.jussicodes.music.ui.components.rememberHomeBackground
 import com.jussicodes.music.ui.screen.AlbumScreen
 import com.jussicodes.music.ui.screen.AlbumSublistScreen
 import com.jussicodes.music.ui.screen.ArtistScreen
@@ -248,16 +251,21 @@ private fun HomePager(
             .collect(onPageScroll)
     }
 
-    HorizontalPager(
-        state = pagerState,
-        flingBehavior = PagerDefaults.flingBehavior(
+    val homeBackground = rememberHomeBackground()
+    Box {
+        // 背景铺满整屏（含顶栏之下）；顶栏透明化后从背景透出，两页 Scaffold 不再画纯色底。
+        HomeBackgroundLayer(config = homeBackground)
+        HorizontalPager(
             state = pagerState,
-            snapPositionalThreshold = 0.5f
-        )
-    ) { page ->
-        when (page) {
-            0 -> LibraryScreen(navController = navController)
-            1 -> ExploreScreen(navController = navController)
+            flingBehavior = PagerDefaults.flingBehavior(
+                state = pagerState,
+                snapPositionalThreshold = 0.5f
+            )
+        ) { page ->
+            when (page) {
+                0 -> LibraryScreen(navController = navController)
+                1 -> ExploreScreen(navController = navController)
+            }
         }
     }
 }

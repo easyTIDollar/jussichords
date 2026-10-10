@@ -2,6 +2,8 @@ package com.jussicodes.music.ui.screen
 
 import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -81,6 +83,10 @@ import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
+import com.jussicodes.music.constants.homeBgBlurKey
+import com.jussicodes.music.constants.homeBgImageKey
+import com.jussicodes.music.constants.homeBgOpacityKey
+import com.jussicodes.music.constants.homeBgScaleKey
 import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.lyric.DesktopLyricManager
@@ -88,6 +94,7 @@ import com.jussicodes.music.ui.components.LocalSourceDialog
 import com.jussicodes.music.ui.components.Dialog
 import com.jussicodes.music.ui.components.SongQualityDialog
 import com.jussicodes.music.ui.components.ThemeColorSourceDialog
+import com.jussicodes.music.ui.components.HomeBackgroundConfig
 import com.jussicodes.music.ui.components.UnblockSourceDialog
 import com.jussicodes.music.ui.components.UpdateDialog
 import com.jussicodes.music.ui.components.localSourceOptions
@@ -157,6 +164,39 @@ fun SettingsScreen(navController: NavHostController) {
         githubDownloadSourceKey,
         downloadSources.first().id
     )
+    // 主页背景（"我的"/"探索"页）：本地图片路径 + 缩放/透明度/模糊度。
+    var homeBgPath by rememberPreference(homeBgImageKey, "")
+    var homeBgScale by rememberPreference(homeBgScaleKey, 1f)
+    var homeBgOpacity by rememberPreference(homeBgOpacityKey, 1f)
+    var homeBgBlur by rememberPreference(homeBgBlurKey, 0f)
+    val homeBg = remember(homeBgPath, homeBgScale, homeBgOpacity, homeBgBlur) {
+        HomeBackgroundConfig(
+            path = homeBgPath,
+            scale = homeBgScale,
+            opacity = homeBgOpacity,
+            blur = homeBgBlur,
+        )
+    }
+    val homeBgPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                com.jussicodes.music.data.HomeBgStore.select(context, uri)?.let { path ->
+                    homeBgPath = path
+                }
+            }
+        }
+    }
+    fun removeHomeBg() {
+        coroutineScope.launch {
+            com.jussicodes.music.data.HomeBgStore.clear(context)
+            homeBgPath = ""
+            homeBgScale = 1f
+            homeBgOpacity = 1f
+            homeBgBlur = 0f
+        }
+    }
     var showQualityDialog by remember { mutableStateOf(false) }
     var showThemeColorSourceDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
@@ -299,6 +339,12 @@ fun SettingsScreen(navController: NavHostController) {
         }
 
         ThemeColorSource.ARTWORK -> "从当前播放音乐的封面取色"
+
+        ThemeColorSource.HOME_BG -> if (homeBgPath.isNotBlank()) {
+            "从主页背景图取色"
+        } else {
+            "主页背景图取色（未设置图片）"
+        }
     }
     val appearanceWithScale = "$appearanceSubtitle · 缩放 ${(uiScaleController.scale * 100).toInt()}%"
     val accountCookie = remember(ncmCookie) { ncmCookie.toCookieHeader() }
@@ -585,6 +631,12 @@ fun SettingsScreen(navController: NavHostController) {
             onDismiss = { showThemeColorSourceDialog = false },
             onSourceSelected = { themeColorSource = it },
             onUiScaleSelected = uiScaleController.setScale,
+            homeBg = homeBg,
+            onHomeBgPick = { homeBgPicker.launch("image/*") },
+            onHomeBgRemoved = { removeHomeBg() },
+            onHomeBgScaleChanged = { homeBgScale = it },
+            onHomeBgOpacityChanged = { homeBgOpacity = it },
+            onHomeBgBlurChanged = { homeBgBlur = it },
         )
     }
 

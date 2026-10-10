@@ -108,8 +108,9 @@ fun ExploreScreen(
     }
 
     Scaffold(
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
         topBar = {
-            TopBar(navController = navController, titleRes = R.string.explore)
+            TopBar(navController = navController, titleRes = R.string.explore, transparent = true)
         },
     ) { padding ->
             PullToRefreshBox(

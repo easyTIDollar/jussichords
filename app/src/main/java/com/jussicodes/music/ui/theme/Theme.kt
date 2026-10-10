@@ -16,8 +16,10 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.graphics.ColorUtils
+import com.jussicodes.music.constants.homeBgImageKey
 import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.utils.rememberEnumPreference
+import com.jussicodes.music.utils.rememberPreference
 
 @Composable
 fun JetMeloTheme(
@@ -34,17 +36,29 @@ fun JetMeloTheme(
         defaultValue = ThemeColorSource.WALLPAPER,
     )
     val useArtwork = artworkForced || themeColorSource == ThemeColorSource.ARTWORK
+    val useHomeBg = !artworkForced && themeColorSource == ThemeColorSource.HOME_BG
+    val homeBgPath by rememberPreference(homeBgImageKey, "")
     val artworkSeed = rememberArtworkSeed(
         artwork = artwork.takeIf { useArtwork },
     )
+    val homeBgSeed = rememberHomeBgSeed(
+        enabled = useHomeBg,
+        path = homeBgPath,
+    )
     val colorScheme = remember(
         artworkSeed,
+        homeBgSeed,
         darkTheme,
         useArtwork,
+        useHomeBg,
         dynamicColorAvailable,
         context,
     ) {
         val generatedScheme = when {
+            useHomeBg && homeBgSeed != null -> {
+                if (darkTheme) createDarkScheme(homeBgSeed) else createLightScheme(homeBgSeed)
+            }
+
             useArtwork && artworkSeed != null -> {
                 if (darkTheme) createDarkScheme(artworkSeed) else createLightScheme(artworkSeed)
             }

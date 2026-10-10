@@ -201,13 +201,13 @@ fun LibraryScreen(
     val createdPlaylists = normalPlaylists.filterNot { it in collectedPlaylists }
 
     Scaffold(
-        topBar = { TopBar(navController = navController, titleRes = R.string.mine) }
+        containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        topBar = { TopBar(navController = navController, titleRes = R.string.mine, transparent = true) }
     ) { padding ->
         if (ncmCookie == null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface)
                     .padding(padding)
             )
         } else if (ncmCookie?.isEmpty() == true) {
@@ -247,7 +247,6 @@ fun LibraryScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface)
                     .padding(padding),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     start = 12.dp,
