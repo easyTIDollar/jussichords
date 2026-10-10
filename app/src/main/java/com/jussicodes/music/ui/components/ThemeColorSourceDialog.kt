@@ -151,7 +151,7 @@ fun ThemeColorSourceDialog(
                                     val snapped = uiScaleTicks[nearestIdx]
                                     if (nearestIdx != lastUiScaleTick) {
                                         lastUiScaleTick = nearestIdx
-                                        haptics.performHapticFeedback(HapticFeedbackType.Click)
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     }
                                     onUiScaleSelected(snapped)
                                 } else {
