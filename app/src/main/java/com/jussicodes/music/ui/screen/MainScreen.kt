@@ -346,22 +346,41 @@ fun MainScreen() {
             // - 全屏播放器展开：0（Player 自己占满整屏）
             // - 首页 Tab：底部导航栏（Scaffold 已含）+ 小播放器高度（避让悬浮层）
             // - 其他二级页：仅系统导航栏（贴最底）
-            val targetBottomPadding = when {
+            // 小播放器贴底目标间距（基础值，不再额外加小播放器高度——它要紧贴底栏/导航栏上方，
+            // 加高度会把小播放器和底栏顶开一道缝）：
+            // - 全屏播放器展开：0
+            // - 首页 Tab：Scaffold 底栏（导航栏）高度
+            // - 其他二级页：仅系统导航栏（贴最底）
+            val targetMiniBottomPadding = when {
                 showPlayer -> 0.dp
-                showNavigationBar ->
-                    padding.calculateBottomPadding() + if (showMiniPlayerChrome) MiniPlayerHeight else 0.dp
-                else ->
-                    WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                showNavigationBar -> padding.calculateBottomPadding()
+                else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             }
-            // 小播放器下滑/回位弹簧：与 MiniPlayer 拖拽回位同款参数（MediumBouncy + MediumLow），
+            // 下滑/回位弹簧：与 MiniPlayer 拖拽回位同款参数（MediumBouncy + MediumLow），
             // 套在布局值上，路由切换时小播放器和内容区一起平滑过渡而不是瞬间跳变。
-            val bottomPadding by animateDpAsState(
-                targetValue = targetBottomPadding,
+            val miniBottomPadding by animateDpAsState(
+                targetValue = targetMiniBottomPadding,
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioMediumBouncy,
                     stiffness = Spring.StiffnessMediumLow
                 ),
                 label = "MiniPlayerBottomPadding"
+            )
+            // 内容区贴底目标间距：首页 Tab 额外加小播放器高度，保证任意列表滚到底时
+            // 最后一段停在小播放器上方不被挡；二级页不加（内容仍到最底）。
+            val targetContentBottomPadding = when {
+                showPlayer -> 0.dp
+                showNavigationBar ->
+                    padding.calculateBottomPadding() + if (showMiniPlayerChrome) MiniPlayerHeight else 0.dp
+                else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            }
+            val contentBottomPadding by animateDpAsState(
+                targetValue = targetContentBottomPadding,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                ),
+                label = "ContentBottomPadding"
             )
 
             // 主页背景（"我的"/"探索"底层）：全屏渲染，高度与路由/bottomPadding 完全解耦——
@@ -388,7 +407,7 @@ fun MainScreen() {
                 Box(
                     modifier = Modifier
                         .defaultMinSize(minHeight = MiniPlayerHeight)
-                        .windowInsetsPadding(WindowInsets(bottom = bottomPadding)),
+                        .windowInsetsPadding(WindowInsets(bottom = miniBottomPadding)),
                 ) {
                     if (showMiniPlayerChrome) playerState?.mediaMetadata?.let {
                         PlayerTransform(
@@ -409,7 +428,7 @@ fun MainScreen() {
 
             NavGraph(
                 navController = navController,
-                bottomPadding = bottomPadding,
+                bottomPadding = contentBottomPadding,
                 homePagerState = homePagerState,
                 onHomePageChange = { homePage = it },
                 onHomePageScroll = { homePageScroll = it }
