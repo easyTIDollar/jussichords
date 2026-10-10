@@ -12,14 +12,18 @@ import java.io.File
  */
 object HomeBgStore {
     private const val DIR_NAME = "home_bg"
-    private const val FILE_NAME = "home_bg.jpg"
 
-    /** 把 picker 选中的 Uri 拷贝成本地文件；失败返回 null。 */
+    /**
+     * 把 picker 选中的 Uri 拷贝成本地文件；失败返回 null。
+     * 每次生成时间戳唯一文件名（并清理旧文件）：Coil 以文件路径为缓存 key，
+     * 若写死 home_bg.jpg，换图后同路径命中旧位图内存缓存，需重启应用才生效。
+     */
     suspend fun select(context: Context, uri: Uri): String? = withContext(Dispatchers.IO) {
         try {
             val dir = File(context.filesDir, DIR_NAME)
             if (!dir.exists()) dir.mkdirs()
-            val target = File(dir, FILE_NAME)
+            dir.listFiles()?.forEach { it.delete() }
+            val target = File(dir, "home_bg_${System.currentTimeMillis()}.jpg")
             val written = context.contentResolver.openInputStream(uri)?.use { input ->
                 target.outputStream().use { out ->
                     val buffer = ByteArray(64 * 1024)
@@ -42,7 +46,7 @@ object HomeBgStore {
     /** 移除本地文件（DataStore 键由调用方清空）。 */
     fun clear(context: Context) {
         try {
-            File(context.filesDir, "$DIR_NAME/$FILE_NAME").delete()
+            File(context.filesDir, DIR_NAME).listFiles()?.forEach { it.delete() }
         } catch (_: Exception) {
         }
     }

@@ -16,8 +16,6 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.foundation.background
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -30,8 +28,6 @@ import com.jussicodes.music.constants.DURATION_ENTER
 import com.jussicodes.music.constants.DURATION_EXIT_SHORT
 import com.jussicodes.music.constants.EmphasizedAccelerateEasing
 import com.jussicodes.music.constants.EmphasizedDecelerateEasing
-import com.jussicodes.music.ui.components.HomeBackgroundLayer
-import com.jussicodes.music.ui.components.rememberHomeBackground
 import com.jussicodes.music.ui.screen.AlbumScreen
 import com.jussicodes.music.ui.screen.AlbumSublistScreen
 import com.jussicodes.music.ui.screen.ArtistScreen
@@ -78,7 +74,6 @@ fun NavGraph(
             navController = navController,
             startDestination = Screen.Library.route,
             Modifier
-                .background(MaterialTheme.colorScheme.background)
                 .windowInsetsPadding(WindowInsets(bottom = bottomPadding)),
             enterTransition = {
                 if (targetState.destination.route in homeRoutes) {
@@ -249,10 +244,7 @@ private fun HomePager(
             .collect(onPageScroll)
     }
 
-    val homeBackground = rememberHomeBackground()
     Box {
-        // 背景铺满整屏（含顶栏之下）；顶栏透明化后从背景透出，两页 Scaffold 不再画纯色底。
-        HomeBackgroundLayer(config = homeBackground)
         HorizontalPager(
             state = pagerState,
             flingBehavior = PagerDefaults.flingBehavior(

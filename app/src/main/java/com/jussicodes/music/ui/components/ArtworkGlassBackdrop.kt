@@ -29,12 +29,14 @@ fun ArtworkGlassBackdrop(
 ) {
     val surface = MaterialTheme.colorScheme.surfaceContainer
     val isLightSurface = surface.luminance() > 0.5f
+    // Compact（小播放器）：实色底，封面完全不透出——磨砂 overlay 提满 1.0，
+    // 封面图层不渲染（alpha 0），primary 微染保留层次。
     val artworkBackdropAlpha = when (style) {
-        ArtworkBackdropStyle.Compact -> 0.40f
+        ArtworkBackdropStyle.Compact -> 0f
         ArtworkBackdropStyle.FullScreen -> if (isLightSurface) 0.26f else 0.34f
     }
     val glassOverlayAlpha = when (style) {
-        ArtworkBackdropStyle.Compact -> 0.94f
+        ArtworkBackdropStyle.Compact -> 1f
         ArtworkBackdropStyle.FullScreen -> if (isLightSurface) 0.78f else 0.72f
     }
     val colorTintAlpha = when (style) {

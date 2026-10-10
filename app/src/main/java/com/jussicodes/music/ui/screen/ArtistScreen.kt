@@ -2,6 +2,7 @@ package com.jussicodes.music.ui.screen
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -117,7 +118,9 @@ fun ArtistScreen(
         ?: artistHeadInfoState?.data?.artist?.picUrl
     val avatarUrl = artistHeadInfoState?.data?.artist?.picUrl ?: heroUrl
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // 实色底：撤掉 NavHost 全局纯色后，主页背景层在 MainScreen 渲染，
+    // 本页根布局需自带不透明底，避免背景透出。
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         // 固定头部：歌手封面 hero（不随 tab 内容滚动）
         Box(
             modifier = Modifier.fillMaxWidth(),

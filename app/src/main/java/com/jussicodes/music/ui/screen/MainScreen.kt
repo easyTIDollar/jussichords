@@ -1,8 +1,13 @@
 package com.jussicodes.music.ui.screen
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
@@ -63,9 +68,12 @@ import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.BottomNavigationHeight
 import com.jussicodes.music.constants.DURATION_ENTER
+import com.jussicodes.music.constants.DURATION_EXIT_SHORT
 import com.jussicodes.music.constants.EmphasizedDecelerateEasing
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.currentPlayMediaIdKey
+import com.jussicodes.music.ui.components.HomeBackgroundLayer
+import com.jussicodes.music.ui.components.rememberHomeBackground
 import com.jussicodes.music.ui.components.tabs
 import com.jussicodes.music.ui.navigation.NavGraph
 import com.jussicodes.music.ui.navigation.Screen
@@ -107,6 +115,9 @@ fun MainScreen() {
     val isRoamRoute = currentDestination?.route == Screen.Roam.route
     val showNavigationBar = isTabRoute
     val showMiniPlayerChrome = showMiniPlayer && !isRoamRoute
+    // 主页背景（"我的"/"探索"底层）：提升到 MainScreen 全屏层渲染，布局与 bottomPadding
+    // 解耦——路由切换时不再随内容区高度突变重裁切（"背景跟着小播放器下滑"的根因）。
+    val homeBackground = rememberHomeBackground()
 
     LaunchedEffect(
         playerState?.currentMediaItem,
@@ -331,14 +342,41 @@ fun MainScreen() {
             }
         },
         content = { padding ->
-            var bottomPadding = if (!showPlayer) {
-                padding.calculateBottomPadding()
-            } else {
-                0.dp
+            // 小播放器贴底目标间距（布局值，随路由即时跳变）：
+            // - 全屏播放器展开：0（Player 自己占满整屏）
+            // - 首页 Tab：底部导航栏（Scaffold 已含）+ 小播放器高度（避让悬浮层）
+            // - 其他二级页：仅系统导航栏（贴最底）
+            val targetBottomPadding = when {
+                showPlayer -> 0.dp
+                showNavigationBar ->
+                    padding.calculateBottomPadding() + if (showMiniPlayerChrome) MiniPlayerHeight else 0.dp
+                else ->
+                    WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             }
+            // 小播放器下滑/回位弹簧：与 MiniPlayer 拖拽回位同款参数（MediumBouncy + MediumLow），
+            // 套在布局值上，路由切换时小播放器和内容区一起平滑过渡而不是瞬间跳变。
+            val bottomPadding by animateDpAsState(
+                targetValue = targetBottomPadding,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                ),
+                label = "MiniPlayerBottomPadding"
+            )
 
-            if (!showPlayer && !showNavigationBar && showMiniPlayerChrome) {
-                bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            // 主页背景（"我的"/"探索"底层）：全屏渲染，高度与路由/bottomPadding 完全解耦——
+            // 进二级页不再随内容区高度突变重裁切（"背景跟着小播放器下滑"的根因）。
+            // 非首页路由时淡出，避免背景色渗入二级页的进入/退出交叉淡入；
+            // 二级页各自的实色背景会把它盖住，返回首页再淡入。
+            AnimatedVisibility(
+                visible = isTabRoute,
+                enter = fadeIn(tween(DURATION_ENTER)),
+                exit = fadeOut(tween(DURATION_EXIT_SHORT)),
+                label = "HomeBackgroundLayer"
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    HomeBackgroundLayer(config = homeBackground)
+                }
             }
 
             Box(
