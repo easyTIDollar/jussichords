@@ -21,12 +21,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.jussicodes.music.ui.theme.ThemeColorSource
+import kotlin.math.roundToInt
 
 @Composable
 fun ThemeColorSourceDialog(
@@ -43,19 +42,20 @@ fun ThemeColorSourceDialog(
     onHomeBgOpacityChanged: (Float) -> Unit,
     onHomeBgBlurChanged: (Float) -> Unit,
 ) {
-    val haptics = LocalHapticFeedback.current
-    // 界面缩放五档：70/80/90/100/110（value 0.7f..1.1f，档距 0.1f）。
-    // 拖动时滑块自由跟手（跟下方主页背景滑块同款手感，无中途吸附），
-    // 松手时吸附到最近档并震动；最终落值仍只有 5 档，不会有 75% 这类自由值。
-    val uiScaleTicks = listOf(0.7f, 0.8f, 0.9f, 1f, 1.1f)
+    // 界面缩放五档：70/80/90/100/110。跟下方「主页背景」滑块完全同款（复用 HomeBgSliderRow，
+    // steps=4 → 五档）。关键跟手修复：拖动期间只改本地 uiScaleValue（驱动 % 文案+滑块，
+    // 不动 LocalDensity），弹窗布局稳定、滑块跟手；松手时(onValueChangeFinished)才吸附到
+    // 最近档并 commit → 此时才触发弹窗缩放重排，手指已抬起不冲突。最终落值仍只有 5 档。
     var uiScaleValue by remember {
-        mutableFloatStateOf(currentUiScale.coerceIn(0.7f, 1.1f))
+        // 初值吸附到最近的 0.7 + k*0.1 档，避免 Slider 拿到非 step 位报错。
+        val raw = currentUiScale.coerceIn(0.7f, 1.1f)
+        mutableFloatStateOf((0.7f + ((raw - 0.7f) / 0.1f).roundToInt() * 0.1f).coerceIn(0.7f, 1.1f))
     }
-    fun snapUiScale() {
-        val snapped = uiScaleTicks.minByOrNull { kotlin.math.abs(it - uiScaleValue) } ?: 1f
+    val uiScaleTicks = listOf(0.7f, 0.8f, 0.9f, 1f, 1.1f)
+    fun commitUiScale() {
+        val snapped = uiScaleTicks.minByOrNull { kotlin.math.abs(it - uiScaleValue) } ?: return
         if (snapped == uiScaleValue) return
         uiScaleValue = snapped
-        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         onUiScaleSelected(snapped)
     }
     Dialog(onDismissRequest = onDismiss) {
@@ -142,39 +142,25 @@ fun ThemeColorSourceDialog(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 4.dp),
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text(
-                            text = "${(uiScaleValue * 100).toInt()}%",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp),
-                        )
-                        // 跟下方「主页背景」滑块同款自由跟手手感（无 steps），
-                        // 拖动过程实时应用缩放值；松手时吸附到最近 5 档并震动，
-                        // 最终落值仍只有 70/80/90/100/110，不会出现 75% 这类自由值。
-                        Slider(
+                        // 跟下方「主页背景」三个滑块完全同款：复用 HomeBgSliderRow（steps=4 → 五档）。
+                        // 跟手修复：拖动期间只更新本地 uiScaleValue（驱动滑块+ %文案，不动 LocalDensity），
+                        // 弹窗不重排、滑块跟手；松手时才 commit → 弹窗一次性缩放重排。
+                        HomeBgSliderRow(
+                            label = "缩放",
                             value = uiScaleValue,
-                            onValueChange = { v ->
+                            valueText = "${(uiScaleValue * 100).toInt()}%",
+                            valueRange = 0.7f..1.1f,
+                            steps = 4,
+                            onValueChanged = { v ->
                                 uiScaleValue = v
-                                onUiScaleSelected(v)
                             },
                             onValueChangeFinished = {
-                                snapUiScale()
+                                commitUiScale()
                             },
-                            valueRange = 0.7f..1.1f,
                         )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            listOf("70%", "80%", "90%", "100%", "110%").forEach { label ->
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
                     }
                 }
 
@@ -264,6 +250,7 @@ private fun HomeBgSliderRow(
     valueRange: ClosedFloatingPointRange<Float>,
     steps: Int,
     onValueChanged: (Float) -> Unit,
+    onValueChangeFinished: (() -> Unit)? = null,
 ) {
     Column {
         Row(
@@ -284,6 +271,7 @@ private fun HomeBgSliderRow(
         Slider(
             value = value.coerceIn(valueRange),
             onValueChange = onValueChanged,
+            onValueChangeFinished = onValueChangeFinished,
             valueRange = valueRange,
             steps = steps,
         )
