@@ -1,9 +1,8 @@
 package com.jussicodes.music.ui.screen
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -356,13 +355,12 @@ fun MainScreen() {
                 showNavigationBar -> padding.calculateBottomPadding()
                 else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             }
-            // 下滑/回位弹簧：与 MiniPlayer 拖拽回位同款参数（MediumBouncy + MediumLow），
-            // 套在布局值上，路由切换时小播放器和内容区一起平滑过渡而不是瞬间跳变。
+            // 下滑/回位（进出设置等二级页时小播放器收至底部）：缓入缓出 tween，不用弹簧回弹。
             val miniBottomPadding by animateDpAsState(
                 targetValue = targetMiniBottomPadding,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMediumLow
+                animationSpec = tween(
+                    durationMillis = DURATION_ENTER,
+                    easing = FastOutSlowInEasing
                 ),
                 label = "MiniPlayerBottomPadding"
             )
@@ -374,11 +372,12 @@ fun MainScreen() {
                     padding.calculateBottomPadding() + if (showMiniPlayerChrome) MiniPlayerHeight else 0.dp
                 else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             }
+            // 内容区同样缓入缓出，跟小播放器同步收放。
             val contentBottomPadding by animateDpAsState(
                 targetValue = targetContentBottomPadding,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMediumLow
+                animationSpec = tween(
+                    durationMillis = DURATION_ENTER,
+                    easing = FastOutSlowInEasing
                 ),
                 label = "ContentBottomPadding"
             )
