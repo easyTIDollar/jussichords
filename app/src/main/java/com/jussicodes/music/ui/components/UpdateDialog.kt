@@ -35,6 +35,7 @@ fun UpdateDialog(
     onIgnoreVersion: () -> Unit,
     onDownload: () -> Unit,
 ) {
+    ScaledDialogContent {
     AlertDialog(
         onDismissRequest = {
             if (!isDownloading) onDismiss()
@@ -147,6 +148,7 @@ fun UpdateDialog(
             }
         }
     )
+    }
 }
 
 fun formatFileSize(size: Long): String {

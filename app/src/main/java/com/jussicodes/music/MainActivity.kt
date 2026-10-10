@@ -83,6 +83,9 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(uiScale) {
                 liveUiScale = uiScale
+                // 同步给进程级 holder：弹窗是独立窗口，不继承这里的缩放 Density，
+                // 靠 ScaledDialogContent 读这个值跨窗口复刻缩放。
+                com.jussicodes.music.ui.components.ScaledDialogDensity.scale = uiScale
             }
 
             LaunchedEffect(Unit) {

@@ -14,6 +14,7 @@ fun Dialog(
     dialogTitle: String,
     dialogText: String? = null,
 ) {
+    ScaledDialogContent {
     AlertDialog(
         title = {
             Text(text = dialogTitle)
@@ -43,4 +44,5 @@ fun Dialog(
             }
         }
     )
+    }
 }

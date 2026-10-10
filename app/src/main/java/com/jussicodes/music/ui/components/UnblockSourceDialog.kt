@@ -39,6 +39,7 @@ fun UnblockSourceDialog(
     onSourceSelected: (String) -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
+        ScaledDialogContent {
         Card(shape = MaterialTheme.shapes.extraLarge) {
             Column(
                 modifier = Modifier
@@ -70,6 +71,7 @@ fun UnblockSourceDialog(
                     }
                 }
             }
+        }
         }
     }
 }

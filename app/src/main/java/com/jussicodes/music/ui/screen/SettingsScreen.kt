@@ -91,6 +91,7 @@ import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.lyric.DesktopLyricManager
 import com.jussicodes.music.ui.components.LocalSourceDialog
+import com.jussicodes.music.ui.components.ScaledDialogContent
 import com.jussicodes.music.ui.components.Dialog
 import com.jussicodes.music.ui.components.SongQualityDialog
 import com.jussicodes.music.ui.components.ThemeColorSourceDialog
@@ -920,6 +921,7 @@ private fun GitHubDownloadSourceDialog(
     onRefresh: () -> Unit,
     onSourceSelected: (String) -> Unit,
 ) {
+    ScaledDialogContent {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("更新源") },
@@ -974,6 +976,7 @@ private fun GitHubDownloadSourceDialog(
             }
         }
     )
+    }
 }
 
 /**
@@ -1021,6 +1024,7 @@ private fun ApiServerPingDialog(
         newServer = ""
     }
 
+    ScaledDialogContent {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("API 服务器") },
@@ -1184,6 +1188,7 @@ private fun ApiServerPingDialog(
             }
         }
     )
+    }
 }
 
 @Composable
@@ -1194,6 +1199,7 @@ private fun CookieEditDialog(
 ) {
     var editedCookie by rememberSaveable(currentCookie) { mutableStateOf(currentCookie) }
 
+    ScaledDialogContent {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("账号 Cookie") },
@@ -1228,6 +1234,7 @@ private fun CookieEditDialog(
             }
         }
     )
+    }
 }
 
 private fun String.toCookieHeader(): String {

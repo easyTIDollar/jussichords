@@ -227,7 +227,13 @@ fun MainScreen() {
                     enter = expandVertically(),
                     exit = shrinkVertically()
                 ) {
-                    NavigationBar(modifier = Modifier.height(BottomNavigationHeight)) {
+                    // 底栏底色跟随主题 surface（壁纸动态取色时一起变），不再用 M3 默认的
+                    // surfaceContainerHigh（它不随动态壁纸色）。
+                    NavigationBar(
+                        modifier = Modifier.height(BottomNavigationHeight),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    ) {
                         BoxWithConstraints(Modifier.fillMaxSize()) {
                             val itemWidth = maxWidth / tabs.size
                             val indicatorWidth = 72.dp

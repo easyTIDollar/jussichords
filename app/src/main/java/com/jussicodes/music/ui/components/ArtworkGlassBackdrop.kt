@@ -47,7 +47,6 @@ fun ArtworkGlassBackdrop(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(surface)
             .clipToBounds()
     ) {
         AsyncImage(

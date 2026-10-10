@@ -30,6 +30,7 @@ fun SongQualityDialog(
     onQualitySelected: (SongLevel) -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
+        ScaledDialogContent {
         Card(
             shape = MaterialTheme.shapes.extraLarge
         ) {
@@ -75,6 +76,7 @@ fun SongQualityDialog(
                     }
                 }
             }
+        }
         }
     }
 }

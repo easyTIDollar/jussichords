@@ -15,12 +15,20 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.jussicodes.music.ui.theme.ThemeColorSource
+
+private const val UiScaleSnapDistance = 0.045f
 
 @Composable
 fun ThemeColorSourceDialog(
@@ -37,7 +45,14 @@ fun ThemeColorSourceDialog(
     onHomeBgOpacityChanged: (Float) -> Unit,
     onHomeBgBlurChanged: (Float) -> Unit,
 ) {
+    val haptics = LocalHapticFeedback.current
+    // 界面缩放吸附档：70/80/90/100/110 对应 index 0..4（value 0.7f..1.1f，步进 0.1）。
+    val uiScaleTicks = listOf(0.7f, 0.8f, 0.9f, 1f, 1.1f)
+    var lastUiScaleTick by remember {
+        mutableIntStateOf(uiScaleTicks.indexOfFirst { kotlin.math.abs(it - currentUiScale) < 0.001f })
+    }
     Dialog(onDismissRequest = onDismiss) {
+        ScaledDialogContent {
         Card(shape = MaterialTheme.shapes.extraLarge) {
             Column(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
@@ -127,26 +142,36 @@ fun ThemeColorSourceDialog(
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp),
                         )
+                        // 自由拖动；拖到 70/80/90/100/110 档位附近时吸附并震动（detent 手感）。
                         Slider(
                             value = currentUiScale,
-                            onValueChange = onUiScaleSelected,
+                            onValueChange = { v ->
+                                val nearestIdx = uiScaleTicks.indexOfFirst { kotlin.math.abs(it - v) < UiScaleSnapDistance }
+                                if (nearestIdx >= 0) {
+                                    val snapped = uiScaleTicks[nearestIdx]
+                                    if (nearestIdx != lastUiScaleTick) {
+                                        lastUiScaleTick = nearestIdx
+                                        haptics.performHapticFeedback(HapticFeedbackType.LightImpact)
+                                    }
+                                    onUiScaleSelected(snapped)
+                                } else {
+                                    lastUiScaleTick = -1
+                                    onUiScaleSelected(v)
+                                }
+                            },
                             valueRange = 0.7f..1.1f,
-                            steps = 4,
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            Text(
-                                text = "70%",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                text = "110%",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            listOf("70%", "80%", "90%", "100%", "110%").forEach { label ->
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -224,6 +249,7 @@ fun ThemeColorSourceDialog(
                     }
                 }
             }
+        }
         }
     }
 }
