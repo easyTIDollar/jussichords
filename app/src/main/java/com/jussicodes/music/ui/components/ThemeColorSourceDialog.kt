@@ -16,7 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,21 +44,19 @@ fun ThemeColorSourceDialog(
     onHomeBgBlurChanged: (Float) -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
-    // 界面缩放五档：70/80/90/100/110，index 0..4（value = 0.7f + index * 0.1f）。
-    // 与下方主页背景滑块同款吸附（detent）手感；档位用离散 index 状态驱动，
-    // 不传连续 Float（连续值会顶在卡里、滑块无法渲染出 0.7/1.1 的端点）。
-    // 初值四舍五入到最近档并夹在 0..4：旧版自由拖动可能存过 0.75 等非整档值。
+    // 界面缩放五档：70/80/90/100/110（value 0.7f..1.1f，档距 0.1f）。
+    // 拖动时滑块自由跟手（跟下方主页背景滑块同款手感，无中途吸附），
+    // 松手时吸附到最近档并震动；最终落值仍只有 5 档，不会有 75% 这类自由值。
     val uiScaleTicks = listOf(0.7f, 0.8f, 0.9f, 1f, 1.1f)
-    var uiScaleTick by remember {
-        mutableIntStateOf(
-            ((currentUiScale - 0.7f) / 0.1f + 0.5f).toInt().coerceIn(0, uiScaleTicks.lastIndex)
-        )
+    var uiScaleValue by remember {
+        mutableFloatStateOf(currentUiScale.coerceIn(0.7f, 1.1f))
     }
-    fun selectUiScaleTick(index: Int) {
-        if (index !in uiScaleTicks.indices || index == uiScaleTick) return
-        uiScaleTick = index
+    fun snapUiScale() {
+        val snapped = uiScaleTicks.minByOrNull { kotlin.math.abs(it - uiScaleValue) } ?: 1f
+        if (snapped == uiScaleValue) return
+        uiScaleValue = snapped
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-        onUiScaleSelected(uiScaleTicks[index])
+        onUiScaleSelected(snapped)
     }
     Dialog(onDismissRequest = onDismiss) {
         ScaledDialogContent {
@@ -147,19 +145,23 @@ fun ThemeColorSourceDialog(
                             .padding(horizontal = 14.dp, vertical = 4.dp),
                     ) {
                         Text(
-                            text = "${(uiScaleTicks[uiScaleTick] * 100).toInt()}%",
+                            text = "${(uiScaleValue * 100).toInt()}%",
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp),
                         )
-                        // 跟下方「主页背景」滑块同款：分档步进（steps=4 → 5 档），
-                        // 不可自由调节，每档震动反馈；档位 index 离散驱动端点可渲染。
+                        // 跟下方「主页背景」滑块同款自由跟手手感（无 steps），
+                        // 拖动过程实时应用缩放值；松手时吸附到最近 5 档并震动，
+                        // 最终落值仍只有 70/80/90/100/110，不会出现 75% 这类自由值。
                         Slider(
-                            value = uiScaleTick / 4f,
+                            value = uiScaleValue,
                             onValueChange = { v ->
-                                selectUiScaleTick(Math.round(v * 4f))
+                                uiScaleValue = v
+                                onUiScaleSelected(v)
                             },
-                            valueRange = 0f..1f,
-                            steps = 4,
+                            onValueChangeFinished = {
+                                snapUiScale()
+                            },
+                            valueRange = 0.7f..1.1f,
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
