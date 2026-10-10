@@ -349,6 +349,8 @@ fun MainScreen() {
                 showNavigationBar -> padding.calculateBottomPadding()
                 else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             }
+            // 内容区跟小播放器用同一个贴底间距（无整体垫高）：首页列表的底部避让
+            // 由各列表自己在末尾加空白块实现（如专辑墙），这里不再全局 +64dp。
             val miniBottomPadding by animateDpAsState(
                 targetValue = targetMiniBottomPadding,
                 animationSpec = tween(
@@ -356,22 +358,6 @@ fun MainScreen() {
                     easing = FastOutSlowInEasing
                 ),
                 label = "MiniPlayerBottomPadding"
-            )
-            // 内容区贴底间距：首页 Tab 额外加小播放器高度——任意列表滚到底时最后一段
-            // 停在小播放器上方不被挡；二级页不加（内容仍到最底）。同参数动画，跟小播放器同步。
-            val targetContentBottomPadding = when {
-                showPlayer -> 0.dp
-                showNavigationBar ->
-                    padding.calculateBottomPadding() + if (showMiniPlayerChrome) MiniPlayerHeight else 0.dp
-                else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-            }
-            val contentBottomPadding by animateDpAsState(
-                targetValue = targetContentBottomPadding,
-                animationSpec = tween(
-                    durationMillis = DURATION_EXIT,
-                    easing = FastOutSlowInEasing
-                ),
-                label = "ContentBottomPadding"
             )
 
             // 主页背景（"我的"/"探索"底层）：全屏渲染，高度与路由/bottomPadding 完全解耦——
@@ -419,7 +405,7 @@ fun MainScreen() {
 
             NavGraph(
                 navController = navController,
-                bottomPadding = contentBottomPadding,
+                bottomPadding = miniBottomPadding,
                 homePagerState = homePagerState,
                 onHomePageChange = { homePage = it },
                 onHomePageScroll = { homePageScroll = it }

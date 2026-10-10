@@ -76,6 +76,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.R
+import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.ui.components.LargeImageDialog
@@ -123,6 +125,8 @@ fun LibraryScreen(
     libraryScreenViewModel: LibraryScreenViewModel = hiltViewModel()
 ) {
     val ncmCookie by rememberNullablePreference(ncmCookieKey)
+    // 小播放器是否显示（有歌在队列）：末尾避让空白块只在有歌时留。
+    val hasMiniPlayer = (LocalPlayerState.current?.player?.mediaItemCount ?: 0) != 0
     val userInfoBatchState by libraryScreenViewModel.userInfo.collectAsState()
     val userDetailState by libraryScreenViewModel.userDetail.collectAsState()
     val favoriteSongState by libraryScreenViewModel.favoriteSong.collectAsState()
@@ -379,7 +383,12 @@ fun LibraryScreen(
                     }
                 }
 
-                item { Spacer(modifier = Modifier.navigationBarsPadding()) }
+                item {
+                    // 列表末尾（专辑墙下方）空白：小播放器悬浮在底栏上方，滚到底最后一段
+                    // 会被它盖住 64dp；有歌时末尾垫一块 MiniPlayerHeight 避让。
+                    if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
+                    Spacer(modifier = Modifier.navigationBarsPadding())
+                }
             }
         }
     }
