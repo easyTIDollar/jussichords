@@ -1,5 +1,6 @@
 package com.jussicodes.music.ui.screen
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -11,6 +12,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -26,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.pointerInput
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
@@ -37,6 +40,9 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -53,7 +59,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
@@ -72,7 +80,9 @@ import com.jussicodes.music.constants.DURATION_EXIT_SHORT
 import com.jussicodes.music.constants.EmphasizedDecelerateEasing
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.currentPlayMediaIdKey
+import com.jussicodes.music.data.HomeBgEditor
 import com.jussicodes.music.ui.components.HomeBackgroundLayer
+import com.jussicodes.music.ui.components.HomeBgEditPanel
 import com.jussicodes.music.ui.components.rememberHomeBackground
 import com.jussicodes.music.ui.components.tabs
 import com.jussicodes.music.ui.navigation.NavGraph
@@ -122,6 +132,13 @@ fun MainScreen() {
     // 主页背景（"我的"/"探索"底层）：提升到 MainScreen 全屏层渲染，布局与 bottomPadding
     // 解耦——路由切换时不再随内容区高度突变重裁切（"背景跟着小播放器下滑"的根因）。
     val homeBackground = rememberHomeBackground()
+    // 沉浸式编辑模式（草稿态）：draft 非 null 时主页被手势层接管，参数实时重绘、保存前零 I/O。
+    val bgDraft by HomeBgEditor.draft.collectAsState()
+    val effectiveHomeBg = bgDraft ?: homeBackground
+    val context = LocalContext.current
+    var showBgCancelConfirm by remember { mutableStateOf(false) }
+    var bgViewW by remember { mutableIntStateOf(0) }
+    var bgViewH by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(
         playerState?.currentMediaItem,
@@ -375,7 +392,7 @@ fun MainScreen() {
                 label = "HomeBackgroundLayer"
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    HomeBackgroundLayer(config = homeBackground)
+                    HomeBackgroundLayer(config = effectiveHomeBg)
                 }
             }
 
@@ -414,6 +431,94 @@ fun MainScreen() {
                 onHomePageChange = { homePage = it },
                 onHomePageScroll = { homePageScroll = it }
             )
+
+            // 主页背景沉浸式编辑模式：draft 非 null 时接管全屏手势 + 底部参数面板。
+            val editingBg = bgDraft
+            if (editingBg != null && isTabRoute) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(2f)
+                ) {
+                    // 全屏透明手势层：双指缩放 / 单指平移，只改内存 draft（零 I/O）。
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onSizeChanged {
+                                bgViewW = it.width
+                                bgViewH = it.height
+                            }
+                            .pointerInput(Unit) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    val cur = HomeBgEditor.draft.value
+                                        ?: return@detectTransformGestures
+                                    val newScale = (cur.scale * zoom).coerceIn(1f, 3f)
+                                    val limit =
+                                        (newScale - 1f) * minOf(bgViewW, bgViewH) / 2f
+                                    HomeBgEditor.update {
+                                        it.copy(
+                                            scale = newScale,
+                                            offsetX =
+                                                (it.offsetX + pan.x).coerceIn(-limit, limit),
+                                            offsetY =
+                                                (it.offsetY + pan.y).coerceIn(-limit, limit)
+                                        )
+                                    }
+                                }
+                            }
+                    )
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                    ) {
+                        HomeBgEditPanel(
+                            opacity = editingBg.opacity,
+                            blur = editingBg.blur,
+                            onOpacityChanged = { v ->
+                                HomeBgEditor.update { it.copy(opacity = v) }
+                            },
+                            onBlurChanged = { v ->
+                                HomeBgEditor.update { it.copy(blur = v) }
+                            },
+                            onReset = { HomeBgEditor.reset() },
+                            onCancel = { showBgCancelConfirm = true },
+                            onSave = {
+                                HomeBgEditor.commit(context, coroutineScope)
+                                showBgCancelConfirm = false
+                            }
+                        )
+                    }
+                }
+
+                BackHandler(enabled = showBgCancelConfirm) {
+                    showBgCancelConfirm = false
+                }
+                if (showBgCancelConfirm) {
+                    AlertDialog(
+                        onDismissRequest = { showBgCancelConfirm = false },
+                        title = { Text("放弃主页背景修改？") },
+                        text = { Text("已调整的背景尚未保存，离开编辑模式会被丢弃。") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showBgCancelConfirm = false
+                                HomeBgEditor.cancel(context)
+                            }) {
+                                Text("放弃")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showBgCancelConfirm = false }) {
+                                Text("继续编辑")
+                            }
+                        }
+                    )
+                }
+                // 系统返回：编辑中先弹确认，不直接丢弃。
+                BackHandler(enabled = !showBgCancelConfirm) {
+                    showBgCancelConfirm = true
+                }
+            }
         }
     )
 }

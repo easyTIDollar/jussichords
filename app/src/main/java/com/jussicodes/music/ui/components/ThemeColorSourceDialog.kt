@@ -38,6 +38,7 @@ fun ThemeColorSourceDialog(
     homeBg: HomeBackgroundConfig,
     onHomeBgPick: () -> Unit,
     onHomeBgRemoved: () -> Unit,
+    onHomeBgTune: () -> Unit,
     onHomeBgScaleChanged: (Float) -> Unit,
     onHomeBgOpacityChanged: (Float) -> Unit,
     onHomeBgBlurChanged: (Float) -> Unit,
@@ -206,6 +207,9 @@ fun ThemeColorSourceDialog(
                                     Text(if (homeBg.enabled) "更换" else "选取图片")
                                 }
                                 if (homeBg.enabled) {
+                                    TextButton(onClick = onHomeBgTune) {
+                                        Text("在主页调整")
+                                    }
                                     TextButton(onClick = onHomeBgRemoved) {
                                         Text("移除")
                                     }

@@ -68,6 +68,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.jussicodes.music.BuildConfig
 import com.jussicodes.music.LocalUiScaleController
 import com.jussicodes.music.R
@@ -84,6 +85,8 @@ import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.constants.homeBgBlurKey
 import com.jussicodes.music.constants.homeBgImageKey
+import com.jussicodes.music.constants.homeBgOffsetXKey
+import com.jussicodes.music.constants.homeBgOffsetYKey
 import com.jussicodes.music.constants.homeBgOpacityKey
 import com.jussicodes.music.constants.homeBgScaleKey
 import com.jussicodes.music.constants.themeColorSourceKey
@@ -164,18 +167,37 @@ fun SettingsScreen(navController: NavHostController) {
         githubDownloadSourceKey,
         downloadSources.first().id
     )
-    // 主页背景（"我的"/"探索"页）：本地图片路径 + 缩放/透明度/模糊度。
+    // 主页背景（"我的"/"探索"页）：本地图片路径 + 缩放/透明度/模糊度/平移。
     var homeBgPath by rememberPreference(homeBgImageKey, "")
     var homeBgScale by rememberPreference(homeBgScaleKey, 1f)
     var homeBgOpacity by rememberPreference(homeBgOpacityKey, 1f)
     var homeBgBlur by rememberPreference(homeBgBlurKey, 0f)
-    val homeBg = remember(homeBgPath, homeBgScale, homeBgOpacity, homeBgBlur) {
+    var homeBgOffsetX by rememberPreference(homeBgOffsetXKey, 0f)
+    var homeBgOffsetY by rememberPreference(homeBgOffsetYKey, 0f)
+    val homeBg = remember(
+        homeBgPath, homeBgScale, homeBgOpacity, homeBgBlur, homeBgOffsetX, homeBgOffsetY
+    ) {
         HomeBackgroundConfig(
             path = homeBgPath,
             scale = homeBgScale,
             opacity = homeBgOpacity,
             blur = homeBgBlur,
+            offsetX = homeBgOffsetX,
+            offsetY = homeBgOffsetY,
         )
+    }
+    // 选完图不留在设置页：建 draft（保留现有参数、换上图）→ 关闭弹窗 → 跳回主页进入编辑模式。
+    var showThemeColorSourceDialog by remember { mutableStateOf(false) }
+    fun startHomeBgEdit(config: HomeBackgroundConfig, ownsFile: Boolean) {
+        com.jussicodes.music.data.HomeBgEditor.begin(config, ownsFile)
+        showThemeColorSourceDialog = false
+        navController.navigate(Screen.Library.route) {
+            popUpTo(navController.graph.findStartDestination().id) {
+                saveState = true
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
     }
     val homeBgPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -183,7 +205,17 @@ fun SettingsScreen(navController: NavHostController) {
         if (uri != null) {
             coroutineScope.launch {
                 com.jussicodes.music.data.HomeBgStore.select(context, uri)?.let { path ->
-                    homeBgPath = path
+                    startHomeBgEdit(
+                        HomeBackgroundConfig(
+                            path = path,
+                            scale = homeBgScale,
+                            opacity = homeBgOpacity,
+                            blur = homeBgBlur,
+                            offsetX = homeBgOffsetX,
+                            offsetY = homeBgOffsetY,
+                        ),
+                        ownsFile = true
+                    )
                 }
             }
         }
@@ -195,10 +227,11 @@ fun SettingsScreen(navController: NavHostController) {
             homeBgScale = 1f
             homeBgOpacity = 1f
             homeBgBlur = 0f
+            homeBgOffsetX = 0f
+            homeBgOffsetY = 0f
         }
     }
     var showQualityDialog by remember { mutableStateOf(false) }
-    var showThemeColorSourceDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
     var showLocalSourceDialog by remember { mutableStateOf(false) }
     var showCookieDialog by remember { mutableStateOf(false) }
@@ -634,6 +667,7 @@ fun SettingsScreen(navController: NavHostController) {
             homeBg = homeBg,
             onHomeBgPick = { homeBgPicker.launch("image/*") },
             onHomeBgRemoved = { removeHomeBg() },
+            onHomeBgTune = { startHomeBgEdit(homeBg, ownsFile = false) },
             onHomeBgScaleChanged = { homeBgScale = it },
             onHomeBgOpacityChanged = { homeBgOpacity = it },
             onHomeBgBlurChanged = { homeBgBlur = it },
