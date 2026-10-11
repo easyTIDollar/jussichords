@@ -37,6 +37,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -71,6 +72,7 @@ import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.PlaylistNav
 import com.jussicodes.music.ui.navigation.UserNav
 import com.jussicodes.music.utils.CoverImageSize
+import com.jussicodes.music.utils.MiniPlayerHiddenBus
 import com.jussicodes.music.utils.PlayerExpandBus
 import com.jussicodes.music.utils.formatTimestamp
 import com.jussicodes.music.utils.toCoverImageUrl
@@ -198,6 +200,13 @@ fun PrivateChatScreen(
     // 进入聊天即视为已读：本地清掉该会话未读（NCM 无私信已读标记 API，服务端不受控）
     LaunchedEffect(Unit) {
         MsgSessionCache.markRead(viewModel.contactUserId)
+    }
+
+    // 聊天页输入框贴底（imePadding）：进入时声明隐藏常驻小播放条，避免盖住输入框；
+    // 退出（组合销毁）时恢复显示。
+    DisposableEffect(Unit) {
+        MiniPlayerHiddenBus.setHidden(true)
+        onDispose { MiniPlayerHiddenBus.setHidden(false) }
     }
 
     LaunchedEffect(refreshTick) {

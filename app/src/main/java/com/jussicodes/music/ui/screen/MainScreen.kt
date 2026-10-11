@@ -76,10 +76,10 @@ import com.jussicodes.music.ui.components.HomeBackgroundLayer
 import com.jussicodes.music.ui.components.rememberHomeBackground
 import com.jussicodes.music.ui.components.tabs
 import com.jussicodes.music.ui.navigation.NavGraph
-import com.jussicodes.music.ui.navigation.PrivateChatNav
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.extensions.toMediaItemList
 import com.jussicodes.music.utils.MenuSnackbarBus
+import com.jussicodes.music.utils.MiniPlayerHiddenBus
 import com.jussicodes.music.utils.PlayerExpandBus
 import com.jussicodes.music.utils.rememberPreference
 import kotlinx.coroutines.delay
@@ -114,14 +114,11 @@ fun MainScreen() {
     val coroutineScope = rememberCoroutineScope()
     val isHomeRoute = isTabRoute
     val isRoamRoute = currentDestination?.route == Screen.Roam.route
-    // 私信聊天页输入框贴底（imePadding），小播放器会盖住输入框，进聊天页隐藏。
-    // 注意：带参数的类型安全路由会拼上 "?userId={userId}..." 占位符后缀，
-    // 不能拿类名做全等比较，用 startsWith 匹配；qualifiedName 可空，需保护。
-    val privateChatRoutePrefix = PrivateChatNav::class.qualifiedName.orEmpty()
-    val isPrivateChatRoute = privateChatRoutePrefix.isNotEmpty() &&
-        currentDestination?.route?.startsWith(privateChatRoutePrefix) == true
     val showNavigationBar = isTabRoute
-    val showMiniPlayerChrome = showMiniPlayer && !isRoamRoute && !isPrivateChatRoute
+    // 贴底输入框的页面（私信聊天页）自己通过 MiniPlayerHiddenBus 声明"我在时需要隐藏小播放条"，
+    // 不再用 destination.route 字符串匹配（类型安全参数路由的 route 格式不可靠，已踩坑三次）。
+    val miniPlayerHidden by MiniPlayerHiddenBus.hidden.collectAsState()
+    val showMiniPlayerChrome = showMiniPlayer && !isRoamRoute && !miniPlayerHidden
     // 主页背景（"我的"/"探索"底层）：提升到 MainScreen 全屏层渲染，布局与 bottomPadding
     // 解耦——路由切换时不再随内容区高度突变重裁切（"背景跟着小播放器下滑"的根因）。
     val homeBackground = rememberHomeBackground()
