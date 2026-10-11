@@ -80,6 +80,7 @@ import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.localSourceKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
+import com.jussicodes.music.constants.glassCardsKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
@@ -155,6 +156,7 @@ fun SettingsScreen(navController: NavHostController) {
     )
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
+    var glassCardsEnabled by rememberPreference(glassCardsKey, false)
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
     var localSource by rememberPreference(localSourceKey, "AUTO")
@@ -462,6 +464,22 @@ fun SettingsScreen(navController: NavHostController) {
                     Switch(
                         checked = !pinnedAlbumsHidden,
                         onCheckedChange = { pinnedAlbumsHidden = !it }
+                    )
+                    Spacer(Modifier.width(12.dp))
+                }
+            ),
+            SettingItemData(
+                title = "玻璃卡片",
+                subtitle = if (glassCardsEnabled) {
+                    "主页卡片玻璃拟态已开启"
+                } else {
+                    "主页卡片玻璃拟态已关闭"
+                },
+                imageVector = Palette,
+                trailingContent = {
+                    Switch(
+                        checked = glassCardsEnabled,
+                        onCheckedChange = { glassCardsEnabled = it }
                     )
                     Spacer(Modifier.width(12.dp))
                 }
