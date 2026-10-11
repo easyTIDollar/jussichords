@@ -12,6 +12,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,6 +42,8 @@ fun ThemeColorSourceDialog(
     onHomeBgTune: () -> Unit,
     onHomeBgOpacityChanged: (Float) -> Unit,
     onHomeBgBlurChanged: (Float) -> Unit,
+    homeTransparentCard: Boolean,
+    onHomeTransparentCardChange: (Boolean) -> Unit,
 ) {
     // 界面缩放五档：70/80/90/100/110。跟下方「主页背景」滑块完全同款（复用 HomeBgSliderRow，
     // steps=4 → 五档）。关键跟手修复：拖动期间只改本地 uiScaleValue（驱动 % 文案+滑块，
@@ -126,6 +129,31 @@ fun ThemeColorSourceDialog(
                             RadioButton(selected = selected, onClick = null)
                         }
                     }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onHomeTransparentCardChange(!homeTransparentCard) },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "主页透明卡片",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = if (homeTransparentCard) "已开启" else "已关闭",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = homeTransparentCard,
+                        onCheckedChange = onHomeTransparentCardChange,
+                    )
                 }
 
                 Text(

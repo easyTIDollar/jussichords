@@ -89,6 +89,7 @@ import com.jussicodes.music.constants.homeBgOffsetXKey
 import com.jussicodes.music.constants.homeBgOffsetYKey
 import com.jussicodes.music.constants.homeBgOpacityKey
 import com.jussicodes.music.constants.homeBgScaleKey
+import com.jussicodes.music.constants.homeTransparentCardKey
 import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.lyric.DesktopLyricManager
@@ -173,6 +174,7 @@ fun SettingsScreen(navController: NavHostController) {
     var homeBgScale by rememberPreference(homeBgScaleKey, 1f)
     var homeBgOpacity by rememberPreference(homeBgOpacityKey, 1f)
     var homeBgBlur by rememberPreference(homeBgBlurKey, 0f)
+    var homeTransparentCard by rememberPreference(homeTransparentCardKey, false)
     var homeBgOffsetX by rememberPreference(homeBgOffsetXKey, 0f)
     var homeBgOffsetY by rememberPreference(homeBgOffsetYKey, 0f)
     val homeBg = remember(
@@ -680,6 +682,8 @@ fun SettingsScreen(navController: NavHostController) {
             onHomeBgTune = { startHomeBgEdit(homeBg, ownsFile = false) },
             onHomeBgOpacityChanged = { homeBgOpacity = it },
             onHomeBgBlurChanged = { homeBgBlur = it },
+            homeTransparentCard = homeTransparentCard,
+            onHomeTransparentCardChange = { homeTransparentCard = it },
         )
     }
 
