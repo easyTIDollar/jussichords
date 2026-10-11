@@ -116,9 +116,10 @@ fun MainScreen() {
     val isRoamRoute = currentDestination?.route == Screen.Roam.route
     // 私信聊天页输入框贴底（imePadding），小播放器会盖住输入框，进聊天页隐藏。
     // 注意：带参数的类型安全路由会拼上 "?userId={userId}..." 占位符后缀，
-    // 不能拿类名做全等比较，用 startsWith 匹配。
-    val isPrivateChatRoute =
-        currentDestination?.route?.startsWith(PrivateChatNav::class.qualifiedName) == true
+    // 不能拿类名做全等比较，用 startsWith 匹配；qualifiedName 可空，需保护。
+    val privateChatRoutePrefix = PrivateChatNav::class.qualifiedName.orEmpty()
+    val isPrivateChatRoute = privateChatRoutePrefix.isNotEmpty() &&
+        currentDestination?.route?.startsWith(privateChatRoutePrefix) == true
     val showNavigationBar = isTabRoute
     val showMiniPlayerChrome = showMiniPlayer && !isRoamRoute && !isPrivateChatRoute
     // 主页背景（"我的"/"探索"底层）：提升到 MainScreen 全屏层渲染，布局与 bottomPadding
