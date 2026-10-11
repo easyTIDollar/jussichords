@@ -13,45 +13,62 @@ import java.io.File
 object HomeBgStore {
     private const val DIR_NAME = "home_bg"
 
+    /** 选取结果：成功给本地路径；失败给可读原因（toast 直接展示，用来定位是哪类失败）。 */
+    sealed class HomeBgSelectResult {
+        data class Success(val path: String) : HomeBgSelectResult()
+        data class Failure(val reason: String) : HomeBgSelectResult()
+    }
+
     /**
-     * 把 picker 选中的 Uri 拷贝成本地文件；失败返回 null。
+     * 把 picker 选中的 Uri 拷贝成本地文件；失败返回 [HomeBgSelectResult.Failure]（带原因）。
      * 每次生成时间戳唯一文件名：Coil 以文件路径为缓存 key，
      * 若写死 home_bg.jpg，换图后同路径命中旧位图内存缓存，需重启应用才生效。
      * 不清理旧文件——编辑模式取消时需要旧图还在；清理由 commit/prune/deleteFile 负责。
      */
-    suspend fun select(context: Context, uri: Uri): String? = withContext(Dispatchers.IO) {
+    suspend fun select(context: Context, uri: Uri): HomeBgSelectResult = withContext(Dispatchers.IO) {
+        val dir = File(context.filesDir, DIR_NAME)
         try {
-            val dir = File(context.filesDir, DIR_NAME)
             if (!dir.exists()) dir.mkdirs()
-            val target = File(dir, "home_bg_${System.currentTimeMillis()}.jpg")
-            // 部分内容 provider（DocsUI / 第三方选图库）首开流偶发返回 null 或瞬时报错，
-            // 直接一次成败就是"选完不生效"的间歇根因：失败重试 3 次（间隔 300ms）再放弃。
-            var written: Boolean? = null
-            for (attempt in 1..3) {
-                val ok = context.contentResolver.openInputStream(uri)?.use { input ->
-                    target.outputStream().use { out ->
-                        val buffer = ByteArray(64 * 1024)
-                        var total = 0L
-                        while (true) {
-                            val n = input.read(buffer)
-                            if (n < 0) break
-                            out.write(buffer, 0, n)
-                            total += n
+        } catch (e: Exception) {
+            return@withContext HomeBgSelectResult.Failure("无法创建目录 ${dir.absolutePath}：${e.message}")
+        }
+        val target = File(dir, "home_bg_${System.currentTimeMillis()}.jpg")
+        var lastError = "未知"
+        // 部分内容 provider（DocsUI / 第三方选图库 / 大图解码）首开流偶发打不开或读到 0 字节，
+        // 重试 3 次（间隔 300ms）再放弃；每一类的失败原因都记进 [lastError] 供 UI 展示。
+        for (attempt in 1..3) {
+            try {
+                val stream = context.contentResolver.openInputStream(uri)
+                if (stream == null) {
+                    lastError = "图片流打不开（openInputStream 返回 null，第 $attempt 次）"
+                } else {
+                    val ok = stream.use { input ->
+                        target.outputStream().use { out ->
+                            val buffer = ByteArray(64 * 1024)
+                            var total = 0L
+                            while (true) {
+                                val n = input.read(buffer)
+                                if (n < 0) break
+                                out.write(buffer, 0, n)
+                                total += n
+                            }
+                            total > 0L
                         }
-                        total > 0L
+                    }
+                    if (ok) {
+                        android.util.Log.i("JussicordsBg", "select ok path=${target.absolutePath} attempt=$attempt")
+                        return@withContext HomeBgSelectResult.Success(target.absolutePath)
+                    } else {
+                        lastError = "图片流为空（读到 0 字节，第 $attempt 次）"
                     }
                 }
-                if (ok == true) {
-                    written = true
-                    break
-                }
-                // 流打开成功但读到 0 字节（ok==false 且非 null）或打开即 null：重开一次。
-                if (attempt < 3) kotlinx.coroutines.delay(300L)
+            } catch (ex: Exception) {
+                lastError = "读取/写入异常 ${ex.javaClass.simpleName}：${ex.message}"
+                android.util.Log.w("JussicordsBg", "select exception (attempt=$attempt)", ex)
             }
-            if (written == true) target.absolutePath else null
-        } catch (_: Exception) {
-            null
+            if (attempt < 3) kotlinx.coroutines.delay(300L)
         }
+        HomeBgSelectResult.Failure(lastError)
     }
 
     /** 移除本地文件（DataStore 键由调用方清空）。 */

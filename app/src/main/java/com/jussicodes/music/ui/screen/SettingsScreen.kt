@@ -216,25 +216,31 @@ fun SettingsScreen(navController: NavHostController) {
     ) { uri ->
         if (uri != null) {
             coroutineScope.launch {
-                val path = com.jussicodes.music.data.HomeBgStore.select(context, uri)
-                if (path == null) {
-                    // 部分内容 URI 读流偶发失败（openInputStream 返回 null / 中途抛错）：
-                    // 之前 ?.let 静默吞掉，现象就是"选完背景不生效"。现在显式反馈，让用户能重试。
-                    Toast.makeText(context, "选取图片失败，请重试", Toast.LENGTH_SHORT).show()
-                    return@launch
+                val result = com.jussicodes.music.data.HomeBgStore.select(context, uri)
+                when (result) {
+                    is com.jussicodes.music.data.HomeBgStore.HomeBgSelectResult.Success -> {
+                        // 成功：立即进主页编辑模式实时预览（startHomeBgEdit 内部 begin draft + 跳 Library）。
+                        startHomeBgEdit(
+                            HomeBackgroundConfig(
+                                path = result.path,
+                                scale = homeBgScale,
+                                opacity = homeBgOpacity,
+                                blur = homeBgBlur,
+                                offsetX = homeBgOffsetX,
+                                offsetY = homeBgOffsetY,
+                            ),
+                            ownsFile = true
+                        )
+                    }
+                    is com.jussicodes.music.data.HomeBgStore.HomeBgSelectResult.Failure -> {
+                        // 显式反馈 + 带原因（定位是哪类：流打不开 / 0 字节 / 读写异常 / 目录建不出）。
+                        Toast.makeText(
+                            context,
+                            "选取图片失败：${result.reason}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
-                // 成功：立即进主页编辑模式实时预览（startHomeBgEdit 内部 begin draft + 跳 Library）。
-                startHomeBgEdit(
-                    HomeBackgroundConfig(
-                        path = path,
-                        scale = homeBgScale,
-                        opacity = homeBgOpacity,
-                        blur = homeBgBlur,
-                        offsetX = homeBgOffsetX,
-                        offsetY = homeBgOffsetY,
-                    ),
-                    ownsFile = true
-                )
             }
         }
     }
