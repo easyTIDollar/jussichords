@@ -24,18 +24,29 @@ object HomeBgStore {
             val dir = File(context.filesDir, DIR_NAME)
             if (!dir.exists()) dir.mkdirs()
             val target = File(dir, "home_bg_${System.currentTimeMillis()}.jpg")
-            val written = context.contentResolver.openInputStream(uri)?.use { input ->
-                target.outputStream().use { out ->
-                    val buffer = ByteArray(64 * 1024)
-                    var total = 0L
-                    while (true) {
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        out.write(buffer, 0, n)
-                        total += n
+            // 部分内容 provider（DocsUI / 第三方选图库）首开流偶发返回 null 或瞬时报错，
+            // 直接一次成败就是"选完不生效"的间歇根因：失败重试 3 次（间隔 300ms）再放弃。
+            var written: Boolean? = null
+            for (attempt in 1..3) {
+                val ok = context.contentResolver.openInputStream(uri)?.use { input ->
+                    target.outputStream().use { out ->
+                        val buffer = ByteArray(64 * 1024)
+                        var total = 0L
+                        while (true) {
+                            val n = input.read(buffer)
+                            if (n < 0) break
+                            out.write(buffer, 0, n)
+                            total += n
+                        }
+                        total > 0L
                     }
-                    total > 0L
                 }
+                if (ok == true) {
+                    written = true
+                    break
+                }
+                // 流打开成功但读到 0 字节（ok==false 且非 null）或打开即 null：重开一次。
+                if (attempt < 3) kotlinx.coroutines.delay(300L)
             }
             if (written == true) target.absolutePath else null
         } catch (_: Exception) {
