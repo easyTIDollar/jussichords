@@ -39,7 +39,6 @@ fun ThemeColorSourceDialog(
     onHomeBgPick: () -> Unit,
     onHomeBgRemoved: () -> Unit,
     onHomeBgTune: () -> Unit,
-    onHomeBgScaleChanged: (Float) -> Unit,
     onHomeBgOpacityChanged: (Float) -> Unit,
     onHomeBgBlurChanged: (Float) -> Unit,
 ) {
@@ -217,14 +216,6 @@ fun ThemeColorSourceDialog(
                             }
                         }
 
-                        HomeBgSliderRow(
-                            label = "缩放",
-                            value = homeBg.scale,
-                            valueText = "${(homeBg.scale * 100).roundToInt()}%",
-                            valueRange = 1f..2f,
-                            steps = 9,
-                            onValueChanged = onHomeBgScaleChanged,
-                        )
                         HomeBgSliderRow(
                             label = "透明度",
                             value = homeBg.opacity,

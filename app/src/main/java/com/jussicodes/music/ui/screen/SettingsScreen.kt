@@ -117,6 +117,7 @@ import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.theme.ThemeColorSource
 import com.jussicodes.music.utils.AppUpdateManager
+import com.jussicodes.music.utils.SettingsAppearanceBus
 import com.jussicodes.music.utils.NcmCookieNormalizer
 import com.jussicodes.music.utils.ApiServerStatus
 import com.jussicodes.music.utils.UpdateDownloadPhase
@@ -188,6 +189,15 @@ fun SettingsScreen(navController: NavHostController) {
     }
     // 选完图不留在设置页：建 draft（保留现有参数、换上图）→ 关闭弹窗 → 跳回主页进入编辑模式。
     var showThemeColorSourceDialog by remember { mutableStateOf(false) }
+    // 主页背景编辑"放弃"后回来：自动打开「外观」弹窗（一次性消费，手动进设置页不会再弹）
+    LaunchedEffect(Unit) {
+        SettingsAppearanceBus.requested.collectLatest { open ->
+            if (open) {
+                showThemeColorSourceDialog = true
+                SettingsAppearanceBus.consume()
+            }
+        }
+    }
     fun startHomeBgEdit(config: HomeBackgroundConfig, ownsFile: Boolean) {
         com.jussicodes.music.data.HomeBgEditor.begin(config, ownsFile)
         showThemeColorSourceDialog = false
@@ -668,7 +678,6 @@ fun SettingsScreen(navController: NavHostController) {
             onHomeBgPick = { homeBgPicker.launch("image/*") },
             onHomeBgRemoved = { removeHomeBg() },
             onHomeBgTune = { startHomeBgEdit(homeBg, ownsFile = false) },
-            onHomeBgScaleChanged = { homeBgScale = it },
             onHomeBgOpacityChanged = { homeBgOpacity = it },
             onHomeBgBlurChanged = { homeBgBlur = it },
         )

@@ -52,6 +52,11 @@ fun HomeBgEditPanel(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
+            Text(
+                text = "双指缩放/移动背景 · 单指左右滑切换「我的·探索」· 单指上下滑微调位置",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             EditPanelSliderRow(
                 label = "透明度",
                 valueText = "${(opacity * 100).roundToInt()}%",
