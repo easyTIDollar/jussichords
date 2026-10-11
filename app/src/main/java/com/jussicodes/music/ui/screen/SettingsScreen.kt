@@ -49,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -89,7 +90,6 @@ import com.jussicodes.music.constants.homeBgOffsetXKey
 import com.jussicodes.music.constants.homeBgOffsetYKey
 import com.jussicodes.music.constants.homeBgOpacityKey
 import com.jussicodes.music.constants.homeBgScaleKey
-import com.jussicodes.music.constants.homeTransparentCardKey
 import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.lyric.DesktopLyricManager
@@ -174,7 +174,7 @@ fun SettingsScreen(navController: NavHostController) {
     var homeBgScale by rememberPreference(homeBgScaleKey, 1f)
     var homeBgOpacity by rememberPreference(homeBgOpacityKey, 1f)
     var homeBgBlur by rememberPreference(homeBgBlurKey, 0f)
-    var homeTransparentCard by rememberPreference(homeTransparentCardKey, false)
+    val homeTransparentCard = com.jussicodes.music.data.HomeTransparentCardStore.state.collectAsState().value
     var homeBgOffsetX by rememberPreference(homeBgOffsetXKey, 0f)
     var homeBgOffsetY by rememberPreference(homeBgOffsetYKey, 0f)
     val homeBg = remember(
@@ -233,12 +233,8 @@ fun SettingsScreen(navController: NavHostController) {
                         )
                     }
                     is com.jussicodes.music.data.HomeBgStore.HomeBgSelectResult.Failure -> {
-                        // 显式反馈 + 带原因（定位是哪类：流打不开 / 0 字节 / 读写异常 / 目录建不出）。
-                        Toast.makeText(
-                            context,
-                            "选取图片失败：${result.reason}",
-                            Toast.LENGTH_LONG
-                        ).show()
+                        // 完整原因（含 URI/异常 message）走可滚动弹窗，避免 toast 截断读不全。
+                        bgSelectFailureReason = result.reason
                     }
                 }
             }
@@ -262,6 +258,7 @@ fun SettingsScreen(navController: NavHostController) {
     var showGithubSourceDialog by remember { mutableStateOf(false) }
     var githubSourceStatuses by remember { mutableStateOf<List<UpdateSourceStatus>>(emptyList()) }
     var isMeasuringUpdateSources by remember { mutableStateOf(false) }
+    var bgSelectFailureReason by remember { mutableStateOf<String?>(null) }
     var testingGithubSources by remember { mutableStateOf(false) }
     var showApiServerDialog by remember { mutableStateOf(false) }
     var apiServerStatuses by remember { mutableStateOf<List<ApiServerStatus>>(emptyList()) }
@@ -695,7 +692,11 @@ fun SettingsScreen(navController: NavHostController) {
             onHomeBgOpacityChanged = { homeBgOpacity = it },
             onHomeBgBlurChanged = { homeBgBlur = it },
             homeTransparentCard = homeTransparentCard,
-            onHomeTransparentCardChange = { homeTransparentCard = it },
+            onHomeTransparentCardChange = {
+                coroutineScope.launch {
+                    com.jussicodes.music.data.HomeTransparentCardStore.set(context, it)
+                }
+            },
         )
     }
 
@@ -791,6 +792,23 @@ fun SettingsScreen(navController: NavHostController) {
                 }
             },
             onSourceSelected = { githubDownloadSource = it }
+        )
+    }
+
+    if (bgSelectFailureReason != null) {
+        AlertDialog(
+            onDismissRequest = { bgSelectFailureReason = null },
+            title = { Text("选取图片失败") },
+            text = {
+                Text(
+                    text = "原因：${bgSelectFailureReason}\n\n多为该图片源不可用（文件被删/移动，或临时读授权失效），请重选一张。",
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { bgSelectFailureReason = null }) { Text("知道了") }
+            }
         )
     }
 
