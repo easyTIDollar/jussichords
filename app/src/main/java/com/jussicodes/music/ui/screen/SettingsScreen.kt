@@ -211,6 +211,9 @@ fun SettingsScreen(navController: NavHostController) {
             restoreState = true
         }
     }
+    // 选图失败原因（完整可读，走弹窗）。声明须先于 homeBgPicker：
+    // launcher 回调（lambda）不能前向引用后声明的本地 remember 变量。
+    var bgSelectFailureReason by remember { mutableStateOf<String?>(null) }
     val homeBgPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri ->
@@ -258,7 +261,6 @@ fun SettingsScreen(navController: NavHostController) {
     var showGithubSourceDialog by remember { mutableStateOf(false) }
     var githubSourceStatuses by remember { mutableStateOf<List<UpdateSourceStatus>>(emptyList()) }
     var isMeasuringUpdateSources by remember { mutableStateOf(false) }
-    var bgSelectFailureReason by remember { mutableStateOf<String?>(null) }
     var testingGithubSources by remember { mutableStateOf(false) }
     var showApiServerDialog by remember { mutableStateOf(false) }
     var apiServerStatuses by remember { mutableStateOf<List<ApiServerStatus>>(emptyList()) }
