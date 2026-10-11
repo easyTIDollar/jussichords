@@ -78,7 +78,8 @@ import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.data.PinnedAlbumStore
-import com.jussicodes.music.ui.components.GlassCard
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.PinnedAlbumPickDialog
 import com.jussicodes.music.ui.components.PinnedAlbumsCard
@@ -211,10 +212,12 @@ fun LibraryScreen(
                     .padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                GlassCard(
+                Card(
                     modifier = Modifier
                         .padding(24.dp)
-                        .clickable { navController.navigate(Screen.Login.route) }
+                        .clickable { navController.navigate(Screen.Login.route) },
+                    shape = MaterialTheme.shapes.extraLarge,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
                 ) {
                     Column(
                         modifier = Modifier.padding(32.dp),
@@ -747,8 +750,10 @@ private fun LibraryUserCard(
     val followsLabel = if (followsCount != null) "$followsCount 关注" else "关注"
     val followedsLabel = if (followedsCount != null) "$followedsCount 粉丝" else "粉丝"
 
-    GlassCard(
-        modifier = Modifier.fillMaxWidth()
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -967,8 +972,10 @@ private fun FavoritePlaylistCard(
     onCreatePlaylistClick: () -> Unit,
     onClick: () -> Unit
 ) {
-    GlassCard(
-        modifier = Modifier.fillMaxWidth()
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Box(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(14.dp)) {
             RowCardContent(
@@ -1029,8 +1036,10 @@ private fun PlaylistGroupCard(
         }
     }
 
-    GlassCard(
-        modifier = Modifier.fillMaxWidth()
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(text = title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
