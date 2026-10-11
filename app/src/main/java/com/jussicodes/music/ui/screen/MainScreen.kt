@@ -14,7 +14,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitPointerEvent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -67,7 +66,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.toPx
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -464,7 +462,7 @@ fun MainScreen() {
                                 awaitEachGesture {
                                     val cur0 = HomeBgEditor.draft.value
                                         ?: return@awaitEachGesture
-                                    val pointers = linkedMapOf<Int, Offset>()
+                                    val pointers = linkedMapOf<Any, Offset>()
                                     var singleStart = Offset.Zero
                                     var singleBaseY = cur0.offsetY
                                     var singleAxis = 0
@@ -484,9 +482,8 @@ fun MainScreen() {
                                     while (true) {
                                         val event = awaitPointerEvent()
                                         for (change in event.changes) {
-                                            if (change.down) pointers[change.id] = change.position
-                                            else if (change.up) pointers.remove(change.id)
-                                            else if (change.pressed) pointers[change.id] = change.position
+                                            if (change.pressed) pointers[change.id] = change.position
+                                            else pointers.remove(change.id)
                                             // 消费事件：锁死底层列表/切页手势（consume 是挂起函数，只能在挂起上下文直接调）
                                             change.consume()
                                         }
