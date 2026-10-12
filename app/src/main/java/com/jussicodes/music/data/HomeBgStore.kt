@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.BufferedInputStream
 import java.io.File
 import kotlin.math.ceil
 
@@ -59,7 +60,7 @@ object HomeBgStore {
                     // BufferedInputStream 保证 mark/reset 语义：bounds 解码后 reset 回去给
                     // 正式解码用（contentResolver 原始流 reset 无保证，直接 reset 会 IOException）。
                     stream.use { raw ->
-                        val input = android.io.BufferedInputStream(raw)
+                        val input = BufferedInputStream(raw)
                         input.mark(Int.MAX_VALUE)
                         // 先试解码下采样：一次修复"拷贝慢 + 跳回首页后预览还要全尺寸解码慢"
                         try {

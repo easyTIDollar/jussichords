@@ -617,7 +617,7 @@ fun MainScreen() {
                                 // 之后从 home 按返回不会再冒出残留设置页。
                                 android.util.Log.d(
                                     "JussicordsBg",
-                                    "cancel nav: ${navController.currentBackStack.map { it.destination.route }}"
+                                    "cancel nav: ${navController.currentBackStack.value.map { it.destination.route }}"
                                 )
                                 SettingsAppearanceBus.request()
                                 navController.navigate(Screen.Settings.route) {

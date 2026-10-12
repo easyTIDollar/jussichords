@@ -2,6 +2,7 @@ package com.jussicodes.music.ui.components
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -106,7 +107,7 @@ fun HomeBackgroundLayer(
  * 白字 0xFFF5F5F5（近白不死白）、黑字 0xDE000000（87% 不透明），避免死黑白。
  */
 @Composable
-fun resolveHomeBgTextColor(mode: String, colorScheme: MaterialTheme.ColorScheme): Color {
+fun resolveHomeBgTextColor(mode: String, colorScheme: ColorScheme): Color {
     return when (mode) {
         "white" -> Color(0xFFF5F5F5)
         "black" -> Color(0xDE000000)
