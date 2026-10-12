@@ -542,11 +542,11 @@ fun PlaylistScreen(
                             )
                         }
                     }
-                }
 
-                item {
-                    // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
-                    if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
+                    item {
+                        // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                        if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
+                    }
                 }
             }
         }
