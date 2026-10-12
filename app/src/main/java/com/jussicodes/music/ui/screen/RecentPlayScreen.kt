@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -41,6 +43,7 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
+import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.ListThumbnailSize
 import com.jussicodes.music.constants.ThumbnailCornerRadius
@@ -180,6 +183,8 @@ private fun songsPage(
     currentMediaId: Long?,
     mediaController: MediaController?
 ) {
+    // 小播放器是否显示（有歌在队列）：列表末尾避让空白块只在有歌时留
+    val hasMiniPlayer = (LocalPlayerState.current?.player?.mediaItemCount ?: 0) != 0
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -213,6 +218,11 @@ private fun songsPage(
                 }
             }
         }
+
+        item {
+            // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+            if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
+        }
     }
 }
 
@@ -222,6 +232,8 @@ private fun playlistsPage(
     playlists: List<RecentPlaylistResource>?,
     onOpen: (RecentPlaylistData) -> Unit
 ) {
+    // 小播放器是否显示（有歌在队列）：列表末尾避让空白块只在有歌时留
+    val hasMiniPlayer = (LocalPlayerState.current?.player?.mediaItemCount ?: 0) != 0
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -257,6 +269,11 @@ private fun playlistsPage(
                 }
             }
         }
+
+        item {
+            // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+            if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
+        }
     }
 }
 
@@ -266,6 +283,8 @@ private fun albumsPage(
     albums: List<RecentAlbumResource>?,
     onOpen: (RecentAlbumData) -> Unit
 ) {
+    // 小播放器是否显示（有歌在队列）：列表末尾避让空白块只在有歌时留
+    val hasMiniPlayer = (LocalPlayerState.current?.player?.mediaItemCount ?: 0) != 0
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -300,6 +319,11 @@ private fun albumsPage(
                     )
                 }
             }
+        }
+
+        item {
+            // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+            if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
         }
     }
 }

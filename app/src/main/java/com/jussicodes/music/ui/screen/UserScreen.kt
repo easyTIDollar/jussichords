@@ -60,6 +60,8 @@ import com.jussicodes.music.viewModel.UserFollowScreenViewModel
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import androidx.compose.material3.OutlinedButton
+import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.navigation.PlaylistNav
@@ -94,6 +96,8 @@ fun UserScreen(
     val avatarUrl = userDetailState?.profile?.avatarUrl
     val profile = userDetailState?.profile
     val userId = profile?.userId ?: 0L
+    // 小播放器是否显示（有歌在队列）：列表末尾避让空白块只在有歌时留
+    val hasMiniPlayer = (LocalPlayerState.current?.player?.mediaItemCount ?: 0) != 0
     val favoritePlaylistId = userPlaylists.firstOrNull { playlist ->
         playlist.creator?.userId == userId && (
             playlist.specialType == 5 ||
@@ -250,6 +254,11 @@ fun UserScreen(
                         }
                     )
                 }
+            }
+
+            item {
+                // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
             }
         }
     }

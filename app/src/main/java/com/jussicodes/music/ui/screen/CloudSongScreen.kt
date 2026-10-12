@@ -1,6 +1,8 @@
 package com.jussicodes.music.ui.screen
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -20,6 +22,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
+import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.R
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setCloudSongPlaylist
@@ -38,6 +41,8 @@ fun CloudSongScreen(
     val playerState = LocalPlayerState.current
     val isPlaying = playerState?.isPlaying == true
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
+    // 小播放器是否显示（有歌在队列）：列表末尾避让空白块只在有歌时留
+    val hasMiniPlayer = (playerState?.player?.mediaItemCount ?: 0) != 0
     val uid = cloudSongScreenViewModel.uid
 
     Scaffold(topBar = {
@@ -85,6 +90,11 @@ fun CloudSongScreen(
                             }
                         })
                 }
+            }
+
+            item {
+                // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
             }
         }
     }

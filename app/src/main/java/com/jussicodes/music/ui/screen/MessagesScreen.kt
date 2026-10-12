@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -61,7 +62,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.R
+import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.ListThumbnailSize
+import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.ThumbnailCornerRadius
 import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.ui.components.OnlineDot
@@ -97,6 +100,8 @@ fun MessagesScreen(
     var deleteTarget by remember { mutableStateOf<MsgSessionCache.Item?>(null) }
 
     val listState = rememberLazyListState()
+    // 小播放器是否显示（有歌在队列）：列表末尾避让空白块只在有歌时留
+    val hasMiniPlayer = (LocalPlayerState.current?.player?.mediaItemCount ?: 0) != 0
     val reorderableState = rememberReorderableLazyListState(listState) { from, to ->
         // key = userId（Long）；缓存层按当前展示序移动并只改内存，松手再落盘
         (from.key as? Long)?.let { f -> (to.key as? Long)?.let { t ->
@@ -212,6 +217,11 @@ fun MessagesScreen(
                 if (sessionsMoreFailed) {
                     item { MsgRetryRow(onClick = { viewModel.loadMoreSessions() }) }
                 }
+            }
+
+            item {
+                // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
             }
             }
         }

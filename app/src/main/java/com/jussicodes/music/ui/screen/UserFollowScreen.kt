@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -47,7 +48,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
+import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.ListThumbnailSize
+import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.components.ArtistListItem
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.ListItem
@@ -100,6 +103,8 @@ fun UserFollowScreen(
     val artistsPageListState = rememberLazyListState()
     val usersPageListState = rememberLazyListState()
     val listState = rememberLazyListState()
+    // 小播放器是否显示（有歌在队列）：列表末尾避让空白块只在有歌时留
+    val hasMiniPlayer = (LocalPlayerState.current?.player?.mediaItemCount ?: 0) != 0
     val isContentEmpty = when (selectedType) {
         UserFollowType.ARTISTS -> if (showArtistFollows) artists.isEmpty() else followedArtistUsers.isEmpty()
         UserFollowType.FOLLOWS -> followedUsers.isEmpty()
@@ -265,6 +270,11 @@ fun UserFollowScreen(
                                     if (hasMore || isLoadingMore) {
                                         loadMoreIndicator(hasMore = hasMore, isLoadingMore = isLoadingMore)
                                     }
+
+                                    item {
+                                        // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                                        if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
+                                    }
                                 }
                             }
                             else -> {
@@ -289,6 +299,11 @@ fun UserFollowScreen(
                                     }
                                     if (hasMore || isLoadingMore) {
                                         loadMoreIndicator(hasMore = hasMore, isLoadingMore = isLoadingMore)
+                                    }
+
+                                    item {
+                                        // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                                        if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
                                     }
                                 }
                             }
@@ -334,6 +349,11 @@ fun UserFollowScreen(
                         if (hasMore || isLoadingMore) {
                             loadMoreIndicator(hasMore = hasMore, isLoadingMore = isLoadingMore)
                         }
+
+                        item {
+                            // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                            if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
+                        }
                     }
                 }
                 // 粉丝列表（type==FOLLOWEDS）：单一用户列表，沿用原行为
@@ -369,6 +389,11 @@ fun UserFollowScreen(
                         }
                         if (hasMore || isLoadingMore) {
                             loadMoreIndicator(hasMore = hasMore, isLoadingMore = isLoadingMore)
+                        }
+
+                        item {
+                            // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                            if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
                         }
                     }
                 }

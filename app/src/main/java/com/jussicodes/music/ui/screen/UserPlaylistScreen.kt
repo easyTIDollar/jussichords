@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.aspectRatio
@@ -36,7 +37,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import com.jussicodes.music.R
+import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.AlbumThumbnailSize
+import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.components.GridThumbnailImage
 import com.jussicodes.music.ui.components.PlaylistGridItem
 import com.jussicodes.music.ui.navigation.PlaylistNav
@@ -55,6 +58,8 @@ fun UserPlaylistScreen(
     val playlistState by userPlaylistScreenViewModel.playlist.collectAsState()
     val isLoading by userPlaylistScreenViewModel.isLoading.collectAsState()
     val playlists = playlistState?.data?.playlist.orEmpty()
+    // 小播放器是否显示（有歌在队列）：列表末尾避让空白块只在有歌时留
+    val hasMiniPlayer = (LocalPlayerState.current?.player?.mediaItemCount ?: 0) != 0
 
     Scaffold(topBar = {
         TopAppBar(
@@ -121,6 +126,11 @@ fun UserPlaylistScreen(
                             })
                     }
                 }
+            }
+
+            item {
+                // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
             }
         }
     }
