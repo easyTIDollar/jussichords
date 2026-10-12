@@ -611,9 +611,19 @@ fun MainScreen() {
                             TextButton(onClick = {
                                 showBgCancelConfirm = false
                                 HomeBgEditor.cancel(context)
-                                // 放弃 → 回设置页并自动打开「外观」弹窗
+                                // 放弃 → 回设置页并自动打开「外观」弹窗。
+                                // 栈手术：把 Library（home）以上全弹掉再 push Settings，
+                                // Settings 只可能孤立在 home 之下（launchSingleTop 防叠层），
+                                // 之后从 home 按返回不会再冒出残留设置页。
+                                android.util.Log.d(
+                                    "JussicordsBg",
+                                    "cancel nav: ${navController.currentBackStack.map { it.destination.route }}"
+                                )
                                 SettingsAppearanceBus.request()
-                                navController.navigate(Screen.Settings.route)
+                                navController.navigate(Screen.Settings.route) {
+                                    popUpTo(Screen.Library.route) { inclusive = true }
+                                    launchSingleTop = true
+                                }
                             }) {
                                 Text("放弃")
                             }
