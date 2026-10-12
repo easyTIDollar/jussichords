@@ -12,6 +12,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -22,6 +23,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
@@ -31,6 +34,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -62,7 +66,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
@@ -144,10 +147,6 @@ fun MainScreen() {
     var showBgCancelConfirm by remember { mutableStateOf(false) }
     var bgViewW by remember { mutableIntStateOf(0) }
     var bgViewH by remember { mutableIntStateOf(0) }
-    // 手势层阈值（toPx 必须读 LocalDensity，只能在 composable 层算好再传进 pointerInput 块）
-    val bgDensity = LocalDensity.current
-    val bgSlopPx = with(bgDensity) { 30.dp.toPx() }
-    val bgSwitchThresholdPx = with(bgDensity) { 96.dp.toPx() }
 
     LaunchedEffect(
         playerState?.currentMediaItem,
@@ -449,8 +448,8 @@ fun MainScreen() {
                         .fillMaxSize()
                         .zIndex(2f)
                 ) {
-                    // 全屏透明手势层（编辑模式）：双指缩放+移动 / 单指左右松手切「我的·探索」/
-                    // 单指上下微调纵向位置；全程只改内存 draft（零 I/O），吃掉事件锁死底层列表。
+                    // 手势层（编辑模式）：外层取全屏视区尺寸供 offset 限制计算；
+                    // 实际手势只在居中的「手势区」内接管，区外事件穿透（列表/切页/底栏正常）。
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -458,15 +457,27 @@ fun MainScreen() {
                                 bgViewW = it.width
                                 bgViewH = it.height
                             }
+                    ) {
+                    // 手势区：居中 72%×40% 圆角框。区内事件全消费（编辑背景、锁死底层），
+                    // 区外不消费 → 不挡列表滚动 / 横滑切「我的·探索」/ 底栏（防误触）。
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .fillMaxWidth(0.72f)
+                            .fillMaxHeight(0.40f)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(16.dp),
+                            )
                             .pointerInput(Unit) {
                                 awaitEachGesture {
                                     val cur0 = HomeBgEditor.draft.value
                                         ?: return@awaitEachGesture
                                     val pointers = linkedMapOf<Any, Offset>()
                                     var singleStart = Offset.Zero
+                                    var singleBaseX = cur0.offsetX
                                     var singleBaseY = cur0.offsetY
-                                    var singleAxis = 0
-                                    var singleTotalDx = 0f
                                     var prevCount = 0
                                     var scaleAccum = cur0.scale
                                     var baseOffsetX = cur0.offsetX
@@ -524,74 +535,44 @@ fun MainScreen() {
                                             values.size == 1 -> {
                                                 val p = values[0]
                                                 if (prevCount >= 2) {
-                                                    // 从双指退回单指：重置单指基准
+                                                    // 从双指退回单指：重置单指基准（否则沿用双指前的旧基准，一拖就跳）
                                                     singleStart = p
-                                                    singleAxis = 0
-                                                    singleTotalDx = 0f
                                                     pinchRef = 0f
-                                                    live?.let { singleBaseY = it.offsetY }
-                                                }
-                                                if (singleAxis == 0) {
-                                                    val dx = p.x - singleStart.x
-                                                    val dy = p.y - singleStart.y
-                                                    if (abs(dx) > bgSlopPx || abs(dy) > bgSlopPx) {
-                                                        singleAxis =
-                                                            if (abs(dx) >= abs(dy)) 1 else 2
+                                                    live?.let {
+                                                        singleBaseX = it.offsetX
+                                                        singleBaseY = it.offsetY
                                                     }
                                                 }
-                                                when (singleAxis) {
-                                                    2 -> {
-                                                        // 上下：微调背景纵向位置（已缩放时生效）
-                                                        singleTotalDx = 0f
-                                                        val cur = live
-                                                        if (cur != null) {
-                                                            val dyTotal = p.y - singleStart.y
-                                                            val limit =
-                                                                (cur.scale - 1f) * minOf(
-                                                                    bgViewW,
-                                                                    bgViewH
-                                                                ) / 2f
-                                                            HomeBgEditor.update {
-                                                                it.copy(
-                                                                    offsetY =
-                                                                        (singleBaseY + dyTotal)
-                                                                            .coerceIn(
-                                                                                -limit,
-                                                                                limit
-                                                                            )
-                                                                )
-                                                            }
-                                                        }
+                                                // 单指：区内两轴自由移动背景（斜拖同时改 XY）；越界幅度受缩放量限制
+                                                live?.let {
+                                                    val limit =
+                                                        (it.scale - 1f) * minOf(bgViewW, bgViewH) / 2f
+                                                    HomeBgEditor.update {
+                                                        it.copy(
+                                                            offsetX = (singleBaseX + (p.x - singleStart.x))
+                                                                .coerceIn(-limit, limit),
+                                                            offsetY = (singleBaseY + (p.y - singleStart.y))
+                                                                .coerceIn(-limit, limit)
+                                                        )
                                                     }
-                                                    1 -> singleTotalDx = p.x - singleStart.x
                                                 }
                                             }
                                         }
                                         prevCount = values.size
                                     }
-                                    // 松手后：单指横向超过阈值 → 切页预览（我的 ↔ 探索）
-                                    if (singleAxis == 1 && abs(singleTotalDx) > bgSwitchThresholdPx) {
-                                        val target = if (singleTotalDx < 0) {
-                                            (homePagerState.currentPage + 1)
-                                                .coerceAtMost(tabs.size - 1)
-                                        } else {
-                                            (homePagerState.currentPage - 1).coerceAtLeast(0)
-                                        }
-                                        if (target != homePagerState.currentPage) {
-                                            coroutineScope.launch {
-                                                homePagerState.animateScrollToPage(
-                                                    page = target,
-                                                    animationSpec = tween(
-                                                        durationMillis = DURATION_ENTER,
-                                                        easing = EmphasizedDecelerateEasing
-                                                    )
-                                                )
-                                            }
-                                        }
-                                    }
                                 }
                             }
-                    )
+                    ) {
+                        Text(
+                            text = "区域内：双指缩放 · 单指移动背景",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(10.dp),
+                        )
+                    }
+                    }
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)

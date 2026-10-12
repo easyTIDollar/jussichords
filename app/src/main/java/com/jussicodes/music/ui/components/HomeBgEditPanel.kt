@@ -53,7 +53,7 @@ fun HomeBgEditPanel(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "双指缩放/移动背景 · 单指左右滑切换「我的·探索」· 单指上下滑微调位置",
+                text = "区域内：双指缩放 · 单指移动背景；区域外正常滑动列表、切换「我的·探索」",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
