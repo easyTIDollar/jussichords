@@ -542,22 +542,9 @@ fun SettingsScreen(navController: NavHostController) {
                 subtitle = apiBaseUrl.ifBlank { "未设置" },
                 warning = httpWarning,
                 imageVector = Dns,
-                onClick = { showApiServerDialog = true }
-            ),
-            SettingItemData(
-                title = "音乐源",
-                subtitle = unblockSourceOptions.firstOrNull { it.value == unblockSource }?.label,
-                imageVector = MusicNote,
-                onClick = { showUnblockSourceDialog = true },
+                onClick = { showApiServerDialog = true },
                 trailingContent = {
-                    IconButton(onClick = { showUnblockSourceDialog = true }) {
-                        Icon(
-                            imageVector = SettingsGear,
-                            contentDescription = "更换音乐源",
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    GearButton("更换音乐源") { showUnblockSourceDialog = true }
                 }
             )
         )
