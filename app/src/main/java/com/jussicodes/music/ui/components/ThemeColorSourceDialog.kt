@@ -257,7 +257,7 @@ fun ThemeColorSourceDialog(
                             value = homeBg.blur,
                             valueText = "${homeBg.blur.roundToInt()}",
                             valueRange = 0f..40f,
-                            steps = 7,
+                            steps = 39,
                             onValueChanged = onHomeBgBlurChanged,
                         )
                     }

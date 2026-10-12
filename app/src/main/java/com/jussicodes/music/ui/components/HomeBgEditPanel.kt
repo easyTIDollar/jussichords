@@ -70,7 +70,7 @@ fun HomeBgEditPanel(
                 valueText = blur.roundToInt().toString(),
                 value = blur,
                 valueRange = 0f..40f,
-                steps = 7,
+                steps = 39,
                 onValueChanged = onBlurChanged,
             )
             Row(
