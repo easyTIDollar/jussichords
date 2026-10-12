@@ -484,6 +484,15 @@ fun SettingsScreen(navController: NavHostController) {
                     )
                     Spacer(Modifier.width(12.dp))
                 }
+            ),
+            SettingItemData(
+                title = "播放器手势教程",
+                subtitle = "重新显示点按和上滑提示",
+                imageVector = Gesture,
+                onClick = {
+                    playerGestureTutorialVersion = 0
+                    Toast.makeText(context, "播放器手势教程已重新开启", Toast.LENGTH_SHORT).show()
+                }
             )
         )
     )
@@ -506,15 +515,6 @@ fun SettingsScreen(navController: NavHostController) {
                 },
                 imageVector = AudioLines,
                 onClick = { showQualityDialog = true }
-            ),
-            SettingItemData(
-                title = "播放器手势教程",
-                subtitle = "重新显示点按和上滑提示",
-                imageVector = Gesture,
-                onClick = {
-                    playerGestureTutorialVersion = 0
-                    Toast.makeText(context, "播放器手势教程已重新开启", Toast.LENGTH_SHORT).show()
-                }
             )
         )
     )
