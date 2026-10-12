@@ -588,20 +588,13 @@ fun SettingsScreen(navController: NavHostController) {
                     }
                 },
                 trailingContent = {
-                    IconButton(onClick = {
+                    GearButton("更换更新源") {
                         showGithubSourceDialog = true
                         testingGithubSources = true
                         coroutineScope.launch {
                             githubSourceStatuses = AppUpdateManager.measureDownloadSources()
                             testingGithubSources = false
                         }
-                    }) {
-                        Icon(
-                            imageVector = SettingsGear,
-                            contentDescription = "更换更新源",
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
                 }
             )
@@ -991,6 +984,20 @@ private fun SettingRow(item: SettingItemData) {
             )
         }
     }
+}
+
+/** 行尾齿轮：18dp 裸 Icon + clickable，footprint 与默认右箭头完全一致，故与其他箭头行右对齐。 */
+@Composable
+private fun GearButton(contentDescription: String, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Icon(
+        imageVector = SettingsGear,
+        contentDescription = contentDescription,
+        modifier = Modifier
+            .size(18.dp)
+            .clickable(onClick = onClick),
+        tint = colors.onSurfaceVariant
+    )
 }
 
 data class SettingItemData(
