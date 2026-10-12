@@ -10,6 +10,7 @@ import com.jussicodes.music.constants.libraryUserInfoCacheKey
 import com.jussicodes.music.constants.libraryUserPlaylistsCacheKey
 import com.jussicodes.music.constants.userIdKye
 import com.jussicodes.music.data.favoriteSongIdsDatastore
+import com.jussicodes.music.data.HomeUserInfoStore
 import com.jussicodes.music.utils.FavoriteSongSyncBus
 import com.jussicodes.music.utils.AvatarUploadLimiter
 import com.jussicodes.music.utils.PlaylistCollectionSyncBus
@@ -105,6 +106,7 @@ class LibraryScreenViewModel @Inject constructor(
                 prefs[libraryUserInfoCacheKey] = json.encodeToString(it)
                 prefs[userIdKye] = it.account.profile.userId
             }
+            HomeUserInfoStore.publishUserInfo(it)
             fetchUserDetail(it.account.profile.userId)
         }
     }
@@ -114,7 +116,9 @@ class LibraryScreenViewModel @Inject constructor(
         if (userId <= 0L || userId == lastUserDetailUid) return
         lastUserDetailUid = userId
         viewModelScope.launch {
-            _userDetail.value = ArtistApi.userDetail(userId).getOrNull()
+            val detail = ArtistApi.userDetail(userId).getOrNull()
+            _userDetail.value = detail
+            if (detail != null) HomeUserInfoStore.publishUserDetail(detail)
         }
     }
 

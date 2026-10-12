@@ -77,6 +77,7 @@ import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.ncmCookieKey
+import com.jussicodes.music.data.HomeUserInfoStore
 import com.jussicodes.music.data.PinnedAlbumStore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -130,7 +131,10 @@ fun LibraryScreen(
     // 小播放器是否显示（有歌在队列）：末尾避让空白块只在有歌时留。
     val hasMiniPlayer = (LocalPlayerState.current?.player?.mediaItemCount ?: 0) != 0
     val userInfoBatchState by libraryScreenViewModel.userInfo.collectAsState()
-    val userDetailState by libraryScreenViewModel.userDetail.collectAsState()
+    // 信息卡内容走进程级 store（PinnedAlbumStore 同款）：VM 的 collectAsState 首帧可能出 null
+    // （userInfo 门控整卡 / userDetail 无缓存恒 null）→ 切 tab 重组闪一下；进程级首帧即真值。
+    val homeUserInfo = HomeUserInfoStore.userInfo.collectAsState().value
+    val homeUserDetail = HomeUserInfoStore.userDetail.collectAsState().value
     val favoriteSongState by libraryScreenViewModel.favoriteSong.collectAsState()
     val userPlaylists by libraryScreenViewModel.userPlaylists.collectAsState()
     val isAvatarUploading by libraryScreenViewModel.isAvatarUploading.collectAsState()
@@ -253,14 +257,14 @@ fun LibraryScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                userInfoBatchState?.let {
+                homeUserInfo?.let {
                     item {
                         LibraryUserCard(
                             navController = navController,
                             userInfo = it,
                             avatarCacheVersion = avatarCacheVersion,
-                            followsCount = userDetailState?.profile?.followsCount,
-                            followedsCount = userDetailState?.profile?.followedsCount,
+                            followsCount = homeUserDetail?.profile?.followsCount,
+                            followedsCount = homeUserDetail?.profile?.followedsCount,
                             onRoamClick = { navController.navigate(Screen.Roam.route) },
                             onRecentPlayClick = { navController.navigate(Screen.RecentPlay.route) },
                             onMessagesClick = { navController.navigate(Screen.Messages.route) },
