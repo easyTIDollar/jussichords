@@ -772,6 +772,7 @@ private fun LibraryUserCard(
                 Box(
                     modifier = Modifier
                         .size(76.dp)
+                        .background(MaterialTheme.colorScheme.surface, CircleShape)
                         .clip(CircleShape)
                         .clickable(enabled = profile.avatarUrl.isNotBlank(), onClick = onAvatarClick),
                     contentAlignment = Alignment.BottomEnd
