@@ -72,15 +72,13 @@ object PlayerApi {
         mapOf("id" to songId, "level" to songLevel.value, "unblock" to unblock)
 
     /**
-     * 本地直连音源探测（照 Melodia）：OFF 直接跳过；AUTO 按序轮询全部源；
-     * 单源则只试它。命中返回直链，否则 null（交回代理解灰链）。
+     * 本地直连音源探测（照 Melodia）：OFF 直接跳过；单源则只试它。
+     * 命中返回直链，否则 null（交回代理解灰链）。
      */
     private fun tryLocalSourceUrl(songId: String): String? {
         val chosen = LocalSourceSettings.SONG_SOURCE
         if (chosen == LocalSources.OFF) return null
-        val modules = if (chosen == LocalSources.AUTO) LocalSources.LOCAL_KEYS
-            else listOf(chosen.lowercase())
-        for (m in modules) {
+        for (m in listOf(chosen.lowercase())) {
             val url = LocalSourceFetcher.fetch(m, songId)
             if (url != null) {
                 Log.d("PlayerApi", "Local source '$m' hit for songId=$songId")

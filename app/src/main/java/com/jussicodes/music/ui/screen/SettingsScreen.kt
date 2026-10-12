@@ -61,7 +61,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -114,6 +113,7 @@ import com.jussicodes.music.ui.icons.Logout
 import com.jussicodes.music.ui.icons.MusicNote
 import com.jussicodes.music.ui.icons.Palette
 import com.jussicodes.music.ui.icons.Remove
+import com.jussicodes.music.ui.icons.SettingsGear
 import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.theme.ThemeColorSource
@@ -143,7 +143,6 @@ import java.io.File
 @Composable
 fun SettingsScreen(navController: NavHostController) {
     val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -158,7 +157,11 @@ fun SettingsScreen(navController: NavHostController) {
     var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
-    var localSource by rememberPreference(localSourceKey, "AUTO")
+    var localSource by rememberPreference(localSourceKey, "byfuns")
+    // 旧版默认/存过的"智能切换"(AUTO) 选项已删：一次性迁移到默认源 byfuns（写回即持久化）。
+    LaunchedEffect(Unit) {
+        if (localSource == "AUTO") localSource = "byfuns"
+    }
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     var playerGestureTutorialVersion by rememberPreference(
         playerGestureTutorialVersionKey,
@@ -524,9 +527,11 @@ fun SettingsScreen(navController: NavHostController) {
                 imageVector = MusicNote,
                 onClick = { showLocalSourceDialog = true }
             ),
+            // 行尾齿轮：弹「更换更新源」（原「更新源」行并入此处）；行体点击仍直接检查更新。
             SettingItemData(
                 title = if (updating) "正在检查" else "检查更新",
-                subtitle = if (updating) "正在检查更新" else BuildConfig.VERSION_NAME,
+                subtitle = sourceById(githubDownloadSource)?.name?.let { "$it · v${BuildConfig.VERSION_NAME}" }
+                    ?: BuildConfig.VERSION_NAME,
                 imageVector = Github,
                 onClick = {
                     if (!updating) {
@@ -551,18 +556,22 @@ fun SettingsScreen(navController: NavHostController) {
                             }
                         }
                     }
-                }
-            ),
-            SettingItemData(
-                title = "更新源",
-                subtitle = sourceById(githubDownloadSource)?.name,
-                imageVector = Github,
-                onClick = {
-                    showGithubSourceDialog = true
-                    testingGithubSources = true
-                    coroutineScope.launch {
-                        githubSourceStatuses = AppUpdateManager.measureDownloadSources()
-                        testingGithubSources = false
+                },
+                trailingContent = {
+                    IconButton(onClick = {
+                        showGithubSourceDialog = true
+                        testingGithubSources = true
+                        coroutineScope.launch {
+                            githubSourceStatuses = AppUpdateManager.measureDownloadSources()
+                            testingGithubSources = false
+                        }
+                    }) {
+                        Icon(
+                            imageVector = SettingsGear,
+                            contentDescription = "更换更新源",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             )
@@ -584,7 +593,17 @@ fun SettingsScreen(navController: NavHostController) {
                 title = "音乐源",
                 subtitle = unblockSourceOptions.firstOrNull { it.value == unblockSource }?.label,
                 imageVector = MusicNote,
-                onClick = { showUnblockSourceDialog = true }
+                onClick = { showUnblockSourceDialog = true },
+                trailingContent = {
+                    IconButton(onClick = { showUnblockSourceDialog = true }) {
+                        Icon(
+                            imageVector = SettingsGear,
+                            contentDescription = "更换音乐源",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             )
         )
     )
@@ -596,12 +615,6 @@ fun SettingsScreen(navController: NavHostController) {
                 title = "jussichords",
                 subtitle = "简洁的第三方网易云音乐客户端",
                 imageVector = MusicNote
-            ),
-            SettingItemData(
-                title = "jussicodes",
-                subtitle = "项目作者",
-                imageVector = UserRound,
-                onClick = { uriHandler.openUri("https://github.com/easyTIDollar") }
             )
         )
     )
@@ -1005,7 +1018,7 @@ private fun GitHubDownloadSourceDialog(
     ScaledDialogContent {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("更新源") },
+        title = { Text("更换更新源") },
         text = {
             Column {
                 if (testing) {

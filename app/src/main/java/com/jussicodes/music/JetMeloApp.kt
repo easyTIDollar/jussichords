@@ -29,6 +29,7 @@ import com.jussicodes.music.utils.UserAgentUtil
 import com.jussicodes.music.utils.apiServers
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.API_BASE_URL
+import com.rcmiku.ncmapi.api.LocalSources
 import com.rcmiku.ncmapi.api.LocalSourceSettings
 import com.rcmiku.ncmapi.api.UNBLOCK_SOURCE
 import com.rcmiku.ncmapi.utils.CookieProvider
@@ -124,7 +125,12 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                     // 否则残留旧代理地址继续走。空是 API_BASE_URL 的既有默认态（直连兜底）。
                     API_BASE_URL = apiUrl.orEmpty()
                     UNBLOCK_SOURCE = unblockSource ?: "AUTO"
-                    LocalSourceSettings.SONG_SOURCE = localSource ?: "OFF"
+                    // 旧版本地源"智能切换"(AUTO) 选项已删除：存过的 AUTO 迁移到默认源 byfuns。
+                    LocalSourceSettings.SONG_SOURCE = when (localSource) {
+                        null -> "OFF"
+                        "AUTO" -> LocalSources.DEFAULT
+                        else -> localSource
+                    }
                 }
         }
     }

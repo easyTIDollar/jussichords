@@ -26,7 +26,7 @@ data class LocalSourceOption(
     val description: String = "",
 )
 
-// 单一来源：ncmapi 模块的 LocalSources（照 Melodia 的本地直连六源 + 关闭/智能切换），
+// 单一来源：ncmapi 模块的 LocalSources（关闭 / 单个源），
 // PlayerApi 的本地源探测引用同一份，避免 UI 与探测链漂移。
 val localSourceOptions: List<LocalSourceOption> =
     com.rcmiku.ncmapi.api.LocalSources.OPTIONS.map {

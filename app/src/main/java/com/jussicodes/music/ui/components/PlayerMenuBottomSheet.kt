@@ -128,7 +128,11 @@ fun PlayerMenuBottomSheet(
 
     // Global local-source picker state (no per-song override: a pick applies to
     // the whole app until the user changes it again).
-    var localSource by rememberPreference(localSourceKey, "AUTO")
+    var localSource by rememberPreference(localSourceKey, "byfuns")
+    // 旧版默认/存过的"智能切换"(AUTO) 选项已删：一次性迁移到默认源 byfuns（写回即持久化）。
+    LaunchedEffect(Unit) {
+        if (localSource == "AUTO") localSource = "byfuns"
+    }
     var showSourcePicker by rememberSaveable { mutableStateOf(false) }
     val sourceLabel = localSourceOptions.firstOrNull { it.value == localSource }?.label ?: localSource
 
@@ -345,7 +349,7 @@ fun PlayerMenuBottomSheet(
 }
 
 /**
- * Picker for the global local source (关闭 / 智能切换 / 单个源). Selecting a
+ * Picker for the global local source (关闭 / 单个源). Selecting a
  * value persists it to [localSourceKey]; the whole app follows it until the
  * user picks something else — no per-song override.
  */
