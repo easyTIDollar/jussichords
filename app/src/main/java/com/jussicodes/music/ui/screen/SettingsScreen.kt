@@ -132,6 +132,7 @@ import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.utils.sourceById
 import com.rcmiku.ncmapi.api.account.AccountApi
+import com.rcmiku.ncmapi.api.LocalSources
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.utils.json
 import com.rcmiku.ncmapi.utils.parseCookieString
@@ -157,10 +158,10 @@ fun SettingsScreen(navController: NavHostController) {
     var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
-    var localSource by rememberPreference(localSourceKey, "byfuns")
+    var localSource by rememberPreference(localSourceKey, LocalSources.DEFAULT)
     // 旧版默认/存过的"智能切换"(AUTO) 选项已删：一次性迁移到默认源 byfuns（写回即持久化）。
     LaunchedEffect(Unit) {
-        if (localSource == "AUTO") localSource = "byfuns"
+        if (localSource == "AUTO") localSource = LocalSources.DEFAULT
     }
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     var playerGestureTutorialVersion by rememberPreference(

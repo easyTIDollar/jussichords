@@ -67,6 +67,7 @@ import com.jussicodes.music.ui.icons.Timer
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.ui.components.localSourceOptions
+import com.rcmiku.ncmapi.api.LocalSources
 import com.rcmiku.ncmapi.model.Song
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -128,10 +129,10 @@ fun PlayerMenuBottomSheet(
 
     // Global local-source picker state (no per-song override: a pick applies to
     // the whole app until the user changes it again).
-    var localSource by rememberPreference(localSourceKey, "byfuns")
+    var localSource by rememberPreference(localSourceKey, LocalSources.DEFAULT)
     // 旧版默认/存过的"智能切换"(AUTO) 选项已删：一次性迁移到默认源 byfuns（写回即持久化）。
     LaunchedEffect(Unit) {
-        if (localSource == "AUTO") localSource = "byfuns"
+        if (localSource == "AUTO") localSource = LocalSources.DEFAULT
     }
     var showSourcePicker by rememberSaveable { mutableStateOf(false) }
     val sourceLabel = localSourceOptions.firstOrNull { it.value == localSource }?.label ?: localSource

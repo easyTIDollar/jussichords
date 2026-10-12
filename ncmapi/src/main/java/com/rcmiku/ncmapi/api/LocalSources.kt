@@ -12,10 +12,10 @@ object LocalSources {
 
     data class Option(val value: String, val label: String, val description: String = "")
 
-    /** 本地源 key（单个源直连选项的取值；「关闭」为 OFF）。 */
-    val LOCAL_KEYS = listOf("byfuns", "ddyr", "gdmusic", "oi", "qijieya", "msls")
+    /** 本地源默认值：第一个非关闭选项（byfuns）。 */
+    const val DEFAULT = "byfuns"
 
-    /** UI 选择器列表：关闭 + 单个源（无"智能切换"；默认源 byfuns = 列表第一个非关闭项）。 */
+    /** UI 选择器列表：关闭 + 单个源（无"智能切换"；顺序即 UI 呈现顺序）。 */
     val OPTIONS = listOf(
         Option(OFF, "关闭", "不使用本地直连，维持 API 代理解灰"),
         Option("byfuns", "Byfuns", "网易云高品质/无损直连解析"),
@@ -25,9 +25,6 @@ object LocalSources {
         Option("qijieya", "Qijieya", "七街 Meting 网易云解析"),
         Option("msls", "Msls", "聚合直连解析"),
     )
-
-    /** 本地源默认值：第一个非关闭选项（byfuns）。 */
-    const val DEFAULT = "byfuns"
 
     fun fromKey(key: String): Option? = OPTIONS.find { it.value.equals(key, ignoreCase = true) }
 }
