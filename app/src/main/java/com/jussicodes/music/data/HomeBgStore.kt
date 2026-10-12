@@ -1,10 +1,13 @@
 package com.jussicodes.music.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.ceil
 
 /**
  * 主页背景图（"我的"/"探索"页底层）：选中的图片拷贝到 filesDir/home_bg/，
@@ -19,8 +22,17 @@ object HomeBgStore {
         data class Failure(val reason: String) : HomeBgSelectResult()
     }
 
+    /** 写入目标边长上限（px）：主页背景按全屏拉伸显示，超过此尺寸只增大解码/拷贝成本。 */
+    private const val MAX_DIM_PX = 2560
+
+    /** 新写入的位图压缩质量（0..100）：视觉无感 + 显著降低拷贝与解码时间。 */
+    private const val JPEG_QUALITY = 85
+
     /**
      * 把 picker 选中的 Uri 拷贝成本地文件；失败返回 [HomeBgSelectResult.Failure]（带原因）。
+     * 优先解码后下采样到 [MAX_DIM_PX] 内再写 JPEG：全尺寸照片原样拷贝既慢（I/O）又拖慢
+     * 跳回首页后的 Coil 全尺寸解码（"选完图没马上跳转"的主因）；任何解码失败自动回退
+     * 原 raw copy 路径，保证各类来源（DocumentsUI/截图/网络图）都进得来。
      * 每次生成时间戳唯一文件名：Coil 以文件路径为缓存 key，
      * 若写死 home_bg.jpg，换图后同路径命中旧位图内存缓存，需重启应用才生效。
      * 不清理旧文件——编辑模式取消时需要旧图还在；清理由 commit/prune/deleteFile 负责。
@@ -42,17 +54,63 @@ object HomeBgStore {
                 if (stream == null) {
                     lastError = "图片流打不开（openInputStream 返回 null，第 $attempt 次）"
                 } else {
-                    val ok = stream.use { input ->
-                        target.outputStream().use { out ->
-                            val buffer = ByteArray(64 * 1024)
-                            var total = 0L
-                            while (true) {
-                                val n = input.read(buffer)
-                                if (n < 0) break
-                                out.write(buffer, 0, n)
-                                total += n
+                    var ok = false
+                    var resized = false
+                    // BufferedInputStream 保证 mark/reset 语义：bounds 解码后 reset 回去给
+                    // 正式解码用（contentResolver 原始流 reset 无保证，直接 reset 会 IOException）。
+                    stream.use { raw ->
+                        val input = android.io.BufferedInputStream(raw)
+                        input.mark(Int.MAX_VALUE)
+                        // 先试解码下采样：一次修复"拷贝慢 + 跳回首页后预览还要全尺寸解码慢"
+                        try {
+                            val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            BitmapFactory.decodeStream(input, null, boundsOpts)
+                            input.reset()
+                            if (boundsOpts.outWidth > 0 || boundsOpts.outHeight > 0) {
+                                val srcW = boundsOpts.outWidth
+                                val srcH = boundsOpts.outHeight
+                                val sampleSize =
+                                    ceil(maxOf(srcW, srcH) / MAX_DIM_PX.toFloat()).toInt().coerceAtLeast(1)
+                                val opts = BitmapFactory.Options().apply {
+                                    inSampleSize = sampleSize
+                                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                                }
+                                val bitmap = BitmapFactory.decodeStream(input, null, opts)
+                                if (bitmap != null) {
+                                    target.outputStream().use { out ->
+                                        ok = bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+                                    }
+                                    bitmap.recycle()
+                                    resized = ok
+                                    android.util.Log.i(
+                                        "JussicordsBg",
+                                        "select resized ${srcW}x$srcH sample=$sampleSize ok=$ok"
+                                    )
+                                } else {
+                                    lastError = "图片解码失败（decodeStream 返回 null，第 $attempt 次）"
+                                }
                             }
-                            total > 0L
+                        } catch (ex: Exception) {
+                            // 解码路失败不致命：回退 raw copy（下面），原因只记录不中断
+                            android.util.Log.w("JussicordsBg", "select decode fallback (attempt=$attempt)", ex)
+                        }
+                        if (!ok && !resized) {
+                            // raw copy fallback（原逻辑）：覆盖写 target
+                            input.reset()
+                            ok = target.outputStream().use { out ->
+                                val buffer = ByteArray(64 * 1024)
+                                var total = 0L
+                                while (true) {
+                                    val n = input.read(buffer)
+                                    if (n < 0) break
+                                    out.write(buffer, 0, n)
+                                    total += n
+                                }
+                                total > 0L
+                            }
+                            if (!ok) {
+                                lastError = "图片流为空（读到 0 字节，第 $attempt 次）"
+                            }
                         }
                     }
                     if (ok) {
