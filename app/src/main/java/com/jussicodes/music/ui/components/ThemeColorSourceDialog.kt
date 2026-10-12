@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -42,6 +43,8 @@ fun ThemeColorSourceDialog(
     onHomeBgTune: () -> Unit,
     onHomeBgOpacityChanged: (Float) -> Unit,
     onHomeBgBlurChanged: (Float) -> Unit,
+    homeBgTextColor: String,
+    onHomeBgTextColorChanged: (String) -> Unit,
     homeTransparentCard: Boolean,
     onHomeTransparentCardChange: (Boolean) -> Unit,
 ) {
@@ -240,6 +243,34 @@ fun ThemeColorSourceDialog(
                                     TextButton(onClick = onHomeBgRemoved) {
                                         Text("移除")
                                     }
+                                }
+                            }
+                        }
+
+                        // 字体颜色三档（背景太亮/太暗时选白字/黑字，避免看不清）；
+                        // 仅当设置了背景图才显示——没背景图时文字走主题，无可调。
+                        if (homeBg.enabled) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = "字体颜色",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                listOf(
+                                    "auto" to "自动",
+                                    "white" to "白字",
+                                    "black" to "黑字",
+                                ).forEach { (mode, label) ->
+                                    FilterChip(
+                                        selected = homeBgTextColor == mode,
+                                        onClick = { onHomeBgTextColorChanged(mode) },
+                                        label = { Text(label) },
+                                    )
                                 }
                             }
                         }

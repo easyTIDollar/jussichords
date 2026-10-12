@@ -48,6 +48,8 @@ val homeBgOpacityKey = floatPreferencesKey("homeBgOpacity")
 val homeBgBlurKey = floatPreferencesKey("homeBgBlur")
 val homeBgOffsetXKey = floatPreferencesKey("homeBgOffsetX")
 val homeBgOffsetYKey = floatPreferencesKey("homeBgOffsetY")
+/** 主页（我的/探索）文字颜色："auto"（默认，跟随主题）/"white"/"black"。 */
+val homeBgTextColorKey = stringPreferencesKey("homeBgTextColor")
 val githubDownloadSourceKey = stringPreferencesKey("githubDownloadSource")
 val playerGestureTutorialVersionKey = intPreferencesKey("playerGestureTutorialVersion")
 val homeTransparentCardKey = booleanPreferencesKey("homeTransparentCard")

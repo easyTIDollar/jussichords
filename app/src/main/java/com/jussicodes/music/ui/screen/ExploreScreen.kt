@@ -56,6 +56,7 @@ import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.AlbumThumbnailSize
 import com.jussicodes.music.constants.ListItemHeight
+import com.jussicodes.music.data.HomeBgTextStore
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
@@ -65,6 +66,7 @@ import com.jussicodes.music.ui.components.PlaylistGridItem
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
 import com.jussicodes.music.ui.components.TopBar
+import com.jussicodes.music.ui.components.resolveHomeBgTextColor
 import com.jussicodes.music.ui.navigation.PlaylistNav
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.viewModel.ExploreScreenViewModel
@@ -111,10 +113,22 @@ fun ExploreScreen(
         }
     }
 
+    // 主页文字色（设置页「外观」选择）：auto 档不覆盖（scheme 原样，逐像素一致、零重绘）；
+    // 白/黑档用本地 ColorScheme 覆盖整页（卡片内 onSurface/onSurfaceVariant 读取处自动跟随）。
+    val bgTextMode = HomeBgTextStore.state.collectAsState().value
+    val bgTextColor = resolveHomeBgTextColor(bgTextMode, MaterialTheme.colorScheme)
+    MaterialTheme(colorScheme = if (bgTextMode == "auto") {
+        MaterialTheme.colorScheme
+    } else {
+        MaterialTheme.colorScheme.copy(
+            onSurface = bgTextColor,
+            onSurfaceVariant = bgTextColor.copy(alpha = 0.85f),
+        )
+    }) {
     Scaffold(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
         topBar = {
-            TopBar(navController = navController, titleRes = R.string.explore, transparent = true)
+            TopBar(navController = navController, titleRes = R.string.explore, transparent = true, contentColor = bgTextColor)
         },
     ) { padding ->
             PullToRefreshBox(
@@ -265,6 +279,7 @@ fun ExploreScreen(
                     }
                 }
             }
+    }
     }
 
     SongMenuBottomSheet(

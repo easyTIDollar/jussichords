@@ -175,6 +175,8 @@ fun SettingsScreen(navController: NavHostController) {
     var homeBgOpacity by rememberPreference(homeBgOpacityKey, 1f)
     var homeBgBlur by rememberPreference(homeBgBlurKey, 0f)
     val homeTransparentCard = com.jussicodes.music.data.HomeTransparentCardStore.state.collectAsState().value
+    // 主页文字颜色（设置页「外观」选择）：进程级 store，auto/white/black。
+    val homeBgTextColor = com.jussicodes.music.data.HomeBgTextStore.state.collectAsState().value
     var homeBgOffsetX by rememberPreference(homeBgOffsetXKey, 0f)
     var homeBgOffsetY by rememberPreference(homeBgOffsetYKey, 0f)
     val homeBg = remember(
@@ -693,6 +695,12 @@ fun SettingsScreen(navController: NavHostController) {
             onHomeBgTune = { startHomeBgEdit(homeBg, ownsFile = false) },
             onHomeBgOpacityChanged = { homeBgOpacity = it },
             onHomeBgBlurChanged = { homeBgBlur = it },
+            homeBgTextColor = homeBgTextColor,
+            onHomeBgTextColorChanged = { v ->
+                coroutineScope.launch {
+                    com.jussicodes.music.data.HomeBgTextStore.set(context, v)
+                }
+            },
             homeTransparentCard = homeTransparentCard,
             onHomeTransparentCardChange = {
                 coroutineScope.launch {

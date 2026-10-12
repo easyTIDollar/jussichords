@@ -25,11 +25,15 @@ fun TopBar(
     @StringRes titleRes: Int,
     /** false 时顶栏透明（用于"我的"/"探索"页叠加在背景图上）。默认保持原来的表面色。 */
     transparent: Boolean = false,
+    /** 标题/图标文字色（透明顶栏覆盖主页背景时可选白/黑字）；null = 用默认 onSurface。 */
+    contentColor: Color? = null,
 ) = TopAppBar(
     title = { Text(stringResource(titleRes)) },
     colors = if (transparent) {
         TopAppBarDefaults.topAppBarColors(
             containerColor = Color.Transparent,
+            titleContentColor = contentColor ?: Color.Unspecified,
+            actionIconContentColor = contentColor ?: Color.Unspecified,
         )
     } else {
         TopAppBarDefaults.topAppBarColors(
