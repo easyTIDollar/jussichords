@@ -520,7 +520,8 @@ fun SettingsScreen(navController: NavHostController) {
     )
 
     val advancedGroup = SettingGroupData(
-        name = "高级",
+        name = "音源一",
+        subtitle = "直连音源",
         items = listOf(
             SettingItemData(
                 title = "本地音乐源",
@@ -580,7 +581,8 @@ fun SettingsScreen(navController: NavHostController) {
     )
 
     val advanced2Group = SettingGroupData(
-        name = "进阶",
+        name = "音源二",
+        subtitle = "代理音源",
         note = "支持自建 api-enhanced 服务器",
         items = listOf(
             SettingItemData(
@@ -889,12 +891,26 @@ fun SettingsScreen(navController: NavHostController) {
 private fun SettingGroupCard(group: SettingGroupData) {
     val colors = MaterialTheme.colorScheme
     Column {
-        Text(
-            text = group.name,
-            style = MaterialTheme.typography.titleSmall,
-            color = colors.primary,
-            modifier = Modifier.padding(start = 6.dp, bottom = 6.dp)
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = group.name,
+                style = MaterialTheme.typography.titleSmall,
+                color = colors.primary,
+                modifier = Modifier.padding(start = 6.dp, bottom = 6.dp)
+            )
+            Spacer(Modifier.weight(1f))
+            group.subtitle?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 8.dp, bottom = 6.dp)
+                )
+            }
+        }
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer)
@@ -1005,6 +1021,7 @@ data class SettingGroupData(
     val name: String,
     val items: List<SettingItemData>,
     val note: String? = null,
+    val subtitle: String? = null,
 )
 
 @Composable
