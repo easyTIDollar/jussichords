@@ -528,8 +528,49 @@ fun SettingsScreen(navController: NavHostController) {
                 subtitle = localSourceOptions.firstOrNull { it.value == localSource }?.label,
                 imageVector = MusicNote,
                 onClick = { showLocalSourceDialog = true }
+            )
+        )
+    )
+
+    val advanced2Group = SettingGroupData(
+        name = "音源二",
+        subtitle = "代理音源",
+        note = "支持自建 api-enhanced 服务器",
+        items = listOf(
+            SettingItemData(
+                title = stringResource(R.string.api_server),
+                subtitle = apiBaseUrl.ifBlank { "未设置" },
+                warning = httpWarning,
+                imageVector = Dns,
+                onClick = { showApiServerDialog = true }
             ),
-            // 行尾齿轮：弹「更换更新源」（原「更新源」行并入此处）；行体点击仍直接检查更新。
+            SettingItemData(
+                title = "音乐源",
+                subtitle = unblockSourceOptions.firstOrNull { it.value == unblockSource }?.label,
+                imageVector = MusicNote,
+                onClick = { showUnblockSourceDialog = true },
+                trailingContent = {
+                    IconButton(onClick = { showUnblockSourceDialog = true }) {
+                        Icon(
+                            imageVector = SettingsGear,
+                            contentDescription = "更换音乐源",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            )
+        )
+    )
+
+    val aboutGroup = SettingGroupData(
+        name = "关于",
+        items = listOf(
+            SettingItemData(
+                title = "jussichords",
+                subtitle = "简洁的第三方网易云音乐客户端",
+                imageVector = MusicNote
+            ),
             SettingItemData(
                 title = if (updating) "正在检查" else "检查更新",
                 subtitle = sourceById(githubDownloadSource)?.name?.let { "$it · v${BuildConfig.VERSION_NAME}" }
@@ -580,48 +621,6 @@ fun SettingsScreen(navController: NavHostController) {
         )
     )
 
-    val advanced2Group = SettingGroupData(
-        name = "音源二",
-        subtitle = "代理音源",
-        note = "支持自建 api-enhanced 服务器",
-        items = listOf(
-            SettingItemData(
-                title = stringResource(R.string.api_server),
-                subtitle = apiBaseUrl.ifBlank { "未设置" },
-                warning = httpWarning,
-                imageVector = Dns,
-                onClick = { showApiServerDialog = true }
-            ),
-            SettingItemData(
-                title = "音乐源",
-                subtitle = unblockSourceOptions.firstOrNull { it.value == unblockSource }?.label,
-                imageVector = MusicNote,
-                onClick = { showUnblockSourceDialog = true },
-                trailingContent = {
-                    IconButton(onClick = { showUnblockSourceDialog = true }) {
-                        Icon(
-                            imageVector = SettingsGear,
-                            contentDescription = "更换音乐源",
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            )
-        )
-    )
-
-    val aboutGroup = SettingGroupData(
-        name = "关于",
-        items = listOf(
-            SettingItemData(
-                title = "jussichords",
-                subtitle = "简洁的第三方网易云音乐客户端",
-                imageVector = MusicNote
-            )
-        )
-    )
-
     val groups = listOf(accountGroup, uiGroup, playbackGroup, advancedGroup, advanced2Group, aboutGroup)
 
     // 搜索：按标题 / 副标题 / 分组名过滤，无结果的分组整组隐藏
@@ -661,7 +660,7 @@ fun SettingsScreen(navController: NavHostController) {
                 start = 12.dp,
                 top = padding.calculateTopPadding(),
                 end = 12.dp,
-                bottom = bottomInset
+                bottom = bottomInset + 16.dp
             ),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
