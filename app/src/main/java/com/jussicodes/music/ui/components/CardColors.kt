@@ -19,11 +19,8 @@ fun transparentCardColor(): Color {
 }
 
 /**
- * 用户信息卡容器颜色：开 = 薄玻璃（极淡、随深浅色自适应），关 = surfaceContainerLow。
- *
- * 深色下不能用近白（纯白 0.18 会读成"闪白"：从探索划回主页时那块亮白玻璃带从边缘扫过
- * 视野，就是用户看到的"闪白一下"）。改成极淡的中性玻璃（深色微亮 0.06 / 浅色微暗 0.05），
- * 既保留"晶莹剔透"的薄玻璃感，又不是一抹白雾。
+ * 用户信息卡容器颜色：开 = 薄玻璃（深色近白 / 浅色半透明深灰，随深浅色自适应），
+ * 关 = surfaceContainerLow。
  */
 @Composable
 fun userCardGlassColor(): Color {
@@ -31,7 +28,7 @@ fun userCardGlassColor(): Color {
     val isDark = isSystemInDarkTheme()
     return when {
         !on -> MaterialTheme.colorScheme.surfaceContainerLow
-        isDark -> Color(0xFFFFFFFF).copy(alpha = 0.06f)
-        else -> Color(0xFF1B1B1F).copy(alpha = 0.05f)
+        isDark -> Color(0xFFFFFFFF).copy(alpha = 0.18f)
+        else -> Color(0xFF1B1B1F).copy(alpha = 0.12f)
     }
 }
