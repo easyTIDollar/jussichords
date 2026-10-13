@@ -175,7 +175,7 @@ class LxPluginEngine(private val context: Context) {
         )
         wv.evaluateJavascript(item.rawScript, null)
 
-        sandbox = Sandbox(pluginId, wv, item.supportedSources)
+        sandbox = Sandbox(pluginId, wv, item.sources)
         sandbox
     }
 

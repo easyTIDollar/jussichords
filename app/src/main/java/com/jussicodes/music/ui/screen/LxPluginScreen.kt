@@ -45,7 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,7 +73,7 @@ import kotlinx.coroutines.launch
 fun LxPluginScreen(navController: NavHostController) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val plugins by LxPluginManager.plugins.collectAsState()
+    val plugins by LxPluginManager.plugins.collectAsState(initial = emptyList())
 
     var importing by remember { mutableStateOf(false) }
     var pendingDuplicate by remember { mutableStateOf<Pair<LxPluginItem, LxPluginItem>?>(null) }
@@ -97,7 +97,7 @@ fun LxPluginScreen(navController: NavHostController) {
                         LxPluginManager.confirmImport(r.item, null)
                         Toast.makeText(context, "已导入 ${r.item.name}", Toast.LENGTH_SHORT).show()
                     }
-                    is ImportResult.Duplicate -> pendingDuplicate = r.existing to r.item
+                    is ImportResult.Duplicate -> pendingDuplicate = r.existing to r.newItem
                     is ImportResult.Failure ->
                         Toast.makeText(context, "导入失败：${r.message}", Toast.LENGTH_LONG).show()
                 }
@@ -225,7 +225,7 @@ fun LxPluginScreen(navController: NavHostController) {
                                 LxPluginManager.confirmImport(r.item, null)
                                 Toast.makeText(context, "已导入 ${r.item.name}", Toast.LENGTH_SHORT).show()
                             }
-                            is ImportResult.Duplicate -> pendingDuplicate = r.existing to r.item
+                            is ImportResult.Duplicate -> pendingDuplicate = r.existing to r.newItem
                             is ImportResult.Failure ->
                                 Toast.makeText(context, "导入失败：${r.message}", Toast.LENGTH_LONG).show()
                         }

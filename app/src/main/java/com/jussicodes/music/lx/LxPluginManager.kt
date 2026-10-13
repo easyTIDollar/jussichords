@@ -40,7 +40,7 @@ object LxPluginManager {
             appContext = context.applicationContext
             engine = LxPluginEngine(context.applicationContext).also { e ->
                 // 沙盒懒创建时要能按 id 拿到脚本正文
-                e.itemProvider = { id -> LxPluginStore.latest?.firstOrNull { it.id == id } }
+                e.itemProvider = { id -> LxPluginStore.latest.value.firstOrNull { it.id == id } }
             }
         }
     }
@@ -55,10 +55,10 @@ object LxPluginManager {
         val info = parseHeader(script)
         val candidate = LxPluginItem(
             id = UUID.randomUUID().toString(),
-            name = name.ifBlank { info.first },
-            version = info.second,
-            author = info.third,
-            description = info.fourth,
+            name = name.ifBlank { info.name },
+            version = info.version,
+            author = info.author,
+            description = info.description,
             rawScript = script
         )
         val sources = runCatching { engine?.verify(candidate).orEmpty() }.getOrDefault(emptyList())
@@ -160,7 +160,7 @@ object LxPluginManager {
         put("singer", song.ar.joinToString("/") { it.name })
         put("albumName", song.al.name)
         put("interval", "%02d:%02d".format(song.dt / 60000, (song.dt / 1000) % 60))
-    }
+    }.toString()
 
     private fun mapQuality(songLevel: String): String = when (songLevel) {
         "standard" -> "128k"
@@ -170,8 +170,15 @@ object LxPluginManager {
         else -> "flac24bit"
     }
 
-    /** 读脚本头部注释：@name / @version / @author / @description（照 Melodia LxScriptSupport）。 */
-    private fun parseHeader(script: String): List<String> {
+    /** 脚本头部注释（照 Melodia LxScriptSupport 的 @name/@version/@author/@description）。 */
+    private data class ScriptHeader(
+        val name: String,
+        val version: String,
+        val author: String,
+        val description: String
+    )
+
+    private fun parseHeader(script: String): ScriptHeader {
         var name = "未命名脚本"
         var version = ""
         var author = ""
@@ -185,7 +192,7 @@ object LxPluginManager {
                 t.contains("@description") -> desc = t.substringAfter("@description").trim()
             }
         }
-        return listOf(name, version, author, desc)
+        return ScriptHeader(name, version, author, desc)
     }
 
     private const val MAX_WARM_PLUGINS = 5

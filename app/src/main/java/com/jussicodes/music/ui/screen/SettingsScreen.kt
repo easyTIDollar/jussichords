@@ -164,7 +164,7 @@ fun SettingsScreen(navController: NavHostController) {
         if (localSource == "AUTO") localSource = LocalSources.DEFAULT
     }
     // 「音源三」行副标题：LX 脚本的启用情况（脚本正文存在 DataStore，这里只读条数/启用数）。
-    val lxPlugins by com.jussicodes.music.lx.LxPluginManager.plugins.collectAsState()
+    val lxPlugins by com.jussicodes.music.lx.LxPluginManager.plugins.collectAsState(initial = emptyList())
     val lxScriptSummary = when {
         lxPlugins.isEmpty() -> "未导入脚本"
         lxPlugins.none { it.isEnabled } -> "${lxPlugins.size} 个脚本（全部停用）"
