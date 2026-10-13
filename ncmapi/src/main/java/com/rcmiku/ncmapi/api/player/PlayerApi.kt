@@ -2,10 +2,10 @@ package com.rcmiku.ncmapi.api.player
 
 import android.util.Log
 import com.rcmiku.ncmapi.api.API_BASE_URL
+import com.rcmiku.ncmapi.api.AudioSourceSettings
+import com.rcmiku.ncmapi.api.AudioSources
 import com.rcmiku.ncmapi.api.LocalSourceFetcher
 import com.rcmiku.ncmapi.api.LxSourceBridge
-import com.rcmiku.ncmapi.api.LocalSourceSettings
-import com.rcmiku.ncmapi.api.LocalSources
 import com.rcmiku.ncmapi.api.UNBLOCK_SOURCE
 import com.rcmiku.ncmapi.api.apiClient
 import com.rcmiku.ncmapi.api.apiGet
@@ -46,50 +46,37 @@ object PlayerApi {
             return apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
         }
 
-        // VIP（fee==1）：先试设置里选的本地直连源（客户端直接 GET 第三方公开接口，
-        // 不经代理、不经 NCM 加密通道，照抄 Melodia 六源）。
-        val localSourceOn = LocalSourceSettings.SONG_SOURCE != LocalSources.OFF
-        val localUrl = if (localSourceOn) tryLocalSourceUrl(realId, songLevel) else null
-        if (localUrl != null) {
-            Log.d("PlayerApi", "Local source resolved songId=$realId url=$localUrl")
-            return Result.success(SongUrlResponse(data = listOf(
-                SongUrl(id = realId.toLong(), url = localUrl, br = 320000)
-            )))
-        }
-
-        // 防冲突：本地源开启时，VIP 歌不再走 API 解灰链（用户要求本地优先即本地唯一），
-        // 本地源未命中直接落到官方直连兜底；本地源关闭才用设置里选的 API 服务器解灰。
-        if (!localSourceOn) {
+        // VIP（fee==1）：三选一音源（LX 脚本 / 内置直连 / 代理解灰），互斥不串联。
+        // 客户端侧（LX / 内置直连）开启时不再走 API 解灰链；只有代理模式才用服务器解灰。
+        val selected = AudioSourceSettings.SELECTED
+        val clientSideSelected = selected == AudioSources.LX || selected == AudioSources.DIRECT
+        if (clientSideSelected) {
+            val clientUrl = when (selected) {
+                AudioSources.LX -> LxSourceBridge.resolver?.invoke(realId, songLevel.value)
+                else -> tryDirectSourceUrl(realId)
+            }
+            if (!clientUrl.isNullOrBlank()) {
+                Log.d("PlayerApi", "Client source ($selected) resolved songId=$realId")
+                return Result.success(SongUrlResponse(data = listOf(
+                    SongUrl(id = realId.toLong(), url = clientUrl, br = 320000)
+                )))
+            }
+        } else {
             val unblockResult = tryUnblockUrl(realId, source)
             if (unblockResult.hasPlayableUrl()) return unblockResult
         }
 
-        // 最后兜底：官方直连。本地源开启时 VIP 歌在此回 30 秒试听占位（账号有会员则完整 url）；
-        // 本地源关闭且解灰失败时也是走这条官方直连。
+        // 最后兜底：官方直连。客户端音源开启时 VIP 歌在此回 30 秒试听占位（账号有会员则完整 url）；
+        // 代理音源模式下解灰失败时也是走这条官方直连。
         return apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
     }
 
     private fun songUrlParams(songId: String, songLevel: SongLevel, unblock: Boolean): Map<String, Any> =
         mapOf("id" to songId, "level" to songLevel.value, "unblock" to unblock)
 
-    /**
-     * 本地直连音源探测（照 Melodia）：OFF 直接跳过；单源则只试它。
-     * 命中返回直链，否则 null（交回代理解灰链）。
-     */
-    private suspend fun tryLocalSourceUrl(songId: String, songLevel: SongLevel): String? {
-        val chosen = LocalSourceSettings.SONG_SOURCE
-        if (chosen == LocalSources.OFF) return null
-        // LX 脚本源：解析跑在 app 侧的 WebView 沙盒里（ncmapi 无 Context），
-        // 未注入或未命中返回 null，落到下面的官方直连兜底。
-        if (chosen == LocalSources.LX) {
-            val url = LxSourceBridge.resolver?.invoke(songId, songLevel.value)
-            if (!url.isNullOrBlank()) {
-                Log.d("PlayerApi", "LX plugin resolved songId=$songId url=$url")
-                return url
-            }
-            return null
-        }
-        for (m in listOf(chosen.lowercase())) {
+    /** 内置直连：按 [LocalSourceFetcher] 的顺序逐个试，命中即返回（照 Melodia 六源）。 */
+    private fun tryDirectSourceUrl(songId: String): String? {
+        for (m in LocalSources.DIRECT_KEYS) {
             val url = LocalSourceFetcher.fetch(m, songId)
             if (url != null) {
                 Log.d("PlayerApi", "Local source '$m' hit for songId=$songId")

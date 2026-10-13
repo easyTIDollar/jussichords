@@ -7,37 +7,7 @@ package com.rcmiku.ncmapi.api
  * UI 选择器与 PlayerApi 共用这一份选项，避免两处漂移（同 UnblockSources 模式）。
  */
 object LocalSources {
-    /** 关闭本地直连：维持现状走 API 代理解灰链。 */
-    const val OFF = "OFF"
 
-    data class Option(val value: String, val label: String, val description: String = "")
-
-    /** 本地源默认值：第一个非关闭选项（byfuns）。 */
-    const val DEFAULT = "byfuns"
-
-    /**
-     * LX 脚本源：不走第三方公开接口，由 app 侧 WebView 沙盒运行用户导入的
-     * LX Music 社区 JS 脚本解析直链。与其他本地源互斥——选中它就不试直连六源，
-     * 也不出代理解灰链（同一套互斥规则）。
-     */
-    const val LX = "lx"
-
-    /** UI 选择器列表：关闭 + 单个源（无"智能切换"；顺序即 UI 呈现顺序）。 */
-    val OPTIONS = listOf(
-        Option(OFF, "关闭", "不使用本地直连，维持 API 代理解灰"),
-        Option(LX, "LX 脚本", "运行自定义 JS 脚本解析直链，点此进入脚本管理"),
-        Option("byfuns", "Byfuns", "网易云高品质/无损直连解析"),
-        Option("ddyr", "Ddyr", "网易云高品质直连解析"),
-        Option("gdmusic", "Gdmusic", "GD 音乐台直连解析"),
-        Option("oi", "Oi", "OiAPI 网易云直链解析"),
-        Option("qijieya", "Qijieya", "七街 Meting 网易云解析"),
-        Option("msls", "Msls", "聚合直连解析"),
-    )
-
-    fun fromKey(key: String): Option? = OPTIONS.find { it.value.equals(key, ignoreCase = true) }
-}
-
-/** 运行期设置，由 App 侧从 datastore 同步（同 UNBLOCK_SOURCE 模式）。 */
-object LocalSourceSettings {
-    var SONG_SOURCE: String = LocalSources.OFF
+    /** 内置直连源按顺序逐个尝试，命中即停（照 Melodia 的六源探测）。 */
+    val DIRECT_KEYS: List<String> = listOf("byfuns", "ddyr", "gdmusic", "oi", "qijieya", "msls")
 }

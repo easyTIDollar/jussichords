@@ -48,7 +48,7 @@ import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MediaSessionConstants
-import com.jussicodes.music.constants.localSourceKey
+import com.jussicodes.music.constants.audioSourceKey
 import com.jussicodes.music.playback.ListenTogetherSession
 import com.jussicodes.music.constants.audioEffectEightDEnabledKey
 import com.jussicodes.music.constants.audioEffectIntensityKey
@@ -66,8 +66,8 @@ import com.jussicodes.music.ui.icons.Timelapse
 import com.jussicodes.music.ui.icons.Timer
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
-import com.jussicodes.music.ui.components.localSourceOptions
-import com.rcmiku.ncmapi.api.LocalSources
+import com.jussicodes.music.ui.components.audioSourceOptions
+import com.rcmiku.ncmapi.api.AudioSources
 import com.rcmiku.ncmapi.model.Song
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -127,15 +127,11 @@ fun PlayerMenuBottomSheet(
     // 一起听会话状态（用于菜单卡右侧显示进房状态）
     val listenTogetherState by ListenTogetherSession.state.collectAsState()
 
-    // Global local-source picker state (no per-song override: a pick applies to
+    // Global audio-source picker state (no per-song override: a pick applies to
     // the whole app until the user changes it again).
-    var localSource by rememberPreference(localSourceKey, LocalSources.DEFAULT)
-    // 旧版默认/存过的"智能切换"(AUTO) 选项已删：一次性迁移到默认源 byfuns（写回即持久化）。
-    LaunchedEffect(Unit) {
-        if (localSource == "AUTO") localSource = LocalSources.DEFAULT
-    }
+    var audioSource by rememberPreference(audioSourceKey, AudioSources.DEFAULT)
     var showSourcePicker by rememberSaveable { mutableStateOf(false) }
-    val sourceLabel = localSourceOptions.firstOrNull { it.value == localSource }?.label ?: localSource
+    val sourceLabel = audioSourceOptions.firstOrNull { it.value == audioSource }?.label ?: audioSource
 
     LaunchedEffect(openBottomSheet) {
         if (openBottomSheet) {
@@ -248,7 +244,7 @@ fun PlayerMenuBottomSheet(
                                 MenuDivider()
                                 MenuRow(
                                     icon = Dns,
-                                    title = "本地音源",
+                                    title = "切换音源",
                                     value = sourceLabel,
                                     iconAlpha = 1f,
                                     onClick = {
@@ -317,14 +313,18 @@ fun PlayerMenuBottomSheet(
 
     if (showSourcePicker) {
         LocalSourcePickerSheet(
-            currentSource = localSource,
+            currentSource = audioSource,
             onDismiss = { showSourcePicker = false },
             onApply = { selected ->
-                localSource = selected
+                audioSource = selected
                 showSourcePicker = false
+                // 立刻用新音源重新解析当前这首歌（cacheKey 含音源代号，不会复用旧直链）
+                com.jussicodes.music.playback.PlaybackReloadBus.sourceTag = selected
+                com.rcmiku.ncmapi.api.AudioSourceSettings.SELECTED = selected
+                com.jussicodes.music.playback.PlaybackReloadBus.requestReload()
                 Toast.makeText(
                     context,
-                    "本地音源：${localSourceOptions.firstOrNull { it.value == selected }?.label ?: selected}",
+                    "音源：${audioSourceOptions.firstOrNull { it.value == selected }?.label ?: selected}",
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -351,7 +351,7 @@ fun PlayerMenuBottomSheet(
 
 /**
  * Picker for the global local source (关闭 / 单个源). Selecting a
- * value persists it to [localSourceKey]; the whole app follows it until the
+ * value persists it to [audioSourceKey]; the whole app follows it until the
  * user picks something else — no per-song override.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -374,11 +374,11 @@ private fun LocalSourcePickerSheet(
                 .padding(vertical = 12.dp)
         ) {
             Text(
-                text = "选择本地音源",
+                text = "选择音源（三选一）",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
-            localSourceOptions.forEach { option ->
+            audioSourceOptions.forEach { option ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

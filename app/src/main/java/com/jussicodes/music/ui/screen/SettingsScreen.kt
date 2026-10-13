@@ -77,7 +77,7 @@ import com.jussicodes.music.constants.apiServerListKey
 import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
-import com.jussicodes.music.constants.localSourceKey
+import com.jussicodes.music.constants.audioSourceKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
@@ -91,7 +91,6 @@ import com.jussicodes.music.constants.homeBgScaleKey
 import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.lyric.DesktopLyricManager
-import com.jussicodes.music.ui.components.LocalSourceDialog
 import com.jussicodes.music.ui.components.ScaledDialogContent
 import com.jussicodes.music.ui.components.Dialog
 import com.jussicodes.music.ui.components.SongQualityDialog
@@ -99,7 +98,6 @@ import com.jussicodes.music.ui.components.ThemeColorSourceDialog
 import com.jussicodes.music.ui.components.HomeBackgroundConfig
 import com.jussicodes.music.ui.components.UnblockSourceDialog
 import com.jussicodes.music.ui.components.UpdateDialog
-import com.jussicodes.music.ui.components.localSourceOptions
 import com.jussicodes.music.ui.components.unblockSourceOptions
 import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.AudioLines
@@ -132,7 +130,10 @@ import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.utils.sourceById
 import com.rcmiku.ncmapi.api.account.AccountApi
-import com.rcmiku.ncmapi.api.LocalSources
+import com.rcmiku.ncmapi.api.AudioSourceSettings
+import com.rcmiku.ncmapi.api.AudioSources
+import com.jussicodes.music.playback.PlaybackReloadBus
+import com.jussicodes.music.ui.components.AudioSourceDialog
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.utils.json
 import com.rcmiku.ncmapi.utils.parseCookieString
@@ -158,11 +159,9 @@ fun SettingsScreen(navController: NavHostController) {
     var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
-    var localSource by rememberPreference(localSourceKey, LocalSources.DEFAULT)
-    // 旧版默认/存过的"智能切换"(AUTO) 选项已删：一次性迁移到默认源 byfuns（写回即持久化）。
-    LaunchedEffect(Unit) {
-        if (localSource == "AUTO") localSource = LocalSources.DEFAULT
-    }
+    // 音源三选一（LX / 内置直连 / 代理）。旧选择由 JetMeloApp 里的一次性迁移清掉，
+    // 这里不做重置——否则每次进设置页都会把用户的选择打回 LX。
+    var audioSource by rememberPreference(audioSourceKey, AudioSources.DEFAULT)
     // 「音源三」行副标题：LX 脚本的启用情况（脚本正文存在 DataStore，这里只读条数/启用数）。
     val lxPlugins by com.jussicodes.music.lx.LxPluginManager.plugins.collectAsState(initial = emptyList())
     val lxScriptSummary = when {
@@ -272,7 +271,19 @@ fun SettingsScreen(navController: NavHostController) {
     }
     var showQualityDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
-    var showLocalSourceDialog by remember { mutableStateOf(false) }
+    var showAudioSourceDialog by remember { mutableStateOf(false) }
+
+    // 切换音源后重解析当前播放的歌：清掉 ResolvingDataSource 的解析缓存（cacheKey
+    // 只含音质，不含音源），重新 prepare 当前 MediaItem 让它走一遍新的解析链。
+    fun reloadCurrentSong() {
+        coroutineScope.launch {
+            // 给同步写盘的 DataStore 一点时间，否则 PlayerApi 可能读到旧的 SELECTED
+            kotlinx.coroutines.delay(120)
+            AudioSourceSettings.SELECTED = audioSource
+            PlaybackReloadBus.sourceTag = audioSource
+            PlaybackReloadBus.requestReload()
+        }
+    }
     var showCookieDialog by remember { mutableStateOf(false) }
     var showGithubSourceDialog by remember { mutableStateOf(false) }
     var githubSourceStatuses by remember { mutableStateOf<List<UpdateSourceStatus>>(emptyList()) }
@@ -530,23 +541,22 @@ fun SettingsScreen(navController: NavHostController) {
     )
 
     val advancedGroup = SettingGroupData(
-        name = "音源一",
-        subtitle = "直连音源",
+        name = "音源设置",
+        subtitle = "三选一",
+        note = "LX 音源、内置直连、代理音源只生效一个；切换后立即用新音源重新解析当前播放",
         items = listOf(
             SettingItemData(
-                title = "本地音乐源",
-                subtitle = localSourceOptions.firstOrNull { it.value == localSource }?.label,
-                imageVector = MusicNote,
-                onClick = { showLocalSourceDialog = true }
-            )
-        )
-    )
-
-    val advanced2Group = SettingGroupData(
-        name = "音源二",
-        subtitle = "代理音源",
-        note = "支持自建 api-enhanced 服务器",
-        items = listOf(
+                title = "当前音源",
+                subtitle = AudioSources.fromKey(audioSource)?.label ?: audioSource,
+                imageVector = AudioLines,
+                onClick = { showAudioSourceDialog = true }
+            ),
+            SettingItemData(
+                title = "LX 脚本管理",
+                subtitle = lxScriptSummary,
+                imageVector = Script,
+                onClick = { navController.navigate(Screen.LxPlugins.route) }
+            ),
             SettingItemData(
                 title = stringResource(R.string.api_server),
                 subtitle = apiBaseUrl.ifBlank { "未设置" },
@@ -554,22 +564,8 @@ fun SettingsScreen(navController: NavHostController) {
                 imageVector = Dns,
                 onClick = { showApiServerDialog = true },
                 trailingContent = {
-                    GearButton("更换音乐源") { showUnblockSourceDialog = true }
+                    GearButton("更换解灰源") { showUnblockSourceDialog = true }
                 }
-            )
-        )
-    )
-
-    val advanced3Group = SettingGroupData(
-        name = "音源三",
-        subtitle = "脚本音源",
-        note = "本地直连、代理解灰、LX 脚本三者只生效一个；选用脚本源前先在此管理脚本",
-        items = listOf(
-            SettingItemData(
-                title = "LX 脚本音源",
-                subtitle = lxScriptSummary,
-                imageVector = Script,
-                onClick = { navController.navigate(Screen.LxPlugins.route) }
             )
         )
     )
@@ -625,9 +621,7 @@ fun SettingsScreen(navController: NavHostController) {
         )
     )
 
-    val groups = listOf(
-        accountGroup, uiGroup, playbackGroup, advancedGroup, advanced2Group, advanced3Group, aboutGroup
-    )
+    val groups = listOf(accountGroup, uiGroup, playbackGroup, advancedGroup, aboutGroup)
 
     // 搜索：按标题 / 副标题 / 分组名过滤，无结果的分组整组隐藏
     val query = searchQuery.trim().lowercase()
@@ -780,11 +774,15 @@ fun SettingsScreen(navController: NavHostController) {
         )
     }
 
-    if (showLocalSourceDialog) {
-        LocalSourceDialog(
-            currentSource = localSource,
-            onDismiss = { showLocalSourceDialog = false },
-            onSourceSelected = { localSource = it }
+    if (showAudioSourceDialog) {
+        AudioSourceDialog(
+            currentSource = audioSource,
+            onDismiss = { showAudioSourceDialog = false },
+            onSourceSelected = { selected ->
+                audioSource = selected
+                showAudioSourceDialog = false
+                reloadCurrentSong()
+            }
         )
     }
 

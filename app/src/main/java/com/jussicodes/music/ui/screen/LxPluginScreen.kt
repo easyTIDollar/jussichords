@@ -167,6 +167,7 @@ fun LxPluginScreen(navController: NavHostController) {
             itemsIndexed(plugins, key = { _, item -> item.id }) { index, item ->
                 LxPluginRow(
                     item = item,
+                    isBuiltin = item.id == LxPluginManager.BUILTIN_ID,
                     canMoveUp = index > 0,
                     canMoveDown = index < plugins.lastIndex,
                     onToggle = { enabled ->
@@ -174,7 +175,7 @@ fun LxPluginScreen(navController: NavHostController) {
                     },
                     onMoveUp = { scope.launch { LxPluginManager.setPriority(item.id, index - 1) } },
                     onMoveDown = { scope.launch { LxPluginManager.setPriority(item.id, index + 1) } },
-                    onDelete = { removingId = item.id }
+                    onDelete = { if (item.id != LxPluginManager.BUILTIN_ID) removingId = item.id }
                 )
             }
         }
@@ -242,6 +243,7 @@ private fun LxPluginRow(
     item: LxPluginItem,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
+    isBuiltin: Boolean,
     onToggle: (Boolean) -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
@@ -310,7 +312,10 @@ private fun LxPluginRow(
         ) {
             TextButton(enabled = canMoveUp, onClick = onMoveUp) { Text("上移") }
             TextButton(enabled = canMoveDown, onClick = onMoveDown) { Text("下移") }
-            TextButton(onClick = onDelete) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            TextButton(
+                enabled = !isBuiltin,
+                onClick = onDelete
+            ) { Text("删除", color = if (isBuiltin) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error) }
         }
     }
 }

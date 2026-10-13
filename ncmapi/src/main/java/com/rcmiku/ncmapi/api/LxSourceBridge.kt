@@ -4,7 +4,7 @@ package com.rcmiku.ncmapi.api
  * LX 脚本音源桥：WebView 沙盒在 app 模块，ncmapi 拿不到 Context，
  * 由 app 侧在 Application 里注入一个挂起解析函数。
  *
- * 与 LocalSources / UnblockSources 同为「音源三选一」的一个选项，
+ * 与 AudioSources 三选一里的 LX 选项配套，
  * 不额外引入优先级概念——选中 LX 就只走 LX，选中直连六源就只走直连。
  */
 object LxSourceBridge {

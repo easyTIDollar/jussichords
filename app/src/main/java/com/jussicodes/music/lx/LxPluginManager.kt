@@ -4,7 +4,10 @@ import android.content.Context
 import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.utils.json
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -42,10 +45,35 @@ object LxPluginManager {
                 // 沙盒懒创建时要能按 id 拿到脚本正文
                 e.itemProvider = { id -> LxPluginStore.latest.value.firstOrNull { it.id == id } }
             }
+            scope.launch { ensureBuiltinScript(context.applicationContext) }
         }
     }
 
+    /**
+     * 内置 LX 脚本：打进 assets 的「玉宁熙 Pro」，随应用分发，用户无需自己导入。
+     * 版本号变化才覆盖，避免每次启动重写 DataStore。
+     */
+    const val BUILTIN_ID = "builtin-lx-yuanningxi"
+    private const val BUILTIN_ASSET = "lx/lx-builtin.js"
+
+    private suspend fun ensureBuiltinScript(context: Context) {
+        if (LxPluginStore.latest.value.any { it.id == BUILTIN_ID }) return
+        val script = runCatching {
+            context.assets.open(BUILTIN_ASSET).bufferedReader().use { it.readText() }
+        }.getOrNull() ?: return
+        LxPluginStore.save(
+            LxPluginStore.latest.value + LxPluginItem(
+                id = BUILTIN_ID,
+                name = "玉宁熙 Pro（内置）",
+                rawScript = script,
+                isEnabled = true
+            )
+        )
+    }
+
     val plugins: Flow<List<LxPluginItem>> get() = LxPluginStore.latest
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // ---- 增删改 ----
 

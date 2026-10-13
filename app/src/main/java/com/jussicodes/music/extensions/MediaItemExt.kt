@@ -139,7 +139,7 @@ fun List<Radio>.toRadioMediaItemList(
  * Resolve a MediaItem URI (a raw `id?fee=&pl=` string) to a playable URL.
  *
  * There is no per-song source override: the app-wide local/unblock source
- * settings (LocalSourceSettings / UNBLOCK_SOURCE) decide the channel, so we
+ * settings (AudioSourceSettings / UNBLOCK_SOURCE) decide the channel, so we
  * always resolve with a null per-song source.
  */
 suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel): Uri? {

@@ -221,6 +221,23 @@ class PlaybackService : MediaSessionService() {
 
     private val scope = CoroutineScope(Dispatchers.Main) + SupervisorJob()
 
+    // 换源信号 → 重新解析并播放当前这首歌（音源代号已由调用方写进 cacheKey）
+    private var reloadJob: kotlinx.coroutines.Job? = null
+
+    fun observeSourceReloads() {
+        reloadJob = scope.launch {
+            PlaybackReloadBus.requests.collect {
+                val player = mediaSession?.player ?: return@collect
+                if (player.currentMediaItem == null) return@collect
+                // 重播同一 MediaItem：pause → seek 0 → prepare，走一遍新的 ResolvingDataSource
+                player.pause()
+                player.seekTo(0)
+                player.prepare()
+                player.play()
+            }
+        }
+    }
+
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
@@ -274,7 +291,9 @@ class PlaybackService : MediaSessionService() {
                             )
                     )
                     .setCacheKeyFactory { dataSpec ->
-                        "v2:${dataSpec.key ?: dataSpec.uri}#${audioQuality.value}"
+                        // 音源代号进 cacheKey：换源后同一首歌的直链缓存必须失效，
+                        // 否则 ResolvingDataSource 会直接复用旧音源解析出的 url。
+                        "v3:${dataSpec.key ?: dataSpec.uri}#${audioQuality.value}#${PlaybackReloadBus.sourceTag}"
                     }
                     .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
                 val resolvingDataSourceFactory = ResolvingDataSource.Factory(
@@ -315,6 +334,7 @@ class PlaybackService : MediaSessionService() {
             ncblDeviceId = { CookieProvider.getCookieMap()["deviceId"].orEmpty() },
         )
         player.addListener(playbackHistoryListener)
+        observeSourceReloads()
         // 一起听会话：挂到全局播放器上，冷启动恢复/创建房间时接管同步。
         ListenTogetherSession.attach(player, this)
         mediaSession = MediaSession.Builder(this, player)
@@ -342,6 +362,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        reloadJob?.cancel()
         scope.cancel()
         mediaSession?.run {
             player.removeListener(playbackHistoryListener)

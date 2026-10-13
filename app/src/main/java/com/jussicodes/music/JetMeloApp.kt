@@ -14,6 +14,7 @@ import coil3.request.crossfade
 import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.apiServerListCleanedKey
 import com.jussicodes.music.constants.apiServerListKey
+import com.jussicodes.music.constants.audioSourceKey
 import com.jussicodes.music.constants.localSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.unblockSourceKey
@@ -30,8 +31,9 @@ import com.jussicodes.music.utils.UserAgentUtil
 import com.jussicodes.music.utils.apiServers
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.API_BASE_URL
-import com.rcmiku.ncmapi.api.LocalSources
-import com.rcmiku.ncmapi.api.LocalSourceSettings
+import com.jussicodes.music.playback.PlaybackReloadBus
+import com.rcmiku.ncmapi.api.AudioSourceSettings
+import com.rcmiku.ncmapi.api.AudioSources
 import com.rcmiku.ncmapi.api.UNBLOCK_SOURCE
 import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.UserAgentProvider
@@ -73,6 +75,7 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         com.rcmiku.ncmapi.api.LxSourceBridge.resolver = { songId, songLevel ->
             com.jussicodes.music.lx.LxPluginManager.resolveUrl(songId, songLevel)
         }
+        applicationScope.launch { com.jussicodes.music.lx.LxPluginManager.warmUp() }
         // Fill the explore flows from disk cache immediately, so the explore
         // tab renders content on first frame even while the cookie config
         // and network fetch are still in flight.
@@ -81,6 +84,17 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         // 一次性迁移（本版本起）：旧安装里可能留有自建的 API 服务器（例如 http://8.134.163.111:3000），
         // 共用裸 IP 会过载。首次启动时清掉所有非内置服务器，当前服务器若非内置一并清空；
         // 完成后置标记，之后每次启动不再重复清理。清理在下方同步协程之前，保证写回立即生效。
+        // 一次性迁移（本版本起）：音源选择从旧的 localSource 单选 + unblockSource
+        // 改为 AudioSources 三选一（LX / 内置直连 / 代理）。按用户要求强制清除旧选择，
+        // 一律回到内置 LX 音源。写回 audioSource=lx 同时清掉旧键，之后不再重复执行。
+        applicationScope.launch {
+            if (dataStore.data.first()[audioSourceKey] == null) {
+                dataStore.edit { prefs ->
+                    prefs.remove(localSourceKey)
+                    prefs[audioSourceKey] = AudioSources.LX
+                }
+            }
+        }
         applicationScope.launch {
             val alreadyCleaned = dataStore.data.first()[apiServerListCleanedKey] ?: false
             if (alreadyCleaned) return@launch
@@ -124,21 +138,22 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                     Triple(
                         prefs[apiBaseUrlKey],
                         prefs[unblockSourceKey],
-                        prefs[localSourceKey]
+                        prefs[audioSourceKey]
                     )
                 }
                 .distinctUntilChanged()
-                .collect { (apiUrl, unblockSource, localSource) ->
+                .collect { (apiUrl, unblockSource, audioSource) ->
                     // 无条件同步：用户选「不使用自建服务器」时 apiUrl 为空，内存变量也要清空，
                     // 否则残留旧代理地址继续走。空是 API_BASE_URL 的既有默认态（直连兜底）。
                     API_BASE_URL = apiUrl.orEmpty()
                     UNBLOCK_SOURCE = unblockSource ?: "AUTO"
-                    // 旧版本地源"智能切换"(AUTO) 选项已删除：存过的 AUTO 迁移到默认源 byfuns。
-                    LocalSourceSettings.SONG_SOURCE = when (localSource) {
-                        null -> "OFF"
-                        "AUTO" -> LocalSources.DEFAULT
-                        else -> localSource
-                    }
+                    // 音源三选一（LX / 内置直连 / 代理）。用户要求新版本一律回到内置 LX，
+                    // 因此不再迁移旧值：旧键 localSource/unblockSource 的选择在此作废。
+                    val selected =
+                        AudioSources.fromKey(audioSource.orEmpty())?.value ?: AudioSources.DEFAULT
+                    AudioSourceSettings.SELECTED = selected
+                    // cacheKey 需要它：换源后旧直链缓存才会失效
+                    PlaybackReloadBus.sourceTag = selected
                 }
         }
     }
