@@ -77,9 +77,11 @@ import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.data.HomeBgTextStore
+import com.jussicodes.music.data.HomeTransparentCardStore
 import com.jussicodes.music.data.HomeUserInfoStore
 import com.jussicodes.music.data.NcmCookieStore
 import com.jussicodes.music.data.PinnedAlbumStore
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import com.jussicodes.music.ui.components.transparentCardColor
@@ -770,10 +772,21 @@ private fun LibraryUserCard(
     val followsLabel = if (followsCount != null) "$followsCount 关注" else "关注"
     val followedsLabel = if (followedsCount != null) "$followedsCount 粉丝" else "粉丝"
 
+    // [DEBUG-3f7a] 记录每次重组实际算出的容器色。闪白时若这里打出非玻璃色，
+    // 说明 userCardGlassColor() 的输入在跳；若这里一直打玻璃色而屏幕仍闪，说明
+    // 颜色根本不是变量，问题在别处（例如 Card/Surface 的 tonal elevation 或绘制层）。
+    val diagContainerColor = userCardGlassColor()
+    val diagStoreValue = HomeTransparentCardStore.lastPublished
+    val diagDark = isSystemInDarkTheme()
+    android.util.Log.d(
+        "JussicordsDiag",
+        "[DEBUG-3f7a] LibraryUserCard compose: store=$diagStoreValue dark=$diagDark color=$diagContainerColor"
+    )
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(containerColor = userCardGlassColor())
+        colors = CardDefaults.cardColors(containerColor = diagContainerColor)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
