@@ -786,7 +786,12 @@ private fun LibraryUserCard(
                 Box(
                     modifier = Modifier
                         .size(76.dp)
-                        .background(MaterialTheme.colorScheme.surface, CircleShape)
+                        // 头像占位底色必须是「跟着卡片容器走」而不是写死 surface：
+                        // 开「主页透明卡片」时用户卡是半透明玻璃，AsyncImage 重建 /
+                        // crossfade 空窗期若露出 surface 纯白圆底，会和玻璃底色反差极大，
+                        // 就是「探索划回主页信息卡闪一下白」。取同卡片容器色，空窗期
+                        // 与卡片本身融为一体，肉眼不可见。
+                        .background(userCardGlassColor(), CircleShape)
                         .clip(CircleShape)
                         .clickable(enabled = profile.avatarUrl.isNotBlank(), onClick = onAvatarClick),
                     contentAlignment = Alignment.BottomEnd
