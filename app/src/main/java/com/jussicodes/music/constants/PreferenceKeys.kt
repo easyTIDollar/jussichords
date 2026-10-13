@@ -41,6 +41,8 @@ val unblockSourceKey = stringPreferencesKey("unblockSource")
 val localSourceKey = stringPreferencesKey("localSource")
 // 音源三选一：lx / direct / proxy（取代旧的 localSource 单选）
 val audioSourceKey = stringPreferencesKey("audioSource")
+// 直连音源档位下的六源单选（AUTO 或具体 key）
+val directSourceKey = stringPreferencesKey("directSource")
 val ignoredUpdateVersionKey = stringPreferencesKey("ignoredUpdateVersion")
 val uiScaleKey = floatPreferencesKey("uiScale")
 // 主页背景图（"我的"/"探索"页）：base64 存图，缩放/透明度/模糊度各一个键。

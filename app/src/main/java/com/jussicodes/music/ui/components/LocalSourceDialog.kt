@@ -4,14 +4,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -22,24 +19,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import com.rcmiku.ncmapi.api.AudioSources
+import com.rcmiku.ncmapi.api.LocalSources
 
-data class AudioSourceOption(
+data class LocalSourceOption(
     val value: String,
     val label: String,
     val description: String = "",
 )
 
-// 单一来源：ncmapi 模块的 AudioSources（LX / 内置直连 / 代理），
-// PlayerApi 按 AudioSourceSettings.SELECTED 走对应分支，两者不漂移。
-val audioSourceOptions: List<AudioSourceOption> =
-    AudioSources.OPTIONS.map { AudioSourceOption(it.value, it.label, it.description) }
+// 单一来源：ncmapi 模块的 LocalSources（自动选择 + 六源），
+// PlayerApi 的直连分支引用同一份，避免 UI 与探测链漂移。
+val localSourceOptions: List<LocalSourceOption> =
+    LocalSources.OPTIONS.map { LocalSourceOption(it.value, it.label, it.description) }
 
-/**
- * 音源三选一。选中即回调，由调用方写入 DataStore 并触发当前歌曲重新解析。
- */
+/** 直连源单选弹窗：自动选择（顺序轮询六源）或指定单一源。 */
 @Composable
-fun AudioSourceDialog(
+fun LocalSourceDialog(
     currentSource: String,
     onDismiss: () -> Unit,
     onSourceSelected: (String) -> Unit
@@ -50,10 +45,9 @@ fun AudioSourceDialog(
                 Column(
                     modifier = Modifier
                         .selectableGroup()
-                        .verticalScroll(rememberScrollState())
                         .padding(vertical = 24.dp)
                 ) {
-                    audioSourceOptions.forEach { option ->
+                    localSourceOptions.forEach { option ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

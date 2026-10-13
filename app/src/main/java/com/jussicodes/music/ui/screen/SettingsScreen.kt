@@ -78,6 +78,7 @@ import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.audioSourceKey
+import com.jussicodes.music.constants.directSourceKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
@@ -132,8 +133,11 @@ import com.jussicodes.music.utils.sourceById
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.AudioSourceSettings
 import com.rcmiku.ncmapi.api.AudioSources
+import com.rcmiku.ncmapi.api.LocalSources
+import com.rcmiku.ncmapi.api.player.PlayerApi
 import com.jussicodes.music.playback.PlaybackReloadBus
-import com.jussicodes.music.ui.components.AudioSourceDialog
+import com.jussicodes.music.ui.components.AudioSourceSelector
+import com.jussicodes.music.ui.components.LocalSourceDialog
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.utils.json
 import com.rcmiku.ncmapi.utils.parseCookieString
@@ -271,16 +275,24 @@ fun SettingsScreen(navController: NavHostController) {
     }
     var showQualityDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
-    var showAudioSourceDialog by remember { mutableStateOf(false) }
+    var showDirectSourceDialog by remember { mutableStateOf(false) }
+
+    // 「直连音源」档位下的六源单选（音源设置里的子设置）。
+    var directSource by rememberPreference(directSourceKey, LocalSources.AUTO)
+    LaunchedEffect(directSource) {
+        PlayerApi.DirectSourceSettings.SOURCE = directSource
+    }
 
     // 切换音源后重解析当前播放的歌：清掉 ResolvingDataSource 的解析缓存（cacheKey
     // 只含音质，不含音源），重新 prepare 当前 MediaItem 让它走一遍新的解析链。
     fun reloadCurrentSong() {
         coroutineScope.launch {
-            // 给同步写盘的 DataStore 一点时间，否则 PlayerApi 可能读到旧的 SELECTED
+            // 给异步写盘的 DataStore 一点时间，否则 PlayerApi 可能读到旧值
             kotlinx.coroutines.delay(120)
             AudioSourceSettings.SELECTED = audioSource
-            PlaybackReloadBus.sourceTag = audioSource
+            PlayerApi.DirectSourceSettings.SOURCE = directSource
+            // 直连源也进 cacheKey：同一直连档位下换源，直链同样要重新解析
+            PlaybackReloadBus.sourceTag = "$audioSource/${LocalSources.fromKey(directSource)?.value ?: LocalSources.AUTO}"
             PlaybackReloadBus.requestReload()
         }
     }
@@ -543,19 +555,40 @@ fun SettingsScreen(navController: NavHostController) {
     val advancedGroup = SettingGroupData(
         name = "音源设置",
         subtitle = "三选一",
-        note = "LX 音源、内置直连、代理音源只生效一个；切换后立即用新音源重新解析当前播放",
+        note = "三种音源只生效一个；切换后立即用新音源重新解析当前播放的歌",
+        header = {
+            AudioSourceSelector(
+                currentSource = audioSource,
+                onSourceSelected = { selected ->
+                    if (selected != audioSource) {
+                        audioSource = selected
+                        reloadCurrentSong()
+                    }
+                }
+            )
+        },
         items = listOf(
             SettingItemData(
-                title = "当前音源",
-                subtitle = AudioSources.fromKey(audioSource)?.label ?: audioSource,
-                imageVector = AudioLines,
-                onClick = { showAudioSourceDialog = true }
+                title = "LX 脚本管理",
+                subtitle = lxScriptSummary,
+                imageVector = Script,
+                onClick = { navController.navigate(Screen.LxPlugins.route) }
             ),
             SettingItemData(
                 title = "LX 脚本管理",
                 subtitle = lxScriptSummary,
                 imageVector = Script,
                 onClick = { navController.navigate(Screen.LxPlugins.route) }
+            ),
+            SettingItemData(
+                title = "直连源",
+                subtitle = if (audioSource != AudioSources.DIRECT) {
+                    "仅「直连音源」生效 · 当前 ${LocalSources.fromKey(directSource)?.label ?: directSource}"
+                } else {
+                    LocalSources.fromKey(directSource)?.label ?: directSource
+                },
+                imageVector = MusicNote,
+                onClick = { showDirectSourceDialog = true }
             ),
             SettingItemData(
                 title = stringResource(R.string.api_server),
@@ -774,13 +807,13 @@ fun SettingsScreen(navController: NavHostController) {
         )
     }
 
-    if (showAudioSourceDialog) {
-        AudioSourceDialog(
-            currentSource = audioSource,
-            onDismiss = { showAudioSourceDialog = false },
+    if (showDirectSourceDialog) {
+        LocalSourceDialog(
+            currentSource = directSource,
+            onDismiss = { showDirectSourceDialog = false },
             onSourceSelected = { selected ->
-                audioSource = selected
-                showAudioSourceDialog = false
+                directSource = selected
+                showDirectSourceDialog = false
                 reloadCurrentSong()
             }
         )
@@ -927,6 +960,11 @@ private fun SettingGroupCard(group: SettingGroupData) {
                 }
                 // 各选项之间不再画横向分割线（HorizontalDivider），靠行内 56dp 最小高度 +
                 // 卡片底色区分；同组多行直接相邻堆叠。
+                group.header?.let {
+                    Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        it()
+                    }
+                }
                 group.items.forEach { item ->
                     SettingRow(item)
                 }
@@ -1037,6 +1075,8 @@ data class SettingGroupData(
     val items: List<SettingItemData>,
     val note: String? = null,
     val subtitle: String? = null,
+    /** 卡片上方/下方的自定义内容（如音源三选一小卡片）。 */
+    val header: (@Composable () -> Unit)? = null
 )
 
 @Composable

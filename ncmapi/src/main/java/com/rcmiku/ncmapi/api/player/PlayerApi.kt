@@ -75,9 +75,15 @@ object PlayerApi {
     private fun songUrlParams(songId: String, songLevel: SongLevel, unblock: Boolean): Map<String, Any> =
         mapOf("id" to songId, "level" to songLevel.value, "unblock" to unblock)
 
-    /** 内置直连：按 [LocalSourceFetcher] 的顺序逐个试，命中即返回（照 Melodia 六源）。 */
+    /**
+     * 直连音源：用户指定单源就只试它；「自动选择」按 [LocalSources.DIRECT_KEYS] 顺序轮询
+     * 六条，命中即返回（照 Melodia 六源）。
+     */
     private fun tryDirectSourceUrl(songId: String): String? {
-        for (m in LocalSources.DIRECT_KEYS) {
+        val chosen = LocalSources.fromKey(DirectSourceSettings.SOURCE)?.value
+            ?: LocalSources.AUTO
+        val chain = if (chosen == LocalSources.AUTO) LocalSources.DIRECT_KEYS else listOf(chosen)
+        for (m in chain) {
             val url = LocalSourceFetcher.fetch(m, songId)
             if (url != null) {
                 Log.d("PlayerApi", "Local source '$m' hit for songId=$songId")
@@ -153,6 +159,11 @@ object PlayerApi {
      */
     private val KNOWN_UNBLOCK_SOURCES: List<String> =
         com.rcmiku.ncmapi.api.UnblockSources.FALLBACK_VALUES
+
+    /** 直连源选择（「音源设置」里选中「直连音源」时的子设置）。 */
+    object DirectSourceSettings {
+        var SOURCE: String = LocalSources.AUTO
+    }
 
     private suspend fun requestUnblockUrl(url: String, songId: String, source: String?): Result<SongUrlResponse> {
         return try {

@@ -15,6 +15,7 @@ import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.apiServerListCleanedKey
 import com.jussicodes.music.constants.apiServerListKey
 import com.jussicodes.music.constants.audioSourceKey
+import com.jussicodes.music.constants.directSourceKey
 import com.jussicodes.music.constants.localSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.unblockSourceKey
@@ -34,6 +35,8 @@ import com.rcmiku.ncmapi.api.API_BASE_URL
 import com.jussicodes.music.playback.PlaybackReloadBus
 import com.rcmiku.ncmapi.api.AudioSourceSettings
 import com.rcmiku.ncmapi.api.AudioSources
+import com.rcmiku.ncmapi.api.LocalSources
+import com.rcmiku.ncmapi.api.player.PlayerApi
 import com.rcmiku.ncmapi.api.UNBLOCK_SOURCE
 import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.UserAgentProvider
@@ -49,6 +52,14 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+
+/** 音源相关设置的四元组（一起 collect，任一变化都重新同步到 ncmapi 全局变量）。 */
+private data class AudioSync(
+    val apiUrl: String?,
+    val unblockSource: String?,
+    val audioSource: String?,
+    val directSource: String?
+)
 
 @HiltAndroidApp
 class JetMeloApp : Application(), SingletonImageLoader.Factory {
@@ -90,6 +101,7 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         applicationScope.launch {
             if (dataStore.data.first()[audioSourceKey] == null) {
                 dataStore.edit { prefs ->
+                    // 旧键作废：localSource 是旧的直连单选（其值整体由 AUTO 接管）
                     prefs.remove(localSourceKey)
                     prefs[audioSourceKey] = AudioSources.LX
                 }
@@ -135,14 +147,15 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         applicationScope.launch {
             dataStore.data
                 .map { prefs ->
-                    Triple(
+                    AudioSync(
                         prefs[apiBaseUrlKey],
                         prefs[unblockSourceKey],
-                        prefs[audioSourceKey]
+                        prefs[audioSourceKey],
+                        prefs[directSourceKey]
                     )
                 }
                 .distinctUntilChanged()
-                .collect { (apiUrl, unblockSource, audioSource) ->
+                .collect { (apiUrl, unblockSource, audioSource, directSource) ->
                     // 无条件同步：用户选「不使用自建服务器」时 apiUrl 为空，内存变量也要清空，
                     // 否则残留旧代理地址继续走。空是 API_BASE_URL 的既有默认态（直连兜底）。
                     API_BASE_URL = apiUrl.orEmpty()
@@ -152,8 +165,11 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                     val selected =
                         AudioSources.fromKey(audioSource.orEmpty())?.value ?: AudioSources.DEFAULT
                     AudioSourceSettings.SELECTED = selected
+                    val direct = LocalSources.fromKey(directSource.orEmpty())?.value
+                        ?: LocalSources.AUTO
+                    PlayerApi.DirectSourceSettings.SOURCE = direct
                     // cacheKey 需要它：换源后旧直链缓存才会失效
-                    PlaybackReloadBus.sourceTag = selected
+                    PlaybackReloadBus.sourceTag = "$selected/$direct"
                 }
         }
     }
