@@ -13,6 +13,7 @@ sealed class Screen(val route: String) {
     data object Login : Screen("login")
     data object Messages : Screen("messages")
     data object Search : Screen("search")
+    data object LxPlugins : Screen("lxPlugins")
 }
 
 @Serializable

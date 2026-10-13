@@ -15,9 +15,17 @@ object LocalSources {
     /** 本地源默认值：第一个非关闭选项（byfuns）。 */
     const val DEFAULT = "byfuns"
 
+    /**
+     * LX 脚本源：不走第三方公开接口，由 app 侧 WebView 沙盒运行用户导入的
+     * LX Music 社区 JS 脚本解析直链。与其他本地源互斥——选中它就不试直连六源，
+     * 也不出代理解灰链（同一套互斥规则）。
+     */
+    const val LX = "lx"
+
     /** UI 选择器列表：关闭 + 单个源（无"智能切换"；顺序即 UI 呈现顺序）。 */
     val OPTIONS = listOf(
         Option(OFF, "关闭", "不使用本地直连，维持 API 代理解灰"),
+        Option(LX, "LX 脚本", "运行自定义 JS 脚本解析直链，点此进入脚本管理"),
         Option("byfuns", "Byfuns", "网易云高品质/无损直连解析"),
         Option("ddyr", "Ddyr", "网易云高品质直连解析"),
         Option("gdmusic", "Gdmusic", "GD 音乐台直连解析"),

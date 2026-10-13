@@ -112,6 +112,7 @@ import com.jussicodes.music.ui.icons.Logout
 import com.jussicodes.music.ui.icons.MusicNote
 import com.jussicodes.music.ui.icons.Palette
 import com.jussicodes.music.ui.icons.Remove
+import com.jussicodes.music.ui.icons.Script
 import com.jussicodes.music.ui.icons.SettingsGear
 import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
@@ -161,6 +162,13 @@ fun SettingsScreen(navController: NavHostController) {
     // 旧版默认/存过的"智能切换"(AUTO) 选项已删：一次性迁移到默认源 byfuns（写回即持久化）。
     LaunchedEffect(Unit) {
         if (localSource == "AUTO") localSource = LocalSources.DEFAULT
+    }
+    // 「音源三」行副标题：LX 脚本的启用情况（脚本正文存在 DataStore，这里只读条数/启用数）。
+    val lxPlugins by com.jussicodes.music.lx.LxPluginManager.plugins.collectAsState()
+    val lxScriptSummary = when {
+        lxPlugins.isEmpty() -> "未导入脚本"
+        lxPlugins.none { it.isEnabled } -> "${lxPlugins.size} 个脚本（全部停用）"
+        else -> "${lxPlugins.count { it.isEnabled }}/${lxPlugins.size} 个脚本已启用"
     }
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     var playerGestureTutorialVersion by rememberPreference(
@@ -552,6 +560,20 @@ fun SettingsScreen(navController: NavHostController) {
         )
     )
 
+    val advanced3Group = SettingGroupData(
+        name = "音源三",
+        subtitle = "脚本音源",
+        note = "本地直连、代理解灰、LX 脚本三者只生效一个；选用脚本源前先在此管理脚本",
+        items = listOf(
+            SettingItemData(
+                title = "LX 脚本音源",
+                subtitle = lxScriptSummary,
+                imageVector = Script,
+                onClick = { navController.navigate(Screen.LxPlugins.route) }
+            )
+        )
+    )
+
     val aboutGroup = SettingGroupData(
         name = "关于",
         items = listOf(
@@ -603,7 +625,9 @@ fun SettingsScreen(navController: NavHostController) {
         )
     )
 
-    val groups = listOf(accountGroup, uiGroup, playbackGroup, advancedGroup, advanced2Group, aboutGroup)
+    val groups = listOf(
+        accountGroup, uiGroup, playbackGroup, advancedGroup, advanced2Group, advanced3Group, aboutGroup
+    )
 
     // 搜索：按标题 / 副标题 / 分组名过滤，无结果的分组整组隐藏
     val query = searchQuery.trim().lowercase()

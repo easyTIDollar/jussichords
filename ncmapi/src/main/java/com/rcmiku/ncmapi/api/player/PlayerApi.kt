@@ -3,6 +3,7 @@ package com.rcmiku.ncmapi.api.player
 import android.util.Log
 import com.rcmiku.ncmapi.api.API_BASE_URL
 import com.rcmiku.ncmapi.api.LocalSourceFetcher
+import com.rcmiku.ncmapi.api.LxSourceBridge
 import com.rcmiku.ncmapi.api.LocalSourceSettings
 import com.rcmiku.ncmapi.api.LocalSources
 import com.rcmiku.ncmapi.api.UNBLOCK_SOURCE
@@ -48,7 +49,7 @@ object PlayerApi {
         // VIP（fee==1）：先试设置里选的本地直连源（客户端直接 GET 第三方公开接口，
         // 不经代理、不经 NCM 加密通道，照抄 Melodia 六源）。
         val localSourceOn = LocalSourceSettings.SONG_SOURCE != LocalSources.OFF
-        val localUrl = if (localSourceOn) tryLocalSourceUrl(realId) else null
+        val localUrl = if (localSourceOn) tryLocalSourceUrl(realId, songLevel) else null
         if (localUrl != null) {
             Log.d("PlayerApi", "Local source resolved songId=$realId url=$localUrl")
             return Result.success(SongUrlResponse(data = listOf(
@@ -75,9 +76,19 @@ object PlayerApi {
      * 本地直连音源探测（照 Melodia）：OFF 直接跳过；单源则只试它。
      * 命中返回直链，否则 null（交回代理解灰链）。
      */
-    private fun tryLocalSourceUrl(songId: String): String? {
+    private fun tryLocalSourceUrl(songId: String, songLevel: SongLevel): String? {
         val chosen = LocalSourceSettings.SONG_SOURCE
         if (chosen == LocalSources.OFF) return null
+        // LX 脚本源：解析跑在 app 侧的 WebView 沙盒里（ncmapi 无 Context），
+        // 未注入或未命中返回 null，落到下面的官方直连兜底。
+        if (chosen == LocalSources.LX) {
+            val url = LxSourceBridge.resolver?.invoke(songId, songLevel.value)
+            if (!url.isNullOrBlank()) {
+                Log.d("PlayerApi", "LX plugin resolved songId=$songId url=$url")
+                return url
+            }
+            return null
+        }
         for (m in listOf(chosen.lowercase())) {
             val url = LocalSourceFetcher.fetch(m, songId)
             if (url != null) {

@@ -67,6 +67,12 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         HomeUserInfoStore.init(this)
         MsgSessionCache.init(this)
         UserAgentProvider.init(UserAgentUtil.DEFAULT_USER_AGENT)
+        // LX 脚本音源：脚本列表（DataStore）+ 沙盒引擎在进程级单例，ncmapi 侧只留桥。
+        com.jussicodes.music.lx.LxPluginStore.attach(this)
+        com.jussicodes.music.lx.LxPluginManager.init(this)
+        com.rcmiku.ncmapi.api.LxSourceBridge.resolver = { songId, songLevel ->
+            com.jussicodes.music.lx.LxPluginManager.resolveUrl(songId, songLevel)
+        }
         // Fill the explore flows from disk cache immediately, so the explore
         // tab renders content on first frame even while the cookie config
         // and network fetch are still in flight.
