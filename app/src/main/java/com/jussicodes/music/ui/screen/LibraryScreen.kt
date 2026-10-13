@@ -219,13 +219,9 @@ fun LibraryScreen(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
         topBar = { TopBar(navController = navController, titleRes = R.string.mine, transparent = true, contentColor = bgTextColor) }
     ) { padding ->
-        if (ncmCookie == null) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-            )
-        } else if (ncmCookie?.isEmpty() == true) {
+        // 未登录（cookie 键不存在 / 空串）都显示「点击登录」卡片；
+        // 原先键不存在（全新安装/从未登录过）走空 Box，登录提示整页看不见。
+        if (ncmCookie == null || ncmCookie?.isEmpty() == true) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
