@@ -76,9 +76,9 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MiniPlayerHeight
-import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.data.HomeBgTextStore
 import com.jussicodes.music.data.HomeUserInfoStore
+import com.jussicodes.music.data.NcmCookieStore
 import com.jussicodes.music.data.PinnedAlbumStore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -106,7 +106,6 @@ import com.jussicodes.music.ui.navigation.UserFollowNav
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.AvatarUploadLimiter
 import com.jussicodes.music.utils.PlaylistCoverSyncBus
-import com.jussicodes.music.utils.rememberNullablePreference
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.utils.withAvatarCacheBuster
 import com.jussicodes.music.utils.withPlaylistCoverCacheBuster
@@ -129,7 +128,11 @@ fun LibraryScreen(
     navController: NavHostController,
     libraryScreenViewModel: LibraryScreenViewModel = hiltViewModel()
 ) {
-    val ncmCookie by rememberNullablePreference(ncmCookieKey)
+    // cookie 读进程级 NcmCookieStore（Application watcher 从 DataStore 灌值）：
+    // 本 Screen 每次"探索划回主页"都随路由切换整块重组，rememberNullablePreference
+    // 是冷流 collectAsState(initial=null)，重组首帧 cookie=null 会闪一帧"点击登录"
+    // 卡片 + LazyColumn 整块不渲染（用户报的"闪未登录提示框/信息卡片闪白"）。
+    val ncmCookie by NcmCookieStore.cookie.collectAsState()
     // 小播放器是否显示（有歌在队列）：末尾避让空白块只在有歌时留。
     val hasMiniPlayer = (LocalPlayerState.current?.player?.mediaItemCount ?: 0) != 0
     val userInfoBatchState by libraryScreenViewModel.userInfo.collectAsState()

@@ -19,6 +19,7 @@ import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.data.ExplorePreloader
 import com.jussicodes.music.data.MsgSessionCache
+import com.jussicodes.music.data.NcmCookieStore
 import com.jussicodes.music.data.HomeBgTextStore
 import com.jussicodes.music.data.HomeTransparentCardStore
 import com.jussicodes.music.data.HomeUserInfoStore
@@ -62,6 +63,7 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         PinnedAlbumStore.watchColumns(this)
         HomeTransparentCardStore.watch(this)
         HomeBgTextStore.watch(this)
+        NcmCookieStore.watch(this)
         HomeUserInfoStore.init(this)
         MsgSessionCache.init(this)
         UserAgentProvider.init(UserAgentUtil.DEFAULT_USER_AGENT)
