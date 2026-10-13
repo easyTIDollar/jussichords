@@ -55,7 +55,7 @@ fun HomeBgEditPanel(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "缩放/位置调整默认关闭，此时主页左右滑正常切「我的·探索」；开启后图中框内双指缩放、单指移动",
+                text = "缩放/位置调整默认关闭，此时主页左右滑正常切「我的·探索」；开启后全屏只能双指缩放、单指移动图片，调完点按钮关闭",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

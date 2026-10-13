@@ -495,21 +495,13 @@ fun MainScreen() {
                                 bgViewH = it.height
                             }
                     ) {
-                    // 手势区（仅 bgAdjustMode 开启时存在，默认关）：居中 72%×40% 圆角框。
-                    // 区内事件全消费（缩放/平移背景、锁死底层），区外不消费 → 不挡列表滚动 /
-                    // 横滑切「我的·探索」/ 底栏（防误触）。关闭时整层不存在，主页手势完全恢复默认。
-                    if (bgAdjustMode) {
+                    // 缩放/位置模式：全屏接管手势（屏蔽 tab 横滑/底栏/列表），只能缩放移动图片。
+                    // bgAdjustMode=false 时 pointerInput 以该值为 key 重启、直接返回，事件全部穿透。
                     Box(
                         modifier = Modifier
-                            .align(Alignment.Center)
-                            .fillMaxWidth(0.72f)
-                            .fillMaxHeight(0.40f)
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(16.dp),
-                            )
-                            .pointerInput(Unit) {
+                            .fillMaxSize()
+                            .pointerInput(bgAdjustMode) {
+                                if (!bgAdjustMode) return@pointerInput
                                 awaitEachGesture {
                                     val cur0 = HomeBgEditor.draft.value
                                         ?: return@awaitEachGesture
@@ -599,17 +591,7 @@ fun MainScreen() {
                                     }
                                 }
                             }
-                    ) {
-                        Text(
-                            text = "区域内：双指缩放 · 单指移动背景（调整完点下方按钮关闭）",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(10.dp),
-                        )
-                    }
-                    }
+                    )
                     }
                     Column(
                         modifier = Modifier
