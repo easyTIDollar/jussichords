@@ -4,14 +4,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
@@ -35,10 +38,14 @@ val audioSourceOptions: List<AudioSourceOption> =
 @Composable
 fun AudioSourceSelector(
     currentSource: String,
-    onSourceSelected: (String) -> Unit
+    onSourceSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    // IntrinsicSize.Min：让三张卡片按最高的一张等高，否则内容行数不同会参差。
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         audioSourceOptions.forEach { option ->
@@ -46,6 +53,9 @@ fun AudioSourceSelector(
             Column(
                 modifier = Modifier
                     .weight(1f)
+                    // IntrinsicSize.Min 下要 fillMaxHeight 才会被拉伸到与最高卡片等高
+                    .fillMaxHeight()
+                    .heightIn(min = 96.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(
                         if (selected) MaterialTheme.colorScheme.primaryContainer

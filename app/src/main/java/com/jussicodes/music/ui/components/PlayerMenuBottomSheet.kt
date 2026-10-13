@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -24,7 +23,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -43,12 +41,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.semantics.Role
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.audioSourceKey
+import com.jussicodes.music.constants.directSourceKey
 import com.jussicodes.music.playback.ListenTogetherSession
 import com.jussicodes.music.constants.audioEffectEightDEnabledKey
 import com.jussicodes.music.constants.audioEffectIntensityKey
@@ -56,7 +54,7 @@ import com.jussicodes.music.constants.audioEffectModeKey
 import com.jussicodes.music.constants.audioEffectReverbEnabledKey
 import com.jussicodes.music.constants.audioEffectSpeedKey
 import com.jussicodes.music.playback.audio.AudioEffectMode
-import com.jussicodes.music.ui.icons.Dns
+import androidx.compose.material.icons.outlined.Dns as DnsOutlined
 import com.jussicodes.music.ui.icons.AudioLines
 import com.jussicodes.music.ui.icons.ListenTogether
 import com.jussicodes.music.ui.icons.Repeat
@@ -66,11 +64,12 @@ import com.jussicodes.music.ui.icons.Timelapse
 import com.jussicodes.music.ui.icons.Timer
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
+import com.jussicodes.music.ui.components.AudioSourceSelector
 import com.jussicodes.music.ui.components.audioSourceOptions
+import com.jussicodes.music.lx.AudioSourceSwitcher
 import com.rcmiku.ncmapi.api.AudioSources
+import com.rcmiku.ncmapi.api.LocalSources
 import com.rcmiku.ncmapi.model.Song
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
 
@@ -130,7 +129,11 @@ fun PlayerMenuBottomSheet(
     // Global audio-source picker state (no per-song override: a pick applies to
     // the whole app until the user changes it again).
     var audioSource by rememberPreference(audioSourceKey, AudioSources.DEFAULT)
+    var directSource by rememberPreference(directSourceKey, LocalSources.AUTO)
     var showSourcePicker by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(directSource) {
+        com.rcmiku.ncmapi.api.player.PlayerApi.DirectSourceSettings.SOURCE = directSource
+    }
     val sourceLabel = audioSourceOptions.firstOrNull { it.value == audioSource }?.label ?: audioSource
 
     LaunchedEffect(openBottomSheet) {
@@ -243,7 +246,7 @@ fun PlayerMenuBottomSheet(
                                 )
                                 MenuDivider()
                                 MenuRow(
-                                    icon = Dns,
+                                    icon = DnsOutlined,
                                     title = "切换音源",
                                     value = sourceLabel,
                                     iconAlpha = 1f,
@@ -318,10 +321,9 @@ fun PlayerMenuBottomSheet(
             onApply = { selected ->
                 audioSource = selected
                 showSourcePicker = false
-                // 立刻用新音源重新解析当前这首歌（cacheKey 含音源代号，不会复用旧直链）
-                com.jussicodes.music.playback.PlaybackReloadBus.sourceTag = selected
-                com.rcmiku.ncmapi.api.AudioSourceSettings.SELECTED = selected
-                com.jussicodes.music.playback.PlaybackReloadBus.requestReload()
+                // 换源立即生效并重解当前歌曲：与设置页 reloadCurrentSong 同一套逻辑
+                // （cacheKey 含音源代号，不会复用旧直链）。
+                AudioSourceSwitcher.apply(selected, directSource)
                 Toast.makeText(
                     context,
                     "音源：${audioSourceOptions.firstOrNull { it.value == selected }?.label ?: selected}",
@@ -374,34 +376,22 @@ private fun LocalSourcePickerSheet(
                 .padding(vertical = 12.dp)
         ) {
             Text(
-                text = "选择音源（三选一）",
+                text = "三种音源只生效一个",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+            Text(
+                text = "选择音源",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
-            audioSourceOptions.forEach { option ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                        .selectable(
-                            selected = option.value == currentSource,
-                            onClick = { onApply(option.value) },
-                            role = Role.RadioButton,
-                        )
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = option.value == currentSource,
-                        onClick = null
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        text = option.label,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
+            // 与设置页同一套小卡片选择器（AudioSourceSelector），命名/排序同源
+            AudioSourceSelector(
+                currentSource = currentSource,
+                onSourceSelected = { onApply(it) },
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
         }
     }
 }

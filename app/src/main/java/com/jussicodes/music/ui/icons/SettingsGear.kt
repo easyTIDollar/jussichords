@@ -7,7 +7,7 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
 // material Symbols "Settings" (filled, 24px)，齿轮。曲线/弧已用 24x 采样折线化
-// （只留 moveTo/lineTo/close，与 Dns.kt 等图标同 API，避免高版本 VectorPathBuilder 缺 cubicTo/arcTo 导致编译错）。
+// （只留 moveTo/lineTo/close，避免高版本 VectorPathBuilder 缺 cubicTo/arcTo 导致编译错）。
 val SettingsGear: ImageVector
     get() {
         if (_SettingsGear != null) {

@@ -103,7 +103,7 @@ import com.jussicodes.music.ui.components.unblockSourceOptions
 import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.AudioLines
 import com.jussicodes.music.ui.icons.DesktopLyrics
-import com.jussicodes.music.ui.icons.Dns
+import androidx.compose.material.icons.outlined.Dns as DnsOutlined
 import com.jussicodes.music.ui.icons.Gesture
 import com.jussicodes.music.ui.icons.Github
 import com.jussicodes.music.ui.icons.Login
@@ -131,11 +131,10 @@ import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.utils.sourceById
 import com.rcmiku.ncmapi.api.account.AccountApi
-import com.rcmiku.ncmapi.api.AudioSourceSettings
 import com.rcmiku.ncmapi.api.AudioSources
 import com.rcmiku.ncmapi.api.LocalSources
 import com.rcmiku.ncmapi.api.player.PlayerApi
-import com.jussicodes.music.playback.PlaybackReloadBus
+import com.jussicodes.music.lx.AudioSourceSwitcher
 import com.jussicodes.music.ui.components.AudioSourceSelector
 import com.jussicodes.music.ui.components.LocalSourceDialog
 import com.rcmiku.ncmapi.api.player.SongLevel
@@ -287,13 +286,10 @@ fun SettingsScreen(navController: NavHostController) {
     // 只含音质，不含音源），重新 prepare 当前 MediaItem 让它走一遍新的解析链。
     fun reloadCurrentSong() {
         coroutineScope.launch {
-            // 给异步写盘的 DataStore 一点时间，否则 PlayerApi 可能读到旧值
-            kotlinx.coroutines.delay(120)
-            AudioSourceSettings.SELECTED = audioSource
-            PlayerApi.DirectSourceSettings.SOURCE = directSource
-            // 直连源也进 cacheKey：同一直连档位下换源，直链同样要重新解析
-            PlaybackReloadBus.sourceTag = "$audioSource/${LocalSources.fromKey(directSource)?.value ?: LocalSources.AUTO}"
-            PlaybackReloadBus.requestReload()
+            // rememberPreference 是异步写盘，延迟一下让 DataStore 先落定，
+            // 否则 JetMeloApp 的 collect 可能用旧值把 ncmapi 全局变量覆盖回去。
+            kotlinx.coroutines.delay(150)
+            AudioSourceSwitcher.apply(audioSource, directSource)
         }
     }
     var showCookieDialog by remember { mutableStateOf(false) }
@@ -554,7 +550,6 @@ fun SettingsScreen(navController: NavHostController) {
 
     val advancedGroup = SettingGroupData(
         name = "音源设置",
-        subtitle = "三选一",
         note = "三种音源只生效一个；切换后立即用新音源重新解析当前播放的歌",
         header = {
             AudioSourceSelector(
@@ -575,12 +570,6 @@ fun SettingsScreen(navController: NavHostController) {
                 onClick = { navController.navigate(Screen.LxPlugins.route) }
             ),
             SettingItemData(
-                title = "LX 脚本管理",
-                subtitle = lxScriptSummary,
-                imageVector = Script,
-                onClick = { navController.navigate(Screen.LxPlugins.route) }
-            ),
-            SettingItemData(
                 title = "直连源",
                 subtitle = if (audioSource != AudioSources.DIRECT) {
                     "仅「直连音源」生效 · 当前 ${LocalSources.fromKey(directSource)?.label ?: directSource}"
@@ -594,7 +583,7 @@ fun SettingsScreen(navController: NavHostController) {
                 title = stringResource(R.string.api_server),
                 subtitle = apiBaseUrl.ifBlank { "未设置" },
                 warning = httpWarning,
-                imageVector = Dns,
+                imageVector = DnsOutlined,
                 onClick = { showApiServerDialog = true },
                 trailingContent = {
                     GearButton("更换解灰源") { showUnblockSourceDialog = true }
