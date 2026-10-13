@@ -76,7 +76,7 @@ object PlayerApi {
      * 本地直连音源探测（照 Melodia）：OFF 直接跳过；单源则只试它。
      * 命中返回直链，否则 null（交回代理解灰链）。
      */
-    private fun tryLocalSourceUrl(songId: String, songLevel: SongLevel): String? {
+    private suspend fun tryLocalSourceUrl(songId: String, songLevel: SongLevel): String? {
         val chosen = LocalSourceSettings.SONG_SOURCE
         if (chosen == LocalSources.OFF) return null
         // LX 脚本源：解析跑在 app 侧的 WebView 沙盒里（ncmapi 无 Context），
