@@ -22,15 +22,8 @@ import androidx.datastore.preferences.core.edit
  */
 object HomeTransparentCardStore {
 
-    private const val TAG = "JussicordsDiag"
-
     private val _state = MutableStateFlow(false)
     val state: StateFlow<Boolean> = _state.asStateFlow()
-
-    /** 上一次对外发布的值，用于诊断「value 是否真的在闪」——只读不改。 */
-    @Volatile
-    var lastPublished: Boolean = false
-        private set
 
     private val watcherScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -39,18 +32,7 @@ object HomeTransparentCardStore {
         val ds = context.applicationContext.dataStore
         watcherScope.launch {
             ds.data.collect { prefs ->
-                val v = prefs[homeTransparentCardKey] ?: false
-                val prev = _state.value
-                _state.value = v
-                lastPublished = v
-                // [DEBUG-3f7a] DataStore 回流导致的 value 变化。若复现闪白时这里频繁打点，
-                // 说明 store 值本身在跳；若这里不打点而 UI 仍在闪，说明问题在 UI 读取侧。
-                if (v != prev) {
-                    android.util.Log.d(
-                        TAG,
-                        "[DEBUG-3f7a] store value $prev -> $v (DataStore 回流)"
-                    )
-                }
+                _state.value = prefs[homeTransparentCardKey] ?: false
             }
         }
     }

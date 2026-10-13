@@ -14,6 +14,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -81,7 +83,6 @@ import com.jussicodes.music.data.HomeTransparentCardStore
 import com.jussicodes.music.data.HomeUserInfoStore
 import com.jussicodes.music.data.NcmCookieStore
 import com.jussicodes.music.data.PinnedAlbumStore
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import com.jussicodes.music.ui.components.transparentCardColor
@@ -772,21 +773,24 @@ private fun LibraryUserCard(
     val followsLabel = if (followsCount != null) "$followsCount 关注" else "关注"
     val followedsLabel = if (followedsCount != null) "$followedsCount 粉丝" else "粉丝"
 
-    // [DEBUG-3f7a] 记录每次重组实际算出的容器色。闪白时若这里打出非玻璃色，
-    // 说明 userCardGlassColor() 的输入在跳；若这里一直打玻璃色而屏幕仍闪，说明
-    // 颜色根本不是变量，问题在别处（例如 Card/Surface 的 tonal elevation 或绘制层）。
-    val diagContainerColor = userCardGlassColor()
-    val diagStoreValue = HomeTransparentCardStore.lastPublished
-    val diagDark = isSystemInDarkTheme()
-    android.util.Log.d(
-        "JussicordsDiag",
-        "[DEBUG-3f7a] LibraryUserCard compose: store=$diagStoreValue dark=$diagDark color=$diagContainerColor"
-    )
-
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(containerColor = diagContainerColor)
+        // 磨砂薄玻璃：开开关 = surface+primary 轻染的半透明玻璃（见 userCardGlassColor）；
+        // 关开关 = surfaceContainerLow 不透明实底。
+        // 描边走 Card 的 border 参数而不是在内容里垫 Box——垫 Box 会占一行布局、
+        // 把内容往下推，且描边画在卡片内部而非卡片边缘。
+        border = if (HomeTransparentCardStore.state.collectAsState().value) {
+            BorderStroke(
+                width = 1.dp,
+                color = androidx.compose.ui.graphics.Color.White.copy(
+                    alpha = if (isSystemInDarkTheme()) 0.14f else 0.35f
+                )
+            )
+        } else {
+            null
+        },
+        colors = CardDefaults.cardColors(containerColor = userCardGlassColor())
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -799,12 +803,7 @@ private fun LibraryUserCard(
                 Box(
                     modifier = Modifier
                         .size(76.dp)
-                        // 头像占位底色必须是「跟着卡片容器走」而不是写死 surface：
-                        // 开「主页透明卡片」时用户卡是半透明玻璃，AsyncImage 重建 /
-                        // crossfade 空窗期若露出 surface 纯白圆底，会和玻璃底色反差极大，
-                        // 就是「探索划回主页信息卡闪一下白」。取同卡片容器色，空窗期
-                        // 与卡片本身融为一体，肉眼不可见。
-                        .background(userCardGlassColor(), CircleShape)
+                        .background(MaterialTheme.colorScheme.surface, CircleShape)
                         .clip(CircleShape)
                         .clickable(enabled = profile.avatarUrl.isNotBlank(), onClick = onAvatarClick),
                     contentAlignment = Alignment.BottomEnd

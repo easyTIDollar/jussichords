@@ -15,8 +15,6 @@ import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.movableContentOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
@@ -30,7 +28,6 @@ import com.jussicodes.music.constants.DURATION_ENTER
 import com.jussicodes.music.constants.DURATION_EXIT_SHORT
 import com.jussicodes.music.constants.EmphasizedAccelerateEasing
 import com.jussicodes.music.constants.EmphasizedDecelerateEasing
-import com.jussicodes.music.ui.components.tabs
 import com.jussicodes.music.ui.screen.AlbumScreen
 import com.jussicodes.music.ui.screen.AlbumSublistScreen
 import com.jussicodes.music.ui.screen.ArtistScreen
@@ -61,29 +58,15 @@ fun NavGraph(
     onHomePageChange: (Int) -> Unit,
     onHomePageScroll: (Float) -> Unit
 ) {
-    // 我的/探索两个 destination 都渲染同一个 pager。横滑 settle 后 MainScreen 会
-    // navigateRootTab 同步路由（返回栈需要），NavHost 随即销毁旧 destination 下的
-    // 整棵 HomePager → LibraryScreen → LibraryUserCard 并在新 destination 下重建：
-    // 新建的 AsyncImage 走 crossfade，空窗期露出头像占位底色，开「主页透明卡片」时
-    // 就是用户看到的「探索划回主页信息卡闪一下白」。
-    // 用 movableContentOf 把 HomePager 变成可迁移内容：destination 切换时同一份
-    // composition（含 LazyColumn 滚动位置、AsyncImage painter、各 remember 状态）
-    // 整体搬到新 destination，不销毁不重建，闪白从机制上消失。
-    // 注意：movableContentOf 必须在 NavGraph 这一层 remember，不能放进
-    // composable{} 里——否则两个 destination 各 remember 一份，就谈不上迁移。
-    val homePagerContent = remember {
-        movableContentOf { currentPage: Int ->
-            HomePager(
-                navController = navController,
-                pagerState = homePagerState,
-                requestedPage = currentPage,
-                onPageChange = onHomePageChange,
-                onPageScroll = onHomePageScroll
-            )
-        }
-    }
-
-    // home<->home 只做返回栈记账，没有任何动画：交叉淡入两个相同 pager 会被看成闪一下。
+    // The two home destinations (library/explore) render the same HorizontalPager;
+    // switching between them is route bookkeeping only (driven by MainScreen's
+    // navigateRootTab when the settled page changes). Animating that switch
+    // crossfades two identical pagers, which reads as a flash + press-down.
+    // Keep home<->home switches instant; only animate pushes/pops into detail
+    // screens. Detail pushes use a soft crossfade only — the earlier
+    // scaleIn(0.985) + EmphasizedDecelerate combo read as a stiff "press down"
+    // (search / personal-FM / artist pushes especially). Pure fade with a
+    // gentle decelerate feels like a Material-style page reveal.
     val homeRoutes = setOf(Screen.Library.route, Screen.Explore.route)
 
     SharedTransitionLayout {
@@ -146,10 +129,20 @@ fun NavGraph(
             }
         ) {
             composable(Screen.Library.route) {
-                homePagerContent(tabs.indexOfFirst { it.route == Screen.Library.route })
+                HomePager(
+                    navController = navController,
+                    pagerState = homePagerState,
+                    onPageChange = onHomePageChange,
+                    onPageScroll = onHomePageScroll
+                )
             }
             composable(Screen.Explore.route) {
-                homePagerContent(tabs.indexOfFirst { it.route == Screen.Explore.route })
+                HomePager(
+                    navController = navController,
+                    pagerState = homePagerState,
+                    onPageChange = onHomePageChange,
+                    onPageScroll = onHomePageScroll
+                )
             }
             composable(Screen.Roam.route) {
                 RoamScreen(
@@ -230,19 +223,9 @@ fun NavGraph(
 private fun HomePager(
     navController: NavHostController,
     pagerState: PagerState,
-    requestedPage: Int,
     onPageChange: (Int) -> Unit,
     onPageScroll: (Float) -> Unit
 ) {
-    // 新 destination 挂载时按该路由对应的 tab 落页（通常是 no-op，因为横滑已把
-    // pagerState 带到目标页；只有从二级页/播放器跳过来时才真正生效）。
-    // 用 scrollToPage 不用 animateScrollToPage：无动画切换本来就是 home 的设计。
-    LaunchedEffect(requestedPage) {
-        if (pagerState.currentPage != requestedPage || pagerState.currentPageOffsetFraction != 0f) {
-            pagerState.scrollToPage(requestedPage)
-        }
-    }
-
     LaunchedEffect(pagerState.settledPage) {
         onPageChange(pagerState.settledPage)
         onPageScroll(pagerState.settledPage.toFloat())
