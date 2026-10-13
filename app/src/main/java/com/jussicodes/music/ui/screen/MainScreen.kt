@@ -147,6 +147,13 @@ fun MainScreen() {
     var showBgCancelConfirm by remember { mutableStateOf(false) }
     var bgViewW by remember { mutableIntStateOf(0) }
     var bgViewH by remember { mutableIntStateOf(0) }
+    // 缩放/位置手动调整模式（编辑面板按钮开关，默认关）：关时不接管任何手势，
+    // 主页左右滑 = 正常切「我的·探索」tab；开时居中手势区才消费双指缩放/单指平移。
+    var bgAdjustMode by remember { mutableStateOf(false) }
+    // 已加载背景图的宽高比（HomeBackgroundLayer onState 回流）：平移边界按图片
+    // 真实 Crop 溢出计算，而不是视口近似——横屏图 scale=1 时也能左右移动看全图。
+    var bgImgAspect by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(effectiveHomeBg.path) { bgImgAspect = 0f }
 
     LaunchedEffect(
         playerState?.currentMediaItem,
@@ -400,7 +407,10 @@ fun MainScreen() {
                 label = "HomeBackgroundLayer"
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    HomeBackgroundLayer(config = effectiveHomeBg)
+                    HomeBackgroundLayer(
+                        config = effectiveHomeBg,
+                        onImageAspect = { bgImgAspect = it },
+                    )
                 }
             }
 
@@ -443,6 +453,33 @@ fun MainScreen() {
             // 主页背景沉浸式编辑模式：draft 非 null 时接管全屏手势 + 底部参数面板。
             val editingBg = bgDraft
             if (editingBg != null && isTabRoute) {
+                // 平移边界：按图片真实宽高比 + 当前缩放算 Crop 溢出（每轴独立）。
+                // 旧公式 (scale-1)*min(W,H)/2 以视口近似，横屏图在 scale=1 时边界为 0，
+                // 横向被裁的部分完全移不动——改按实际溢出后每张图都能移到看全。
+                // 宽高比未回流（图还在加载）时退回旧公式，保证行为不比旧版差。
+                fun panLimit(scale: Float): Offset {
+                    val fallback = (scale - 1f) * minOf(bgViewW, bgViewH) / 2f
+                    if (bgImgAspect <= 0f || bgViewW <= 0 || bgViewH <= 0) {
+                        return Offset(fallback, fallback)
+                    }
+                    val vw = bgViewW.toFloat()
+                    val vh = bgViewH.toFloat()
+                    val drawnW: Float
+                    val drawnH: Float
+                    if (vw / vh >= bgImgAspect) {
+                        drawnH = vh
+                        drawnW = vh * bgImgAspect
+                    } else {
+                        drawnW = vw
+                        drawnH = vw / bgImgAspect
+                    }
+                    val limX = ((drawnW * scale) - vw).coerceAtLeast(0f) / 2f
+                    val limY = ((drawnH * scale) - vh).coerceAtLeast(0f) / 2f
+                    return Offset(
+                        maxOf(limX, fallback).coerceAtLeast(0f),
+                        maxOf(limY, fallback).coerceAtLeast(0f),
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -458,8 +495,10 @@ fun MainScreen() {
                                 bgViewH = it.height
                             }
                     ) {
-                    // 手势区：居中 72%×40% 圆角框。区内事件全消费（编辑背景、锁死底层），
-                    // 区外不消费 → 不挡列表滚动 / 横滑切「我的·探索」/ 底栏（防误触）。
+                    // 手势区（仅 bgAdjustMode 开启时存在，默认关）：居中 72%×40% 圆角框。
+                    // 区内事件全消费（缩放/平移背景、锁死底层），区外不消费 → 不挡列表滚动 /
+                    // 横滑切「我的·探索」/ 底栏（防误触）。关闭时整层不存在，主页手势完全恢复默认。
+                    if (bgAdjustMode) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
@@ -521,13 +560,12 @@ fun MainScreen() {
                                                     baseOffsetY += midNow.y - pinchMid.y
                                                     pinchRef = dist
                                                     pinchMid = midNow
-                                                    val limit =
-                                                        (scaleAccum - 1f) * minOf(bgViewW, bgViewH) / 2f
+                                                    val lim = panLimit(scaleAccum)
                                                     HomeBgEditor.update {
                                                         it.copy(
                                                             scale = scaleAccum,
-                                                            offsetX = baseOffsetX.coerceIn(-limit, limit),
-                                                            offsetY = baseOffsetY.coerceIn(-limit, limit)
+                                                            offsetX = baseOffsetX.coerceIn(-lim.x, lim.x),
+                                                            offsetY = baseOffsetY.coerceIn(-lim.y, lim.y)
                                                         )
                                                     }
                                                 }
@@ -545,14 +583,13 @@ fun MainScreen() {
                                                 }
                                                 // 单指：区内两轴自由移动背景（斜拖同时改 XY）；越界幅度受缩放量限制
                                                 live?.let {
-                                                    val limit =
-                                                        (it.scale - 1f) * minOf(bgViewW, bgViewH) / 2f
+                                                    val lim = panLimit(it.scale)
                                                     HomeBgEditor.update {
                                                         it.copy(
                                                             offsetX = (singleBaseX + (p.x - singleStart.x))
-                                                                .coerceIn(-limit, limit),
+                                                                .coerceIn(-lim.x, lim.x),
                                                             offsetY = (singleBaseY + (p.y - singleStart.y))
-                                                                .coerceIn(-limit, limit)
+                                                                .coerceIn(-lim.y, lim.y)
                                                         )
                                                     }
                                                 }
@@ -564,13 +601,14 @@ fun MainScreen() {
                             }
                     ) {
                         Text(
-                            text = "区域内：双指缩放 · 单指移动背景",
+                            text = "区域内：双指缩放 · 单指移动背景（调整完点下方按钮关闭）",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier
                                 .align(Alignment.TopStart)
                                 .padding(10.dp),
                         )
+                    }
                     }
                     }
                     Column(
@@ -581,6 +619,8 @@ fun MainScreen() {
                         HomeBgEditPanel(
                             opacity = editingBg.opacity,
                             blur = editingBg.blur,
+                            adjustMode = bgAdjustMode,
+                            onToggleAdjust = { bgAdjustMode = !bgAdjustMode },
                             onOpacityChanged = { v ->
                                 HomeBgEditor.update { it.copy(opacity = v) }
                             },
@@ -592,8 +632,8 @@ fun MainScreen() {
                             onSave = {
                                 HomeBgEditor.commit(context, coroutineScope)
                                 showBgCancelConfirm = false
-                                // 保存成功留在主页：把底下压着的设置页弹掉，按返回不再冒出旧设置页
-                                navController.popBackStack(Screen.Settings.route, true)
+                                bgAdjustMode = false
+                                // 保存成功留在主页：设置页在 startHomeBgEdit 时已弹出，这里无需再弹。
                             }
                         )
                     }
@@ -610,6 +650,7 @@ fun MainScreen() {
                         confirmButton = {
                             TextButton(onClick = {
                                 showBgCancelConfirm = false
+                                bgAdjustMode = false
                                 HomeBgEditor.cancel(context)
                                 // 放弃 → 回设置页并自动打开「外观」弹窗。
                                 // 栈手术：把 Library（home）以上全弹掉再 push Settings，

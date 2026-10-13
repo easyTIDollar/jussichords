@@ -29,6 +29,8 @@ import kotlin.math.roundToInt
 fun HomeBgEditPanel(
     opacity: Float,
     blur: Float,
+    adjustMode: Boolean,
+    onToggleAdjust: () -> Unit,
     onOpacityChanged: (Float) -> Unit,
     onBlurChanged: (Float) -> Unit,
     onReset: () -> Unit,
@@ -53,10 +55,21 @@ fun HomeBgEditPanel(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "区域内：双指缩放 · 单指移动背景；区域外正常滑动列表、切换「我的·探索」",
+                text = "缩放/位置调整默认关闭，此时主页左右滑正常切「我的·探索」；开启后图中框内双指缩放、单指移动",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                TextButton(onClick = onToggleAdjust) {
+                    Text(
+                        if (adjustMode) "关闭缩放/位置调整" else "调整图片缩放/位置",
+                        fontWeight = if (adjustMode) FontWeight.SemiBold else FontWeight.Normal,
+                    )
+                }
+            }
             EditPanelSliderRow(
                 label = "透明度",
                 valueText = "${(opacity * 100).roundToInt()}%",

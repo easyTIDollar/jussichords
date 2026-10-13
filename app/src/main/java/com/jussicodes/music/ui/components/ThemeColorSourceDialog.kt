@@ -41,8 +41,6 @@ fun ThemeColorSourceDialog(
     onHomeBgPick: () -> Unit,
     onHomeBgRemoved: () -> Unit,
     onHomeBgTune: () -> Unit,
-    onHomeBgOpacityChanged: (Float) -> Unit,
-    onHomeBgBlurChanged: (Float) -> Unit,
     homeBgTextColor: String,
     onHomeBgTextColorChanged: (String) -> Unit,
     homeTransparentCard: Boolean,
@@ -275,22 +273,8 @@ fun ThemeColorSourceDialog(
                             }
                         }
 
-                        HomeBgSliderRow(
-                            label = "透明度",
-                            value = homeBg.opacity,
-                            valueText = "${(homeBg.opacity * 100).roundToInt()}%",
-                            valueRange = 0.1f..1f,
-                            steps = 8,
-                            onValueChanged = onHomeBgOpacityChanged,
-                        )
-                        HomeBgSliderRow(
-                            label = "模糊度",
-                            value = homeBg.blur,
-                            valueText = "${homeBg.blur.roundToInt()}",
-                            valueRange = 0f..40f,
-                            steps = 39,
-                            onValueChanged = onHomeBgBlurChanged,
-                        )
+                        // 透明度/模糊度滑块已移除：调参统一在主页编辑面板（选图/「在主页调整」
+                        // 都会立刻跳回主页，面板里实时预览 + 保存/取消），弹窗里只留开关入口。
                     }
                 }
             }

@@ -68,7 +68,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.jussicodes.music.BuildConfig
 import com.jussicodes.music.LocalUiScaleController
 import com.jussicodes.music.R
@@ -209,12 +208,11 @@ fun SettingsScreen(navController: NavHostController) {
     fun startHomeBgEdit(config: HomeBackgroundConfig, ownsFile: Boolean) {
         com.jussicodes.music.data.HomeBgEditor.begin(config, ownsFile)
         showThemeColorSourceDialog = false
+        // 立即返回主页进编辑模式：把设置页（含外观弹窗）整体弹出栈，
+        // 调参全部在主页编辑面板完成，保存后按返回也不会再冒出旧设置页。
         navController.navigate(Screen.Library.route) {
-            popUpTo(navController.graph.findStartDestination().id) {
-                saveState = true
-            }
+            popUpTo(Screen.Settings.route) { inclusive = true }
             launchSingleTop = true
-            restoreState = true
         }
     }
     // 选图失败原因（完整可读，走弹窗）。声明须先于 homeBgPicker：
@@ -251,6 +249,10 @@ fun SettingsScreen(navController: NavHostController) {
     }
     fun removeHomeBg() {
         coroutineScope.launch {
+            // 隐藏bug修复：编辑进行中（选了新图还没保存）也能从底栏回到设置页点「移除」，
+            // 旧逻辑 clear() 会把编辑草稿引用的临时文件一并删掉，之后 commit 会把
+            // 一个已不存在的路径写进 DataStore → 背景静默变空。先丢弃草稿再清理。
+            com.jussicodes.music.data.HomeBgEditor.cancel(context)
             com.jussicodes.music.data.HomeBgStore.clear(context)
             homeBgPath = ""
             homeBgScale = 1f
@@ -688,8 +690,6 @@ fun SettingsScreen(navController: NavHostController) {
             onHomeBgPick = { homeBgPicker.launch("image/*") },
             onHomeBgRemoved = { removeHomeBg() },
             onHomeBgTune = { startHomeBgEdit(homeBg, ownsFile = false) },
-            onHomeBgOpacityChanged = { homeBgOpacity = it },
-            onHomeBgBlurChanged = { homeBgBlur = it },
             homeBgTextColor = homeBgTextColor,
             onHomeBgTextColorChanged = { v ->
                 coroutineScope.launch {

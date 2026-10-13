@@ -17,6 +17,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import com.jussicodes.music.constants.homeBgBlurKey
 import com.jussicodes.music.constants.homeBgImageKey
 import com.jussicodes.music.constants.homeBgOffsetXKey
@@ -69,11 +70,14 @@ fun rememberHomeBackground(): HomeBackgroundConfig {
 /**
  * 主页底层背景图层：Coil 加载本地文件（[config.path] 为绝对路径），
  * 缩放 / 透明度 / 模糊 / 平移均可调。未设置时整层不渲染。
+ * [onImageAspect]：图片加载成功后回流宽高比（w/h），供编辑手势层按真实
+ * Crop 溢出计算平移边界（横屏图 scale=1 也可能有横向溢出）。
  */
 @Composable
 fun HomeBackgroundLayer(
     config: HomeBackgroundConfig,
     modifier: Modifier = Modifier,
+    onImageAspect: (Float) -> Unit = {},
 ) {
     if (!config.enabled) return
     val file = remember(config.path) { File(config.path) }
@@ -87,6 +91,14 @@ fun HomeBackgroundLayer(
             contentDescription = null,
             contentScale = ContentScale.Crop,
             filterQuality = FilterQuality.High,
+            onState = { state ->
+                if (state is AsyncImagePainter.State.Success) {
+                    val size = state.painter.intrinsicSize
+                    if (size.isSpecified && size.width > 0f && size.height > 0f) {
+                        onImageAspect(size.width / size.height)
+                    }
+                }
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer(

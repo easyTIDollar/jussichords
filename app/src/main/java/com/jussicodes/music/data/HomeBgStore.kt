@@ -61,7 +61,10 @@ object HomeBgStore {
                     // 正式解码用（contentResolver 原始流 reset 无保证，直接 reset 会 IOException）。
                     stream.use { raw ->
                         val input = BufferedInputStream(raw)
-                        input.mark(Int.MAX_VALUE)
+                        // 修复：原 mark(Int.MAX_VALUE) 让缓冲区可随读取无限增长，大图整个文件
+                        // 都堆进内存。bounds 解码只读文件头，1MB readlimit 覆盖所有常见格式；
+                        // 超限 reset 抛 IOException 走解码 catch → raw copy 兜底，行为安全。
+                        input.mark(1024 * 1024)
                         // 先试解码下采样：一次修复"拷贝慢 + 跳回首页后预览还要全尺寸解码慢"
                         try {
                             val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
