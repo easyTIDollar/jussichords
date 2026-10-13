@@ -389,6 +389,24 @@ fun MainScreen() {
                 label = "MiniPlayerBottomPadding"
             )
 
+            // [DEBUG-4c1b] 抓主页背景层的可见性跳变。用户现象：开「主页透明卡片」时
+            // 探索划回主页，信息卡（半透明玻璃）闪一下白；关开关不闪。
+            // 已证伪：containerColor 全程稳定（store=true 恒为白色 alpha 0.18 玻璃色，
+            // store=false 恒为深色 surfaceContainerLow），与闪白无关。
+            // 现假设：卡片半透明，闪的是它背后的主页背景层。isTabRoute 在横滑 settle 后
+            // 的 destination 切换瞬间可能翻转，触发 AnimatedVisibility 淡出/淡入。
+            // 判读：复现闪白时若这里打出 visible 跳变，即证实；若不打点而仍闪，
+            // 说明连背景层都没动，问题在更底层的窗口/绘制，需换方向。
+            val diagPrevTabRoute = remember { androidx.compose.runtime.mutableStateOf<Boolean?>(null) }
+            if (diagPrevTabRoute.value != isTabRoute) {
+                android.util.Log.d(
+                    "JussicordsDiag",
+                    "[DEBUG-4c1b] isTabRoute ${diagPrevTabRoute.value} -> $isTabRoute " +
+                        "(route=${currentDestination?.route})"
+                )
+                diagPrevTabRoute.value = isTabRoute
+            }
+
             // 主页背景（"我的"/"探索"底层）：全屏渲染，高度与路由/bottomPadding 完全解耦——
             // 进二级页不再随内容区高度突变重裁切。
             // 非首页路由时淡出，避免背景色渗入二级页的进入/退出交叉淡入；
