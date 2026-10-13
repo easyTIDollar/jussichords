@@ -5,6 +5,7 @@ import com.rcmiku.ncmapi.api.API_BASE_URL
 import com.rcmiku.ncmapi.api.AudioSourceSettings
 import com.rcmiku.ncmapi.api.AudioSources
 import com.rcmiku.ncmapi.api.LocalSourceFetcher
+import com.rcmiku.ncmapi.api.LocalSources
 import com.rcmiku.ncmapi.api.LxSourceBridge
 import com.rcmiku.ncmapi.api.UNBLOCK_SOURCE
 import com.rcmiku.ncmapi.api.apiClient
