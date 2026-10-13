@@ -58,7 +58,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
+import com.jussicodes.music.utils.CoverImageSize
+import com.jussicodes.music.utils.toCoverImageUrl
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -165,12 +170,41 @@ fun SettingsScreen(navController: NavHostController) {
     // 音源三选一（LX / 内置直连 / 代理）。旧选择由 JetMeloApp 里的一次性迁移清掉，
     // 这里不做重置——否则每次进设置页都会把用户的选择打回 LX。
     var audioSource by rememberPreference(audioSourceKey, AudioSources.DEFAULT)
-    // 「音源三」行副标题：LX 脚本的启用情况（脚本正文存在 DataStore，这里只读条数/启用数）。
+    // 「直连音源」档位下的六源单选（音源设置里的子设置）。
+    var directSource by rememberPreference(directSourceKey, LocalSources.AUTO)
+    LaunchedEffect(directSource) {
+        PlayerApi.DirectSourceSettings.SOURCE = directSource
+    }
+    // 三行子设置各自报「当前正在使用谁」，按 audioSource 档位走：
+    // LX 档位说脚本名，直连/代理档位说「当前正在使用 LX源」（或直连源名/服务器）。
     val lxPlugins by com.jussicodes.music.lx.LxPluginManager.plugins.collectAsState(initial = emptyList())
+    val enabledLxScripts = lxPlugins.filter { it.isEnabled }
+    // 当前真正负责解析的脚本名：LX 档位取列表首个启用项（PlayerApi 也是按顺序轮询）
+    val activeLxScriptName = enabledLxScripts.firstOrNull()?.name
+    val inUseLabel = when (audioSource) {
+        AudioSources.LX -> "LX源"
+        AudioSources.DIRECT -> LocalSources.fromKey(directSource)?.label ?: "直连源"
+        else -> apiBaseUrl.ifBlank { "API代理服务器" }
+    }
     val lxScriptSummary = when {
         lxPlugins.isEmpty() -> "未导入脚本"
-        lxPlugins.none { it.isEnabled } -> "${lxPlugins.size} 个脚本（全部停用）"
-        else -> "${lxPlugins.count { it.isEnabled }}/${lxPlugins.size} 个脚本已启用"
+        audioSource == AudioSources.LX -> if (activeLxScriptName != null) {
+            "当前正在使用${activeLxScriptName}脚本 · ${enabledLxScripts.size}/${lxPlugins.size} 个脚本已启用"
+        } else {
+            "${lxPlugins.size} 个脚本（全部停用）"
+        }
+        enabledLxScripts.isNotEmpty() -> "当前正在使用 ${activeLxScriptName ?: "LX源"}"
+        else -> "当前正在使用 $inUseLabel"
+    }
+    val directSourceSummary = if (audioSource == AudioSources.DIRECT) {
+        LocalSources.fromKey(directSource)?.label ?: directSource
+    } else {
+        "当前正在使用 $inUseLabel"
+    }
+    val apiServerSummary = if (audioSource == AudioSources.PROXY) {
+        apiBaseUrl.ifBlank { "未设置" }
+    } else {
+        "当前正在使用 $inUseLabel"
     }
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     var playerGestureTutorialVersion by rememberPreference(
@@ -276,11 +310,7 @@ fun SettingsScreen(navController: NavHostController) {
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
     var showDirectSourceDialog by remember { mutableStateOf(false) }
 
-    // 「直连音源」档位下的六源单选（音源设置里的子设置）。
-    var directSource by rememberPreference(directSourceKey, LocalSources.AUTO)
-    LaunchedEffect(directSource) {
-        PlayerApi.DirectSourceSettings.SOURCE = directSource
-    }
+
 
     // 切换音源后重解析当前播放的歌：清掉 ResolvingDataSource 的解析缓存（cacheKey
     // 只含音质，不含音源），重新 prepare 当前 MediaItem 让它走一遍新的解析链。
@@ -318,6 +348,7 @@ fun SettingsScreen(navController: NavHostController) {
     }
     var pendingOverlayGrant by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var accountAvatar by rememberSaveable { mutableStateOf("") }
     var accountNickname by rememberSaveable { mutableStateOf("") }
 
     DisposableEffect(lifecycleOwner, context) {
@@ -343,14 +374,16 @@ fun SettingsScreen(navController: NavHostController) {
         }
     }
 
-    // 退出登录副标题显示当前账号昵称
+    // 退出登录行：副标题=昵称，图标=当前账号头像
     LaunchedEffect(ncmCookie) {
         if (ncmCookie.isEmpty()) {
             accountNickname = ""
+            accountAvatar = ""
             return@LaunchedEffect
         }
-        accountNickname = AccountApi.account().getOrNull()
-            ?.account?.profile?.nickname.orEmpty()
+        val profile = AccountApi.account().getOrNull()?.account?.profile
+        accountNickname = profile?.nickname.orEmpty()
+        accountAvatar = profile?.avatarUrl.orEmpty()
     }
 
     LaunchedEffect(Unit) {
@@ -465,6 +498,19 @@ fun SettingsScreen(navController: NavHostController) {
                 imageVector = if (loggedOut) Login else Logout,
                 danger = !loggedOut,
                 subtitle = if (loggedOut) null else "当前账号：${accountNickname.ifEmpty { "点击退出" }}",
+                // 已登录时用头像当图标（36dp 圆形），未登录/取不到头像则退回 Logout 图标
+                iconContent = if (!loggedOut && accountAvatar.isNotBlank()) {
+                    {
+                        AsyncImage(
+                            model = accountAvatar.toCoverImageUrl(CoverImageSize.LIST),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                        )
+                    }
+                } else null,
                 onClick = {
                     if (loggedOut) {
                         navController.navigate(Screen.Login.route)
@@ -571,17 +617,13 @@ fun SettingsScreen(navController: NavHostController) {
             ),
             SettingItemData(
                 title = "直连源",
-                subtitle = if (audioSource != AudioSources.DIRECT) {
-                    "仅「直连音源」生效 · 当前 ${LocalSources.fromKey(directSource)?.label ?: directSource}"
-                } else {
-                    LocalSources.fromKey(directSource)?.label ?: directSource
-                },
+                subtitle = directSourceSummary,
                 imageVector = MusicNote,
                 onClick = { showDirectSourceDialog = true }
             ),
             SettingItemData(
                 title = stringResource(R.string.api_server),
-                subtitle = apiBaseUrl.ifBlank { "未设置" },
+                subtitle = apiServerSummary,
                 warning = httpWarning,
                 imageVector = Icons.Outlined.Dns,
                 onClick = { showApiServerDialog = true },
@@ -980,21 +1022,25 @@ private fun SettingRow(item: SettingItemData) {
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(
-                    if (item.danger) colors.errorContainer else colors.surfaceVariant
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = item.imageVector,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = if (item.danger) colors.error else colors.primary
-            )
+        if (item.iconContent != null) {
+            item.iconContent()
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (item.danger) colors.errorContainer else colors.surfaceVariant
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = item.imageVector,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = if (item.danger) colors.error else colors.primary
+                )
+            }
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
@@ -1057,6 +1103,8 @@ data class SettingItemData(
     val trailingContent: @Composable (() -> Unit)? = null,
     val danger: Boolean = false,
     val warning: String? = null,
+    /** 自定义图标（头像等）；给了就用它，忽略 [imageVector]。 */
+    val iconContent: (@Composable () -> Unit)? = null,
 )
 
 data class SettingGroupData(

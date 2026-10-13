@@ -28,7 +28,7 @@ object AudioSources {
     val OPTIONS = listOf(
         Option(LX, "LX音源", "运行 JS 脚本解析"),
         Option(DIRECT, "直连音源", "请求内置解析接口"),
-        Option(PROXY, "API代理服务器解灰", "由自建服务器代解"),
+        Option(PROXY, "API代理服务器", "由自建服务器代解"),
     )
 
     fun fromKey(key: String): Option? = OPTIONS.find { it.value == key }
