@@ -103,7 +103,7 @@ import com.jussicodes.music.ui.components.unblockSourceOptions
 import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.AudioLines
 import com.jussicodes.music.ui.icons.DesktopLyrics
-import androidx.compose.material.icons.outlined.Dns as DnsOutlined
+import androidx.compose.material.icons.outlined.Dns
 import com.jussicodes.music.ui.icons.Gesture
 import com.jussicodes.music.ui.icons.Github
 import com.jussicodes.music.ui.icons.Login
@@ -583,7 +583,7 @@ fun SettingsScreen(navController: NavHostController) {
                 title = stringResource(R.string.api_server),
                 subtitle = apiBaseUrl.ifBlank { "未设置" },
                 warning = httpWarning,
-                imageVector = DnsOutlined,
+                imageVector = Icons.Outlined.Dns,
                 onClick = { showApiServerDialog = true },
                 trailingContent = {
                     GearButton("更换解灰源") { showUnblockSourceDialog = true }

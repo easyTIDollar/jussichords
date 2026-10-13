@@ -54,7 +54,7 @@ import com.jussicodes.music.constants.audioEffectModeKey
 import com.jussicodes.music.constants.audioEffectReverbEnabledKey
 import com.jussicodes.music.constants.audioEffectSpeedKey
 import com.jussicodes.music.playback.audio.AudioEffectMode
-import androidx.compose.material.icons.outlined.Dns as DnsOutlined
+import androidx.compose.material.icons.outlined.Dns
 import com.jussicodes.music.ui.icons.AudioLines
 import com.jussicodes.music.ui.icons.ListenTogether
 import com.jussicodes.music.ui.icons.Repeat
@@ -246,7 +246,7 @@ fun PlayerMenuBottomSheet(
                                 )
                                 MenuDivider()
                                 MenuRow(
-                                    icon = DnsOutlined,
+                                    icon = Icons.Outlined.Dns,
                                     title = "切换音源",
                                     value = sourceLabel,
                                     iconAlpha = 1f,
@@ -370,11 +370,7 @@ private fun LocalSourcePickerSheet(
         onDismissRequest = onDismiss,
         sheetState = bottomSheetState,
     ) {
-        Column(
-            modifier = Modifier
-                .selectableGroup()
-                .padding(vertical = 12.dp)
-        ) {
+        Column(modifier = Modifier.padding(vertical = 12.dp)) {
             Text(
                 text = "三种音源只生效一个",
                 style = MaterialTheme.typography.bodySmall,
