@@ -45,6 +45,11 @@ val audioSourceKey = stringPreferencesKey("audioSource")
 val directSourceKey = stringPreferencesKey("directSource")
 val ignoredUpdateVersionKey = stringPreferencesKey("ignoredUpdateVersion")
 val uiScaleKey = floatPreferencesKey("uiScale")
+/**
+ * 大屏预览模拟内容宽度（dp）。0=关闭（走真实窗口宽度），600/840/1280 对应
+ * Medium / Expanded / 超宽屏。没有平板/TV 时在手机上预览大屏布局用。
+ */
+val simulatedWidthKey = intPreferencesKey("simulatedWidth")
 // 主页背景图（"我的"/"探索"页）：base64 存图，缩放/透明度/模糊度各一个键。
 val homeBgImageKey = stringPreferencesKey("homeBgImage")
 val homeBgScaleKey = floatPreferencesKey("homeBgScale")

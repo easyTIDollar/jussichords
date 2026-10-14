@@ -28,7 +28,9 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:theme="@style/Theme.JetMelo">
+            android:theme="@style/Theme.JetMelo"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|navigation|density|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

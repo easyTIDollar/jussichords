@@ -21,12 +21,14 @@ import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
+import com.jussicodes.music.constants.simulatedWidthKey
 import com.jussicodes.music.constants.uiScaleKey
 import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.extensions.init
 import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.playback.PlayerState
 import com.jussicodes.music.playback.state
+import com.jussicodes.music.ui.components.LargeScreenPreviewHost
 import com.jussicodes.music.ui.components.UpdateDialog
 import com.jussicodes.music.ui.components.formatFileSize
 import com.jussicodes.music.ui.screen.MainScreen
@@ -76,6 +78,7 @@ class MainActivity : ComponentActivity() {
             var isMeasuringUpdateSources by remember { mutableStateOf(false) }
             var uiScale by rememberPreference(uiScaleKey, 1f)
             var liveUiScale by remember { mutableFloatStateOf(uiScale) }
+            var simulatedWidth by rememberPreference(simulatedWidthKey, 0)
             var githubDownloadSource by rememberPreference(
                 githubDownloadSourceKey,
                 downloadSources.first().id
@@ -197,7 +200,11 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     ) {
-                    MainScreen()
+                        // 大屏预览：simulatedWidth>0 时把整个主界面按目标宽度真实布局再缩放显示，
+                        // 0 时本包装完全透传，手机行为不受影响。
+                        LargeScreenPreviewHost(simulatedWidth = simulatedWidth) {
+                            MainScreen()
+                        }
                     pendingUpdateInfo?.let { updateInfo ->
                         UpdateDialog(
                             updateInfo = updateInfo,

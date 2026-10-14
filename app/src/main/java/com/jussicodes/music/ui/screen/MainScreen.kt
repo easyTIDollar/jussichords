@@ -86,7 +86,10 @@ import com.jussicodes.music.constants.DURATION_EXIT_SHORT
 import com.jussicodes.music.constants.EmphasizedDecelerateEasing
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.currentPlayMediaIdKey
+import com.jussicodes.music.constants.currentWindowWidthClass
 import com.jussicodes.music.data.HomeBgEditor
+import com.jussicodes.music.ui.components.AdaptiveContent
+import com.jussicodes.music.ui.components.AdaptiveNavigationRail
 import com.jussicodes.music.ui.components.HomeBackgroundLayer
 import com.jussicodes.music.ui.components.HomeBgEditPanel
 import com.jussicodes.music.ui.components.rememberHomeBackground
@@ -137,6 +140,13 @@ fun MainScreen() {
     // 不再用 destination.route 字符串匹配（类型安全参数路由的 route 格式不可靠，已踩坑三次）。
     val miniPlayerHidden by MiniPlayerHiddenBus.hidden.collectAsState()
     val showMiniPlayerChrome = showMiniPlayer && !isRoamRoute && !miniPlayerHidden
+    // 响应式：窗口宽度分级（Compact<600 / Medium / Expanded>=840）。
+    // Expanded 用左侧竖排导航栏替代底部横条；Medium 仍用底栏（横屏手机内容区够高，
+    // 竖排栏会挤掉列表可视高度，不划算），只靠 AdaptiveContent 限宽兜住行长。
+    val widthClass = currentWindowWidthClass()
+    val useNavigationRail = widthClass.isExpanded
+    // 走侧栏时导航不再占底部，内容区应贴系统导航栏而不是留出底栏高度。
+    val navBarTakesBottomSpace = showNavigationBar && !useNavigationRail
     // 主页背景（"我的"/"探索"底层）：提升到 MainScreen 全屏层渲染，布局与 bottomPadding
     // 解耦——路由切换时不再随内容区高度突变重裁切（"背景跟着小播放器下滑"的根因）。
     val homeBackground = rememberHomeBackground()
@@ -268,7 +278,9 @@ fun MainScreen() {
             SnackbarHost(hostState = snackbarHostState)
         },
         bottomBar = {
-            Column {
+            // Compact 用底栏；Medium/Expanded 改左侧竖排导航栏（见 content 里的 Row），
+            // 底栏此时不占位，否则大屏上会多出一条空横条。
+            if (!useNavigationRail) Column {
                 AnimatedVisibility(
                     showNavigationBar,
                     enter = expandVertically(),
@@ -382,7 +394,7 @@ fun MainScreen() {
             // 不加额外高度避免和底栏顶开缝），套 200ms 缓入缓出：进出设置页时下滑/回位平滑。
             val targetMiniBottomPadding = when {
                 showPlayer -> 0.dp
-                showNavigationBar -> padding.calculateBottomPadding()
+                navBarTakesBottomSpace -> padding.calculateBottomPadding()
                 else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             }
             // 内容区跟小播放器用同一个贴底间距（无整体垫高）：首页列表的底部避让
@@ -442,13 +454,48 @@ fun MainScreen() {
                 }
             }
 
-            NavGraph(
-                navController = navController,
-                bottomPadding = miniBottomPadding,
-                homePagerState = homePagerState,
-                onHomePageChange = { homePage = it },
-                onHomePageScroll = { homePageScroll = it }
-            )
+            // Expanded（大屏）左侧竖排导航栏；Compact/Medium 保持底部横条。
+            // 两者只在这里分叉：rail 占左侧固定宽度，内容区限宽居中（AdaptiveContent）。
+            Row(Modifier.fillMaxSize()) {
+                if (useNavigationRail && showNavigationBar) {
+                    AdaptiveNavigationRail(
+                        currentRoute = currentDestination?.route,
+                        isHomeRoute = isHomeRoute,
+                        homePageScroll = homePageScroll,
+                        onTabClick = { route ->
+                            val targetPage = tabs.indexOfFirst { it.route == route }
+                            if (targetPage >= 0 && isHomeRoute) {
+                                coroutineScope.launch {
+                                    if (homePagerState.targetPage != targetPage ||
+                                        homePagerState.currentPageOffsetFraction != 0f
+                                    ) {
+                                        homePagerState.animateScrollToPage(
+                                            page = targetPage,
+                                            animationSpec = tween(
+                                                durationMillis = DURATION_ENTER,
+                                                easing = EmphasizedDecelerateEasing
+                                            )
+                                        )
+                                    }
+                                }
+                            } else {
+                                navigateRootTab(route)
+                            }
+                        }
+                    )
+                }
+                // weight(1f) 而不是靠 fillMaxSize 撑满：Row 里非 weight 子项只拿到
+                // 「剩余宽度」约束，限宽 + 撑满同时成立时才不会溢出。
+                AdaptiveContent(modifier = Modifier.weight(1f)) {
+                    NavGraph(
+                        navController = navController,
+                        bottomPadding = miniBottomPadding,
+                        homePagerState = homePagerState,
+                        onHomePageChange = { homePage = it },
+                        onHomePageScroll = { homePageScroll = it }
+                    )
+                }
+            }
 
             // 主页背景沉浸式编辑模式：draft 非 null 时接管全屏手势 + 底部参数面板。
             val editingBg = bgDraft
