@@ -202,7 +202,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         // 大屏预览：simulatedWidth>0 时把整个主界面按目标宽度真实布局再缩放显示，
                         // 0 时本包装完全透传，手机行为不受影响。
-                        LargeScreenPreviewHost(simulatedWidth = simulatedWidth) {
+                        LargeScreenPreviewHost(simulatedWidthDp = simulatedWidth) {
                             MainScreen()
                         }
                     pendingUpdateInfo?.let { updateInfo ->
