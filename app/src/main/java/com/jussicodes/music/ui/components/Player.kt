@@ -437,20 +437,31 @@ fun Player(
                 }
             }
 
+            // 横屏左栏：封面用 weight 吸收剩余空间（而不是 fillMaxWidth+aspectRatio，
+            // 那会按栏宽 420dp 取方而可用高只有 411dp，必然溢出）。
+            // 外层 weight(1f) / 内层按高度取方，两者配合保证封面永远塞得进左栏。
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    // 横屏：fillMaxWidth + aspectRatio(1f) 会让封面按栏宽（~420dp）取方，
-                    // 而可用高度只有 411dp，必然溢出。改为按高度反推边长，
-                    // 保证封面永远塞得进可视区。竖屏维持原 fillMaxWidth 行为。
-                    .then(
-                        if (landscapePhone) {
-                            Modifier.fillMaxHeight(0.52f).aspectRatio(1f)
-                        } else {
-                            Modifier.padding(horizontal = 24.dp).aspectRatio(1f)
-                        }
-                    )
+                modifier = if (landscapePhone) {
+                    Modifier.weight(1f).fillMaxWidth()
+                } else {
+                    Modifier.fillMaxWidth()
+                }
+            ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = if (landscapePhone) {
+                    // matchHeightConstraintsFirst：先吃高度再按 1:1 反推宽度，
+                    // 避免宽度先撑满导致又高又宽挤爆左栏。
+                    Modifier
+                        .fillMaxHeight()
+                        .aspectRatio(1f, matchHeightConstraintsFirst = true)
+                } else {
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .aspectRatio(1f)
+                }
                     .graphicsLayer {
                         translationX = coverOffsetX
                         rotationZ = (coverOffsetX / swipeThresholdPx).coerceIn(-1f, 1f) * 6f
@@ -608,11 +619,16 @@ fun Player(
                         .fillMaxSize()
                 )
             }
+            }   // ← 封面外层 weight Box 结束
 
             Column(
-                modifier = Modifier
-                    .weight(6f)
-                    .fillMaxWidth(),
+                modifier = if (landscapePhone) {
+                    // 横屏：控件区不再按 6:?? 抢封面空间（411dp 高下 6f 会把封面压没），
+                    // 改为不占 weight，让上方封面的 weight(1f) 吸收剩余高度。
+                    Modifier.fillMaxWidth()
+                } else {
+                    Modifier.weight(6f).fillMaxWidth()
+                },
                 verticalArrangement = if (screenHeight.dp < 700.dp) Arrangement.spacedBy(0.dp) else Arrangement.spacedBy(
                     24.dp
                 )
@@ -755,7 +771,9 @@ fun Player(
                     modifier = Modifier
                         .padding(horizontal = 24.dp)
                         .fillMaxWidth()
-                        .weight(1f)
+                        // 横屏：手势区不占 weight（411dp 下 weight(1f) 会吃掉大半个左栏，
+                        // 里面又塞播放控件 + 教程文案，直接撑爆）。改为按内容高度。
+                        .then(if (landscapePhone) Modifier else Modifier.weight(1f))
                         .drawBehind {
                             if (showGestureTutorial) {
                                 val top = 72.dp.toPx()
@@ -819,10 +837,21 @@ fun Player(
                             }
                         }
                 ) {
-                    Column(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // 横屏：按钮整体缩小（72dp 主键在 411dp 高的左栏里占比过大），
+                        // 且下方教程区不占位。封面才是横屏的主角。
+                        val sideBtnSize = if (landscapePhone) 40.dp else 48.dp
+                        val mainBtnSize = if (landscapePhone) 56.dp else 72.dp
+                        val mainIconSize = if (landscapePhone) 28.dp else 36.dp
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            horizontalArrangement = Arrangement.spacedBy(
+                                if (landscapePhone) 20.dp else 0.dp,
+                                Alignment.CenterHorizontally
+                            ),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             FilledTonalIconButton(
@@ -830,12 +859,12 @@ fun Player(
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     mediaController?.seekToPrevious()
                                 },
-                                modifier = Modifier.size(48.dp)
+                                modifier = Modifier.size(sideBtnSize)
                             ) {
                                 Icon(SkipPreviousFill, contentDescription = null)
                             }
                             FilledIconButton(
-                                modifier = Modifier.size(72.dp),
+                                modifier = Modifier.size(mainBtnSize),
                                 onClick = {
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     if (!isPlaying) mediaController?.play() else mediaController?.pause()
@@ -843,7 +872,7 @@ fun Player(
                             ) {
                                 Icon(
                                     if (isPlaying) PauseFill else Icons.Filled.PlayArrow,
-                                    modifier = Modifier.size(36.dp),
+                                    modifier = Modifier.size(mainIconSize),
                                     contentDescription = null
                                 )
                             }
@@ -852,7 +881,7 @@ fun Player(
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     mediaController?.seekToNext()
                                 },
-                                modifier = Modifier.size(48.dp)
+                                modifier = Modifier.size(sideBtnSize)
                             ) {
                                 Icon(SkipNextFill, contentDescription = null)
                             }
@@ -862,7 +891,9 @@ fun Player(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .weight(1f)
+                                // 横屏：教程/点击区不占 weight，否则会再抢走一块高度。
+                                // 横屏下高度全部让给封面。
+                                .then(if (landscapePhone) Modifier else Modifier.weight(1f))
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
@@ -872,7 +903,9 @@ fun Player(
                                     onContainerClick()
                                 }
                         ) {
-                            if (showGestureTutorial) {
+                            // 横屏不显示手势教程文案：411dp 高度里两行说明会挤掉封面，
+                            // 而横屏的封面+歌词已经是明确的视觉主体，不需要教学。
+                            if (showGestureTutorial && !landscapePhone) {
                                 if (gestureTutorialActionCompleted) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
