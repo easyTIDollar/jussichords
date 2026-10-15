@@ -85,6 +85,14 @@ object ListenTogetherSession : Player.Listener {
     private var suppressReportsUntilMs = 0L
     private var lastPlaylistSig: String? = null
     private var lastCommandSig: String? = null
+    /**
+     * 本端最近一次成功上报的播放命令序号（clientSeq）+ 目标歌，用于**回声识别**：
+     * 轮询回来的 playCommand 若 clientSeq 与之相等，说明那就是我自己刚发的那条，
+     * 不能当成「远端指令」回灌到本地播放器（否则本地操作会被自己 1s 前的
+     * 旧命令撤销，典型症状：切歌单后点第 5 首歌却自动播第 1 首）。
+     */
+    private var lastOwnCommandSeq = 0L
+    private var lastOwnCommandTargetId = 0L
     private var consecutiveFailures = 0
 
     // ------------------------------------------------------------------
@@ -329,6 +337,8 @@ object ListenTogetherSession : Player.Listener {
         applyingRemote = false
         lastPlaylistSig = null
         lastCommandSig = null
+        lastOwnCommandSeq = 0L
+        lastOwnCommandTargetId = 0L
         consecutiveFailures = 0
         _state.value = UiState(notice = notice)
     }
@@ -416,6 +426,26 @@ object ListenTogetherSession : Player.Listener {
         val commandChanged = commandSig != lastCommandSig
         if (!initial && !playlistChanged && !commandChanged) return
 
+        // 回声识别：playCommand 的 clientSeq 等于我刚上报的那条 seq（且目标歌一致）
+        // → 这不是别人的指令，而是我自己 1s 前的操作被服务端回显。
+        // 若照样 seekTo(targetIndex)，本地刚做的选择会被自己的旧命令撤销：
+        //   切歌单 → setMediaItems 把 index 重置为 0 → 发出 GOTO(#1)
+        //   → 用户点第 5 首（此刻在 1s 抑制窗口内，GOTO(#5) 被丢弃）
+        //   → 下一 tick 读到 GOTO(#1) → seekTo(#1) → 自动播第一首，每秒重复。
+        // 所以「我发的、我本地已经执行过的」目标不再回灌；只落签名继续同步。
+        val ownEcho = snapshot.clientSeq == lastOwnCommandSeq && lastOwnCommandSeq > 0L &&
+            (snapshot.targetSongId ?: 0L) == lastOwnCommandTargetId
+        if (ownEcho && !playlistChanged) {
+            lastCommandSig = commandSig
+            Log.d(TAG, "applyRemote skip own echo clientSeq=${snapshot.clientSeq} target=${snapshot.targetSongId}")
+            return
+        }
+        // ownEcho && playlistChanged（我自己刚 REPLACE 的队列被回显）：队列要应用，
+        // 但落点必须用**本地当前那首**，不能用回显里的旧 target（那正是「点第 5 首
+        // 却被拉回第 1 首」的来源）—— 所以 ownEcho 时把 snapshot.targetSongId 置空，
+        // 让下面的 fallback 走 currentSongId()。
+        val remoteTarget = if (ownEcho) null else snapshot.targetSongId
+
         // 空快照（远端 data:{} / 无列表无命令）不落盘签名：否则会把真实的
         // lastPlaylistSig 覆盖成一个恒定空串，远端恢复同一份列表时签名恰好相同
         // → playlistChanged=false → 一次真实的队列变化被永久忽略。
@@ -430,16 +460,16 @@ object ListenTogetherSession : Player.Listener {
         val localIdStrs = (0 until activePlayer.mediaItemCount)
             .map { activePlayer.getMediaItemAt(it).mediaId }
         val songIds = snapshot.songIds.ifEmpty { localIds }
-        // MeiloX 原样：三处 fallback 全空 → 房间无有效播放状态，抛（监控循环 catch 计数）。
-        val targetId = snapshot.targetSongId
+        // ownEcho 时用本地当前那首作落点（remoteTarget 已被置空）。
+        val targetId = remoteTarget
             ?: currentSongId()
             ?: songIds.firstOrNull()
             ?: error("房间无可同步的播放状态")
         Log.d(
             TAG,
             "applyRemote roomId=${room.id} initial=$initial playlistChanged=$playlistChanged " +
-                "commandChanged=$commandChanged remoteTarget=${snapshot.targetSongId} " +
-                "fallbackTarget=$targetId (fromRemote=${snapshot.targetSongId != null}) " +
+                "commandChanged=$commandChanged remoteTarget=${snapshot.targetSongId} ownEcho=$ownEcho " +
+                "fallbackTarget=$targetId (fromRemote=${remoteTarget != null}) " +
                 "localCur=${currentSongId()} localCount=${localIds.size} remoteCount=${songIds.size}"
         )
         val completeIds = if (targetId in songIds) songIds else songIds + targetId
@@ -563,10 +593,15 @@ object ListenTogetherSession : Player.Listener {
             "\"formerSongId\":" + formerValue + "," +
             "\"targetSongId\":$target," +
             "\"clientSeq\":$seq}"
-        // MeiloX 原样：失败真正抛出后 catch → markReconnecting。
+        // 失败真正抛出后 catch → reconnecting。
         // 注意：reportCommand 返回 Result（内部 requireOk/网络错都不抛），必须 getOrThrow 把失败
         // 转成异常，否则 runCatching catch 不到、不会置 reconnecting。
         runCatching { ListenTogetherApi.reportCommand(room.id, info).getOrThrow() }
+            .onSuccess {
+                // 记下「这条是我发的」，供 applyRemote 做回声识别（见 lastOwnCommandSeq）。
+                lastOwnCommandSeq = seq
+                lastOwnCommandTargetId = target
+            }
             .onFailure { _state.value = _state.value.copy(reconnecting = true) }
     }
 
@@ -603,7 +638,15 @@ object ListenTogetherSession : Player.Listener {
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         val target = mediaItem?.mediaId?.toLongOrNull() ?: 0L
         val pwReady = player?.playWhenReady ?: true
-        if (shouldReport() && target > 0L) {
+        // reason == MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED 是 setMediaItems 换队列时
+        // Media3 把 currentIndex 重置为 0 而触发的**合成切歌**，不是用户选歌：跟着它发 GOTO
+        // 等于告诉房间「切到新歌单第一首」。用户随后点第 N 首，那条 GOTO 才是真实意图，
+        // 但它落在下面 onMediaItemTransition 推满的 1s 抑制窗口里会被丢弃 → 服务端停留在
+        // 合成的 #1 → 下一 tick 回灌 seekTo(#1) → 点第 5 首却自动播第 1 首。
+        // 所以这里直接不报，位置由 onTimelineChanged 的 REPLACE(anchorSongId/anchorPosition) 表达，
+        // 用户真正的选歌由它自己触发的 transition（reason=SEEK/AUTO）上报。
+        val syntheticPlaylistSwitch = reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED
+        if (!syntheticPlaylistSwitch && shouldReport() && target > 0L) {
             // 切歌时串行化：抑制窗口 1s 挡住并发的 PROGRESS 与 GOTO 竞争同一 seq。
             suppressReportsUntilMs = SystemClock.elapsedRealtime() + 1_000
             scope.launch { reportCommand("GOTO", formerSongId, target, pwReady) }
