@@ -39,9 +39,10 @@ val HeadphoneWire: ImageVector
                 strokeLineJoin = StrokeJoin.Round
             ) {
                 // 起点在头像右上后方 → 向外鼓出 → 收在左下，形成一段自然的耳机线垂弧。
+                // 注意：PathBuilder 没有 cubicTo，三次贝塞尔叫 curveTo(x1,y1,x2,y2,x3,y3)。
                 moveTo(20.2f, 2.5f)
-                cubicTo(24.2f, 6.5f, 24.2f, 14.5f, 20.4f, 18.8f)
-                cubicTo(18.9f, 20.6f, 17.2f, 21.4f, 15.6f, 21.2f)
+                curveTo(24.2f, 6.5f, 24.2f, 14.5f, 20.4f, 18.8f)
+                curveTo(18.9f, 20.6f, 17.2f, 21.4f, 15.6f, 21.2f)
             }
         }.build()
 

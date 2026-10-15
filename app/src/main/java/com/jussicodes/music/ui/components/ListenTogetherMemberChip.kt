@@ -103,7 +103,9 @@ private fun HeadphoneWireMark(tint: Color, alpha: Float, mirrored: Boolean) {
             .offset(x = if (mirrored) (-2).dp else 2.dp)
             .size(width = WireHeight * 0.62f, height = WireHeight)
             .alpha(alpha)
-            .then(if (mirrored) Modifier.scale(scaleX = -1f) else Modifier)
+            // Modifier.scale(scaleX, scaleY) 的两个参数都没有默认值（只有一个 scale(scale: Float)
+            // 的单参重载），所以单写 scaleX 会编译不过。
+            .then(if (mirrored) Modifier.scale(scaleX = -1f, scaleY = 1f) else Modifier)
     )
 }
 
