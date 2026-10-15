@@ -46,10 +46,10 @@ val directSourceKey = stringPreferencesKey("directSource")
 val ignoredUpdateVersionKey = stringPreferencesKey("ignoredUpdateVersion")
 val uiScaleKey = floatPreferencesKey("uiScale")
 /**
- * 大屏预览模拟内容宽度（dp）。0=关闭（走真实窗口宽度），600/840/1280 对应
- * Medium / Expanded / 超宽屏。没有平板/TV 时在手机上预览大屏布局用。
+ * DPI 模拟倍数（调试用）。1.0=关闭。覆盖 LocalDensity.density，dp 视口随之变化，
+ * 可用来在手机上预览别的密度/尺寸下的布局。配合 orientationLockKey 可模拟横屏大屏。
  */
-val simulatedWidthKey = intPreferencesKey("simulatedWidth")
+val densityScaleKey = floatPreferencesKey("densityScale")
 // 主页背景图（"我的"/"探索"页）：base64 存图，缩放/透明度/模糊度各一个键。
 val homeBgImageKey = stringPreferencesKey("homeBgImage")
 val homeBgScaleKey = floatPreferencesKey("homeBgScale")

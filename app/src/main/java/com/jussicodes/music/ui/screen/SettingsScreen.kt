@@ -89,9 +89,12 @@ import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
-import com.jussicodes.music.constants.simulatedWidthKey
-import com.jussicodes.music.constants.simulatedWidthOptions
-import com.jussicodes.music.constants.currentWindowWidthClass
+import com.jussicodes.music.constants.currentContentHeightDp
+import com.jussicodes.music.constants.currentContentWidthDp
+import com.jussicodes.music.constants.densityScaleKey
+import com.jussicodes.music.constants.densityScaleOptions
+import com.jussicodes.music.constants.orientationLockKey
+import com.jussicodes.music.constants.ScreenOrientationLock
 import com.jussicodes.music.constants.homeBgBlurKey
 import com.jussicodes.music.constants.homeBgImageKey
 import com.jussicodes.music.constants.homeBgOffsetXKey
@@ -211,12 +214,14 @@ fun SettingsScreen(navController: NavHostController) {
         "当前正在使用 $inUseLabel"
     }
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
-    // 大屏预览：0=关闭。用于在手机上预览平板/TV 布局（响应式分支的实测手段）。
-    var simulatedWidth by rememberPreference(simulatedWidthKey, 0)
-    var showSimulatedWidthDialog by remember { mutableStateOf(false) }
-    val simulatedWidthLabel = simulatedWidthOptions.firstOrNull { it == simulatedWidth }?.let {
-        if (it == 0) "关闭" else "${it}dp"
-    } ?: "关闭"
+    // DPI 模拟（调试）：1.0=关闭。覆盖 density 让 dp 视口变成别的屏幕的尺寸。
+    var densityScale by rememberPreference(densityScaleKey, 1f)
+    var orientationLockKeyValue by rememberPreference(orientationLockKey, "unlocked")
+    var showDensityScaleDialog by remember { mutableStateOf(false) }
+    var showOrientationDialog by remember { mutableStateOf(false) }
+    val densityScaleLabel = densityScaleOptions.firstOrNull { it == densityScale }
+        ?.let { if (it == 1f) "关闭" else "×$it" }
+        ?: "×$densityScale"
     var playerGestureTutorialVersion by rememberPreference(
         playerGestureTutorialVersionKey,
         0
@@ -542,14 +547,20 @@ fun SettingsScreen(navController: NavHostController) {
                 onClick = { showThemeColorSourceDialog = true }
             ),
             SettingItemData(
-                title = "大屏预览",
-                subtitle = if (simulatedWidth == 0) {
-                    "关闭 · 当前布局：${currentWindowWidthClass().name}"
+                title = "屏幕方向",
+                subtitle = ScreenOrientationLock.fromKey(orientationLockKeyValue).label,
+                imageVector = Icons.Outlined.ScreenRotation,
+                onClick = { showOrientationDialog = true }
+            ),
+            SettingItemData(
+                title = "DPI 模拟",
+                subtitle = if (densityScale == 1f) {
+                    "关闭 · 视口 ${currentContentWidthDp()}×${currentContentHeightDp()}dp"
                 } else {
-                    "模拟 $simulatedWidthLabel 宽 · 布局：${currentWindowWidthClass().name}"
+                    "$densityScaleLabel · 视口 ${currentContentWidthDp()}×${currentContentHeightDp()}dp"
                 },
-                imageVector = Icons.Outlined.TabletAndroid,
-                onClick = { showSimulatedWidthDialog = true }
+                imageVector = Icons.Outlined.DensityMedium,
+                onClick = { showDensityScaleDialog = true }
             ),
             SettingItemData(
                 title = "桌面歌词",
@@ -772,36 +783,80 @@ fun SettingsScreen(navController: NavHostController) {
         }
     }
 
-    if (showSimulatedWidthDialog) {
+    if (showOrientationDialog) {
         AlertDialog(
-            onDismissRequest = { showSimulatedWidthDialog = false },
-            title = { Text("大屏预览") },
+            onDismissRequest = { showOrientationDialog = false },
+            title = { Text("屏幕方向") },
             text = {
                 Column {
                     Text(
-                        "把界面按指定宽度真实布局后缩放显示，用来在没有平板/TV 的手机上预览大屏形态。" +
-                            "选「关闭」恢复按真实屏幕宽度布局。",
+                        "锁定方向是真实转屏（系统重建配置），不是界面假装翻转。" +
+                            "配合「DPI 模拟」可在竖屏手机上模拟横屏大屏布局。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(12.dp))
-                    simulatedWidthOptions.forEach { option ->
-                        val label = if (option == 0) "关闭" else "${option}dp"
+                    ScreenOrientationLock.entries.forEach { option ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    simulatedWidth = option
-                                    showSimulatedWidthDialog = false
+                                    orientationLockKeyValue = option.key
+                                    showOrientationDialog = false
                                 }
                                 .padding(vertical = 12.dp)
                         ) {
                             RadioButton(
-                                selected = simulatedWidth == option,
+                                selected = orientationLockKeyValue == option.key,
                                 onClick = {
-                                    simulatedWidth = option
-                                    showSimulatedWidthDialog = false
+                                    orientationLockKeyValue = option.key
+                                    showOrientationDialog = false
+                                }
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(option.label)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showOrientationDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
+    if (showDensityScaleDialog) {
+        AlertDialog(
+            onDismissRequest = { showDensityScaleDialog = false },
+            title = { Text("DPI 模拟") },
+            text = {
+                Column {
+                    Text(
+                        "按倍数缩小密度，让同样像素装下更多 dp —— 布局会真的按目标屏幕尺寸" +
+                            "排一遍（不是整体缩小）。往小调可在手机上预览低密度大屏 / 横屏形态。" +
+                            "仅用于调试，正式使用请选「关闭」。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    densityScaleOptions.forEach { option ->
+                        val label = if (option == 1f) "关闭（×1）" else "×$option"
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    densityScale = option
+                                    showDensityScaleDialog = false
+                                }
+                                .padding(vertical = 12.dp)
+                        ) {
+                            RadioButton(
+                                selected = densityScale == option,
+                                onClick = {
+                                    densityScale = option
+                                    showDensityScaleDialog = false
                                 }
                             )
                             Spacer(Modifier.width(8.dp))
@@ -811,7 +866,7 @@ fun SettingsScreen(navController: NavHostController) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showSimulatedWidthDialog = false }) { Text("取消") }
+                TextButton(onClick = { showDensityScaleDialog = false }) { Text("取消") }
             }
         )
     }

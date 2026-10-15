@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -81,6 +82,8 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.data.favoriteSongIdsDatastore
+import com.jussicodes.music.constants.LandscapeSidePanelFraction
+import com.jussicodes.music.constants.isLandscapePhone
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.ui.icons.Album
@@ -337,21 +340,31 @@ fun Player(
         color = Color.Transparent,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .graphicsLayer {
-                        translationY = coverOffsetY
-                        val scale =
-                            1f - (coverOffsetY / dismissThresholdPx).coerceIn(0f, 1f) * 0.02f
-                        scaleX = scale
-                        scaleY = scale
-                    },
-                verticalArrangement = if (screenHeight.dp < 700.dp) Arrangement.spacedBy(8.dp) else Arrangement.spacedBy(
-                    24.dp
-                )
-            ) {
+            // 横屏手机（矮屏，914x411dp）走双栏：左边封面+控件+手势，右边歌词。
+        // 不重构内部结构，只在最外层把竖排 Column 并排放进 Row —— 内部所有 weight
+        // /手势层/控件都原样保留，改动面最小。竖屏仍是单列，行为不变。
+        val landscapePhone = isLandscapePhone()
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.Top
+        ) {
+        Column(
+            modifier = Modifier
+                .then(if (landscapePhone) Modifier.weight(LandscapeSidePanelFraction) else Modifier)
+                .then(if (landscapePhone) Modifier.fillMaxHeight() else Modifier.fillMaxSize())
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .graphicsLayer {
+                    translationY = coverOffsetY
+                    val scale =
+                        1f - (coverOffsetY / dismissThresholdPx).coerceIn(0f, 1f) * 0.02f
+                    scaleX = scale
+                    scaleY = scale
+                },
+            verticalArrangement = if (screenHeight.dp < 700.dp) Arrangement.spacedBy(8.dp) else Arrangement.spacedBy(
+                24.dp
+            )
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -428,8 +441,16 @@ fun Player(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .aspectRatio(1f)
+                    // 横屏：fillMaxWidth + aspectRatio(1f) 会让封面按栏宽（~420dp）取方，
+                    // 而可用高度只有 411dp，必然溢出。改为按高度反推边长，
+                    // 保证封面永远塞得进可视区。竖屏维持原 fillMaxWidth 行为。
+                    .then(
+                        if (landscapePhone) {
+                            Modifier.fillMaxHeight(0.52f).aspectRatio(1f)
+                        } else {
+                            Modifier.padding(horizontal = 24.dp).aspectRatio(1f)
+                        }
+                    )
                     .graphicsLayer {
                         translationX = coverOffsetX
                         rotationZ = (coverOffsetX / swipeThresholdPx).coerceIn(-1f, 1f) * 6f
@@ -896,7 +917,22 @@ fun Player(
                     }
                 }
             }
+        }   // ← 内层 Column 结束
+
+        // 横屏右栏：歌词。竖屏时歌词走独立页面（RoamScreen 等），这里不重复挂载。
+        if (landscapePhone) {
+            Lyric(
+                position = position,
+                mediaMetadata = mediaMetadata,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .navigationBarsPadding(),
+                imageModifier = Modifier,
+                onBackPressed = onBackPressed,
+            )
         }
+        }   // ← Row 结束
 
 
         currentSong?.let {

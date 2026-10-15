@@ -1,5 +1,6 @@
 package com.jussicodes.music
 
+import android.content.pm.ActivityInfo
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -21,14 +22,16 @@ import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
-import com.jussicodes.music.constants.simulatedWidthKey
+import com.jussicodes.music.constants.LocalDensityScaleFactor
+import com.jussicodes.music.constants.ScreenOrientationLock
+import com.jussicodes.music.constants.densityScaleKey
+import com.jussicodes.music.constants.orientationLockKey
 import com.jussicodes.music.constants.uiScaleKey
 import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.extensions.init
 import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.playback.PlayerState
 import com.jussicodes.music.playback.state
-import com.jussicodes.music.ui.components.LargeScreenPreviewHost
 import com.jussicodes.music.ui.components.UpdateDialog
 import com.jussicodes.music.ui.components.formatFileSize
 import com.jussicodes.music.ui.screen.MainScreen
@@ -78,7 +81,10 @@ class MainActivity : ComponentActivity() {
             var isMeasuringUpdateSources by remember { mutableStateOf(false) }
             var uiScale by rememberPreference(uiScaleKey, 1f)
             var liveUiScale by remember { mutableFloatStateOf(uiScale) }
-            var simulatedWidth by rememberPreference(simulatedWidthKey, 0)
+            // DPI 模拟（调试用）：覆盖 density 让 dp 视口变成别的屏幕的尺寸。
+            // 1.0 = 关闭。配合下面的方向锁定，可模拟低密度大屏 / 横屏。
+            var densityScale by rememberPreference(densityScaleKey, 1f)
+            var orientationLock by rememberPreference(orientationLockKey, "unlocked")
             var githubDownloadSource by rememberPreference(
                 githubDownloadSourceKey,
                 downloadSources.first().id
@@ -174,16 +180,33 @@ class MainActivity : ComponentActivity() {
                 }
             }
             val baseDensity = LocalDensity.current
-            val scaledDensity = remember(baseDensity, liveUiScale) {
+            // DPI 模拟 × 界面缩放，两者叠乘。densityScale=1 时与旧行为完全一致。
+            val densityScaleSafe = densityScale.coerceIn(0.4f, 1.0f)
+            val scaledDensity = remember(baseDensity, liveUiScale, densityScaleSafe) {
                 val scale = liveUiScale.coerceIn(0.7f, 1.1f)
                 Density(
-                    density = baseDensity.density * scale,
+                    density = baseDensity.density * scale * densityScaleSafe,
                     fontScale = baseDensity.fontScale * scale
                 )
+            }
+            // 屏幕方向锁定：走 Activity 的 requestedOrientation，是**真转屏**
+            // （系统重建 configuration），不是 UI 层假装。设置里改即时生效。
+            val orientation = ScreenOrientationLock.fromKey(orientationLock)
+            LaunchedEffect(orientation) {
+                requestedOrientation = when (orientation) {
+                    ScreenOrientationLock.Unlocked ->
+                        ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                    ScreenOrientationLock.Portrait ->
+                        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    ScreenOrientationLock.Landscape ->
+                        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                }
             }
             CompositionLocalProvider(LocalDensity provides scaledDensity) {
                 JetMeloTheme(artwork = playerState?.mediaMetadata?.artworkUri) {
                     CompositionLocalProvider(
+                        // DPI 模拟因子：响应式分级函数读它来算 dp 视口。
+                        LocalDensityScaleFactor provides densityScaleSafe,
                         LocalPlayerController provides playerController,
                         LocalPlayerState provides playerState,
                         LocalUiScaleController provides UiScaleController(
@@ -200,11 +223,9 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     ) {
-                        // 大屏预览：simulatedWidth>0 时把整个主界面按目标宽度真实布局再缩放显示，
-                        // 0 时本包装完全透传，手机行为不受影响。
-                        LargeScreenPreviewHost(simulatedWidthDp = simulatedWidth) {
-                            MainScreen()
-                        }
+                        // DPI 模拟：覆盖 LocalDensity.density，dp 视口随之变化，
+                        // 所有布局按「目标屏幕」真实走一遍（不是整体缩小）。
+                        MainScreen()
                     pendingUpdateInfo?.let { updateInfo ->
                         UpdateDialog(
                             updateInfo = updateInfo,

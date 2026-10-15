@@ -86,7 +86,7 @@ import com.jussicodes.music.constants.DURATION_EXIT_SHORT
 import com.jussicodes.music.constants.EmphasizedDecelerateEasing
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.currentPlayMediaIdKey
-import com.jussicodes.music.constants.currentWindowWidthClass
+import com.jussicodes.music.constants.useNavigationRailLayout
 import com.jussicodes.music.data.HomeBgEditor
 import com.jussicodes.music.ui.components.AdaptiveContent
 import com.jussicodes.music.ui.components.AdaptiveNavigationRail
@@ -140,11 +140,9 @@ fun MainScreen() {
     // 不再用 destination.route 字符串匹配（类型安全参数路由的 route 格式不可靠，已踩坑三次）。
     val miniPlayerHidden by MiniPlayerHiddenBus.hidden.collectAsState()
     val showMiniPlayerChrome = showMiniPlayer && !isRoamRoute && !miniPlayerHidden
-    // 响应式：窗口宽度分级（Compact<600 / Medium / Expanded>=840）。
-    // Expanded 用左侧竖排导航栏替代底部横条；Medium 仍用底栏（横屏手机内容区够高，
-    // 竖排栏会挤掉列表可视高度，不划算），只靠 AdaptiveContent 限宽兜住行长。
-    val widthClass = currentWindowWidthClass()
-    val useNavigationRail = widthClass.isExpanded
+    // 响应式：横屏手机（矮屏 914x411dp）也要左侧竖排导航栏 —— 411dp 高度放
+    // 底部横条会吃掉 1/6 可视高度。判定逻辑集中在 useNavigationRailLayout()。
+    val useNavigationRail = useNavigationRailLayout()
     // 走侧栏时导航不再占底部，内容区应贴系统导航栏而不是留出底栏高度。
     val navBarTakesBottomSpace = showNavigationBar && !useNavigationRail
     // 主页背景（"我的"/"探索"底层）：提升到 MainScreen 全屏层渲染，布局与 bottomPadding
