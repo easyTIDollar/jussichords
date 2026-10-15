@@ -142,40 +142,49 @@ fun PlayerLandscape(
                 .fillMaxHeight()
                 .padding(start = 8.dp, end = 24.dp, top = 12.dp, bottom = 12.dp),
         ) {
-            // 右上角：更多菜单
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                Icon2(MoreVert, tint = dimColor)
+            // 歌名/歌手：单行紧凑排布，把纵向空间尽量留给歌词。
+            // 不在这里放「更多」菜单 —— Lyric 自带头部已有一套菜单（横屏
+            // showHeader=false 时由底部胶囊的更多按钮统一入口）。
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                mediaMetadata.title?.let {
+                    Text(
+                        text = it.toString(),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = titleColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                mediaMetadata.artist?.let {
+                    Text(
+                        text = it.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = dimColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+                Spacer(Modifier.weight(0.4f))
             }
 
-            mediaMetadata.title?.let {
-                Text(
-                    text = it.toString(),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = titleColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            mediaMetadata.artist?.let {
-                Text(
-                    text = it.toString(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = dimColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(2.dp))
 
             // 歌词占满剩余高度 —— 横屏的主角。
+            // showHeader=false：不要 Lyric 自带的封面+歌名+歌手+菜单头部，
+            // 否则整份头部会在右栏重复出现一遍（歌名/歌手/封面各两次）。
+            // 加 weight(1f) 让它吃掉标题栏与进度条之间的所有空间；底部进度条与
+            // 控件在 Column 里排在它后面，因此歌词不会被压住。
             Lyric(
                 position = position,
                 mediaMetadata = mediaMetadata,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 imageModifier = Modifier,
                 onBackPressed = onBackPressed,
+                showHeader = false,
             )
 
             // 进度条

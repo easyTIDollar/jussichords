@@ -81,6 +81,14 @@ fun Lyric(
     imageModifier: Modifier = Modifier,
     mediaMetadata: MediaMetadata,
     onBackPressed: () -> Unit = {},
+    /**
+     * 是否渲染自带头部（缩略封面 + 歌名 + 歌手 + 设置菜单）。
+     *
+     * 横屏播放页已经有自己的封面栏和歌名栏，这里再渲染一遍就是重复内容
+     * （已踩过：歌名/歌手/封面各出现两次，右栏大片空白）。
+     * 横屏传 false 只取歌词本体。
+     */
+    showHeader: Boolean = true,
     lyricViewModel: LyricViewModel = hiltViewModel()
 ) {
     val mediaController = LocalPlayerController.current.controller
@@ -130,9 +138,12 @@ fun Lyric(
     ) {
         Column(
             modifier = Modifier
-                .statusBarsPadding()
+                .then(if (showHeader) Modifier.statusBarsPadding() else Modifier)
+                // showHeader=false：modifier 作用于整个 Surface，横屏用它控制歌词区高度。
+                // showHeader=true：保持旧行为，modifier 仍只作用于内部歌名列（见下方 .then）。
+                .then(if (showHeader) Modifier else modifier)
         ) {
-            Row(
+            if (showHeader) Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .padding(12.dp)
