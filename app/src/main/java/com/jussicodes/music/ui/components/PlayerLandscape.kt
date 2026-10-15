@@ -123,6 +123,7 @@ fun PlayerLandscape(
             }
             Spacer(Modifier.height(8.dp))
             // 封面按高度取方：widthIn(max) + aspectRatio 保证既不超宽也不超高。
+            // weight(1f) 让它吃掉除控件外的剩余高度。
             AsyncImage(
                 model = mediaMetadata.artworkUri,
                 contentDescription = null,
@@ -133,9 +134,32 @@ fun PlayerLandscape(
                     .aspectRatio(1f)
                     .clip(RoundedCornerShape(12.dp))
             )
+
+            Spacer(Modifier.height(10.dp))
+
+            // 播放控件放在封面正下方（横排五个，间距收紧以适应 ~340dp 栏宽）。
+            LandscapeTransportControls(
+                modifier = Modifier.fillMaxWidth(),
+                isPlaying = isPlaying,
+                shuffleOn = shuffleOn,
+                repeatMode = repeatMode,
+                onShuffle = { mediaController?.shuffleModeEnabled = !shuffleOn },
+                onPrev = { mediaController?.seekToPreviousMediaItem() },
+                onTogglePlay = {
+                    if (isPlaying) mediaController?.pause() else mediaController?.play()
+                },
+                onNext = { mediaController?.seekToNextMediaItem() },
+                onCycleRepeat = {
+                    mediaController?.repeatMode = when (repeatMode) {
+                        Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                        Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                        else -> Player.REPEAT_MODE_OFF
+                    }
+                },
+            )
         }
 
-        // ── 右栏：信息 → 歌词 → 进度 → 控件 ────────────────────────────
+        // ── 右栏：歌名 → 歌词 → 进度条 → 底部功能胶囊 ───────────────
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -143,8 +167,8 @@ fun PlayerLandscape(
                 .padding(start = 8.dp, end = 24.dp, top = 12.dp, bottom = 12.dp),
         ) {
             // 歌名/歌手：单行紧凑排布，把纵向空间尽量留给歌词。
-            // 不在这里放「更多」菜单 —— Lyric 自带头部已有一套菜单（横屏
-            // showHeader=false 时由底部胶囊的更多按钮统一入口）。
+            // 菜单入口统一在底部胶囊：横屏 showHeader=false 时 Lyric 自带的
+            // 设置菜单（歌词翻译/逐字歌词）不可见，由外部更多按钮承接。
             Row(verticalAlignment = Alignment.CenterVertically) {
                 mediaMetadata.title?.let {
                     Text(
@@ -176,8 +200,8 @@ fun PlayerLandscape(
             // 歌词占满剩余高度 —— 横屏的主角。
             // showHeader=false：不要 Lyric 自带的封面+歌名+歌手+菜单头部，
             // 否则整份头部会在右栏重复出现一遍（歌名/歌手/封面各两次）。
-            // 加 weight(1f) 让它吃掉标题栏与进度条之间的所有空间；底部进度条与
-            // 控件在 Column 里排在它后面，因此歌词不会被压住。
+            // 加 weight(1f) 让它吃掉歌名行与进度条之间的所有空间；进度条与
+            // 胶囊排在它之后，因此歌词不会被压住（这是之前底部歌词被裁的原因）。
             Lyric(
                 position = position,
                 mediaMetadata = mediaMetadata,
@@ -216,54 +240,6 @@ fun PlayerLandscape(
 
             Spacer(Modifier.height(6.dp))
 
-            // 播放控件：随机 / 上一首 / 播放暂停 / 下一首 / 循环
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconClick(Shuffle, tint = if (shuffleOn) MaterialTheme.colorScheme.primary else dimColor) {
-                    mediaController?.shuffleModeEnabled = !shuffleOn
-                }
-                IconClick(SkipPreviousFill, tint = titleColor, size = 40.dp) {
-                    mediaController?.seekToPreviousMediaItem()
-                }
-                Box(
-                    modifier = Modifier
-                        .size(60.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onSurface)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            if (isPlaying) mediaController?.pause() else mediaController?.play()
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon2(
-                        if (isPlaying) PauseFill else PlayArrow,
-                        tint = MaterialTheme.colorScheme.surface,
-                        size = 30.dp
-                    )
-                }
-                IconClick(SkipNextFill, tint = titleColor, size = 40.dp) {
-                    mediaController?.seekToNextMediaItem()
-                }
-                IconClick(
-                    imageVector = if (repeatMode == Player.REPEAT_MODE_ONE) RepeatOne else Repeat,
-                    tint = if (repeatMode == Player.REPEAT_MODE_OFF) dimColor else MaterialTheme.colorScheme.primary
-                ) {
-                    mediaController?.repeatMode = when (repeatMode) {
-                        Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-                        Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-                        else -> Player.REPEAT_MODE_OFF
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
             // 底部功能胶囊：倍速 + 收藏
             Row(
                 modifier = Modifier
@@ -288,8 +264,64 @@ fun PlayerLandscape(
     }
 }
 
-/** 左栏封面占比（左封面 + 右信息）。 */
+/** 左栏封面占比（左封面+控件 / 右歌词）。 */
 private const val LandscapeCoverWeight = 0.37f
+
+/**
+ * 横屏播放控件条：随机 / 上一首 / 播放暂停 / 下一首 / 循环。
+ *
+ * 放在左栏封面正下方。用 Arrangement.SpaceBetween 而不是 SpaceEvenly：
+ * 左栏约 340dp 宽，五个按钮里主键 56dp、两侧 36dp，SpaceEvenly 会在两端留出
+ * 与按钮等宽的空档，把主键挤到栏边。SpaceBetween 让首尾贴边、内部均匀。
+ */
+@Composable
+private fun LandscapeTransportControls(
+    isPlaying: Boolean,
+    shuffleOn: Boolean,
+    repeatMode: Int,
+    onShuffle: () -> Unit,
+    onPrev: () -> Unit,
+    onTogglePlay: () -> Unit,
+    onNext: () -> Unit,
+    onCycleRepeat: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val titleColor = MaterialTheme.colorScheme.onSurface
+    val dimColor = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
+        modifier = modifier.padding(horizontal = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconClick(Shuffle, tint = if (shuffleOn) MaterialTheme.colorScheme.primary else dimColor, size = 20.dp, onClick = onShuffle)
+        IconClick(SkipPreviousFill, tint = titleColor, size = 28.dp, onClick = onPrev)
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.onSurface)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onTogglePlay
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon2(
+                if (isPlaying) PauseFill else PlayArrow,
+                tint = MaterialTheme.colorScheme.surface,
+                size = 26.dp
+            )
+        }
+        IconClick(SkipNextFill, tint = titleColor, size = 28.dp, onClick = onNext)
+        IconClick(
+            imageVector = if (repeatMode == Player.REPEAT_MODE_ONE) RepeatOne else Repeat,
+            tint = if (repeatMode == Player.REPEAT_MODE_OFF) dimColor else MaterialTheme.colorScheme.primary,
+            size = 20.dp,
+            onClick = onCycleRepeat
+        )
+    }
+}
 
 /** 倍速胶囊：点击循环下一档。 */
 @Composable
