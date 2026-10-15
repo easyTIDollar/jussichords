@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -82,7 +81,6 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.data.favoriteSongIdsDatastore
-import com.jussicodes.music.constants.LandscapeSidePanelFraction
 import com.jussicodes.music.constants.isLandscapePhone
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.constants.MediaSessionConstants
@@ -340,35 +338,44 @@ fun Player(
         color = Color.Transparent,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-        // 横屏手机（矮屏，高度 < 480dp）：左栏=原竖排结构原封不动，右栏=歌词。
-        // 刻意不碰内部任何 weight/手势/控件 —— 前一版逐个去掉 weight 才把布局搞崩的。
-        // 横屏只改封面尺寸一处（见封面 modifier 的 landscapePhone 分支）。
-        val landscapePhone = isLandscapePhone()
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.Top
-        ) {
-            Column(
-                modifier = if (landscapePhone) {
-                    Modifier
-                        .weight(LandscapeSidePanelFraction)
-                        .fillMaxHeight()
-                        .statusBarsPadding()
-                        .navigationBarsPadding()
-                        .padding(horizontal = 16.dp)
-                } else {
-                    Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding()
-                        .graphicsLayer {
-                            translationY = coverOffsetY
-                            val scale =
-                                1f - (coverOffsetY / dismissThresholdPx).coerceIn(0f, 1f) * 0.02f
-                            scaleX = scale
-                            scaleY = scale
+        // 横屏（矮屏，高度 < 480dp）走**独立的** PlayerLandscape 布局 —— 不是把竖排
+        // 挤进窄栏：411dp 高度下竖排那套（封面+歌名+滑条+控件+手势区）必然溢出，
+        // 前一版逐个改 weight 试过，结果控件和歌词全消失。
+        if (isLandscapePhone()) {
+            PlayerLandscape(
+                mediaMetadata = mediaMetadata,
+                position = position,
+                duration = duration,
+                liked = mediaId?.toLongOrNull() in songIds,
+                onBackPressed = onBackPressed,
+                onMoreClick = { openPlayerBottomSheet = true },
+                onToggleFavorite = {
+                    scope.launch {
+                        mediaId?.toLongOrNull()?.let { songId ->
+                            FavoriteSongAction.toggle(
+                                context = context,
+                                songId = songId,
+                                likedSongIds = songIds,
+                                song = currentSong
+                            )
                         }
+                    }
                 },
+                onSeek = { onPositionUpdate(it) },
+            )
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .graphicsLayer {
+                        translationY = coverOffsetY
+                        val scale =
+                            1f - (coverOffsetY / dismissThresholdPx).coerceIn(0f, 1f) * 0.02f
+                        scaleX = scale
+                        scaleY = scale
+                    },
                 verticalArrangement = if (screenHeight.dp < 700.dp) Arrangement.spacedBy(8.dp) else Arrangement.spacedBy(
                     24.dp
                 )
@@ -447,20 +454,10 @@ fun Player(
 
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = if (landscapePhone) {
-                    // 横屏：fillMaxWidth + aspectRatio(1f) 会按栏宽取方，横屏左栏 ~420dp
-                    // 而可用高只有 411dp —— 必然溢出。改为占满剩余高度再按 1:1 反推边长，
-                    // 封面永远塞得进左栏。竖屏维持原 fillMaxWidth 行为。
-                    Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .aspectRatio(1f, matchHeightConstraintsFirst = true)
-                } else {
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
-                        .aspectRatio(1f)
-                }
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .aspectRatio(1f)
                     .graphicsLayer {
                         translationX = coverOffsetX
                         rotationZ = (coverOffsetX / swipeThresholdPx).coerceIn(-1f, 1f) * 6f
@@ -927,22 +924,8 @@ fun Player(
                     }
                 }
             }   // ← Column 结束
-
-            // 横屏右栏：歌词。竖屏不挂载（歌词走独立页面），行为不变。
-            if (landscapePhone) {
-                Lyric(
-                    position = position,
-                    mediaMetadata = mediaMetadata,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .navigationBarsPadding(),
-                    imageModifier = Modifier,
-                    onBackPressed = onBackPressed,
-                )
-            }
-        }   // ← Row 结束
-        }   // ← Box 结束
+        }       // ← if/else 结束
+        }       // ← Box 结束
 
         currentSong?.let {
             AlbumBottomSheet(
