@@ -75,6 +75,8 @@ object ListenTogetherSession : Player.Listener {
     private var actionJob: Job? = null
 
     private var clientSeq = 0L
+    /** 队列 REPLACE 的 version 计数，与命令 clientSeq 分开，避免两套序号交替递增。 */
+    private var playlistVersion = 0L
     private var localUid: Long = 0L
     private var formerSongId: Long = 0L
     @Volatile
@@ -144,6 +146,7 @@ object ListenTogetherSession : Player.Listener {
         if (actionJob?.isActive == true) return
         actionJob = scope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null, notice = null)
+            var establishedRoomId: String? = null
             try {
                 if (!CookieProvider.isLoggedIn()) {
                     _state.value = _state.value.copy(isLoading = false, error = "请先登录网易云账号")
@@ -158,6 +161,7 @@ object ListenTogetherSession : Player.Listener {
                 val room = ListenTogetherApi.create().getOrThrow()
                 loadLocalUid()
                 establish(room)
+                establishedRoomId = room.id
                 Log.d(TAG, "create ok roomId=${room.id} isHost=${_state.value.isHost} localUid=$localUid")
                 reportPlaylist()
                 reportCommand("GOTO", songId, songId, player?.playWhenReady ?: true)
@@ -166,7 +170,10 @@ object ListenTogetherSession : Player.Listener {
                 _state.value = _state.value.copy(isLoading = false)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                _state.value = _state.value.copy(isLoading = false, error = error.message)
+                // establish 之后的失败（队列上报被业务拒绝 / 心跳失败）不能只写 error：
+                // 房间已在服务端存在、UI 显示「已进房N 人」，但 startMonitoring 没跑到 →
+                // 没有轮询、没有心跳，服务端最终判掉线。回滚：结束服务端房间 + 清会话。
+                rollbackAfterEstablish(establishedRoomId, error)
             }
         }
     }
@@ -176,6 +183,7 @@ object ListenTogetherSession : Player.Listener {
         if (actionJob?.isActive == true) return
         actionJob = scope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null, notice = null)
+            var establishedRoomId: String? = null
             try {
                 val (roomId, inviterId) = parseListenTogetherInvitation(invitationText)
                     ?: throw IllegalStateException("邀请链接无效")
@@ -190,8 +198,9 @@ object ListenTogetherSession : Player.Listener {
                 val room = ListenTogetherApi.accept(roomId, inviterId).getOrThrow()
                 loadLocalUid()
                 establish(room)
+                establishedRoomId = room.id
                 Log.d(TAG, "join ok roomId=${room.id} inviterId=$inviterId isHost=${_state.value.isHost} localUid=$localUid")
-                // MeiloX 原样：初始同步失败直接抛 → 下方 catch 置 error（不进监测，不展开播放页）。
+                // 初始同步失败直接抛 → 下方 catch 回滚（不进监测，不展开播放页）。
                 applyRemote(ListenTogetherApi.snapshot(room.id).getOrThrow(), initial = true)
                 sendHeartbeat()
                 startMonitoring()
@@ -201,9 +210,29 @@ object ListenTogetherSession : Player.Listener {
                 _state.value = _state.value.copy(isLoading = false)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                _state.value = _state.value.copy(isLoading = false, error = error.message)
+                rollbackAfterEstablish(establishedRoomId, error)
             }
         }
+    }
+
+    /**
+     * establish 之后失败的统一回滚。
+     *
+     * 旧实现只写 error：房间已在服务端存在、UI 显示「已进房 N 人」，但
+     * startMonitoring() 永远没执行 → 无轮询、无心跳，服务端最终判掉线，
+     * 本机却以为还在房里（房间状态永远停在半建立）。
+     *
+     * @param roomId 本次动作已 establish 的房间；为 null 表示失败发生在 establish 之前
+     * （例如链接无效 / checkRoom 不过），此时只清 error，不动服务端房间。
+     */
+    private fun rollbackAfterEstablish(roomId: String?, error: Throwable) {
+        if (roomId != null) {
+            // 结束服务端房间（失败也不阻断本地清理），避免留下一个谁都不同步的僵尸房。
+            scope.launch { runCatching { ListenTogetherApi.end(roomId) } }
+        }
+        clearSession()
+        _state.value = _state.value.copy(isLoading = false, error = error.message)
+        Log.w(TAG, "rollback room=$roomId reason=${error.message}")
     }
 
     /**
@@ -264,7 +293,14 @@ object ListenTogetherSession : Player.Listener {
     }
 
     private fun establish(room: LTRoom) {
-        clientSeq = 0L
+        // 换房间才归零命令序号：refresh()（每次 attach，即每次 Service 重建）在
+        // 已在房时会重新走 establish —— 无条件 clientSeq=0 会让重进后的命令序号
+        // 倒退，服务端可能当旧序丢弃，表现为「重开 App 后一起听彻底不同步」。
+        // 同一房间重进保留计数；真换房间（room.id 不同）才从头开始。
+        if (_state.value.room?.id != room.id) {
+            clientSeq = 0L
+            playlistVersion = 0L
+        }
         lastPlaylistSig = null
         lastCommandSig = null
         consecutiveFailures = 0
@@ -288,6 +324,7 @@ object ListenTogetherSession : Player.Listener {
         playlistReportJob?.cancel()
         playlistReportJob = null
         clientSeq = 0L
+        playlistVersion = 0L
         localUid = 0L
         applyingRemote = false
         lastPlaylistSig = null
@@ -379,8 +416,19 @@ object ListenTogetherSession : Player.Listener {
         val commandChanged = commandSig != lastCommandSig
         if (!initial && !playlistChanged && !commandChanged) return
 
+        // 空快照（远端 data:{} / 无列表无命令）不落盘签名：否则会把真实的
+        // lastPlaylistSig 覆盖成一个恒定空串，远端恢复同一份列表时签名恰好相同
+        // → playlistChanged=false → 一次真实的队列变化被永久忽略。
+        val emptySnapshot =
+            snapshot.songIds.isEmpty() && snapshot.commandType == null && snapshot.targetSongId == null
+
         val localIds = (0 until activePlayer.mediaItemCount)
             .mapNotNull { activePlayer.getMediaItemAt(it).mediaId.toLongOrNull() }
+        // 与 completeIds 比较用**完整 mediaId 字符串序列**（含非数字 id 的项），
+        // 不用上面的 mapNotNull 过滤版：队列里混有本地文件/非 NCM 音源时，
+        // 过滤版长度对不上会误判「一致/不一致」，进而错位复用或无谓全量重建。
+        val localIdStrs = (0 until activePlayer.mediaItemCount)
+            .map { activePlayer.getMediaItemAt(it).mediaId }
         val songIds = snapshot.songIds.ifEmpty { localIds }
         // MeiloX 原样：三处 fallback 全空 → 房间无有效播放状态，抛（监控循环 catch 计数）。
         val targetId = snapshot.targetSongId
@@ -396,21 +444,35 @@ object ListenTogetherSession : Player.Listener {
         )
         val completeIds = if (targetId in songIds) songIds else songIds + targetId
 
-        // MeiloX 原样：本地 id 序列与远端一致时直接复用现有 MediaItem，不重拉详情；
+        // 本地 id 序列与远端一致时直接复用现有 MediaItem，不重拉详情；
         // 不一致才按 100 条分片拉批量详情，缺详情的歌剔除（不再用占位 Song 兜底）。
-        val items = if (completeIds == localIds) {
+        val sameAsLocal = completeIds.map { it.toString() } == localIdStrs
+        val items = if (sameAsLocal) {
             (0 until activePlayer.mediaItemCount).map { activePlayer.getMediaItemAt(it) }
         } else {
             loadMediaItems(completeIds)
         }
-        val targetIndex = items.indexOfFirst { it.mediaId == targetId.toString() }
-        check(targetIndex >= 0) { "目标歌曲未在播放列表中: $targetId" }
+        var targetIndex = items.indexOfFirst { it.mediaId == targetId.toString() }
+        if (targetIndex < 0) {
+            // 旧实现直接 check(...) 抛：远端列表里有一首拉不到详情（下架/VIP）就稳定命中，
+            // 签名不落盘 → 下一 tick 重复失败 → reconnecting 常驻，整条列表同步永久卡死。
+            // 降级：提示 + 落到列表首项，不中断同步循环。
+            _state.value = _state.value.copy(
+                notice = "房间列表中有歌曲无法加载（$targetId），已跳到列表开头"
+            )
+            Log.w(TAG, "target song unavailable id=$targetId loaded=${items.size}/${completeIds.size}")
+            targetIndex = 0
+        }
 
         applyingRemote = true
         suppressReportsUntilMs = SystemClock.elapsedRealtime() + 1000L
         try {
-            if (completeIds != localIds) {
-                activePlayer.setMediaItems(items, targetIndex, snapshot.progressMs?.coerceAtLeast(0L) ?: 0L)
+            if (!sameAsLocal) {
+                // 远端缺 progress 时不要强制 0（旧实现 ?: 0L 会把正在播的歌打回曲头）；
+                // 目标就是当前这首歌时沿用本地进度，否则从 0 起播。
+                val startPos = snapshot.progressMs?.coerceAtLeast(0L)
+                    ?: if (targetId == currentSongId()) activePlayer.currentPosition else 0L
+                activePlayer.setMediaItems(items, targetIndex, startPos)
                 activePlayer.prepare()
             } else if (initial || commandChanged) {
                 activePlayer.seekTo(targetIndex, snapshot.progressMs?.coerceAtLeast(0L) ?: activePlayer.currentPosition)
@@ -425,11 +487,19 @@ object ListenTogetherSession : Player.Listener {
         } finally {
             applyingRemote = false
         }
-        lastPlaylistSig = playlistSig
-        lastCommandSig = commandSig
+        if (!emptySnapshot) {
+            lastPlaylistSig = playlistSig
+            lastCommandSig = commandSig
+        }
     }
 
-    /** MeiloX sendHeartbeat 原样：上报当前歌心跳（Models heartbeat 内部已 getOrThrow+requireOk，失败抛给调用方 catch 计数）；返回的 timeSpan 不再驱动间隔，直接丢弃。 */
+    /**
+     * 上报当前歌心跳。返回的 timeSpan 不再驱动间隔，直接丢弃。
+     *
+     * isPlaying 用 **playWhenReady（播放意图）**而不是 player.isPlaying（有效输出）：
+     * 缓冲/切歌瞬间 isPlaying=false，每 5s 的心跳会把房间状态写成 PAUSE，其他端跟着暂停。
+     * 与 reportCommand 的捕获规则一致。
+     */
     private suspend fun sendHeartbeat() {
         val room = _state.value.room ?: return
         val activePlayer = player ?: return
@@ -437,7 +507,7 @@ object ListenTogetherSession : Player.Listener {
         ListenTogetherApi.heartbeat(
             roomId = room.id,
             songId = songId,
-            isPlaying = activePlayer.isPlaying,
+            isPlaying = activePlayer.playWhenReady,
             progressMs = activePlayer.currentPosition
         )
     }
@@ -460,6 +530,17 @@ object ListenTogetherSession : Player.Listener {
         _state.value.room != null &&
             !applyingRemote &&
             SystemClock.elapsedRealtime() >= suppressReportsUntilMs
+
+    /**
+     * 队列上报专用闸门：只判「在房里 + 不正在应用远端」，**不判抑制窗口**。
+     * 切歌单必然同时触发 onMediaItemTransition（GOTO 把窗口推到 +1s）和
+     * onTimelineChanged（REPLACE），若 REPLACE 也复用 [shouldReport]，350ms 防抖
+     * 到期时仍在窗口内 → 队列上报被静默丢弃且不重试，房间列表停在旧值，而 GOTO
+     * 已带着新列表的 targetSongId 发出 → 对端按旧列表对不上、回落到列表第一首。
+     * REPLACE 是幂等全量写，被 applyRemote 回环触发也只是写回同一份 ids，
+     * 代价远小于丢一次队列变更。
+     */
+    private fun canReportPlaylist() = _state.value.room != null && !applyingRemote
 
     private fun currentSongId(): Long? =
         player?.currentMediaItem?.mediaId?.toLongOrNull()?.takeIf { it > 0L }
@@ -494,13 +575,29 @@ object ListenTogetherSession : Player.Listener {
         val activePlayer = player ?: return
         val ids = (0 until activePlayer.mediaItemCount)
             .mapNotNull { activePlayer.getMediaItemAt(it).mediaId.toLongOrNull() }
-        // MeiloX 原样：队列空 / 账号未读到 → 抛（调用方 catch → markReconnecting）。
+        // 队列为空 / 账号未读到 → 抛（调用方 catch → reconnecting）。
         check(ids.isNotEmpty()) { "请先播放一首歌曲" }
         check(localUid > 0L) { "当前账号未读取，请重新登录" }
-        val version = ++clientSeq
-        // MeiloX 原样：API 调用直接抛（不在内部包 runCatching），由调用方处理：
+        // 队列 version 用**独立计数器**（playlistVersion），不复用 clientSeq：
+        // clientSeq 是服务端播放命令的序号语义，与队列 version 交替递增会让服务端
+        // 把队列判成旧值而拒 REPLACE（表现为 data.result=false）。
+        // playlistVersion 不在 establish() 里归零：清会话（clearSession）才归零，
+        // 同一房间重进（refresh → establish）时保持单调。
+        val version = ++playlistVersion
+        // anchorSongId/anchorPosition 真实上报当前播放位置，别再让服务端把
+        // 房间锚点当成「清空 + 从头」（旧实现恒填 "" / -1，切歌单即抹掉锚点）。
+        val anchorSongId = currentSongId() ?: 0L
+        val anchorPosition = activePlayer.currentMediaItemIndex.takeIf { it >= 0 } ?: 0
+        // API 调用直接抛（不在内部包 runCatching），由调用方处理：
         // onTimelineChanged → runCatching 置 reconnecting；create → try/catch 中止后续并 error。
-        ListenTogetherApi.reportPlaylist(room.id, localUid, version, ids).getOrThrow()
+        ListenTogetherApi.reportPlaylist(
+            roomId = room.id,
+            userId = localUid,
+            version = version,
+            songIds = ids,
+            anchorSongId = anchorSongId,
+            anchorPosition = anchorPosition
+        ).getOrThrow()
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -537,14 +634,22 @@ object ListenTogetherSession : Player.Listener {
     }
 
     override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-        if (!shouldReport()) return
+        // 只对「队列真的换了」反应：TIMELINE_SOURCE_UPDATE 之类不重排队列，
+        // 起防抖 job 只会白白推高队列 version（与服务端命令 clientSeq 语义混淆）。
+        if (reason != Player.MEDIA_ITEM_TRANSITION_CHANGE_PLAYLIST_CHANGED) return
+        if (!canReportPlaylist()) return
         playlistReportJob?.cancel()
-        // MeiloX 原样：reportPlaylist 的 check()/API 失败不 crash，runCatching 置 reconnecting。
+        // 注意：这里刻意不判 suppressReportsUntilMs（见 canReportPlaylist）。
+        // 防抖 350ms 后复查一次；applyRemote 的 setMediaItems 触发的回环因
+        // applyingRemote=true 在回调当下就被挡掉，不会把远端队列原样写回。
         playlistReportJob = scope.launch {
             delay(350)
-            if (shouldReport()) {
+            if (canReportPlaylist()) {
                 runCatching { reportPlaylist() }
-                    .onFailure { _state.value = _state.value.copy(reconnecting = true) }
+                    .onFailure { error ->
+                        _state.value = _state.value.copy(reconnecting = true)
+                        Log.w(TAG, "reportPlaylist failed: ${error.message}")
+                    }
             }
         }
     }

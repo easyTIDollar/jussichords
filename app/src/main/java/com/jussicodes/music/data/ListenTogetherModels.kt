@@ -203,17 +203,25 @@ object ListenTogetherApi {
      * 上报队列（REPLACE）。randomList/displayList 用**字符串数组**（对齐 MeiloX
      * reportListenTogetherPlaylist 与 api-enhanced 权威拼参：split(',') 后
      * JSON.stringify → ["123","456"]，不是数字数组——NCM 按类型校验，数字数组被拒 result:false）。
+     *
+     * 与 api-enhanced 的两处偏差（有意为之，见 ListenTogetherSession.reportPlaylist）：
+     * 1. anchorSongId / anchorPosition 真实上报（代理恒填 '' / -1）；
+     * 2. data.result=false 视为业务拒绝并抛出（代理只打日志）。
      */
     suspend fun reportPlaylist(
         roomId: String,
         userId: Long,
         version: Long,
-        songIds: List<Long>
+        songIds: List<Long>,
+        anchorSongId: Long,
+        anchorPosition: Int
     ): Result<Unit> {
+        val anchor = anchorSongId.takeIf { it > 0L }?.toString() ?: ""
         val playlistParam = buildString {
             append("{\"commandType\":\"REPLACE\",\"version\":[")
             append("{\"userId\":").append(userId).append(",\"version\":").append(version).append("}]")
-            append(",\"anchorSongId\":\"\",\"anchorPosition\":-1")
+            append(",\"anchorSongId\":\"").append(anchor).append("\"")
+            append(",\"anchorPosition\":").append(anchorPosition)
             append(",\"randomList\":[").append(songIds.joinToString(",") { "\"$it\"" }).append("]")
             append(",\"displayList\":[").append(songIds.joinToString(",") { "\"$it\"" }).append("]}")
         }
@@ -222,7 +230,13 @@ object ListenTogetherApi {
             mapOf("roomId" to roomId, "playlistParam" to playlistParam)
         ).map { el ->
             requireOk(el)
-            Log.d(TAG, "reportPlaylist roomId=$roomId userId=$userId version=$version ids=${songIds.size} resp code=${respCode(el)} result=${resultFlag(el)} param=${playlistParam.take(400)}")
+            val result = resultFlag(el)
+            // NCM 业务拒绝：code=200 但 data.result=false —— 队列没写进去，房间仍是旧列表。
+            // 旧实现只打日志，UI 全程正常，用户看到的就是「我切了歌单，大家还在放旧的」。
+            check(result != "false") {
+                "NetEase rejected the playlist update (data.result=false)"
+            }
+            Log.d(TAG, "reportPlaylist roomId=$roomId userId=$userId version=$version ids=${songIds.size} anchor=$anchor/$anchorPosition resp code=${respCode(el)} result=$result param=${playlistParam.take(400)}")
         }
     }
 
