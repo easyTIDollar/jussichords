@@ -634,9 +634,9 @@ object ListenTogetherSession : Player.Listener {
     }
 
     override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-        // 只对「队列真的换了」反应：TIMELINE_SOURCE_UPDATE 之类不重排队列，
+        // 只对「队列真的换了」反应（TIMELINE_CHANGE_REASON_SOURCE_UPDATE 等不重排队列），
         // 起防抖 job 只会白白推高队列 version（与服务端命令 clientSeq 语义混淆）。
-        if (reason != Player.MEDIA_ITEM_TRANSITION_CHANGE_PLAYLIST_CHANGED) return
+        if (reason != Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) return
         if (!canReportPlaylist()) return
         playlistReportJob?.cancel()
         // 注意：这里刻意不判 suppressReportsUntilMs（见 canReportPlaylist）。
