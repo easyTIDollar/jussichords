@@ -94,7 +94,7 @@ val orientationLockKey = stringPreferencesKey("orientationLock")
 @ReadOnlyComposable
 fun currentContentWidthDp(): Int {
     val scale = LocalDensityScaleFactor.current
-    return LocalConfiguration.current.screenWidthDp / scale.coerceAtLeast(0.1f)
+    return (LocalConfiguration.current.screenWidthDp / scale.coerceAtLeast(0.1f)).toInt()
 }
 
 /** 当前内容高度（dp），受 DPI 模拟影响。 */
@@ -102,7 +102,7 @@ fun currentContentWidthDp(): Int {
 @ReadOnlyComposable
 fun currentContentHeightDp(): Int {
     val scale = LocalDensityScaleFactor.current
-    return LocalConfiguration.current.screenHeightDp / scale.coerceAtLeast(0.1f)
+    return (LocalConfiguration.current.screenHeightDp / scale.coerceAtLeast(0.1f)).toInt()
 }
 
 /**
@@ -175,6 +175,34 @@ fun contentMaxWidth(): Dp? {
 
 /** 双栏布局里侧栏/主区的宽度配比（仅矮屏使用）。 */
 const val LandscapeSidePanelFraction = 0.46f
+
+/**
+ * 详情页大封面边长（歌单/专辑/电台头图）。
+ *
+ * 固定 200dp 在横屏手机上会吃掉大部分可视高度：矮屏总高仅 411dp，减去 200dp 封面
+ * 再加标题和操作按钮，歌曲列表的首屏几乎看不到东西。所以矮屏必须缩小。
+ */
+@Composable
+@ReadOnlyComposable
+fun detailCoverSize(): Dp = when {
+    // 矮屏（手机横屏）：纵向是稀缺资源，封面压到 120dp 给列表让位
+    isLandscapePhone() -> 120.dp
+    currentWindowWidthClass() == WindowWidthClass.Compact -> 200.dp
+    currentWindowWidthClass() == WindowWidthClass.Medium -> 200.dp
+    else -> 240.dp
+}
+
+/** 网格封面边长（探索页专辑墙、用户歌单网格）。 */
+@Composable
+@ReadOnlyComposable
+fun gridCoverSize(): Dp = when (currentWindowWidthClass()) {
+    WindowWidthClass.Compact -> 144.dp
+    WindowWidthClass.Medium -> 144.dp
+    WindowWidthClass.Expanded -> 160.dp
+}
+
+/** 列表项缩略图边长（各列表行内的小图）。固定 48dp 在所有形态下都合理，不参与响应式。 */
+val listThumbnailSize: Dp get() = ListThumbnailSize
 
 /** 网格/列表的最小单元宽度（dp），配合 GridCells.Adaptive 使用。 */
 @Composable

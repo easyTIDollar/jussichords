@@ -38,7 +38,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerState
-import com.jussicodes.music.constants.AlbumThumbnailSize
+import com.jussicodes.music.constants.gridCoverSize
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.components.GridThumbnailImage
 import com.jussicodes.music.ui.components.PlaylistGridItem
@@ -90,7 +90,7 @@ fun UserPlaylistScreen(
     }) { padding ->
         LazyVerticalGrid(
             contentPadding = padding,
-            columns = GridCells.Adaptive(AlbumThumbnailSize),
+            columns = GridCells.Adaptive(gridCoverSize()),
         ) {
             if (isLoading && playlists.isEmpty()) {
                 items(List(10) { it }) {

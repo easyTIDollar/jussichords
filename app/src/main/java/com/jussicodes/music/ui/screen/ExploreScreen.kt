@@ -54,7 +54,7 @@ import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.R
-import com.jussicodes.music.constants.AlbumThumbnailSize
+import com.jussicodes.music.constants.gridCoverSize
 import com.jussicodes.music.constants.ListItemHeight
 import com.jussicodes.music.data.HomeBgTextStore
 import com.jussicodes.music.data.favoriteSongIdsDatastore
@@ -245,7 +245,7 @@ fun ExploreScreen(
                                         playlist = playlist,
                                         modifier = Modifier
                                             .clip(MaterialTheme.shapes.small)
-                                            .width(AlbumThumbnailSize)
+                                            .width(gridCoverSize())
                                             .clickable(
                                                 onClick = {
                                                     if (navController.currentDestination?.route != Screen.Explore.route) {
