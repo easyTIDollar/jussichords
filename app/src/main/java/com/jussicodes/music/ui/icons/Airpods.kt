@@ -60,7 +60,10 @@ val AirpodsCase: ImageVector
                 lineTo(22f, 8f)
                 arcToRelative(4f, 4f, 0f, true, false, -4f, -4f)
             }
-        }.build().also { _AirpodsCase = it }
+        }.build()
+
+        return _AirpodsCase!!
     }
 
+@Suppress("ObjectPropertyName")
 private var _AirpodsCase: ImageVector? = null
