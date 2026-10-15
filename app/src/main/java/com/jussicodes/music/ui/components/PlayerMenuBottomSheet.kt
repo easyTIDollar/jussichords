@@ -79,6 +79,10 @@ fun PlayerMenuBottomSheet(
     currentSong: Song? = null,
     openBottomSheet: Boolean,
     onDismiss: () -> Unit,
+    // 一起听面板的开关由调用方（Player.kt）持有：歌名行爱心左侧的成员小组件点了要
+    // 直接开一起听面板，而不是先开菜单再让用户点一次「一起听」。
+    listenTogetherOpen: Boolean = false,
+    onListenTogetherOpenChange: (Boolean) -> Unit = {},
 ) {
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var timePicker by rememberSaveable { mutableStateOf(false) }
@@ -121,7 +125,16 @@ fun PlayerMenuBottomSheet(
     var cancelSleepTimer by rememberSaveable { mutableStateOf(false) }
     var openSongListBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openShareSheet by rememberSaveable { mutableStateOf(false) }
-    var openListenTogetherSheet by rememberSaveable { mutableStateOf(false) }
+    // 一起听面板开关：调用方（Player.kt 的成员小组件）也能开，故走外部受控 + 本地兜底。
+    // 本地兜底保留是为了菜单里那一行「一起听」仍能独立打开（Player 未接管时）。
+    var openListenTogetherSheet by rememberSaveable { mutableStateOf(listenTogetherOpen) }
+    LaunchedEffect(listenTogetherOpen) {
+        if (listenTogetherOpen) openListenTogetherSheet = true
+    }
+    val setListenTogetherOpen: (Boolean) -> Unit = { value ->
+        openListenTogetherSheet = value
+        onListenTogetherOpenChange(value)
+    }
 
     // 一起听会话状态（用于菜单卡右侧显示进房状态）
     val listenTogetherState by ListenTogetherSession.state.collectAsState()
@@ -182,7 +195,7 @@ fun PlayerMenuBottomSheet(
                                     title = "一起听",
                                     value = listenTogetherState.room?.let { "${it.members.size} 人" } ?: "未进房",
                                     onClick = {
-                                        openListenTogetherSheet = true
+                                        setListenTogetherOpen(true)
                                         onDismiss()
                                     }
                                 )
@@ -347,7 +360,7 @@ fun PlayerMenuBottomSheet(
 
     ListenTogetherSheet(
         openBottomSheet = openListenTogetherSheet,
-        onDismiss = { openListenTogetherSheet = false }
+        onDismiss = { setListenTogetherOpen(false) }
     )
 }
 

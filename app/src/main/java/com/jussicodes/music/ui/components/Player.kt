@@ -104,6 +104,7 @@ import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
 import com.jussicodes.music.ui.screen.personalFmModeOptions
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.setPlaylist
+import com.jussicodes.music.playback.ListenTogetherSession
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.FavoriteSongAction
 import com.jussicodes.music.utils.getItemShape
@@ -175,6 +176,11 @@ fun Player(
     val showGestureTutorial = gestureTutorialVersion < PLAYER_GESTURE_TUTORIAL_VERSION
     var gestureTutorialActionCompleted by rememberSaveable { mutableStateOf(false) }
     var coverPreviewUrl by remember { mutableStateOf<Any?>(null) }
+
+    // 一起听会话：歌名行爱心左侧的成员小组件（进房才出现）读的就是这个 StateFlow。
+    val listenTogetherState by ListenTogetherSession.state.collectAsState()
+    // 小组件点击 → 直接开一起听面板（不经「更多」菜单那一跳）。
+    var openListenTogetherSheet by rememberSaveable { mutableStateOf(false) }
 
     // 顶部来源标签：优先用调用方显式传入的 playerLabel（私人 FM 用它带模式切换），
     // 否则从当前 media item 的 sourceName 自动推导，做到「从哪里点的就显示什么来源」。
@@ -642,6 +648,16 @@ fun Player(
                                 )
                             }
                         }
+                        // 一起听房间标识：两个成员头像交叠、两侧各一只 AirPods 轮廓作陪衬。
+                        // 只在进房时占位；点击复用底部菜单栈（PlayerMenuBottomSheet 内已挂
+                        // ListenTogetherSheet），无需另起宿主。
+                        listenTogetherState.room?.let { ltRoom ->
+                            ListenTogetherMemberChip(
+                                members = ltRoom.members,
+                                reconnecting = listenTogetherState.reconnecting,
+                                onClick = { openListenTogetherSheet = true }
+                            )
+                        }
                         FilledIconButton(
                             onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -905,7 +921,9 @@ fun Player(
         PlayerMenuBottomSheet(
             currentSong = currentSong,
             onDismiss = { openPlayerBottomSheet = false },
-            openBottomSheet = openPlayerBottomSheet
+            openBottomSheet = openPlayerBottomSheet,
+            listenTogetherOpen = openListenTogetherSheet,
+            onListenTogetherOpenChange = { openListenTogetherSheet = it }
         )
 
         coverPreviewUrl?.let { url ->
