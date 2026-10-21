@@ -109,7 +109,7 @@ class UpdateDownloadService : Service() {
         val progressValue = downloadedBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("?????? ${updateInfo.versionName}")
+            .setContentTitle("正在下载更新 ${updateInfo.versionName}")
             .setContentText(contentText)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
@@ -121,7 +121,7 @@ class UpdateDownloadService : Service() {
     private fun buildCompletedNotification(updateInfo: UpdateInfo, apkFile: File): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentTitle("?????? ${updateInfo.versionName}")
+            .setContentTitle("正在下载更新 ${updateInfo.versionName}")
             .setContentText("点击安装更新")
             .setAutoCancel(true)
             .setContentIntent(buildInstallPendingIntent(apkFile))
@@ -131,7 +131,7 @@ class UpdateDownloadService : Service() {
     private fun buildFailedNotification(updateInfo: UpdateInfo, message: String): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_error)
-            .setContentTitle("?????? ${updateInfo.versionName}")
+            .setContentTitle("正在下载更新 ${updateInfo.versionName}")
             .setContentText(message)
             .setAutoCancel(true)
             .setContentIntent(buildLaunchAppPendingIntent())
