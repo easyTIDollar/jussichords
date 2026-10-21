@@ -11,10 +11,12 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,6 +79,7 @@ import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.data.HomeBgTextStore
+import com.jussicodes.music.data.HomeTransparentCardStore
 import com.jussicodes.music.data.HomeUserInfoStore
 import com.jussicodes.music.data.NcmCookieStore
 import com.jussicodes.music.data.PinnedAlbumStore
@@ -772,8 +775,20 @@ private fun LibraryUserCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        // 容器色恒为不透明 surfaceContainerLow：「主页透明卡片」开关不作用于信息卡，
-        // 只作用于收藏歌单卡 / 歌单组卡 / 专辑墙（见 userCardGlassColor 注释）。
+        // 容器色恒为不透明 surfaceContainerLow：「主页透明卡片」开关不作用于信息卡
+        // （见 userCardGlassColor 注释）。但开关开启时其他卡都透明成一片，信息卡
+        // 作为唯一实底块需要一条细描边交代边界——走 Card 的 border 参数而不是在
+        // 内容里垫Box：垫 Box 会占一行布局、把内容往下推，且描边画在卡片内部。
+        border = if (HomeTransparentCardStore.state.collectAsState().value) {
+            BorderStroke(
+                width = 1.dp,
+                color = androidx.compose.ui.graphics.Color.White.copy(
+                    alpha = if (isSystemInDarkTheme()) 0.14f else 0.35f
+                )
+            )
+        } else {
+            null
+        },
         colors = CardDefaults.cardColors(containerColor = userCardGlassColor())
     ) {
         Column(
