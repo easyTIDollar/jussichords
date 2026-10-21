@@ -14,8 +14,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -79,7 +77,6 @@ import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.data.HomeBgTextStore
-import com.jussicodes.music.data.HomeTransparentCardStore
 import com.jussicodes.music.data.HomeUserInfoStore
 import com.jussicodes.music.data.NcmCookieStore
 import com.jussicodes.music.data.PinnedAlbumStore
@@ -92,7 +89,6 @@ import com.jussicodes.music.ui.components.PinnedAlbumPickDialog
 import com.jussicodes.music.ui.components.PinnedAlbumsCard
 import com.jussicodes.music.ui.components.TopBar
 import com.jussicodes.music.ui.components.resolveHomeBgTextColor
-import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.History
 import com.jussicodes.music.ui.icons.Leaderboard
 import com.jussicodes.music.ui.icons.Login
@@ -776,20 +772,8 @@ private fun LibraryUserCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        // 磨砂薄玻璃：开开关 = surface+primary 轻染的半透明玻璃（见 userCardGlassColor）；
-        // 关开关 = surfaceContainerLow 不透明实底。
-        // 描边走 Card 的 border 参数而不是在内容里垫 Box——垫 Box 会占一行布局、
-        // 把内容往下推，且描边画在卡片内部而非卡片边缘。
-        border = if (HomeTransparentCardStore.state.collectAsState().value) {
-            BorderStroke(
-                width = 1.dp,
-                color = androidx.compose.ui.graphics.Color.White.copy(
-                    alpha = if (isSystemInDarkTheme()) 0.14f else 0.35f
-                )
-            )
-        } else {
-            null
-        },
+        // 开关开 = 全透明，不再上薄玻璃（userCardGlassColor），也不描边——
+        // 描边是玻璃效果的配套视觉，底色透明后白描边只会显出一圈浮空的白线。
         colors = CardDefaults.cardColors(containerColor = userCardGlassColor())
     ) {
         Column(
@@ -1030,16 +1014,6 @@ private fun FavoritePlaylistCard(
                     }
                 }
             )
-            Box(
-                modifier = Modifier.align(Alignment.BottomStart).padding(start = 38.dp, top = 38.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)).padding(5.dp)
-            ) {
-                androidx.compose.material3.Icon(
-                    imageVector = Favorite,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(12.dp)
-                )
-            }
         }
     }
 }

@@ -257,7 +257,7 @@ fun PinnedAlbumsCard(
                 albums = displayed,
                 editing = editing,
                 columns = columns,
-                cardShape = MaterialTheme.shapes.extraLarge,
+                cardShape = RoundedCornerShape(16.dp),
                 reorderableState = reorderableState,
                 gridState = gridState,
                 view = view,
