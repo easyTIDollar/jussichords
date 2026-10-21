@@ -28,6 +28,10 @@ import com.jussicodes.music.constants.densityScaleKey
 import com.jussicodes.music.constants.orientationLockKey
 import com.jussicodes.music.constants.uiScaleKey
 import com.jussicodes.music.data.MsgSessionCache
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.activity.result.contract.ActivityResultContracts
 import com.jussicodes.music.extensions.init
 import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.playback.PlayerState
@@ -70,6 +74,20 @@ class MainActivity : ComponentActivity() {
             window.isNavigationBarContrastEnforced = false
         }
         playerController = PlayerController
+        // Android 13+ 通知权限：媒体通知是前台服务的可见凭证，权限被拒会显著提升
+        // 系统杀后台概率。仅在「用户还没永久拒绝」时弹一次系统授权框，之后不再骚扰。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                this, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted &&
+                !shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
+            ) {
+                registerForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { }.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         setContent {
             var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
             var isDownloadingUpdate by remember { mutableStateOf(false) }

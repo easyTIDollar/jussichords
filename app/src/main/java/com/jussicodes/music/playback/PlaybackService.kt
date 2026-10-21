@@ -436,6 +436,17 @@ class PlaybackService : MediaSessionService() {
                     }
                 }
                 setMediaSourceFactory(DefaultMediaSourceFactory(resolvingDataSourceFactory))
+                // 媒体播放身份：USAGE_MEDIA 让系统把它当正经媒体会话；
+                // WAKE_MODE_NETWORK 播放期间持 wakelock/wifilock，
+                // 锁屏/后台走网络流媒体不被 CPU/无线电休眠打断。
+                setAudioAttributes(
+                    androidx.media3.common.AudioAttributes.Builder()
+                        .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
+                        .build(),
+                    /* handleAudioBecomingNoisy = */ true
+                )
+                setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)
                 // 弱网缓冲余量：最小缓冲 15s，最大 50s
                 setLoadControl(
                     DefaultLoadControl.Builder()
@@ -522,7 +533,10 @@ class PlaybackService : MediaSessionService() {
 
     @OptIn(UnstableApi::class)
     override fun onTaskRemoved(rootIntent: Intent?) {
-        pauseAllPlayersAndStopSelf()
+        // 只在「没有任何前台播放」时才停服务；正在放歌时划掉任务页不该连播一起断。
+        if (!isPlaybackOngoing) {
+            pauseAllPlayersAndStopSelf()
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
