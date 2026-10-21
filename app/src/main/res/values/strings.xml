@@ -24,6 +24,10 @@
     <string name="song">歌曲</string>
     <string name="voice_list">播客</string>
     <string name="artist">歌手</string>
+    <string name="all">全部</string>
+    <string name="search_history">搜索记录</string>
+    <string name="clear">清空</string>
+    <string name="view_all_results">查看全部结果</string>
     <string name="total_play_count">%s次播放</string>
     <string name="voice_count">%d个声音</string>
     <string name="shuffle_on">开启</string>
