@@ -17,30 +17,29 @@ import androidx.media3.common.MediaMetadata
 object SharedArtwork {
 
     /**
-     * 播放中封面的共享 key。
+     * 播放中封面的共享 key（从 [MediaMetadata]）。
      *
-     * 优先级：mediaId → 规范化 URI → 标题+艺人兜底。
-     * 同一首歌在队列/详情/播放器之间应当得到同一个 key，否则共享元素会退化成淡入淡出。
+     * MediaMetadata 本身**没有** mediaId / uri 字段（media3 只有 MediaItem 带），
+     * 所以这里按「封面图 URI → 标题+艺人」取。前端各处都已经用 artworkUri 承载封面，
+     * 同一首歌在不同界面的 artworkUri 是一致的，足以作为稳定身份；
+     * 若拿得到 MediaItem，优先用 [ofItem] 走更可靠的 mediaId。
      */
-    fun playerArtworkKey(metadata: MediaMetadata): String {
-        val fromId = metadata.mediaId?.takeIf { it.isNotBlank() }
-        if (fromId != null) return "artwork-media-$fromId"
-
-        val fromUri = metadata.uri?.toString()?.takeIf { it.isNotBlank() }
-        if (fromUri != null) return "artwork-uri-${normalizeUri(fromUri)}"
+    fun ofMetadata(metadata: MediaMetadata): String {
+        val artwork = metadata.artworkUri?.toString()?.takeIf { it.isNotBlank() }
+        if (artwork != null) return "artwork-uri-${normalizeUri(artwork)}"
 
         val fallback = listOfNotNull(
-            metadata.title?.takeIf { it.isNotBlank() },
-            metadata.artist?.takeIf { it.isNotBlank() },
+            metadata.title?.toString()?.takeIf { it.isNotBlank() },
+            metadata.artist?.toString()?.takeIf { it.isNotBlank() },
         ).joinToString("-")
         return "artwork-fallback-$fallback"
     }
 
-    /** 从队列项取 key（queue item 可能只有 mediaId / uri，没有 metadata）。 */
-    fun playerArtworkKey(item: MediaItem): String {
-        val fromId = item.mediaId.takeIf { it.isNotBlank() }
+    /** 从队列项取 key：mediaId 是最可靠的身份标识。 */
+    fun ofItem(item: MediaItem): String {
+        val fromId = item.mediaId.toString().takeIf { it.isNotBlank() }
         if (fromId != null) return "artwork-media-$fromId"
-        val fromUri = item.requestUri.toString().takeIf { it.isNotBlank() }
+        val fromUri = item.localConfiguration?.uri?.toString()?.takeIf { it.isNotBlank() }
         if (fromUri != null) return "artwork-uri-${normalizeUri(fromUri)}"
         return "artwork-fallback-${item.mediaMetadata.title.orEmpty()}"
     }

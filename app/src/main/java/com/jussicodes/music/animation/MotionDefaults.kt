@@ -1,7 +1,6 @@
 package com.jussicodes.music.animation
 
 import androidx.compose.foundation.pager.PagerState
-import androidx.compose.runtime.Composable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -32,11 +31,3 @@ object MotionDefaults {
         }
     }
 }
-
-/** 便捷别名，供 Composable 内直接调用。 */
-@Composable
-fun animatePagerToPage(
-    pagerState: PagerState,
-    page: Int,
-    scope: CoroutineScope,
-) = MotionDefaults.animatePagerToPage(pagerState, page, scope)

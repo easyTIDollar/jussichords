@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.jussicodes.music.animation.MotionSpring
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaMetadata
 import coil3.compose.AsyncImage
@@ -80,18 +81,12 @@ fun MiniPlayer(
     var playerDragOffsetX by remember { mutableFloatStateOf(0f) }
     val animatedPlayerDragOffsetY by animateFloatAsState(
         targetValue = playerDragOffsetY,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
+        animationSpec = MotionSpring.dragOffset,
         label = "MiniPlayerDragOffset"
     )
     val animatedPlayerDragOffsetX by animateFloatAsState(
         targetValue = playerDragOffsetX,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
+        animationSpec = MotionSpring.dragOffset,
         label = "MiniPlayerHorizontalDragOffset"
     )
     val arrowBreath by rememberInfiniteTransition(label = "MiniPlayerOpenHint").animateFloat(

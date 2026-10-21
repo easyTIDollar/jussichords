@@ -87,7 +87,7 @@ fun AdaptiveNavigationRail(
                         rememberTabIndicatorColor(
                             visible = indicatorVisible,
                             selectedColor = MaterialTheme.colorScheme.secondaryContainer
-                        )
+                        ).value
                     )
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },

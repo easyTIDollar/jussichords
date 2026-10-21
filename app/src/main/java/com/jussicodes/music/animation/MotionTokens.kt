@@ -2,11 +2,13 @@ package com.jussicodes.music.animation
 
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.PathEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.unit.Dp
 
 /**
  * 全 App 动效 Token。
@@ -68,14 +70,14 @@ object MotionEasing {
     /** 中性、线性偏稳：布局位移这类"物理上只是挪一下"的动画。 */
     val standard: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
-    private val emphasizedPath = Path().apply {
+    private val emphasizedPathGeometry = Path().apply {
         moveTo(0f, 0f)
         cubicTo(0.05f, 0f, 0.133333f, 0.06f, 0.166666f, 0.4f)
         cubicTo(0.208333f, 0.82f, 0.25f, 1f, 1f, 1f)
     }
 
     /** 共享元素 bounds 变形：M3 emphasized path 曲线。 */
-    val emphasizedPath: Easing = androidx.compose.animation.core.PathEasing(emphasizedPath)
+    val emphasizedPath: Easing = PathEasing(emphasizedPathGeometry)
 }
 
 object MotionSpring {
@@ -144,5 +146,15 @@ object MotionSpec {
 
     /** 布局位移。 */
     fun <T> layoutShift(): FiniteAnimationSpec<T> =
+        tween(durationMillis = MotionDuration.LayoutShift, easing = MotionEasing.standard)
+
+    /**
+     * 导航指示胶囊的非首页位移。
+     *
+     * 首页用 snap()（零延迟贴手指），非首页用这一条（补一段位移）。
+     * 单独给出 Dp 版本是因为 animateDpAsState 需要 AnimationSpec<Dp>，
+     * 与泛型 <T> 版本在 if/else 里容易推断失败。
+     */
+    fun indicatorShift(): FiniteAnimationSpec<Dp> =
         tween(durationMillis = MotionDuration.LayoutShift, easing = MotionEasing.standard)
 }

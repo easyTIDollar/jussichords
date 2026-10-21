@@ -2,8 +2,12 @@ package com.jussicodes.music.animation
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import kotlin.math.abs
 
 /**
  * 底栏（Compact/Medium）与左侧 NavigationRail（Expanded）共用的选中态视觉参数。
@@ -61,7 +65,7 @@ fun rememberTabSelectionVisuals(
     selected: Boolean,
 ): TabSelectionVisuals {
     if (isHomeRoute) {
-        val progress = (1f - kotlin.math.abs(homePageScroll - index)).coerceIn(0f, 1f)
+        val progress = (1f - abs(homePageScroll - index)).coerceIn(0f, 1f)
         return TabSelectionVisuals(
             iconScale = TabSelectionMotion.homeIconScale(progress),
             iconAlpha = TabSelectionMotion.homeIconAlpha(progress),
@@ -88,8 +92,8 @@ fun rememberTabIndicatorColor(
     visible: Boolean,
     selectedColor: Color,
     unselectedColor: Color = Color.Transparent,
-): Color = animateColorAsState(
+): State<Color> = animateColorAsState(
     targetValue = if (visible) selectedColor else unselectedColor,
-    animationSpec = androidx.compose.animation.core.tween(MotionDuration.NavSelection),
+    animationSpec = tween(MotionDuration.NavSelection),
     label = "TabIndicatorColor"
 )

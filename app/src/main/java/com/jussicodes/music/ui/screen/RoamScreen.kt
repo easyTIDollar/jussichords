@@ -247,7 +247,7 @@ fun RoamScreen(
         AnimatedContent(
             targetState = if (metadata == null) ROAM_PLAYER else shownPanel,
             transitionSpec = {
-                fadeIn(MotionSpec.panelFadeIn<Int>(delayMillis = MotionDuration.PanelFadeIn)) togetherWith fadeOut(MotionSpec.panelFadeOut<Int>())
+                fadeIn(MotionSpec.panelFadeIn<Float>(delayMillis = MotionDuration.PanelFadeIn)) togetherWith fadeOut(MotionSpec.panelFadeOut<Float>())
             }
         ) { target ->
             if (target == ROAM_LYRIC && metadata != null) {
@@ -257,7 +257,7 @@ fun RoamScreen(
                     onBackPressed = { shownPanel = ROAM_PLAYER },
                     imageModifier = Modifier.sharedElement(
                         state = rememberSharedContentState(
-                            key = SharedArtwork.playerArtworkKey(metadata)
+                            key = SharedArtwork.ofMetadata(metadata)
                         ),
                         animatedVisibilityScope = this@AnimatedContent,
                         placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
@@ -272,12 +272,12 @@ fun RoamScreen(
                         animatedVisibilityScope = this@AnimatedContent,
                         placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
                         boundsTransform = AlbumArtBoundsTransform,
-                        enter = fadeIn(MotionSpec.panelFadeIn<Int>(delayMillis = MotionDuration.ScreenExit)),
-                        exit = fadeOut(MotionSpec.panelFadeOut<Int>())
+                        enter = fadeIn(MotionSpec.panelFadeIn<Float>(delayMillis = MotionDuration.ScreenExit)),
+                        exit = fadeOut(MotionSpec.panelFadeOut<Float>())
                     ),
                     imageModifier = Modifier.sharedElement(
                         state = rememberSharedContentState(
-                            key = SharedArtwork.playerArtworkKey(metadata)
+                            key = SharedArtwork.ofMetadata(metadata)
                         ),
                         animatedVisibilityScope = this@AnimatedContent,
                         placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
@@ -296,12 +296,12 @@ fun RoamScreen(
                         animatedVisibilityScope = this@AnimatedContent,
                         placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
                         boundsTransform = AlbumArtBoundsTransform,
-                        enter = fadeIn(MotionSpec.panelFadeIn<Int>(delayMillis = MotionDuration.ScreenExit)),
-                        exit = fadeOut(MotionSpec.panelFadeOut<Int>())
+                        enter = fadeIn(MotionSpec.panelFadeIn<Float>(delayMillis = MotionDuration.ScreenExit)),
+                        exit = fadeOut(MotionSpec.panelFadeOut<Float>())
                     ),
                     imageModifier = Modifier.sharedElement(
                         state = rememberSharedContentState(
-                            key = SharedArtwork.playerArtworkKey(metadata)
+                            key = SharedArtwork.ofMetadata(metadata)
                         ),
                         animatedVisibilityScope = this@AnimatedContent,
                         placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
@@ -385,7 +385,7 @@ fun RoamScreen(
                     artworkModifier = if (metadata?.artworkUri != null) {
                         Modifier.sharedElement(
                             state = rememberSharedContentState(
-                                key = SharedArtwork.playerArtworkKey(metadata)
+                                key = SharedArtwork.ofMetadata(metadata)
                             ),
                             animatedVisibilityScope = this@AnimatedContent,
                             placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
@@ -399,8 +399,8 @@ fun RoamScreen(
                         animatedVisibilityScope = this@AnimatedContent,
                         placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
                         boundsTransform = AlbumArtBoundsTransform,
-                        enter = fadeIn(MotionSpec.panelFadeIn<Int>(delayMillis = MotionDuration.ScreenExit)),
-                        exit = fadeOut(MotionSpec.panelFadeOut<Int>())
+                        enter = fadeIn(MotionSpec.panelFadeIn<Float>(delayMillis = MotionDuration.ScreenExit)),
+                        exit = fadeOut(MotionSpec.panelFadeOut<Float>())
                     ),
                     selectedModeIndex = selectedModeIndex
                 )

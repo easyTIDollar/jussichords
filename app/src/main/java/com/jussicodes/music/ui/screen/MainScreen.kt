@@ -83,7 +83,7 @@ import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.BottomNavigationHeight
 import com.jussicodes.music.animation.MotionDuration
 import com.jussicodes.music.animation.MotionSpec
-import com.jussicodes.music.animation.animatePagerToPage
+import com.jussicodes.music.animation.MotionDefaults
 import com.jussicodes.music.animation.rememberTabSelectionVisuals
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.currentPlayMediaIdKey
@@ -106,7 +106,6 @@ import com.jussicodes.music.utils.SettingsAppearanceBus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -304,7 +303,7 @@ fun MainScreen() {
                                 animationSpec = if (isHomeRoute) {
                                     snap()
                                 } else {
-                                    MotionSpec.layoutShift()
+                                    MotionSpec.indicatorShift()
                                 },
                                 label = "TabIndicatorOffset"
                             )
@@ -322,11 +321,6 @@ fun MainScreen() {
                             Row(Modifier.fillMaxSize()) {
                                 tabs.forEach { item ->
                                     val tabIndex = tabs.indexOf(item).coerceAtLeast(0)
-                                    val homeProgress = if (isHomeRoute) {
-                                        (1f - abs(homePageScroll - tabIndex)).coerceIn(0f, 1f)
-                                    } else {
-                                        0f
-                                    }
                                     val selected = if (isHomeRoute) {
                                         tabs.getOrNull(homePageScroll.roundToInt())?.route == item.route
                                     } else {
@@ -354,7 +348,7 @@ fun MainScreen() {
                                                 if (targetPage < 0) return@clickable
 
                                                 if (isHomeRoute) {
-                                                    animatePagerToPage(
+                                                    MotionDefaults.animatePagerToPage(
                                                         pagerState = homePagerState,
                                                         page = targetPage,
                                                         scope = coroutineScope
@@ -465,7 +459,7 @@ fun MainScreen() {
                         onTabClick = { route ->
                             val targetPage = tabs.indexOfFirst { it.route == route }
                             if (targetPage >= 0 && isHomeRoute) {
-                                animatePagerToPage(
+                                MotionDefaults.animatePagerToPage(
                                     pagerState = homePagerState,
                                     page = targetPage,
                                     scope = coroutineScope
