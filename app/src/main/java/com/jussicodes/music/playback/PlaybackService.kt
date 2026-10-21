@@ -240,10 +240,10 @@ class PlaybackService : MediaSessionService() {
     private val retryDelaysMs = listOf(1_000L, 3_000L, 8_000L)
 
     /** 重新 prepare 时回退一点，避免卡在同一个读位置反复失败。 */
-    private const val REWIND_ON_RETRY_MS = 2_000L
+    private val rewindOnRetryMs = 2_000L
 
     /** 解析播放地址（一次网络请求）的超时。 */
-    private const val RESOLVE_URL_TIMEOUT_MS = 15_000L
+    private val resolveUrlTimeoutMs = 15_000L
 
     private val recoveryListener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
@@ -261,7 +261,7 @@ class PlaybackService : MediaSessionService() {
             }
             val delayMs = retryDelaysMs[retryAttempt]
             retryAttempt++
-            val resumeAt = (player.currentPosition - REWIND_ON_RETRY_MS).coerceAtLeast(0L)
+            val resumeAt = (player.currentPosition - rewindOnRetryMs).coerceAtLeast(0L)
             recoveryJob?.cancel()
             recoveryJob = scope.launch {
                 delay(delayMs)
@@ -417,7 +417,7 @@ class PlaybackService : MediaSessionService() {
                 ) { dataSpec ->
                     runBlocking {
                         // 解析播放地址本身也是一次网络请求，弱网下不能无限期卡住加载线程
-                        val resolvedUri = withTimeout(RESOLVE_URL_TIMEOUT_MS) {
+                        val resolvedUri = withTimeout(resolveUrlTimeoutMs) {
                             updateMediaItemUri(
                                 dataSpec.uri,
                                 audioQuality
