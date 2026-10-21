@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.DensityMedium
+import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.ScreenRotation
 import androidx.compose.material.icons.outlined.Storage
@@ -710,7 +711,27 @@ fun SettingsScreen(navController: NavHostController) {
             SettingItemData(
                 title = "jussichords",
                 subtitle = "简洁的第三方网易云音乐客户端",
-                imageVector = MusicNote
+                imageVector = MusicNote,
+                trailingContent = {
+                    val uri = android.net.Uri.parse("https://github.com/easyTIDollar/jussichords")
+                    Icon(
+                        imageVector = Icons.Outlined.OpenInNew,
+                        contentDescription = "打开项目主页",
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clickable {
+                                runCatching {
+                                    context.startActivity(
+                                        android.content.Intent(
+                                            android.content.Intent.ACTION_VIEW,
+                                            uri
+                                        )
+                                    )
+                                }
+                            },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             ),
             SettingItemData(
                 title = if (updating) "正在检查" else "检查更新",

@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -521,7 +522,26 @@ private fun RoamPlayerContent(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 顶部来源标签：始终展示当前模式（"私人 FM · 探索"），点击展开模式菜单
+                // 左侧占位（48dp IconButton 等宽），保证来源标签在顶栏正中
+                Spacer(modifier = Modifier.width(48.dp))
+                // 右上：更多菜单
+                IconButton(onClick = { modeMenuExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Outlined.MoreVert,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            // 顶部来源标签：始终展示当前模式（"私人 FM · 探索"），点击展开模式菜单。
+            // 悬浮在顶栏正中（覆盖层），不参与 Row 两端布局。
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
                 Box {
                     Text(
                         text = "私人 FM · ${personalFmModeOptions[selectedModeIndex].title}",
@@ -551,13 +571,6 @@ private fun RoamPlayerContent(
                             )
                         }
                     }
-                }
-                IconButton(onClick = { modeMenuExpanded = true }) {
-                    Icon(
-                        imageVector = Icons.Outlined.MoreVert,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
                 }
             }
 
