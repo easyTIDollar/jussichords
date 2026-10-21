@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -61,23 +60,24 @@ import com.jussicodes.music.ui.icons.SkipNextFill
 import com.jussicodes.music.ui.icons.SkipPreviousFill
 import com.jussicodes.music.utils.makeTimeString
 
-/** 倍速档位，右栏胶囊循环切换。 */
+/** 倍速档位，顶部快捷区点击循环切换。 */
 private val SPEED_STEPS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 
-/** 三栏配比：封面 / 歌词 / 信息+控制。 */
-private const val LandscapeCoverWeight = 0.28f
-private const val LandscapeLyricWeight = 0.44f
+/** 左右两栏配比：左 = 封面 + 歌词，右 = 信息 + 控制台。 */
+private const val LandscapeLeftWeight = 1.1f
+private const val LandscapeRightWeight = 0.9f
 
-/** 歌词默认占可用高度的比例；剩余部分留给「点击展开」提示。 */
-private const val LandscapeLyricCollapsedFraction = 0.62f
+/** 封面在左栏内占可用高度的比例（按高度取方，垂直居中）。 */
+private const val LandscapeCoverHeightFraction = 0.66f
 
 /**
- * 横屏（矮屏）专用播放页 —— 三栏桌面式布局。
+ * 横屏（矮屏）专用播放页 —— 左右两栏。
  *
- * 与竖屏 [Player] 是**两套独立布局**：横屏高度只有 ~411dp，任何「把竖排挤进窄栏」
- * 的做法都会溢出或让控件消失（已踩过）。
+ * 与竖屏 [Player] 是**两套独立布局**：横屏高度只有 ~411dp。
  *
- * 结构：左栏封面 / 中栏歌词（主角，默认折叠半屏，点击全屏）/ 右栏信息+控制。
+ * 结构：
+ * - 左栏：返回键 + 封面（垂直居中）+ 歌词竖向滚动（点击任意位置全屏展开）。
+ * - 右栏：歌名/歌手 + 倍速/收藏/更多 → 全宽进度条 → 横向五键控制组。
  *
  * 竖屏路径完全不受此文件影响。
  */
@@ -102,6 +102,7 @@ fun PlayerLandscape(
     var sliderPosition by remember { mutableStateOf<Long?>(null) }
     var scrubFraction by remember { mutableFloatStateOf(0f) }
     val shownPosition = sliderPosition ?: position
+    val durationUsable = duration > 0 && duration != C.TIME_UNSET
 
     var lyricExpanded by remember { mutableStateOf(false) }
 
@@ -110,31 +111,54 @@ fun PlayerLandscape(
 
     Box(modifier = modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxSize()) {
-            // ── 左栏：封面 ────────────────────────────────────────────────
+            // ── 左栏：封面 + 歌词 ─────────────────────────────────────────
             Box(
                 modifier = Modifier
-                    .weight(LandscapeCoverWeight)
+                    .weight(LandscapeLeftWeight)
                     .fillMaxHeight()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                contentAlignment = Alignment.Center,
             ) {
-                // 封面按高度取方：weight + widthIn(max) + aspectRatio 保证既不超宽也不超高。
-                AsyncImage(
-                    model = mediaMetadata.artworkUri,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
+                Row(
                     modifier = Modifier
-                        .fillMaxWidth(0.86f)
-                        .widthIn(max = 320.dp)
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                )
+                        .fillMaxSize()
+                        .padding(start = 48.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // 封面：按高度取方 → 竖屏不会超高，宽度也不会溢出左栏。
+                    AsyncImage(
+                        model = mediaMetadata.artworkUri,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxHeight(LandscapeCoverHeightFraction)
+                            .widthIn(max = 240.dp)
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+
+                    // 歌词：竖向多行滚动，占满左栏剩余宽度；点击任意位置全屏展开。
+                    Lyric(
+                        position = position,
+                        mediaMetadata = mediaMetadata,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) { lyricExpanded = true },
+                        imageModifier = Modifier,
+                        onBackPressed = {},
+                        // 左栏已有专门的封面，右栏有信息栏，Lyric 自带头部会造成重复内容。
+                        showHeader = false,
+                    )
+                }
 
                 // 返回键：横屏下系统导航手势可能不可见，这里是唯一可见退路。
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .size(40.dp)
+                        .padding(start = 8.dp, top = 8.dp)
+                        .size(36.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f))
                         .clickable(
@@ -144,140 +168,117 @@ fun PlayerLandscape(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon2(ChevronDown, tint = MaterialTheme.colorScheme.primary)
+                    Icon2(ChevronDown, tint = MaterialTheme.colorScheme.primary, size = 22.dp)
                 }
             }
 
-            // ── 中栏：歌词（主角，默认半屏） ───────────────────────────────
+            // ── 右栏：信息 → 进度条 → 控制台 ─────────────────────────────
             Column(
                 modifier = Modifier
-                    .weight(LandscapeLyricWeight)
+                    .weight(LandscapeRightWeight)
                     .fillMaxHeight()
-                    .padding(top = 12.dp, bottom = 12.dp),
+                    .padding(start = 16.dp, end = 24.dp, top = 10.dp, bottom = 12.dp),
+                verticalArrangement = Arrangement.SpaceEvenly,
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(LandscapeLyricCollapsedFraction)
+                // 顶部：歌名/歌手（左对齐）+ 倍速/收藏/更多快捷图标。
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Lyric(
-                        position = position,
-                        mediaMetadata = mediaMetadata,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                            ) { lyricExpanded = true },
-                        imageModifier = Modifier,
-                        onBackPressed = {},
-                        // 不要 Lyric 自带的封面/歌名/歌手/菜单头部 —— 三栏里已有专门的
-                        // 封面栏和信息栏，再渲染一遍就是歌名/封面各两次（已踩过）。
-                        showHeader = false,
+                    Column(modifier = Modifier.weight(1f)) {
+                        mediaMetadata.title?.let {
+                            Text(
+                                text = it.toString(),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = titleColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        mediaMetadata.artist?.let {
+                            Text(
+                                text = it.toString(),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = dimColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    SpeedChip()
+                    IconClick(
+                        imageVector = if (liked) FavoriteFill else Favorite,
+                        tint = if (liked) MaterialTheme.colorScheme.primary else dimColor,
+                        size = 22.dp, touchSize = 36.dp,
+                        onClick = onToggleFavorite,
                     )
+                    IconClick(MoreVert, tint = dimColor, size = 22.dp, touchSize = 36.dp, onClick = onMoreClick)
                 }
 
-                // 折叠时剩下的那块：提示 + 展开按钮。展开后让位给空隙。
-                if (!lyricExpanded) {
-                    Box(
+                // 中部：全宽进度条 + 两端时间标注。
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Slider(
+                        value = if (durationUsable) {
+                            if (sliderPosition != null) scrubFraction
+                            else (shownPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                        } else 0f,
+                        valueRange = 0f..1f,
+                        onValueChange = {
+                            scrubFraction = it
+                            sliderPosition = (it * (if (durationUsable) duration else 0L)).toLong()
+                        },
+                        onValueChangeFinished = {
+                            sliderPosition?.let {
+                                onSeek(it)
+                                mediaController?.seekTo(it)
+                            }
+                            sliderPosition = null
+                        },
+                        colors = SliderDefaults.colors(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f - LandscapeLyricCollapsedFraction)
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                            ) { lyricExpanded = true },
-                        contentAlignment = Alignment.Center,
+                            .padding(horizontal = 4.dp)
                     ) {
                         Text(
-                            text = "点击展开歌词",
+                            text = makeTimeString(shownPosition),
                             style = MaterialTheme.typography.labelSmall,
-                            color = dimColor.copy(alpha = 0.7f),
-                            textAlign = TextAlign.Center,
+                            color = dimColor,
+                            textAlign = TextAlign.Start,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            text = if (durationUsable) makeTimeString(duration) else "--:--",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = dimColor,
+                            textAlign = TextAlign.End,
                         )
                     }
                 }
-            }
 
-            // ── 右栏：歌名/歌手 → 进度条 → 控件 → 底部功能胶囊 ─────────────
-            Column(
-                modifier = Modifier
-                    .weight(1f - LandscapeCoverWeight - LandscapeLyricWeight)
-                    .fillMaxHeight()
-                    .padding(start = 8.dp, end = 20.dp, top = 12.dp, bottom = 12.dp),
-            ) {
-                mediaMetadata.title?.let {
-                    Text(
-                        text = it.toString(),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = titleColor,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                mediaMetadata.artist?.let {
-                    Text(
-                        text = it.toString(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = dimColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-
-                Spacer(Modifier.weight(1f))
-
-                // 进度条：横向 Slider，右栏 ~250dp 足够。
-                Slider(
-                    value = if (duration > 0 && duration != C.TIME_UNSET) {
-                        if (sliderPosition != null) scrubFraction
-                        else (shownPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-                    } else 0f,
-                    valueRange = 0f..1f,
-                    onValueChange = {
-                        scrubFraction = it
-                        val d = if (duration > 0 && duration != C.TIME_UNSET) duration else 0L
-                        sliderPosition = (it * d).toLong()
-                    },
-                    onValueChangeFinished = {
-                        sliderPosition?.let {
-                            onSeek(it)
-                            mediaController?.seekTo(it)
-                        }
-                        sliderPosition = null
-                    },
-                    colors = SliderDefaults.colors(),
-                )
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Text(makeTimeString(shownPosition), style = MaterialTheme.typography.labelSmall, color = dimColor)
-                    Spacer(Modifier.weight(1f))
-                    Text(makeTimeString(duration), style = MaterialTheme.typography.labelSmall, color = dimColor)
-                }
-
-                Spacer(Modifier.height(6.dp))
-
-                // 控件竖排：右栏只有 ~250dp 宽，横排五个会把主键挤到栏边；
-                // 竖排也符合桌面播放器的信息侧栏习惯。
-                Column(
+                // 底部：横向五键控制组。
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconClick(
                         imageVector = Shuffle,
                         tint = if (shuffleOn) MaterialTheme.colorScheme.primary else dimColor,
-                        size = 20.dp, touchSize = 32.dp,
+                        size = 22.dp, touchSize = 44.dp,
                         onClick = { mediaController?.shuffleModeEnabled = !shuffleOn },
                     )
                     IconClick(
-                        SkipPreviousFill, tint = titleColor, size = 26.dp, touchSize = 32.dp,
+                        SkipPreviousFill, tint = titleColor, size = 30.dp, touchSize = 44.dp,
                         onClick = { mediaController?.seekToPreviousMediaItem() },
                     )
                     Box(
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(56.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.onSurface)
                             .clickable(
@@ -291,17 +292,17 @@ fun PlayerLandscape(
                         Icon2(
                             if (isPlaying) PauseFill else PlayArrow,
                             tint = MaterialTheme.colorScheme.surface,
-                            size = 24.dp,
+                            size = 28.dp,
                         )
                     }
                     IconClick(
-                        SkipNextFill, tint = titleColor, size = 26.dp, touchSize = 32.dp,
+                        SkipNextFill, tint = titleColor, size = 30.dp, touchSize = 44.dp,
                         onClick = { mediaController?.seekToNextMediaItem() },
                     )
                     IconClick(
                         imageVector = if (repeatMode == Player.REPEAT_MODE_ONE) RepeatOne else Repeat,
                         tint = if (repeatMode == Player.REPEAT_MODE_OFF) dimColor else MaterialTheme.colorScheme.primary,
-                        size = 20.dp, touchSize = 32.dp,
+                        size = 22.dp, touchSize = 44.dp,
                         onClick = {
                             mediaController?.repeatMode = when (repeatMode) {
                                 Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
@@ -311,33 +312,10 @@ fun PlayerLandscape(
                         },
                     )
                 }
-
-                Spacer(Modifier.weight(1f))
-
-                // 底部功能胶囊：倍速 + 收藏 + 更多
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(40.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
-                        .padding(horizontal = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    SpeedChip()
-                    Spacer(Modifier.weight(1f))
-                    IconClick(
-                        imageVector = if (liked) FavoriteFill else Favorite,
-                        tint = if (liked) MaterialTheme.colorScheme.primary else dimColor,
-                        touchSize = 32.dp,
-                        onClick = onToggleFavorite,
-                    )
-                    IconClick(MoreVert, tint = dimColor, touchSize = 32.dp, onClick = onMoreClick)
-                }
             }
         }
 
-        // ── 歌词全屏浮层：展开时盖住三栏 ─────────────────────────────────
+        // ── 歌词全屏浮层：点击歌词区任意位置展开，返回键收起 ───────────────
         if (lyricExpanded) {
             // 后注册 → 优先级高于 Lyric 内部的 BackHandler，返回键收起浮层。
             BackHandler { lyricExpanded = false }
@@ -398,7 +376,7 @@ private fun SpeedChip() {
                 val next = SPEED_STEPS[(idx + 1).takeIf { idx >= 0 } ?: SPEED_STEPS.indexOf(1.0f)]
                 mediaController?.setPlaybackSpeed(next)
             }
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .padding(horizontal = 8.dp, vertical = 6.dp)
     )
 }
 
