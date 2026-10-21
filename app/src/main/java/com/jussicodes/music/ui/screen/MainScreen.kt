@@ -134,6 +134,17 @@ fun MainScreen() {
     val homePagerState = rememberPagerState(initialPage = homePage) { tabs.size }
     val coroutineScope = rememberCoroutineScope()
     val isHomeRoute = isTabRoute
+    // 壁纸层可见性：isTabRoute 去抖版（见 AnimatedVisibility 处的注释）。
+    // 进二级页仍会淡出，但 tab<->tab 切换的中间假false 帧被滤掉，壁纸不再闪。
+    var homeBackgroundVisible by remember { mutableStateOf(true) }
+    LaunchedEffect(isTabRoute) {
+        if (isTabRoute) {
+            homeBackgroundVisible = true
+        } else {
+            delay(200)
+            homeBackgroundVisible = isTabRoute
+        }
+    }
     val isRoamRoute = currentDestination?.route == Screen.Roam.route
     val showNavigationBar = isTabRoute
     // 贴底输入框的页面（私信聊天页）自己通过 MiniPlayerHiddenBus 声明"我在时需要隐藏小播放条"，
@@ -407,7 +418,14 @@ fun MainScreen() {
             // 非首页路由时淡出，避免背景色渗入二级页的进入/退出交叉淡入；
             // 二级页各自的实色背景会把它盖住，返回首页再淡入。
             AnimatedVisibility(
-                visible = isTabRoute,
+                // 去抖后的可见性，不是 isTabRoute 本身：navigateRootTab 的
+                // popUpTo(saveState)+restoreState 在 tab<->tab 切换（含 pager 划动
+                // settle 后反调 navigateRootTab）中间会有短暂几帧 currentBackStackEntry
+                // 不在 tab 路由上，isTabRoute 掉 false 又立刻回true。直接用它驱动
+                // 淡入淡出 = 壁纸闪一下，而信息卡是半透明玻璃，叠在淡出的壁纸上
+                // 会被读成「卡片先不透明、再变透明」。只有稳定 delay 窗口后仍是
+                // 非 tab 路由，才认定真的进了二级页。
+                visible = homeBackgroundVisible,
                 enter = fadeIn(MotionSpec.screenEnter()),
                 exit = fadeOut(MotionSpec.screenExit()),
                 label = "HomeBackgroundLayer"
