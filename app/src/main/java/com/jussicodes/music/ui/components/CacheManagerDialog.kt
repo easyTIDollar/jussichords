@@ -6,6 +6,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,6 +52,7 @@ import com.jussicodes.music.utils.CacheManager
  * @param onThresholdSelected 选择新阈值。
  * @param onDismiss 关闭。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CacheManagerDialog(
     snapshot: CacheManager.Snapshot?,
@@ -136,9 +139,12 @@ fun CacheManagerDialog(
                     )
                 }
                 if (autoCleanEnabled) {
-                    Row(
+                    // 四档阈值用 FlowRow：四等分档位文字较宽，一行放不下时自动换行，
+                    // 避免最右边的档位被对话框边缘裁掉（用户已看到 4GB chip 被切一半）。
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         thresholdOptions.forEach { bytes ->
                             FilterChip(
