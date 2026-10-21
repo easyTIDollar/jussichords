@@ -118,9 +118,11 @@ fun SongMenuBottomSheet(
 
     val s = song
     if (openBottomSheet && s != null) {
-        // 面板随本歌封面动态取色（artworkForced 强制用封面，不随全局取色来源设置），
+        // 面板取色跟随「外观」里的取色来源设置（壁纸 / 播放封面 / 主页背景图），
+        // 不再强制用本歌封面：封面 artwork 作为候选种子传进去，
+        // 只有设置选了「从当前播放封面取色」时才真正生效，否则回落壁纸配色。
         // 容器用 surfaceContainerHigh 带上适量强调色，和整体不割裂。
-        JetMeloTheme(artwork = s.al.picUrl.toCoverImageUrl(CoverImageSize.LIST), artworkForced = true) {
+        JetMeloTheme(artwork = s.al.picUrl.toCoverImageUrl(CoverImageSize.LIST)) {
             ModalBottomSheet(
                 onDismissRequest = onDismiss,
                 sheetState = bottomSheetState,

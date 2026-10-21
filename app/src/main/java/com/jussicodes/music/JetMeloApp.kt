@@ -15,6 +15,8 @@ import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.apiServerListCleanedKey
 import com.jussicodes.music.constants.apiServerListKey
 import com.jussicodes.music.constants.audioSourceKey
+import com.jussicodes.music.constants.cacheAutoCleanEnabledKey
+import com.jussicodes.music.constants.cacheAutoCleanThresholdKey
 import com.jussicodes.music.constants.directSourceKey
 import com.jussicodes.music.constants.localSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
@@ -28,6 +30,7 @@ import com.jussicodes.music.data.HomeUserInfoStore
 import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.utils.AppVisibilityTracker
 import com.jussicodes.music.utils.AppUpdateManager
+import com.jussicodes.music.utils.CacheManager
 import com.jussicodes.music.utils.UserAgentUtil
 import com.jussicodes.music.utils.apiServers
 import com.jussicodes.music.utils.dataStore
@@ -123,6 +126,20 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                     prefs[apiBaseUrlKey] = ""
                 }
                 prefs[apiServerListCleanedKey] = true
+            }
+        }
+        applicationScope.launch {
+            // 缓存自动清理：用户开了开关且总占用超过阈值时，启动即清。
+            // 只清理「可回收」部分（音频/图片/其它），不影响账号与设置；
+            // 播放中启动也只损失命中率，ExoPlayer/Coil 会回源重新下载。
+            val prefs = dataStore.data.first()
+            val autoClean = prefs[cacheAutoCleanEnabledKey] ?: false
+            if (!autoClean) return@launch
+            val threshold = prefs[cacheAutoCleanThresholdKey]
+                ?: (1024L * 1024 * 1024)
+            val snapshot = CacheManager.measure(this@JetMeloApp)
+            if (snapshot.totalBytes > threshold) {
+                CacheManager.clear(this@JetMeloApp)
             }
         }
         applicationScope.launch {

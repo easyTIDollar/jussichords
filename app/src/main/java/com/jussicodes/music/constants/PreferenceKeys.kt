@@ -62,3 +62,7 @@ val homeBgTextColorKey = stringPreferencesKey("homeBgTextColor")
 val githubDownloadSourceKey = stringPreferencesKey("githubDownloadSource")
 val playerGestureTutorialVersionKey = intPreferencesKey("playerGestureTutorialVersion")
 val homeTransparentCardKey = booleanPreferencesKey("homeTransparentCard")
+/** 缓存自动清理开关（默认关）。 */
+val cacheAutoCleanEnabledKey = booleanPreferencesKey("cacheAutoCleanEnabled")
+/** 缓存自动清理阈值（字节）；默认 1GB。仅在开关打开时生效。 */
+val cacheAutoCleanThresholdKey = longPreferencesKey("cacheAutoCleanThresholdBytes")
