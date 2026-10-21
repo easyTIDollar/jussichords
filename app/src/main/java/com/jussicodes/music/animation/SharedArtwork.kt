@@ -41,7 +41,10 @@ object SharedArtwork {
         if (fromId != null) return "artwork-media-$fromId"
         val fromUri = item.localConfiguration?.uri?.toString()?.takeIf { it.isNotBlank() }
         if (fromUri != null) return "artwork-uri-${normalizeUri(fromUri)}"
-        return "artwork-fallback-${item.mediaMetadata.title.orEmpty()}"
+        // MediaMetadata.title 是 Java 来的平台类型 CharSequence!，可空性未知，
+        // 不能直接用 CharSequence?.orEmpty()，先 toString() 收成 String?。
+        val title = item.mediaMetadata.title?.toString().orEmpty()
+        return "artwork-fallback-$title"
     }
 
     /**
