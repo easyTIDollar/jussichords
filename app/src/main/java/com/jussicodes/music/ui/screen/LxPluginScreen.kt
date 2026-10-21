@@ -139,6 +139,23 @@ fun LxPluginScreen(navController: NavHostController) {
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
                 )
             }
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "内置音源仅作参考，不保证可用，请自行导入所需音源。" +
+                            "作者不对任何第三方 LX 音源负责，" +
+                            "音源脚本由其作者与来源站点自行提供，内容与版权责任由原作者及使用者自行承担。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                    )
+                }
+            }
             if (importing) {
                 item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
             }
