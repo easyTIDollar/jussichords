@@ -224,11 +224,18 @@ fun MainScreen() {
         }
     }
 
+    // 从二级页返回/跳到某个首页 tab 时，把 pager 对到那一页。
+    //只在「上一个路由不是 tab 路由」时才强制 scrollToPage：首页内部路由恒为
+    // Library（pager 不再反调 navigateRootTab），若这里无条件 scroll 回index 0，
+    // 从二级页返回就会把用户原本停在「探索」的 pager 拽回「我的」。
+    var previousRoute by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(currentDestination?.route) {
-        val targetPage = tabs.indexOfFirst { it.route == currentDestination?.route }
-            .takeIf { it >= 0 }
-
-        if (targetPage != null) {
+        val route = currentDestination?.route
+        val cameFromNonTab = previousRoute != null &&
+            tabs.none { tab -> tab.route == previousRoute }
+        previousRoute = route
+        val targetPage = tabs.indexOfFirst { it.route == route }.takeIf { it >= 0 }
+        if (targetPage != null && cameFromNonTab) {
             homePage = targetPage
             homePageScroll = targetPage.toFloat()
             if (homePagerState.currentPage != targetPage || homePagerState.currentPageOffsetFraction != 0f) {
@@ -248,14 +255,21 @@ fun MainScreen() {
     }
 
     LaunchedEffect(homePagerState.settledPage) {
-        // Keep the navigation route in sync with the settled home page: the
-        // pager can settle on 我的/探索 without the route changing, and a stale
-        // route made back/return from detail pages land on the wrong home tab.
-        if (!isTabRoute) return@LaunchedEffect
-        val tabRoute = tabs.getOrNull(homePagerState.settledPage)?.route ?: return@LaunchedEffect
-        if (currentDestination?.route != tabRoute) {
-            navigateRootTab(tabRoute)
-        }
+        // pager 落页后只同步内存态 homePage/homePageScroll，**不再反调 navigateRootTab**。
+        //
+        // 为什么去掉：Library 与 Explore 是 NavHost 里两个独立 destination，各自
+        // compose 一个完整的 HomePager。任何一次 navigateRootTab(Library/Explore) 都会
+        // 销毁旧 destination 的整棵子树、重新构建 LibraryScreen（新 ViewModel →
+        // userInfo 回 null、AsyncImage 重载、Card 重建），玻璃信息卡在过场那几帧透出
+        // 的不是壁纸而是窗口底色/旧内容 → 读成「闪一下才变透明」。快速 fling 划动必然
+        // 触发（settle 在动画中段），慢速拖动重建发生在页面已静止时所以不明显。
+        //
+        // 现在路由恒为起始 destination Library，pager 只在内部换页，不再重建。
+        // 二级页返回时落点由下面的 LaunchedEffect(currentDestination?.route) +
+        // rememberPagerState(rememberSaveable homePage) 保证：homePage 记录当前页，
+        // 重建 pager 时从该页起步，底栏指示胶囊本来就跟 homePageScroll 走。
+        homePage = homePagerState.settledPage
+        homePageScroll = homePagerState.settledPage.toFloat()
     }
 
     val snackbarHostState = remember { SnackbarHostState() }
