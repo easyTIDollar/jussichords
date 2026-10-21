@@ -238,7 +238,7 @@ fun LibraryScreen(
                     modifier = Modifier
                         .padding(24.dp)
                         .clickable { navController.navigate(Screen.Login.route) },
-                    shape = MaterialTheme.shapes.extraLarge,
+                    shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = transparentCardColor())
                 ) {
                     Column(
@@ -775,7 +775,7 @@ private fun LibraryUserCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = RoundedCornerShape(16.dp),
         // 磨砂薄玻璃：开开关 = surface+primary 轻染的半透明玻璃（见 userCardGlassColor）；
         // 关开关 = surfaceContainerLow 不透明实底。
         // 描边走 Card 的 border 参数而不是在内容里垫 Box——垫 Box 会占一行布局、
@@ -1012,7 +1012,7 @@ private fun FavoritePlaylistCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = transparentCardColor())
     ) {
         Box(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(14.dp)) {
@@ -1076,7 +1076,7 @@ private fun PlaylistGroupCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = transparentCardColor())
     ) {
         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
