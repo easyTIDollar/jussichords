@@ -14,7 +14,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -811,7 +810,7 @@ private fun LibraryUserCard(
                         model = profile.avatarUrl.withAvatarCacheBuster(avatarCacheVersion),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.clip(CircleShape).border(3.dp, MaterialTheme.colorScheme.surface, CircleShape).size(76.dp)
+                        modifier = Modifier.clip(CircleShape).size(76.dp)
                     )
                     if (profile.vipType != 0) {
                         Box(
