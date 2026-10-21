@@ -62,7 +62,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
@@ -147,7 +146,6 @@ import com.jussicodes.music.utils.apiServers
 import com.jussicodes.music.utils.downloadSources
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
-import com.jussicodes.music.utils.sourceById
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.AudioSources
 import com.rcmiku.ncmapi.api.LocalSources
@@ -556,7 +554,7 @@ fun SettingsScreen(navController: NavHostController) {
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .size(36.dp)
-                                .clip(CircleShape)
+                                .clip(RoundedCornerShape(10.dp))
                         )
                     }
                 } else null,
@@ -735,8 +733,7 @@ fun SettingsScreen(navController: NavHostController) {
             ),
             SettingItemData(
                 title = if (updating) "正在检查" else "检查更新",
-                subtitle = sourceById(githubDownloadSource)?.name?.let { "$it · v${BuildConfig.VERSION_NAME}" }
-                    ?: BuildConfig.VERSION_NAME,
+                subtitle = "v${BuildConfig.VERSION_NAME}",
                 imageVector = Github,
                 onClick = {
                     if (!updating) {
