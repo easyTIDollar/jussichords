@@ -700,16 +700,16 @@ fun MainScreen() {
                                 bgAdjustMode = false
                                 HomeBgEditor.cancel(context)
                                 // 放弃 → 回设置页并自动打开「外观」弹窗。
-                                // 栈手术：把 Library（home）以上全弹掉再 push Settings，
-                                // Settings 只可能孤立在 home 之下（launchSingleTop 防叠层），
-                                // 之后从 home 按返回不会再冒出残留设置页。
+                                // 栈：保留 Library（home）在栈底，只把 Settings 叠在上面，
+                                // 这样「外观」弹窗关掉后再按返回是回主页，而不是直接退出到桌面。
+                                // （之前用 popUpTo(Library){inclusive=true} 把 home 一起弹掉了，
+                                //  Settings 就成了栈底唯一项 → 返回直接回桌面。）
                                 android.util.Log.d(
                                     "JussicordsBg",
                                     "cancel nav: ${navController.currentBackStack.value.map { it.destination.route }}"
                                 )
                                 SettingsAppearanceBus.request()
                                 navController.navigate(Screen.Settings.route) {
-                                    popUpTo(Screen.Library.route) { inclusive = true }
                                     launchSingleTop = true
                                 }
                             }) {

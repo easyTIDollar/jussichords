@@ -545,7 +545,10 @@ fun SettingsScreen(navController: NavHostController) {
                 imageVector = if (loggedOut) Login else Logout,
                 danger = !loggedOut,
                 subtitle = if (loggedOut) null else "当前账号：${accountNickname.ifEmpty { "点击退出" }}",
-                // 已登录时用头像当图标（36dp 圆形），未登录/取不到头像则退回 Logout 图标
+                // 已登录时用头像当图标；未登录/取不到头像则退回 Logout 图标。
+                // 头像槽位跟其他行的图标块完全同款：36dp + 12dp 圆角（SettingRow 的
+                // 图标底块就是 36dp/RoundedCornerShape(12.dp)），弧度与占位都一致，
+                // 之前头像用 10.dp 圆角 → 和其他行摆一起明显不一样。
                 iconContent = if (!loggedOut && accountAvatar.isNotBlank()) {
                     {
                         AsyncImage(
@@ -554,7 +557,7 @@ fun SettingsScreen(navController: NavHostController) {
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .size(36.dp)
-                                .clip(RoundedCornerShape(10.dp))
+                                .clip(RoundedCornerShape(12.dp))
                         )
                     }
                 } else null,
