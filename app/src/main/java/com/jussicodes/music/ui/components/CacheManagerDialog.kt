@@ -35,11 +35,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.utils.CacheManager
 
 /**
- * 「计算软件缓存」弹窗：环形占比图 + 分项明细 + 手动清理 + 阈值自动清理开关。
+ * 「缓存」弹窗：环形占比图 + 分项明细 + 手动清理 + 阈值自动清理开关。
  *
  * @param snapshot 当前缓存统计；null 表示还没测过（进来先自动测一次）。
  * @param measuring 是否正在统计（统计走 IO 线程，期间按钮禁用）。
@@ -66,20 +67,19 @@ fun CacheManagerDialog(
     onThresholdSelected: (Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    // 阈值档位（字节）：512MB / 1GB / 2GB / 4GB。
+    // 阈值档位（字节）：512MB / 1GB / 2GB。
     val thresholdOptions = remember {
         listOf(
             512L * 1024 * 1024,
             1024L * 1024 * 1024,
             2L * 1024 * 1024 * 1024,
-            4L * 1024 * 1024 * 1024,
         )
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("计算软件缓存", fontWeight = FontWeight.SemiBold)
+            Text("缓存", fontWeight = FontWeight.SemiBold)
         },
         text = {
             Column(
@@ -103,7 +103,6 @@ fun CacheManagerDialog(
                     CacheDonutChart(
                         buckets = listOf(snapshot.audio, snapshot.image, snapshot.other),
                         totalBytes = snapshot.totalBytes,
-                        totalMaxBytes = snapshot.totalMaxBytes,
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         CacheBucketRow(snapshot.audio)
@@ -139,8 +138,8 @@ fun CacheManagerDialog(
                     )
                 }
                 if (autoCleanEnabled) {
-                    // 四档阈值用 FlowRow：四等分档位文字较宽，一行放不下时自动换行，
-                    // 避免最右边的档位被对话框边缘裁掉（用户已看到 4GB chip 被切一半）。
+                    // 三档阈值等宽占满一行：FlowRow 保留（窄屏兜底换行），
+                    // 每个 chip 用 weight(1f) 均分宽度，右侧不留空。
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -150,15 +149,23 @@ fun CacheManagerDialog(
                             FilterChip(
                                 selected = autoCleanThresholdBytes == bytes,
                                 onClick = { onThresholdSelected(bytes) },
-                                label = { Text(formatFileSize(bytes)) },
+                                label = {
+                                    Text(
+                                        text = formatFileSize(bytes),
+                                        maxLines = 1,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
                             )
                         }
                     }
                 }
 
                 Text(
-                    text = "音频缓存上限 512MB，图片缓存上限 512MB，到达上限后按最近使用顺序自动淘汰，" +
-                        "不需要手动干预；「其它缓存」含更新安装包与临时文件，可随时清理。",
+                    text = "开启自动清理后，缓存总大小超过所选阈值即自动清理（启动应用时检查）；" +
+                        "「其它缓存」含更新安装包与临时文件，可随时清理。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -192,7 +199,6 @@ fun CacheManagerDialog(
 private fun CacheDonutChart(
     buckets: List<CacheManager.Bucket>,
     totalBytes: Long,
-    totalMaxBytes: Long,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -263,11 +269,7 @@ private fun CacheDonutChart(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = if (totalMaxBytes > 0) {
-                    "共 ${formatFileSize(totalMaxBytes)} 上限"
-                } else {
-                    "已占用"
-                },
+                text = "当前占用",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -275,7 +277,7 @@ private fun CacheDonutChart(
     }
 }
 
-/** 分项一行：色点 + 名称 + 大小 / 上限 + 占比条。 */
+/** 分项一行：色点 + 名称 + 占用大小。 */
 @Composable
 private fun CacheBucketRow(bucket: CacheManager.Bucket) {
     val colors = MaterialTheme.colorScheme
@@ -295,11 +297,7 @@ private fun CacheBucketRow(bucket: CacheManager.Bucket) {
             modifier = Modifier.width(72.dp),
         )
         Text(
-            text = if (bucket.maxBytes > 0) {
-                "${formatFileSize(bucket.bytes)} / ${formatFileSize(bucket.maxBytes)}"
-            } else {
-                formatFileSize(bucket.bytes)
-            },
+            text = formatFileSize(bucket.bytes),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),

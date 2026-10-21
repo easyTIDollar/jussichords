@@ -14,33 +14,21 @@ import java.io.File
  * 软件缓存统计与清理。
  *
  * 覆盖三块可回收缓存：
- * 1. **音频缓存**（media3 SimpleCache，cacheDir/audio）：ExoPlayer 下载/播放的音频分片，
- *    受 LeastRecentlyUsedCacheEvictor(512MB) 上限约束，到达上限会按 LRU 自动淘汰。
+ * 1. **音频缓存**（media3 SimpleCache，cacheDir/audio）：ExoPlayer 下载/播放的音频分片。
  * 2. **图片缓存**（Coil disk cache，cacheDir/coil）：封面/头像等网络图片落盘。
  * 3. **杂项缓存**（cacheDir 下其余目录，如 updates/ 的更新包、ncm/、library 截图临时文件）。
+ *
+ * 音频/图片缓存内部各自有 LRU 淘汰（media3 512MB、Coil 512MB），到达后自动淘汰最旧的，
+ * 不对用户暴露"上限"概念；用户可见的上限只有一个——「自动清理」阈值（见 SettingsScreen）。
  *
  * 内存缓存（Coil memoryCache、ExoPlayer 解码缓冲）不统计：它们随进程释放，不属于磁盘占用。
  */
 object CacheManager {
 
-    /** 音频缓存上限，与 [com.jussicodes.music.playback.AudioCache] 保持一致（512MB）。 */
-    const val AUDIO_CACHE_MAX_BYTES: Long = 512L * 1024 * 1024
-
-    /** 图片缓存上限，与 JetMeloApp 里 Coil DiskCache.Builder 的 maxSizeBytes 一致（512MB）。 */
-    const val IMAGE_CACHE_MAX_BYTES: Long = 512L * 1024 * 1024
-
-    /** 自动清理开关与阈值的持久化键。 */
-    const val AUTO_CLEAN_ENABLED_KEY = "cacheAutoCleanEnabled"
-    const val AUTO_CLEAN_THRESHOLD_KEY = "cacheAutoCleanThresholdBytes"
-
     data class Bucket(
         val name: String,
         val bytes: Long,
-        val maxBytes: Long,
-    ) {
-        val ratio: Float
-            get() = if (maxBytes > 0) (bytes.toFloat() / maxBytes).coerceIn(0f, 1f) else 0f
-    }
+    )
 
     data class Snapshot(
         val audio: Bucket,
@@ -48,7 +36,6 @@ object CacheManager {
         val other: Bucket,
     ) {
         val totalBytes: Long get() = audio.bytes + image.bytes + other.bytes
-        val totalMaxBytes: Long get() = audio.maxBytes + image.maxBytes + other.maxBytes
     }
 
     /** 目录名 → 桶归属。未列出的 cacheDir 子目录归入 other。 */
@@ -94,9 +81,9 @@ object CacheManager {
         }
 
         Snapshot(
-            audio = Bucket("音频缓存", audioBytes, AUDIO_CACHE_MAX_BYTES),
-            image = Bucket("图片缓存", imageBytes, IMAGE_CACHE_MAX_BYTES),
-            other = Bucket("其它缓存", otherBytes, 0L),
+            audio = Bucket("音频缓存", audioBytes),
+            image = Bucket("图片缓存", imageBytes),
+            other = Bucket("其它缓存", otherBytes),
         )
     }
 

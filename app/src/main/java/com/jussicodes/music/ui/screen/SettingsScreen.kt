@@ -332,7 +332,7 @@ fun SettingsScreen(navController: NavHostController) {
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
     var showDirectSourceDialog by remember { mutableStateOf(false) }
     var showCacheDialog by remember { mutableStateOf(false) }
-    // 「计算软件缓存」：进设置页先异步测一次当前占用，之后开弹窗/清理后刷新。
+    // 「缓存」：进设置页先异步测一次当前占用，之后开弹窗/清理后刷新。
     var cacheSnapshot by remember { mutableStateOf<CacheManager.Snapshot?>(null) }
     var cacheMeasuring by remember { mutableStateOf(false) }
     var cacheClearing by remember { mutableStateOf(false) }
@@ -478,7 +478,7 @@ fun SettingsScreen(navController: NavHostController) {
         }
     }
 
-    // 「计算软件缓存」：进设置页先测一次当前占用（副标题显示），弹窗打开时再刷新一次。
+    // 「缓存」：进设置页先测一次当前占用（副标题显示），弹窗打开时再刷新一次。
     LaunchedEffect(Unit) { refreshCache() }
     LaunchedEffect(showCacheDialog) {
         if (showCacheDialog) refreshCache()
@@ -656,7 +656,7 @@ fun SettingsScreen(navController: NavHostController) {
                 onClick = { showQualityDialog = true }
             ),
             SettingItemData(
-                title = "计算软件缓存",
+                title = "缓存",
                 subtitle = cacheSubtitle,
                 imageVector = Icons.Outlined.Storage,
                 onClick = { showCacheDialog = true }
