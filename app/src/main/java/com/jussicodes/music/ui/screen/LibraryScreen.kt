@@ -772,8 +772,8 @@ private fun LibraryUserCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        // 开关开 = 全透明，不再上薄玻璃（userCardGlassColor），也不描边——
-        // 描边是玻璃效果的配套视觉，底色透明后白描边只会显出一圈浮空的白线。
+        // 容器色恒为不透明 surfaceContainerLow：「主页透明卡片」开关不作用于信息卡，
+        // 只作用于收藏歌单卡 / 歌单组卡 / 专辑墙（见 userCardGlassColor 注释）。
         colors = CardDefaults.cardColors(containerColor = userCardGlassColor())
     ) {
         Column(
