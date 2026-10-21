@@ -35,7 +35,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.utils.CacheManager
-import com.jussicodes.music.utils.formatFileSize
 
 /**
  * 「计算软件缓存」弹窗：环形占比图 + 分项明细 + 手动清理 + 阈值自动清理开关。

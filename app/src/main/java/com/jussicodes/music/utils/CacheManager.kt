@@ -114,7 +114,11 @@ object CacheManager {
         ok = runCatching { File(cacheDir, AUDIO_DIR).deleteRecursively() }.getOrElse { false } && ok
 
         // 2. 图片缓存：Coil disk cache 的 clear()；同时删目录兜底（内存缓存随后由 UI 侧清理）。
-        ok = runCatching { SingletonImageLoader.get(context).diskCache?.clear() }.getOrElse { false } && ok
+        //    clear() 返回 Unit，包一层显式 Boolean 才能参与 && 累计。
+        ok = runCatching {
+            SingletonImageLoader.get(context).diskCache?.clear()
+            true
+        }.getOrElse { false } && ok
         ok = runCatching { File(cacheDir, IMAGE_DIR).deleteRecursively() }.getOrElse { false } && ok
 
         // 3. 其它缓存：整目录删掉（updates 的安装包、ncm 临时文件、截图临时文件）。
