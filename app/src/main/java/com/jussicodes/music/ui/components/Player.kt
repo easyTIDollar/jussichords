@@ -73,6 +73,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import com.jussicodes.music.animation.MotionSpring
 import androidx.media3.common.C
 import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
@@ -306,10 +307,7 @@ fun Player(
             animate(
                 initialValue = coverOffsetX,
                 targetValue = target,
-                animationSpec = spring(
-                    dampingRatio = 0.85f,
-                    stiffness = 450f
-                )
+                animationSpec = MotionSpring.artworkHorizontal
             ) { value, _ ->
                 coverOffsetX = value
             }
@@ -322,10 +320,7 @@ fun Player(
             animate(
                 initialValue = coverOffsetY,
                 targetValue = target,
-                animationSpec = spring(
-                    dampingRatio = 0.85f,
-                    stiffness = 480f
-                )
+                animationSpec = MotionSpring.artworkDismiss
             ) { value, _ ->
                 coverOffsetY = value
             }

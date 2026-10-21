@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -80,10 +81,10 @@ import androidx.navigation.compose.rememberNavController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.BottomNavigationHeight
-import com.jussicodes.music.constants.DURATION_ENTER
-import com.jussicodes.music.constants.DURATION_EXIT
-import com.jussicodes.music.constants.DURATION_EXIT_SHORT
-import com.jussicodes.music.constants.EmphasizedDecelerateEasing
+import com.jussicodes.music.animation.MotionDuration
+import com.jussicodes.music.animation.MotionSpec
+import com.jussicodes.music.animation.animatePagerToPage
+import com.jussicodes.music.animation.rememberTabSelectionVisuals
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.currentPlayMediaIdKey
 import com.jussicodes.music.constants.useNavigationRailLayout
@@ -294,7 +295,19 @@ fun MainScreen() {
                         BoxWithConstraints(Modifier.fillMaxSize()) {
                             val itemWidth = maxWidth / tabs.size
                             val indicatorWidth = 72.dp
-                            val indicatorOffset = itemWidth * if (isHomeRoute) homePageScroll else homePage.toFloat()
+                            // 指示胶囊：首页由 pager 连续进度跟手直算，用 snap() 让它零延迟贴手指；
+                            // 非首页路由是离散跳转，用 tween 补一段，否则胶囊会瞬移过去。
+                            val rawIndicatorOffset =
+                                itemWidth * if (isHomeRoute) homePageScroll else homePage.toFloat()
+                            val indicatorOffset by animateDpAsState(
+                                targetValue = rawIndicatorOffset,
+                                animationSpec = if (isHomeRoute) {
+                                    snap()
+                                } else {
+                                    MotionSpec.layoutShift()
+                                },
+                                label = "TabIndicatorOffset"
+                            )
 
                             Box(
                                 modifier = Modifier
@@ -319,20 +332,15 @@ fun MainScreen() {
                                     } else {
                                         currentDestination?.hierarchy?.any { it.route == item.route } == true
                                     }
-                                    val iconScale = if (isHomeRoute) {
-                                        0.92f + 0.26f * homeProgress
-                                    } else if (selected) {
-                                        1.18f
-                                    } else {
-                                        0.92f
-                                    }
-                                    val iconAlpha = if (isHomeRoute) {
-                                        0.68f + 0.32f * homeProgress
-                                    } else if (selected) {
-                                        1f
-                                    } else {
-                                        0.68f
-                                    }
+                                    // 选中态视觉：首页由 pager 连续进度跟手直算（不补间），
+                                    // 非首页路由切换时走 spring 过渡，避免图标瞬跳。
+                                    // 数值与 NavigationRail 共用 TabSelectionMotion。
+                                    val visuals = rememberTabSelectionVisuals(
+                                        isHomeRoute = isHomeRoute,
+                                        homePageScroll = homePageScroll,
+                                        index = tabIndex,
+                                        selected = selected
+                                    )
 
                                     Box(
                                         modifier = Modifier
@@ -346,17 +354,11 @@ fun MainScreen() {
                                                 if (targetPage < 0) return@clickable
 
                                                 if (isHomeRoute) {
-                                                    coroutineScope.launch {
-                                                        if (homePagerState.targetPage != targetPage || homePagerState.currentPageOffsetFraction != 0f) {
-                                                            homePagerState.animateScrollToPage(
-                                                                page = targetPage,
-                                                                animationSpec = tween(
-                                                                    durationMillis = DURATION_ENTER,
-                                                                    easing = EmphasizedDecelerateEasing
-                                                                )
-                                                            )
-                                                        }
-                                                    }
+                                                    animatePagerToPage(
+                                                        pagerState = homePagerState,
+                                                        page = targetPage,
+                                                        scope = coroutineScope
+                                                    )
                                                 } else {
                                                     navigateRootTab(item.route)
                                                 }
@@ -374,9 +376,9 @@ fun MainScreen() {
                                             modifier = Modifier
                                                 .size(28.dp)
                                                 .graphicsLayer {
-                                                    scaleX = iconScale
-                                                    scaleY = iconScale
-                                                    alpha = iconAlpha
+                                                    scaleX = visuals.iconScale
+                                                    scaleY = visuals.iconScale
+                                                    alpha = visuals.iconAlpha
                                                 }
                                         )
                                     }
@@ -400,7 +402,7 @@ fun MainScreen() {
             val miniBottomPadding by animateDpAsState(
                 targetValue = targetMiniBottomPadding,
                 animationSpec = tween(
-                    durationMillis = DURATION_EXIT,
+                    durationMillis = MotionDuration.LayoutShift,
                     easing = FastOutSlowInEasing
                 ),
                 label = "MiniPlayerBottomPadding"
@@ -412,8 +414,8 @@ fun MainScreen() {
             // 二级页各自的实色背景会把它盖住，返回首页再淡入。
             AnimatedVisibility(
                 visible = isTabRoute,
-                enter = fadeIn(tween(DURATION_ENTER)),
-                exit = fadeOut(tween(DURATION_EXIT_SHORT)),
+                enter = fadeIn(MotionSpec.screenEnter()),
+                exit = fadeOut(MotionSpec.screenExit()),
                 label = "HomeBackgroundLayer"
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -463,19 +465,11 @@ fun MainScreen() {
                         onTabClick = { route ->
                             val targetPage = tabs.indexOfFirst { it.route == route }
                             if (targetPage >= 0 && isHomeRoute) {
-                                coroutineScope.launch {
-                                    if (homePagerState.targetPage != targetPage ||
-                                        homePagerState.currentPageOffsetFraction != 0f
-                                    ) {
-                                        homePagerState.animateScrollToPage(
-                                            page = targetPage,
-                                            animationSpec = tween(
-                                                durationMillis = DURATION_ENTER,
-                                                easing = EmphasizedDecelerateEasing
-                                            )
-                                        )
-                                    }
-                                }
+                                animatePagerToPage(
+                                    pagerState = homePagerState,
+                                    page = targetPage,
+                                    scope = coroutineScope
+                                )
                             } else {
                                 navigateRootTab(route)
                             }

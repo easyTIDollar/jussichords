@@ -87,6 +87,7 @@ import androidx.navigation.NavHostController
 import com.jussicodes.music.ui.navigation.UserNav
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.animation.AlbumArtBoundsTransform
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.R

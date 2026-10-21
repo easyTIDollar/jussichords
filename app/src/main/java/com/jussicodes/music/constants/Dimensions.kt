@@ -1,10 +1,9 @@
 package com.jussicodes.music.constants
 
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
-import androidx.compose.animation.core.PathEasing
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.unit.dp
+import com.jussicodes.music.animation.MotionDuration
+import com.jussicodes.music.animation.MotionEasing
 
 val ListItemHeight = 64.dp
 val ListThumbnailSize = 48.dp
@@ -19,17 +18,13 @@ val SettingItemHeight = 64.dp
 val SettingItemCorner = 16.dp
 val SettingItemSubCorner = 4.dp
 
-const val DURATION = 600
-const val DURATION_ENTER = 400
-const val DURATION_EXIT = 200
-const val DURATION_EXIT_SHORT = 100
+// 动效常量已迁至 animation/MotionTokens.kt（语义化命名）。这里保留旧名作为兼容层，
+// 数值与旧实现完全一致，保证迁移期间行为不变；新代码请直接用 MotionDuration / MotionEasing。
+const val DURATION = MotionDuration.SharedArtworkBounds
+const val DURATION_ENTER = MotionDuration.ScreenEnter
+const val DURATION_EXIT = MotionDuration.PanelFadeIn
+const val DURATION_EXIT_SHORT = MotionDuration.ScreenExit
 
-private val emphasizedPath = Path().apply {
-    moveTo(0f, 0f)
-    cubicTo(0.05f, 0f, 0.133333f, 0.06f, 0.166666f, 0.4f)
-    cubicTo(0.208333f, 0.82f, 0.25f, 1f, 1f, 1f)
-}
-
-val EmphasizedEasing: Easing = PathEasing(emphasizedPath)
-val EmphasizedDecelerateEasing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
-val EmphasizedAccelerateEasing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
+val EmphasizedEasing: Easing = MotionEasing.emphasizedPath
+val EmphasizedDecelerateEasing = MotionEasing.decelerate
+val EmphasizedAccelerateEasing = MotionEasing.accelerate

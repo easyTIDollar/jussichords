@@ -20,11 +20,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.jussicodes.music.animation.rememberTabIndicatorColor
+import com.jussicodes.music.animation.rememberTabSelectionVisuals
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -67,20 +68,14 @@ fun AdaptiveNavigationRail(
                 // 此时 currentDestination 就是 tab 本身，直接比 route 即可。
                 currentRoute == item.route
             }
-            val iconScale = if (isHomeRoute) {
-                0.92f + 0.26f * homeProgress
-            } else if (selected) {
-                1.18f
-            } else {
-                0.92f
-            }
-            val iconAlpha = if (isHomeRoute) {
-                0.68f + 0.32f * homeProgress
-            } else if (selected) {
-                1f
-            } else {
-                0.68f
-            }
+            // 与底栏共用同一套选中态视觉：首页跟手直算，非首页走过渡（此前是瞬跳）。
+            val visuals = rememberTabSelectionVisuals(
+                isHomeRoute = isHomeRoute,
+                homePageScroll = homePageScroll,
+                index = index,
+                selected = selected
+            )
+            val indicatorVisible = selected || (isHomeRoute && homeProgress > 0.5f)
 
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -89,11 +84,10 @@ fun AdaptiveNavigationRail(
                     .width(64.dp)
                     .clip(RoundedCornerShape(20.dp))
                     .background(
-                        if (selected || (isHomeRoute && homeProgress > 0.5f)) {
-                            MaterialTheme.colorScheme.secondaryContainer
-                        } else {
-                            Color.Transparent
-                        }
+                        rememberTabIndicatorColor(
+                            visible = indicatorVisible,
+                            selectedColor = MaterialTheme.colorScheme.secondaryContainer
+                        )
                     )
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -112,9 +106,9 @@ fun AdaptiveNavigationRail(
                     modifier = Modifier
                         .size(28.dp)
                         .graphicsLayer {
-                            scaleX = iconScale
-                            scaleY = iconScale
-                            alpha = iconAlpha
+                            scaleX = visuals.iconScale
+                            scaleY = visuals.iconScale
+                            alpha = visuals.iconAlpha
                         }
                 )
                 Text(

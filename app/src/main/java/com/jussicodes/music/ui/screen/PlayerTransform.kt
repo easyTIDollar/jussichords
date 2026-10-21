@@ -1,11 +1,9 @@
 package com.jussicodes.music.ui.screen
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -19,43 +17,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.IntSize
 import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
-import com.jussicodes.music.constants.DURATION
-import com.jussicodes.music.constants.DURATION_ENTER
-import com.jussicodes.music.constants.DURATION_EXIT
-import com.jussicodes.music.constants.DURATION_EXIT_SHORT
-import com.jussicodes.music.constants.EmphasizedAccelerateEasing
-import com.jussicodes.music.constants.EmphasizedDecelerateEasing
-import com.jussicodes.music.constants.EmphasizedEasing
+import com.jussicodes.music.animation.AlbumArtBoundsTransform
+import com.jussicodes.music.animation.MiniArtworkPlaceHolder
+import com.jussicodes.music.animation.MotionDuration
+import com.jussicodes.music.animation.PanelBoundsPlaceHolder
+import com.jussicodes.music.animation.PlayerPanelTransition
+import com.jussicodes.music.animation.MotionSpec
+import com.jussicodes.music.animation.SharedArtwork
 import com.jussicodes.music.ui.components.Lyric
 import com.jussicodes.music.ui.components.MiniPlayer
 import com.jussicodes.music.ui.components.Player
 import com.jussicodes.music.ui.components.PlayerQueue
-
-// copy from https://gist.github.com/JunkFood02/caf2af3cee41f847c0ad0bcf4d0cf9d8
-@OptIn(ExperimentalSharedTransitionApi::class)
-val AlbumArtBoundsTransform = BoundsTransform { _, _ ->
-    tween(easing = EmphasizedEasing, durationMillis = DURATION)
-
-}
-
-fun <T> tweenEnter(
-    delayMillis: Int = DURATION_EXIT,
-    durationMillis: Int = DURATION_ENTER
-) = tween<T>(
-    delayMillis = delayMillis,
-    durationMillis = durationMillis,
-    easing = EmphasizedDecelerateEasing
-)
-
-fun <T> tweenExit(
-    durationMillis: Int = DURATION_EXIT_SHORT,
-) = tween<T>(
-    durationMillis = durationMillis,
-    easing = EmphasizedAccelerateEasing
-)
 
 const val FULL_PLAYER = 0
 const val PLAY_QUEUE = 1
@@ -99,9 +73,9 @@ fun PlayerTransform(
     ) {
         AnimatedContent(targetState = show, transitionSpec = {
             fadeIn(
-                tweenEnter(delayMillis = DURATION_EXIT_SHORT)
+                MotionSpec.panelFadeIn<Int>(delayMillis = MotionDuration.ScreenExit)
             ) togetherWith fadeOut(
-                tweenExit(durationMillis = DURATION_EXIT_SHORT)
+                MotionSpec.panelFadeOut<Int>()
             )
         }) {
             when (it) {
@@ -113,24 +87,24 @@ fun PlayerTransform(
                         position = position,
                         imageModifier = Modifier.sharedElement(
                             state = rememberSharedContentState(
-                                key = mediaMetadata.artist.toString()
+                                key = SharedArtwork.playerArtworkKey(mediaMetadata)
                             ),
                             animatedVisibilityScope = this,
-                            placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
+                            placeHolderSize = PanelBoundsPlaceHolder,
                             boundsTransform = AlbumArtBoundsTransform,
                         ),
                         modifier = Modifier.sharedBounds(
                             sharedContentState = rememberSharedContentState(
-                                key = "container"
+                                key = PlayerPanelTransition.CONTAINER_KEY
                             ),
                             animatedVisibilityScope = this,
-                            placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
+                            placeHolderSize = PanelBoundsPlaceHolder,
                             boundsTransform = AlbumArtBoundsTransform,
                             enter = fadeIn(
-                                tweenEnter(delayMillis = DURATION_EXIT_SHORT)
+                                MotionSpec.panelFadeIn<Int>(delayMillis = MotionDuration.ScreenExit)
                             ),
                             exit = fadeOut(
-                                tweenExit(durationMillis = DURATION_EXIT_SHORT)
+                                MotionSpec.panelFadeOut<Int>()
                             )
                         ),
                         onBackPressed = {
@@ -153,24 +127,24 @@ fun PlayerTransform(
                         mediaMetadata = mediaMetadata,
                         imageModifier = Modifier.sharedElement(
                             state = rememberSharedContentState(
-                                key = mediaMetadata.artist.toString()
+                                key = SharedArtwork.playerArtworkKey(mediaMetadata)
                             ),
                             animatedVisibilityScope = this,
-                            placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
+                            placeHolderSize = PanelBoundsPlaceHolder,
                             boundsTransform = AlbumArtBoundsTransform,
                         ),
                         modifier = Modifier.sharedBounds(
                             sharedContentState = rememberSharedContentState(
-                                key = "container"
+                                key = PlayerPanelTransition.CONTAINER_KEY
                             ),
                             animatedVisibilityScope = this,
-                            placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
+                            placeHolderSize = PanelBoundsPlaceHolder,
                             boundsTransform = AlbumArtBoundsTransform,
                             enter = fadeIn(
-                                tweenEnter(delayMillis = DURATION_EXIT_SHORT)
+                                MotionSpec.panelFadeIn<Int>(delayMillis = MotionDuration.ScreenExit)
                             ),
                             exit = fadeOut(
-                                tweenExit(durationMillis = DURATION_EXIT_SHORT)
+                                MotionSpec.panelFadeOut<Int>()
                             )
                         ),
                         onBackPressed = { show = FULL_PLAYER },
@@ -183,10 +157,10 @@ fun PlayerTransform(
                         mediaMetadata = mediaMetadata,
                         imageModifier = Modifier.sharedElement(
                             state = rememberSharedContentState(
-                                key = mediaMetadata.artist.toString()
+                                key = SharedArtwork.playerArtworkKey(mediaMetadata)
                             ),
                             animatedVisibilityScope = this,
-                            placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
+                            placeHolderSize = PanelBoundsPlaceHolder,
                             boundsTransform = AlbumArtBoundsTransform,
                         ),
                         onBackPressed = { show = FULL_PLAYER },
@@ -204,26 +178,24 @@ fun PlayerTransform(
                         },
                         imageModifier = Modifier.sharedElement(
                             state = rememberSharedContentState(
-                                key = mediaMetadata.artist.toString()
+                                key = SharedArtwork.playerArtworkKey(mediaMetadata)
                             ),
                             animatedVisibilityScope = this,
-                            placeHolderSize = { contentSize: IntSize, animatedSize: IntSize ->
-                                IntSize(contentSize.width, animatedSize.height)
-                            },
+                            placeHolderSize = MiniArtworkPlaceHolder,
                             boundsTransform = AlbumArtBoundsTransform,
                         ),
                         modifier = Modifier.sharedBounds(
                             sharedContentState = rememberSharedContentState(
-                                key = "container"
+                                key = PlayerPanelTransition.CONTAINER_KEY
                             ),
                             animatedVisibilityScope = this,
                             placeHolderSize = SharedTransitionScope.PlaceHolderSize.contentSize,
                             boundsTransform = AlbumArtBoundsTransform,
                             enter = fadeIn(
-                                tweenEnter(delayMillis = DURATION_EXIT)
+                                MotionSpec.panelFadeIn<Int>(delayMillis = MotionDuration.PanelFadeIn)
                             ),
                             exit = fadeOut(
-                                tweenExit(durationMillis = DURATION_EXIT_SHORT)
+                                MotionSpec.panelFadeOut<Int>()
                             )
                         ),
                     )

@@ -4,7 +4,6 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
@@ -24,10 +23,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import kotlinx.coroutines.flow.distinctUntilChanged
-import com.jussicodes.music.constants.DURATION_ENTER
-import com.jussicodes.music.constants.DURATION_EXIT_SHORT
-import com.jussicodes.music.constants.EmphasizedAccelerateEasing
-import com.jussicodes.music.constants.EmphasizedDecelerateEasing
+import com.jussicodes.music.animation.MotionSpec
 import com.jussicodes.music.ui.screen.AlbumScreen
 import com.jussicodes.music.ui.screen.AlbumSublistScreen
 import com.jussicodes.music.ui.screen.ArtistScreen
@@ -80,12 +76,7 @@ fun NavGraph(
                 if (targetState.destination.route in homeRoutes) {
                     EnterTransition.None
                 } else {
-                    fadeIn(
-                        animationSpec = tween(
-                            durationMillis = DURATION_ENTER,
-                            easing = EmphasizedDecelerateEasing
-                        )
-                    )
+                    fadeIn(animationSpec = MotionSpec.screenEnter())
                 }
             },
             exitTransition = {
@@ -96,36 +87,21 @@ fun NavGraph(
                 } else {
                     // push into a detail page: crossfade the home out under it
                     // instead of letting it vanish to a blank window.
-                    fadeOut(
-                        animationSpec = tween(
-                            durationMillis = DURATION_EXIT_SHORT,
-                            easing = EmphasizedAccelerateEasing
-                        )
-                    )
+                    fadeOut(animationSpec = MotionSpec.screenExit())
                 }
             },
             popEnterTransition = {
                 if (targetState.destination.route in homeRoutes) {
                     EnterTransition.None
                 } else {
-                    fadeIn(
-                        animationSpec = tween(
-                            durationMillis = DURATION_ENTER,
-                            easing = EmphasizedDecelerateEasing
-                        )
-                    )
+                    fadeIn(animationSpec = MotionSpec.screenEnter())
                 }
             },
             popExitTransition = {
                 if (initialState.destination.route in homeRoutes) {
                     ExitTransition.None
                 } else {
-                    fadeOut(
-                        animationSpec = tween(
-                            durationMillis = DURATION_EXIT_SHORT,
-                            easing = EmphasizedAccelerateEasing
-                        )
-                    )
+                    fadeOut(animationSpec = MotionSpec.screenExit())
                 }
             }
         ) {
