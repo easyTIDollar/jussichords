@@ -303,7 +303,7 @@ fun SearchScreen(
                         true
                     }
 
-                    Key.Enter, Key.NumpadEnter -> {
+                    Key.Enter -> {
                         confirmSelection()
                         true
                     }
@@ -636,8 +636,8 @@ fun SearchScreen(
 private sealed interface PanelRow {
     data class Header(val title: String, val isHistory: Boolean = false) : PanelRow
     data class Artist(val artist: SearchArtist) : PanelRow
-    data class Album(val album: Album) : PanelRow
-    data class Song(val song: Song) : PanelRow
+    data class Album(val album: com.rcmiku.ncmapi.model.Album) : PanelRow
+    data class Song(val song: com.rcmiku.ncmapi.model.Song) : PanelRow
     data class History(val query: String) : PanelRow
     data class ViewAll(val keyword: String) : PanelRow
 }
