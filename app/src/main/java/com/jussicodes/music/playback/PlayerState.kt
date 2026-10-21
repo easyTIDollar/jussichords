@@ -335,6 +335,9 @@ internal class PlayerStateImpl(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            // 网络类错误由 PlaybackService 的恢复逻辑处理（退避重试 / 网络恢复续播），
+            // 这里再跳下一首会和它打架。
+            if (isRetryableNetworkError(error)) return
             if (context.dataStore.get(autoSkipNextOnErrorKey, false) &&
                 player.hasNextMediaItem()
             ) {

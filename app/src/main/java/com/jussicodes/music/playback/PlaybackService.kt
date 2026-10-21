@@ -20,6 +20,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.RenderersFactory
@@ -50,6 +51,7 @@ import com.jussicodes.music.constants.audioEffectModeKey
 import com.jussicodes.music.constants.audioEffectReverbEnabledKey
 import com.jussicodes.music.constants.audioEffectSpeedKey
 import com.jussicodes.music.constants.audioQualityKey
+import com.jussicodes.music.constants.autoSkipNextOnErrorKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.use40DpIconKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
@@ -74,12 +76,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.json
 
@@ -221,6 +225,115 @@ class PlaybackService : MediaSessionService() {
 
     private val scope = CoroutineScope(Dispatchers.Main) + SupervisorJob()
 
+    // ——————————————— 弱网恢复 ———————————————
+    // 弱网/断流时 ExoPlayer 会进 STATE_IDLE 且不会自行恢复，这里做：
+    // 同曲退避重试 → 仍失败则停在当前曲并提示 → 网络恢复（NetworkCallback）后续播。
+    private var recoveryJob: kotlinx.coroutines.Job? = null
+    private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
+    private var retryAttempt = 0
+    private var errorMediaId: String? = null
+
+    /** 重试耗尽后置位：等网络回来的 onAvailable 来续播。 */
+    private var pausedByNetworkError = false
+
+    /** 同曲重试的退避间隔；用完即停在当前曲提示用户。 */
+    private val retryDelaysMs = listOf(1_000L, 3_000L, 8_000L)
+
+    /** 重新 prepare 时回退一点，避免卡在同一个读位置反复失败。 */
+    private const val REWIND_ON_RETRY_MS = 2_000L
+
+    /** 解析播放地址（一次网络请求）的超时。 */
+    private const val RESOLVE_URL_TIMEOUT_MS = 15_000L
+
+    private val recoveryListener = object : Player.Listener {
+        override fun onPlayerError(error: PlaybackException) {
+            if (!isRetryableNetworkError(error)) return
+            val player = mediaSession?.player ?: return
+            val item = player.currentMediaItem ?: return
+            // 换曲了 → 重试计数重来
+            if (errorMediaId != item.mediaId) {
+                errorMediaId = item.mediaId
+                retryAttempt = 0
+            }
+            if (retryAttempt >= retryDelaysMs.size) {
+                giveUpOnNetworkError()
+                return
+            }
+            val delayMs = retryDelaysMs[retryAttempt]
+            retryAttempt++
+            val resumeAt = (player.currentPosition - REWIND_ON_RETRY_MS).coerceAtLeast(0L)
+            recoveryJob?.cancel()
+            recoveryJob = scope.launch {
+                delay(delayMs)
+                val p = mediaSession?.player ?: return@launch
+                // 期间用户切歌/手动操作了就别抢
+                if (p.currentMediaItem?.mediaId != item.mediaId) return@launch
+                p.seekTo(resumeAt)
+                p.prepare()
+                p.play()
+            }
+        }
+
+        override fun onPlaybackStateChanged(@Player.State playbackState: Int) {
+            // 真的开始缓冲/就绪了才算恢复成功
+            if (playbackState == Player.STATE_READY) {
+                pausedByNetworkError = false
+            }
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            retryAttempt = 0
+            errorMediaId = null
+            pausedByNetworkError = false
+            recoveryJob?.cancel()
+        }
+    }
+
+    /** 重试耗尽：停在当前曲提示；若用户开了「自动跳过错误歌曲」才跳下一首。 */
+    private fun giveUpOnNetworkError() {
+        val player = mediaSession?.player ?: return
+        pausedByNetworkError = true
+        if (dataStore.get(autoSkipNextOnErrorKey, false) && player.hasNextMediaItem()) {
+            player.seekToNext()
+            player.prepare()
+            player.play()
+            return
+        }
+        Toast.makeText(
+            this,
+            "网络异常，播放已暂停，点播放键可重试",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    /** 监听网络恢复：之前因弱网停住的，走到这续播。 */
+    private fun observeNetworkRecovery() {
+        val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                if (!pausedByNetworkError) return
+                recoveryJob?.cancel()
+                retryAttempt = 0
+                recoveryJob = scope.launch {
+                    val p = mediaSession?.player ?: return@launch
+                    if (p.playerError == null || p.currentMediaItem == null) return@launch
+                    p.prepare()
+                    p.play()
+                }
+            }
+        }
+        runCatching { cm.registerDefaultNetworkCallback(callback) }
+            .onFailure { return }
+        networkCallback = callback
+    }
+
+    private fun unregisterNetworkCallback() {
+        val callback = networkCallback ?: return
+        networkCallback = null
+        val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        runCatching { cm.unregisterNetworkCallback(callback) }
+    }
+
     // 换源信号 → 重新解析并播放当前这首歌（音源代号已由调用方写进 cacheKey）
     private var reloadJob: kotlinx.coroutines.Job? = null
 
@@ -279,6 +392,9 @@ class PlaybackService : MediaSessionService() {
                     .setUpstreamDataSourceFactory(
                         DefaultHttpDataSource.Factory()
                             .setUserAgent(UserAgentUtil.DEFAULT_USER_AGENT)
+                            // 弱网下别 8s 就判死，给足恢复窗口
+                            .setConnectTimeoutMs(15_000)
+                            .setReadTimeoutMs(30_000)
                             .setDefaultRequestProperties(
                                 buildMap {
                                     put("Referer", "https://music.163.com/")
@@ -300,10 +416,13 @@ class PlaybackService : MediaSessionService() {
                     cacheDataSourceFactory
                 ) { dataSpec ->
                     runBlocking {
-                        val resolvedUri = updateMediaItemUri(
-                            dataSpec.uri,
-                            audioQuality
-                        ) ?: throw PlaybackException(
+                        // 解析播放地址本身也是一次网络请求，弱网下不能无限期卡住加载线程
+                        val resolvedUri = withTimeout(RESOLVE_URL_TIMEOUT_MS) {
+                            updateMediaItemUri(
+                                dataSpec.uri,
+                                audioQuality
+                            )
+                        } ?: throw PlaybackException(
                             null,
                             null,
                             PlaybackException.ERROR_CODE_REMOTE_ERROR
@@ -316,6 +435,17 @@ class PlaybackService : MediaSessionService() {
                     }
                 }
                 setMediaSourceFactory(DefaultMediaSourceFactory(resolvingDataSourceFactory))
+                // 弱网缓冲余量：最小缓冲 15s，最大 50s
+                setLoadControl(
+                    DefaultLoadControl.Builder()
+                        .setBufferDurationsMs(
+                            15_000,
+                            50_000,
+                            2_500,
+                            5_000
+                        )
+                        .build()
+                )
             }.build()
         player.repeatMode = REPEAT_MODE_ALL
         // 播放历史上报（eapi weblog + NCBL 双通道）：MeiloX 式纯内存计时器 + 串行 IO 上报。
@@ -334,6 +464,9 @@ class PlaybackService : MediaSessionService() {
             ncblDeviceId = { CookieProvider.getCookieMap()["deviceId"].orEmpty() },
         )
         player.addListener(playbackHistoryListener)
+        // 弱网恢复：同曲退避重试 + 网络恢复后续播
+        player.addListener(recoveryListener)
+        observeNetworkRecovery()
         observeSourceReloads()
         // 一起听会话：挂到全局播放器上，冷启动恢复/创建房间时接管同步。
         ListenTogetherSession.attach(player, this)
@@ -363,9 +496,12 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         reloadJob?.cancel()
+        recoveryJob?.cancel()
+        unregisterNetworkCallback()
         scope.cancel()
         mediaSession?.run {
             player.removeListener(playbackHistoryListener)
+            player.removeListener(recoveryListener)
             // 服务销毁前结算并排空未上报的播放历史事件。
             playbackHistoryReporter?.let { reporter ->
                 playbackHistorySession.finish(SystemClock.elapsedRealtime())?.let { completed ->
