@@ -10,9 +10,11 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -51,6 +53,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -89,6 +92,15 @@ fun Lyric(
      * 横屏传 false 只取歌词本体。
      */
     showHeader: Boolean = true,
+    /**
+     * 横屏（矮屏）模式：歌词独占一整列高度，字号/行距略小，
+     * 自动滚动把当前句停在视口上方约 1/3 处（竖屏是当前句贴顶）。
+     */
+    landscape: Boolean = false,
+    /**
+     * 是否注册自身的返回键处理。横屏播放页由外层统一处理返回键，传 false 避免抢占。
+     */
+    enableBackHandler: Boolean = true,
     lyricViewModel: LyricViewModel = hiltViewModel()
 ) {
     val mediaController = LocalPlayerController.current.controller
@@ -103,6 +115,8 @@ fun Lyric(
     var currentIndex by remember { mutableIntStateOf(0) }
     var autoScrollEnabled by remember { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
+    // 横屏：记录歌词视口高度，用来做顶部占位块（当前句不从贴着顶边开始）。
+    var viewportHeightPx by remember { mutableIntStateOf(0) }
     val lrcLine = lyric?.lrc?.lyric?.parseLrc()
     val yrcLine = lyric?.yrc?.lyric?.parseYrc()
     val translationLines = lyric?.tlyric?.lyric?.parseLrc().orEmpty()
@@ -126,22 +140,26 @@ fun Lyric(
         }
     }
 
-    BackHandler {
-        onBackPressed()
+    if (enableBackHandler) {
+        BackHandler {
+            onBackPressed()
+        }
     }
 
     KeepScreenOn()
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxHeight(),
+        modifier = Modifier
+            .fillMaxHeight()
+            // showHeader=false（横屏）：modifier 作用于 Surface 本身，用来控制歌词区尺寸；
+            // showHeader=true（竖屏）：modifier 仍只作用于内部歌名列（见下方 .then）。
+            .then(if (showHeader) Modifier else modifier)
+            .onSizeChanged { viewportHeightPx = it.height },
     ) {
         Column(
             modifier = Modifier
-                .then(if (showHeader) Modifier.statusBarsPadding() else Modifier)
-                // showHeader=false：modifier 作用于整个 Surface，横屏用它控制歌词区高度。
-                // showHeader=true：保持旧行为，modifier 仍只作用于内部歌名列（见下方 .then）。
-                .then(if (showHeader) Modifier else modifier)
+                .then(if (showHeader) Modifier.statusBarsPadding() else Modifier.fillMaxSize())
         ) {
             if (showHeader) Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -225,27 +243,46 @@ fun Lyric(
                     autoScrollEnabled = !listState.isScrollInProgress
                 }
 
+                // 定位当前句：竖屏贴顶留两句上下文；横屏当前句停在视口上方约 1/3 处。
+                suspend fun scrollToCurrent(index: Int) {
+                    if (landscape) {
+                        if (viewportHeightPx <= 0) return
+                        listState.animateScrollToItem(index)
+                        val backOffset = viewportHeightPx * 0.28f
+                        if (backOffset > 0f) listState.animateScrollBy(-backOffset)
+                    } else if (index > 0) {
+                        listState.animateScrollToItem(maxOf(index - 2, 0))
+                    }
+                }
+
                 LaunchedEffect(position) {
                     val index = lrcLines.indexOfLast { it.first <= position }
                     if (index != currentIndex) {
                         currentIndex = index
                         if (autoScrollEnabled) {
-                            coroutineScope.launch {
-                                if (index > 0) {
-                                    val targetIndex = maxOf(currentIndex - 2, 0)
-                                    listState.animateScrollToItem(targetIndex)
-                                }
-                            }
+                            coroutineScope.launch { scrollToCurrent(index) }
                         }
+                    }
+                }
+
+                // 横屏：视口高度就绪后（或变化后）重新定位一次当前句。
+                LaunchedEffect(viewportHeightPx) {
+                    if (landscape && viewportHeightPx > 0 && autoScrollEnabled) {
+                        scrollToCurrent(currentIndex)
                     }
                 }
 
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                        .fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(if (landscape) 10.dp else 6.dp),
+                    contentPadding = PaddingValues(
+                        start = if (landscape) 20.dp else 12.dp,
+                        end = if (landscape) 20.dp else 12.dp,
+                        top = if (landscape) 8.dp else 0.dp,
+                        bottom = if (landscape) 56.dp else 0.dp,
+                    )
                 ) {
                     items(
                         count = lrcLines.size,
@@ -270,8 +307,8 @@ fun Lyric(
                                             }
                                         }
                                     }
-                                    .padding(vertical = 8.dp, horizontal = 4.dp)
-                                    .alpha(if (isCurrent) 1f else 0.5f)
+                                    .padding(vertical = if (landscape) 6.dp else 8.dp, horizontal = 4.dp)
+                                    .alpha(if (isCurrent) 1f else 0.45f)
                             ) {
                                 Text(
                                     text = if (showWordLyric && isCurrent && !yrcLine.isNullOrEmpty()) {
@@ -296,15 +333,15 @@ fun Lyric(
                                     },
                                     color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                                     fontWeight = FontWeight.SemiBold,
-                                    fontSize = 24.sp,
-                                    lineHeight = 1.2.em,
+                                    fontSize = if (landscape) 21.sp else 24.sp,
+                                    lineHeight = 1.25.em,
                                 )
                                 if (showTranslation && !translation.isNullOrBlank()) {
                                     Text(
                                         text = translation,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontWeight = FontWeight.Medium,
-                                        fontSize = 16.sp,
+                                        fontSize = if (landscape) 14.sp else 16.sp,
                                         lineHeight = 1.2.em,
                                         modifier = Modifier.padding(top = 4.dp)
                                     )
@@ -322,7 +359,7 @@ fun Lyric(
                             }
                     }
                     item {
-                        Spacer(Modifier.padding(vertical = 24.dp))
+                        Spacer(Modifier.padding(vertical = if (landscape) 48.dp else 24.dp))
                     }
                 }
             }
