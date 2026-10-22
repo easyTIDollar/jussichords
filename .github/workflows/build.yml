@@ -180,7 +180,23 @@ jobs:
           draft: false
           prerelease: true
           body: |
-            - Canary build for testing (v${{ env.APP_VERSION }}-canary)
+            **改进**
+            播放
+            - 弱网断流自动重试与续播
+            - 补 WAKE_LOCK 权限，修后台被杀闪退
+            一起听
+            - 修同步回声回灌、队列版本、锚点丢失、僵尸房间
+            界面
+            - 底部导航选中态与封面切换动效统一
+            - 主页壁纸/信息卡闪烁修复
+            - 卡片圆角、网格封面尺寸自适应
+            - 歌曲菜单取色跟随全局设置
+            横屏与大屏
+            - 横屏播放页双栏沉浸式布局
+            - 大屏响应式布局 + 宽屏竖排导航栏
+            功能
+            - 软件缓存统计与清理
+            - 一起听房间成员小组件
 
       - name: Create GitHub Release
         if: env.BUILD_TYPE != 'canary'
