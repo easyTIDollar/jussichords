@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -99,6 +100,8 @@ private val LandscapeLyricFadeHeight = 36.dp
  *
  * 两栏各自管理布局与滚动状态，互不影响。竖屏路径完全不受此文件影响。
  */
+// Slider 的自定义 track / thumb 插槽仍属实验 API（实验注解是 error 级，故必须显式 opt-in）。
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerLandscape(
     mediaMetadata: MediaMetadata,
