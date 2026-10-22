@@ -54,6 +54,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -61,7 +62,6 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.toDp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaMetadata
@@ -257,9 +257,12 @@ fun Lyric(
                  * 不再像以前那样 scrollToItem 之后再 animateScrollBy 补偿一次
                  * （两次串行动画叠加在同一个 LazyListState 上，视觉上就是"先顶到最上、再往回滑"）。
                  */
-                val highlightAnchorPx: Int = if (landscape) {
-                    if (viewportHeightPx > 0) (viewportHeightPx * 0.30f).toInt() else 0
-                } else 0
+                // toDp() 是 Density 的成员函数，必须在 LocalDensity 作用域内调用。
+                val highlightAnchorDp: Dp = with(LocalDensity.current) {
+                    if (landscape && viewportHeightPx > 0) {
+                        (viewportHeightPx * 0.30f).toInt().toDp()
+                    } else 0.dp
+                }
 
                 // 用户手势滚动：暂停自动跟随；松开后恢复，并把当前句重新拉回停留位。
                 // isScrollInProgress 对程序化滚动同样为 true，故用 programmaticScroll 区分。
@@ -312,8 +315,8 @@ fun Lyric(
 
                 // 横屏尺寸变化 → 停留位（contentPadding.top）随之变化，重新对齐一次当前句。
                 // key 只含停留位，不含 position：避免每次心跳都重复发起滚动。
-                LaunchedEffect(highlightAnchorPx, autoScrollEnabled) {
-                    if (landscape && highlightAnchorPx > 0 && autoScrollEnabled && viewportHeightPx > 0) {
+                LaunchedEffect(highlightAnchorDp, autoScrollEnabled) {
+                    if (landscape && highlightAnchorDp > 0 && autoScrollEnabled && viewportHeightPx > 0) {
                         scrollToCurrent(currentIndex)
                     }
                 }
@@ -328,9 +331,7 @@ fun Lyric(
                         end = if (landscape) 20.dp else 12.dp,
                         // 横屏：停留位就是 top padding，定位只需一次 scrollToItem(index, 0)。
                         // 同时充当顶部渐隐下的呼吸空间。
-                        top = if (landscape) {
-                            (highlightAnchorPx.toDp() + 8.dp).coerceAtLeast(8.dp)
-                        } else 0.dp,
+                        top = if (landscape) (highlightAnchorDp + 8.dp).coerceAtLeast(8.dp) else 0.dp,
                         bottom = if (landscape) 56.dp else 0.dp,
                     )
                 ) {
