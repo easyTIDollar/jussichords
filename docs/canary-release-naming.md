@@ -36,7 +36,10 @@
 
 - **触发**：canary 构建发布成功后自动执行 `scripts/cleanup_canary_releases.py`（`Cleanup old canary releases` 步骤）。
 - **保留策略**：只保留**最新 2 个** canary pre-release（`prerelease=true` 且 tag 含 `-canary.`），其余的 **release 与同名 tag 一并删除**。
-- **正式版 release 完全不碰**（脚本只筛 `-canary.` 的 pre-release）。
+- **枚举方式**：用 **git refs（tags）列表**枚举 canary tag，再逐个查 `/releases/tags/{tag}` 拿 release 详情。
+  原因：`/releases` 列表接口对**刚创建**的 release 存在可见性延迟（tag 已存在但列表查不到），
+  直接用列表会把刚发布的 canary 漏掉，导致保留名额被旧 release 占掉、多留一个垃圾。
+- **正式版 release 完全不碰**（脚本只筛 `-canary.` 的 pre-release，并有二次校验跳过非 canary 预发布）。
 - **权限**：用 CI 内置 `GITHUB_TOKEN`（workflow 已有 `permissions: contents: write`），无需额外 secret。
 - **不破坏 App 内更新**：App 的 canary 通道读最新 pre-release，保留的 2 个即最新，`checkUpdate()` 判定与命名规则自洽。
 - **手动补清**（可选）：`GH_TOKEN=xxx KEEP_CANARY_RELEASES=2 python3 scripts/cleanup_canary_releases.py`。
