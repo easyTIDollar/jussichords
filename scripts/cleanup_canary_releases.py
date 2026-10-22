@@ -66,17 +66,34 @@ def main() -> int:
         and not r.get("draft")
         and "-canary." in (r.get("tag_name") or "")
     ]
-    # created_at 倒序：新的在前
-    canaries.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+
+    def sort_key(r):
+        # tag 里的时间戳（YYYYMMDD-HHMMSS）最可靠；缺失时退回 created_at。
+        # 同一秒创建的多个 canary 用它区分，created_at 相同时顺序才稳定。
+        tag = r.get("tag_name") or ""
+        ts = tag.rsplit("canary.", 1)[-1] if "canary." in tag else ""
+        return (ts or (r.get("created_at") or ""), tag)
+
+    # 新的在前
+    canaries.sort(key=sort_key, reverse=True)
 
     print(f"[cleanup] 当前 canary release 数：{len(canaries)}")
     if len(canaries) <= KEEP:
         print("[cleanup] 未超过保留上限，保持不动")
         return 0
 
+    keeping = [r["tag_name"] for r in canaries[:KEEP]]
+    removing = [r["tag_name"] for r in canaries[KEEP:]]
+    print(f"[cleanup] 保留: {', '.join(keeping)}")
+    print(f"[cleanup] 将删除: {', '.join(removing)}")
+
     for r in canaries[KEEP:]:
         rid = r["id"]
         tag = r["tag_name"]
+        # 双保险：只处理非 draft 的 pre-release，且 tag 必须含 -canary.
+        if r.get("draft") or not r.get("prerelease") or "-canary." not in tag:
+            print(f"[cleanup] 跳过非 canary 预发布: {tag}")
+            continue
         print(f"[cleanup] 删除 canary release: {tag} (id={rid}, created={r.get('created_at')})")
         st, _ = api("DELETE", f"/repos/{REPO}/releases/{rid}")
         if st == 204:
