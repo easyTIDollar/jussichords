@@ -259,7 +259,9 @@ fun Lyric(
                 }
 
                 LaunchedEffect(position) {
-                    val index = lrcLines.indexOfLast { it.first <= position }
+                    // indexOfLast 找不到匹配时返回 -1（当前时间早于第一句歌词），
+                    // 夹到 0：既避免 -1 传进 animateScrollToItem，也保证第一句有高亮。
+                    val index = lrcLines.indexOfLast { it.first <= position }.coerceAtLeast(0)
                     if (index != currentIndex) {
                         currentIndex = index
                         if (autoScrollEnabled) {
