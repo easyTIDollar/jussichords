@@ -198,6 +198,17 @@ jobs:
             - 软件缓存统计与清理
             - 一起听房间成员小组件
 
+      # 清理旧的 canary release（只保留最新 2 个，release + tag 一起删），避免长期堆积垃圾。
+      # 正式版 release 不受影响；App 内 canary 更新通道仍能看到最新 pre-release。
+      - name: Cleanup old canary releases
+        if: env.BUILD_TYPE == 'canary'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP_CANARY_RELEASES: '2'
+        run: |
+          python3 scripts/cleanup_canary_releases.py
+
       - name: Create GitHub Release
         if: env.BUILD_TYPE != 'canary'
         uses: softprops/action-gh-release@v2
