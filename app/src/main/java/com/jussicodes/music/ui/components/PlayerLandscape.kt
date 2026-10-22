@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -36,7 +38,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -65,11 +69,12 @@ private const val LandscapeLeftWeight = 0.45f
 private const val LandscapeRightWeight = 0.55f
 
 /**
- * 左栏除封面外的固定高度开销（顶栏 / 歌名 / 歌手 / 进度条 / 时间 / 控制组 / 间距）。
- * 封面尺寸 = 可用高度 - 这个开销，再与左栏可用宽度取小。
- * 240dp 是按各控件实际高度加总后的保守值，避免矮屏下把控制组挤出屏幕。
+ * 歌名 / 歌手文本块的参考高度。
+ *
+ * 封面边长 = 中部弹性区实际高度 - 这个高度，所以这里只需要给歌名+歌手+间距一个
+ * 稳定估值即可（文本本身用 heightIn(max=...) 兜住，换歌不会导致封面尺寸抖动）。
  */
-private val LandscapeLeftReserved = 250.dp
+private val SongInfoHeight = 52.dp
 
 /** 歌词栏上下渐隐的高度。 */
 private val LandscapeLyricFadeHeight = 36.dp
@@ -115,24 +120,50 @@ fun PlayerLandscape(
 
     Box(modifier = modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxSize()) {
-            // ── 左栏：封面 + 歌曲信息 + 进度 + 控制组 ───────────────────
+// ── 左栏：顶部导航 / 封面+歌曲信息 / 进度 / 控制 ────────────
+            //
+            // 结构（纯纵向 Column，无绝对定位、无互相冲突的 Spacer）：
+            //   1) 顶栏：返回在左，收藏 + 更多在右（两者靠右成组）。
+            //   2) 中部 weight(1f) 弹性区：封面 + 歌名/歌手作为**一个整体**垂直+水平居中。
+            //   3) 底部固定区：进度条（横跨左栏宽度）+ 时间标签两端对齐 + 控制按钮行。
+            //
+            // 封面尺寸由 BoxWithConstraints 的实际可用宽高直接算：
+            //   封面区可用高度 = 中部弹性区高度 - 歌名/歌手文本高度 - 少量间距
+            //   封面边长 = min(可用宽 - 水平padding, 可用高) 并夹在合理区间内。
+            // 不再用写死的"预留 250dp"常数估算，所以矮屏不会挤爆、宽屏不会过大。
             BoxWithConstraints(
                 modifier = Modifier
                     .weight(LandscapeLeftWeight)
                     .fillMaxHeight()
             ) {
-                // 封面：正方形、圆角，尺寸 = min(可用宽, 可用高 - 固定开销)，整体居中。
-                val coverSize: Dp = minOf(
-                    maxWidth - 24.dp,
-                    maxHeight - LandscapeLeftReserved
-                ).coerceIn(72.dp, 320.dp)
+                val leftPadH = 20.dp
+                val leftPadV = 8.dp
+
+                // 中部弹性区的实际高度（用来定封面边长），这里先给默认值，
+                // 真实值在下面的 Box(Modifier.weight(1f)) 上用 onSizeChanged 回填。
+                var middleHeightPx by remember { mutableIntStateOf(0) }
+
+                val infoBlockHeightPx = with(LocalDensity.current) {
+                    (SongInfoHeight).roundToPx()
+                }
+                val coverMaxHeightPx = (middleHeightPx - infoBlockHeightPx).coerceAtLeast(0)
+                val coverMaxWidthPx = with(LocalDensity.current) {
+                    (maxWidth - leftPadH * 2).roundToPx()
+                }
+                val coverSizePx = minOf(coverMaxWidthPx, coverMaxHeightPx)
+                // 上限 260dp；下限不强行抬高——空间真不够时宁可小一点，
+                // 也不让封面把底部进度条/控制组顶出屏幕。
+                val coverSizeDp = with(LocalDensity.current) { coverSizePx.toDp() }
+                    .coerceAtMost(260.dp)
+                    .coerceAtLeast(0.dp)
 
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 10.dp)
+                        .padding(start = leftPadH, end = leftPadH, top = leftPadV, bottom = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    // 顶栏：返回 / 收藏 / 更多。
+                    // 1) 顶栏：返回靠左，收藏 / 更多靠右成组。
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -158,109 +189,121 @@ fun PlayerLandscape(
                             size = 20.dp, touchSize = 36.dp,
                             onClick = onToggleFavorite,
                         )
+                        Spacer(Modifier.width(4.dp))
                         IconClick(MoreVert, tint = dimColor, size = 20.dp, touchSize = 36.dp, onClick = onMoreClick)
                     }
 
-                    // 封面：左栏上方，正方形圆角，水平居中。
+                    // 2) 中部弹性区：封面 + 歌曲信息作为一个整体居中。
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
+                            .weight(1f)
+                            .fillMaxWidth(),
                         contentAlignment = Alignment.Center,
                     ) {
-                        AsyncImage(
-                            model = mediaMetadata.artworkUri,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
+                        // 用子 Box 的 onSizeChanged 量出"扣除进度条和控制组后"的真实可用高度，
+                        // 避免靠固定常数估算封面大小。
+                        Box(
                             modifier = Modifier
-                                .size(coverSize)
-                                .clip(RoundedCornerShape(14.dp))
+                                .fillMaxSize()
+                                .onSizeChanged { middleHeightPx = it.height }
                         )
-                    }
 
-                    // 歌名 / 歌手：封面下方，居中。
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        mediaMetadata.title?.let {
-                            Text(
-                                text = it.toString(),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = titleColor,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                        mediaMetadata.artist?.let {
-                            Text(
-                                text = it.toString(),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = dimColor,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                    }
-
-                    // 进度条 + 已播放 / 剩余时间。
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp)
-                    ) {
-                        Slider(
-                            value = if (durationUsable) {
-                                if (sliderPosition != null) scrubFraction
-                                else (shownPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-                            } else 0f,
-                            valueRange = 0f..1f,
-                            onValueChange = {
-                                scrubFraction = it
-                                sliderPosition = (it * (if (durationUsable) duration else 0L)).toLong()
-                            },
-                            onValueChangeFinished = {
-                                sliderPosition?.let {
-                                    onSeek(it)
-                                    mediaController?.seekTo(it)
-                                }
-                                sliderPosition = null
-                            },
-                            colors = SliderDefaults.colors(),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 4.dp)
+                        Column(
+                            modifier = Modifier,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
                         ) {
-                            Text(
-                                text = makeTimeString(shownPosition),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = dimColor,
-                                textAlign = TextAlign.Start,
+                            AsyncImage(
+                                model = mediaMetadata.artworkUri,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(coverSizeDp)
+                                    .clip(RoundedCornerShape(14.dp))
                             )
-                            Spacer(Modifier.weight(1f))
-                            Text(
-                                text = if (durationUsable) {
-                                    makeTimeString((duration - shownPosition).coerceAtLeast(0L))
-                                } else "--:--",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = dimColor,
-                                textAlign = TextAlign.End,
-                            )
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Spacer(Modifier.height(10.dp))
+                                mediaMetadata.title?.let {
+                                    Text(
+                                        text = it.toString(),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = titleColor,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                                mediaMetadata.artist?.let {
+                                    Text(
+                                        text = it.toString(),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = dimColor,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
                         }
                     }
 
-                    // 弹性留白：把控制组推到左栏最底部。
-                    Spacer(Modifier.weight(1f))
+                    // 3) 进度条：横跨左栏可用宽度。
+                    Slider(
+                        value = if (durationUsable) {
+                            if (sliderPosition != null) scrubFraction
+                            else (shownPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                        } else 0f,
+                        valueRange = 0f..1f,
+                        onValueChange = {
+                            scrubFraction = it
+                            sliderPosition = (it * (if (durationUsable) duration else 0L)).toLong()
+                        },
+                        onValueChangeFinished = {
+                            sliderPosition?.let {
+                                onSeek(it)
+                                mediaController?.seekTo(it)
+                            }
+                            sliderPosition = null
+                        },
+                        colors = SliderDefaults.colors(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
 
-                    // 底部：横向五键控制组（播放/暂停为视觉中心）。
+                    // 时间标签：左对齐已播放、右对齐剩余，紧贴进度条两端。
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = makeTimeString(shownPosition),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = dimColor,
+                            textAlign = TextAlign.Start,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            text = if (durationUsable) {
+                                makeTimeString((duration - shownPosition).coerceAtLeast(0L))
+                            } else "--:--",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = dimColor,
+                            textAlign = TextAlign.End,
+                        )
+                    }
+
+                    Spacer(Modifier.height(6.dp))
+
+                    // 4) 播放控制：单一水平 Row，整体居中、间距均匀。
+                    //    主控件 = 上一首 / 播放暂停 / 下一首（更大、带主色实心播放键）；
+                    //    次级控件 = 随机 / 循环（小一号、降对比）。
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -269,16 +312,16 @@ fun PlayerLandscape(
                         IconClick(
                             imageVector = Shuffle,
                             tint = if (shuffleOn) MaterialTheme.colorScheme.primary else dimColor,
-                            size = 22.dp, touchSize = 44.dp,
+                            size = 20.dp, touchSize = 40.dp,
                             onClick = { mediaController?.shuffleModeEnabled = !shuffleOn },
                         )
                         IconClick(
-                            SkipPreviousFill, tint = titleColor, size = 30.dp, touchSize = 44.dp,
+                            SkipPreviousFill, tint = titleColor, size = 28.dp, touchSize = 44.dp,
                             onClick = { mediaController?.seekToPreviousMediaItem() },
                         )
                         Box(
                             modifier = Modifier
-                                .size(56.dp)
+                                .size(52.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.onSurface)
                                 .clickable(
@@ -292,17 +335,17 @@ fun PlayerLandscape(
                             Icon2(
                                 if (isPlaying) PauseFill else PlayArrow,
                                 tint = MaterialTheme.colorScheme.surface,
-                                size = 28.dp,
+                                size = 26.dp,
                             )
                         }
                         IconClick(
-                            SkipNextFill, tint = titleColor, size = 30.dp, touchSize = 44.dp,
+                            SkipNextFill, tint = titleColor, size = 28.dp, touchSize = 44.dp,
                             onClick = { mediaController?.seekToNextMediaItem() },
                         )
                         IconClick(
                             imageVector = if (repeatMode == Player.REPEAT_MODE_ONE) RepeatOne else Repeat,
                             tint = if (repeatMode == Player.REPEAT_MODE_OFF) dimColor else MaterialTheme.colorScheme.primary,
-                            size = 22.dp, touchSize = 44.dp,
+                            size = 20.dp, touchSize = 40.dp,
                             onClick = {
                                 mediaController?.repeatMode = when (repeatMode) {
                                     Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL

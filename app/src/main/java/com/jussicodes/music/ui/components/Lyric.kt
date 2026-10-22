@@ -10,7 +10,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +44,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -61,6 +61,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.toDp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaMetadata
@@ -115,8 +116,12 @@ fun Lyric(
     var currentIndex by remember { mutableIntStateOf(0) }
     var autoScrollEnabled by remember { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
-    // 横屏：记录歌词视口高度，用来做顶部占位块（当前句不从贴着顶边开始）。
+    // 横屏：记录歌词视口高度，用来把「当前句停留位」折算成 contentPadding，
+    // 从而让每次切换只需要一次 scrollToItem（见下方 highlightAnchorPx）。
     var viewportHeightPx by remember { mutableIntStateOf(0) }
+    // 本次滚动是否由我们发起。用于把程序化滚动与用户拖动区分开：
+    // isScrollInProgress 对两者都为 true，只有靠这个标记才能判断"用户在翻歌词"。
+    var programmaticScroll by remember { mutableStateOf(false) }
     val lrcLine = lyric?.lrc?.lyric?.parseLrc()
     val yrcLine = lyric?.yrc?.lyric?.parseYrc()
     val translationLines = lyric?.tlyric?.lyric?.parseLrc().orEmpty()
@@ -135,9 +140,13 @@ fun Lyric(
 
     LaunchedEffect(currentMediaId, mediaMetadata.title) {
         currentIndex = 0
+        autoScrollEnabled = true
+        programmaticScroll = false
         currentMediaId?.toLongOrNull()?.let {
             lyricViewModel.fetchLyric(it)
         }
+        // 换歌：列表回到第一句顶部，避免停在新歌的随机位置。
+        listState.scrollToItem(0, 0)
     }
 
     if (enableBackHandler) {
@@ -239,28 +248,59 @@ fun Lyric(
 
             displayLines?.let { lrcLines ->
 
-                LaunchedEffect(listState.isScrollInProgress) {
-                    autoScrollEnabled = !listState.isScrollInProgress
+                /**
+                 * 「当前句」固定停留位（像素）。
+                 *
+                 * 竖屏：贴顶再往上留两句上下文 → 直接 scrollToItem(index - 2)，停留位就是 0。
+                 * 横屏：当前句停在视口上方约 1/3 处。**关键做法**：把这个停留位做成
+                 * LazyColumn 的 contentPadding.top，于是定位只需要一次 scrollToItem(index)；
+                 * 不再像以前那样 scrollToItem 之后再 animateScrollBy 补偿一次
+                 * （两次串行动画叠加在同一个 LazyListState 上，视觉上就是"先顶到最上、再往回滑"）。
+                 */
+                val highlightAnchorPx: Int = if (landscape) {
+                    if (viewportHeightPx > 0) (viewportHeightPx * 0.30f).toInt() else 0
+                } else 0
+
+                // 用户手势滚动：暂停自动跟随；松开后恢复，并把当前句重新拉回停留位。
+                // isScrollInProgress 对程序化滚动同样为 true，故用 programmaticScroll 区分。
+                LaunchedEffect(listState, lrcLines) {
+                    snapshotFlow { listState.isScrollInProgress to programmaticScroll }
+                        .collect { (inProgress, byUs) ->
+                            if (inProgress && !byUs) {
+                                autoScrollEnabled = false
+                            } else if (!inProgress && !autoScrollEnabled && byUs) {
+                                // 程序化滚动刚结束（用户此前手动翻过）：恢复跟随并归位一次。
+                                autoScrollEnabled = true
+                                programmaticScroll = false
+                                listState.animateScrollToItem(
+                                    currentIndex.coerceIn(0, lrcLines.lastIndex),
+                                    0
+                                )
+                            }
+                        }
                 }
 
-                // 定位当前句：竖屏贴顶留两句上下文；横屏当前句停在视口上方约 1/3 处。
+                // 定位当前句。index 非法直接返回；单次 scrollToItem，无二次补偿。
                 suspend fun scrollToCurrent(index: Int) {
-                    // indexOfLast 找不到匹配时返回 -1（当前时间早于第一句歌词），
-                    // 直接传给 animateScrollToItem 会抛 "Index should be non-negative (-1)"。
-                    if (index < 0) return
-                    if (landscape) {
-                        if (viewportHeightPx <= 0) return
-                        listState.animateScrollToItem(index)
-                        val backOffset = viewportHeightPx * 0.28f
-                        if (backOffset > 0f) listState.animateScrollBy(-backOffset)
-                    } else if (index > 0) {
-                        listState.animateScrollToItem(maxOf(index - 2, 0))
+                    if (index < 0 || index > lrcLines.lastIndex) return
+                    programmaticScroll = true
+                    try {
+                        if (landscape) {
+                            // 停留位已由 contentPadding.top 提供，offset 传 0。
+                            listState.animateScrollToItem(index, 0)
+                        } else if (index > 0) {
+                            listState.animateScrollToItem(maxOf(index - 2, 0), 0)
+                        }
+                    } finally {
+                        programmaticScroll = false
                     }
                 }
 
+                // 仅在「活动歌词索引变化」时触发一次定位。position 每次心跳都变，
+                // 这里靠 index != currentIndex 收敛，避免重复位移。
                 LaunchedEffect(position) {
                     // indexOfLast 找不到匹配时返回 -1（当前时间早于第一句歌词），
-                    // 夹到 0：既避免 -1 传进 animateScrollToItem，也保证第一句有高亮。
+                    // 夹到 0：既避免 -1 传进 scrollToItem，也保证第一句有高亮。
                     val index = lrcLines.indexOfLast { it.first <= position }.coerceAtLeast(0)
                     if (index != currentIndex) {
                         currentIndex = index
@@ -270,9 +310,10 @@ fun Lyric(
                     }
                 }
 
-                // 横屏：视口高度就绪后（或变化后）重新定位一次当前句。
-                LaunchedEffect(viewportHeightPx) {
-                    if (landscape && viewportHeightPx > 0 && autoScrollEnabled) {
+                // 横屏尺寸变化 → 停留位（contentPadding.top）随之变化，重新对齐一次当前句。
+                // key 只含停留位，不含 position：避免每次心跳都重复发起滚动。
+                LaunchedEffect(highlightAnchorPx, autoScrollEnabled) {
+                    if (landscape && highlightAnchorPx > 0 && autoScrollEnabled && viewportHeightPx > 0) {
                         scrollToCurrent(currentIndex)
                     }
                 }
@@ -285,12 +326,23 @@ fun Lyric(
                     contentPadding = PaddingValues(
                         start = if (landscape) 20.dp else 12.dp,
                         end = if (landscape) 20.dp else 12.dp,
-                        top = if (landscape) 8.dp else 0.dp,
+                        // 横屏：停留位就是 top padding，定位只需一次 scrollToItem(index, 0)。
+                        // 同时充当顶部渐隐下的呼吸空间。
+                        top = if (landscape) {
+                            (highlightAnchorPx.toDp() + 8.dp).coerceAtLeast(8.dp)
+                        } else 0.dp,
                         bottom = if (landscape) 56.dp else 0.dp,
                     )
                 ) {
                     items(
                         count = lrcLines.size,
+                        // 稳定且唯一：以时间戳为主键成分，行号兜底（同一毫秒的两行不冲突），
+                        // 翻译文案变化也纳入 key，翻开/关闭翻译不会让整列失配重排。
+                        key = { index ->
+                            "${lrcLines[index].first}_${index}_${
+                                translationMap[lrcLines[index].first]?.hashCode() ?: 0
+                            }"
+                        },
                     ) { index ->
                         val isCurrent = index == currentIndex
                         val currentText = lrcLines[index].second.isNotEmpty()
