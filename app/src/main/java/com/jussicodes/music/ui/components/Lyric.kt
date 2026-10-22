@@ -245,6 +245,9 @@ fun Lyric(
 
                 // 定位当前句：竖屏贴顶留两句上下文；横屏当前句停在视口上方约 1/3 处。
                 suspend fun scrollToCurrent(index: Int) {
+                    // indexOfLast 找不到匹配时返回 -1（当前时间早于第一句歌词），
+                    // 直接传给 animateScrollToItem 会抛 "Index should be non-negative (-1)"。
+                    if (index < 0) return
                     if (landscape) {
                         if (viewportHeightPx <= 0) return
                         listState.animateScrollToItem(index)
