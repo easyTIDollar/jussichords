@@ -1,6 +1,12 @@
 package com.jussicodes.music.ui.components
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.activity.compose.BackHandler
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -30,6 +36,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +52,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalView
 import androidx.media3.common.C
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -117,6 +125,24 @@ fun PlayerLandscape(
     val titleColor = MaterialTheme.colorScheme.onSurface
     val dimColor = MaterialTheme.colorScheme.onSurfaceVariant
     val panelColor = MaterialTheme.colorScheme.surfaceContainer
+
+    // 沉浸式：进入横屏播放页隐藏状态栏/导航栏，离开时恢复。
+    // 用 WindowInsetsControllerCompat，不碰系统 UI flag，旋转/退出时由 DisposableEffect 复原。
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        DisposableEffect(Unit) {
+            val window = view.context.findActivity()?.window
+            val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+            controller?.let {
+                it.hide(WindowInsetsCompat.Type.systemBars())
+                it.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+            onDispose {
+                controller?.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxSize()) {
@@ -254,6 +280,9 @@ fun PlayerLandscape(
                     }
 
                     // 3) 进度条：横跨左栏可用宽度。
+                    // Material3 Slider 默认轨道/滑块偏粗，在矮屏横屏里会抢走封面的视觉重心。
+                    // 整体压扁（height 28dp，低于 48dp 触控下限的部分交给 track 自身命中区），
+                    // 视觉上只保留一条细线 + 小圆点，把注意力还给封面。
                     Slider(
                         value = if (durationUsable) {
                             if (sliderPosition != null) scrubFraction
@@ -271,8 +300,31 @@ fun PlayerLandscape(
                             }
                             sliderPosition = null
                         },
-                        colors = SliderDefaults.colors(),
-                        modifier = Modifier.fillMaxWidth(),
+                        colors = SliderDefaults.colors(
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
+                            thumbColor = MaterialTheme.colorScheme.primary,
+                        ),
+                        track = { sliderState ->
+                            // 3dp 细线：紧凑，不与封面争视觉重心。
+                            SliderDefaults.Track(
+                                sliderState = sliderState,
+                                modifier = Modifier.height(3.dp),
+                                thumbTrackGapSize = 0.dp,
+                                drawStopIndicator = null,
+                            )
+                        },
+                        thumb = {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary)
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(28.dp),
                     )
 
                     // 时间标签：左对齐已播放、右对齐剩余，紧贴进度条两端。
@@ -406,6 +458,13 @@ fun PlayerLandscape(
         // 在 Lyric 之后注册，优先级更高。
         BackHandler { onBackPressed() }
     }
+}
+
+/** 沿 ContextWrapper 链找到 Activity，拿它的 Window 做沉浸式系统栏控制。 */
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 /** 统一的无涟漪图标按钮。[touchSize] 为可点区域（矮屏下比视觉图标大）。 */

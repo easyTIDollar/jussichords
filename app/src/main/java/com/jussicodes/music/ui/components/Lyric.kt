@@ -54,7 +54,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -249,20 +248,19 @@ fun Lyric(
             displayLines?.let { lrcLines ->
 
                 /**
-                 * 「当前句」固定停留位（像素）。
+                 * 「当前句」停留位偏移（像素，负值 = 停在视口顶部之上）。
                  *
-                 * 竖屏：贴顶再往上留两句上下文 → 直接 scrollToItem(index - 2)，停留位就是 0。
-                 * 横屏：当前句停在视口上方约 1/3 处。**关键做法**：把这个停留位做成
-                 * LazyColumn 的 contentPadding.top，于是定位只需要一次 scrollToItem(index)；
-                 * 不再像以前那样 scrollToItem 之后再 animateScrollBy 补偿一次
-                 * （两次串行动画叠加在同一个 LazyListState 上，视觉上就是"先顶到最上、再往回滑"）。
+                 * 横屏把当前句停在视口上方约 1/3 处。做法是**单次**
+                 * animateScrollToItem(index, scrollOffset)，scrollOffset 直接取负值，
+                 * 一次到位。绝不能写成 animateScrollToItem(index) + animateScrollBy(补偿)：
+                 * 那是两段串行动画打在同一个 LazyListState 上，视觉上就是"先顶到最上、再往回滑"——
+                 * 这正是最初的回弹 bug。
+                 *
+                 * 也不把停留位做成 contentPadding.top：那会让列表总高度随视口变化，
+                 * scrollToItem 的落点被反复修正，表现为歌词不滚动 / 抖动。
                  */
-                // toDp() 是 Density 的成员函数，必须在 LocalDensity 作用域内调用。
-                val highlightAnchorDp: Dp = with(LocalDensity.current) {
-                    if (landscape && viewportHeightPx > 0) {
-                        (viewportHeightPx * 0.30f).toInt().toDp()
-                    } else 0.dp
-                }
+                val highlightAnchorOffsetPx: Int =
+                    if (landscape && viewportHeightPx > 0) -(viewportHeightPx * 0.30f).toInt() else 0
 
                 // 用户手势滚动：暂停自动跟随；松开后恢复，并把当前句重新拉回停留位。
                 // isScrollInProgress 对程序化滚动同样为 true，故用 programmaticScroll 区分。
@@ -289,8 +287,8 @@ fun Lyric(
                     programmaticScroll = true
                     try {
                         if (landscape) {
-                            // 停留位已由 contentPadding.top 提供，offset 传 0。
-                            listState.animateScrollToItem(index, 0)
+                            // 一次到位：停留位靠负 scrollOffset 实现，不做二次补偿。
+                            listState.animateScrollToItem(index, highlightAnchorOffsetPx)
                         } else if (index > 0) {
                             listState.animateScrollToItem(maxOf(index - 2, 0), 0)
                         }
@@ -315,8 +313,8 @@ fun Lyric(
 
                 // 横屏尺寸变化 → 停留位（contentPadding.top）随之变化，重新对齐一次当前句。
                 // key 只含停留位，不含 position：避免每次心跳都重复发起滚动。
-                LaunchedEffect(highlightAnchorDp, autoScrollEnabled) {
-                    if (landscape && highlightAnchorDp > 0.dp && autoScrollEnabled && viewportHeightPx > 0) {
+                LaunchedEffect(highlightAnchorOffsetPx, autoScrollEnabled) {
+                    if (landscape && highlightAnchorOffsetPx < 0 && autoScrollEnabled && viewportHeightPx > 0) {
                         scrollToCurrent(currentIndex)
                     }
                 }
@@ -331,7 +329,9 @@ fun Lyric(
                         end = if (landscape) 20.dp else 12.dp,
                         // 横屏：停留位就是 top padding，定位只需一次 scrollToItem(index, 0)。
                         // 同时充当顶部渐隐下的呼吸空间。
-                        top = if (landscape) (highlightAnchorDp + 8.dp).coerceAtLeast(8.dp) else 0.dp,
+                        // top 保持小值：停留位由 scrollOffset 负责，
+                        // 把它加进 contentPadding 会让列表总高度随视口变化而抖动。
+                        top = if (landscape) 8.dp else 0.dp,
                         bottom = if (landscape) 56.dp else 0.dp,
                     )
                 ) {
