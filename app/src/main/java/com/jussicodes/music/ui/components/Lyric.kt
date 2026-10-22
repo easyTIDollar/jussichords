@@ -316,7 +316,7 @@ fun Lyric(
                 // 横屏尺寸变化 → 停留位（contentPadding.top）随之变化，重新对齐一次当前句。
                 // key 只含停留位，不含 position：避免每次心跳都重复发起滚动。
                 LaunchedEffect(highlightAnchorDp, autoScrollEnabled) {
-                    if (landscape && highlightAnchorDp > 0 && autoScrollEnabled && viewportHeightPx > 0) {
+                    if (landscape && highlightAnchorDp > 0.dp && autoScrollEnabled && viewportHeightPx > 0) {
                         scrollToCurrent(currentIndex)
                     }
                 }
