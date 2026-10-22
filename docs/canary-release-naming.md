@@ -30,6 +30,32 @@
    - GitHub release 与 Gitee release 的 `tag_name` 一致、APK 都在；
    - Gitee 上旧 tag 的 release 数量只增不删（稳定版）；canary 旧 tag 累积属正常（每个构建一个 tag）。
 
+## Canary 垃圾自动清理（防堆积）
+
+无电脑调试时每次 canary 构建都会新增一个 release + tag，长期会堆很多垃圾。CI 已内建清理：
+
+- **触发**：canary 构建发布成功后自动执行 `scripts/cleanup_canary_releases.py`（`Cleanup old canary releases` 步骤）。
+- **保留策略**：只保留**最新 2 个** canary pre-release（`prerelease=true` 且 tag 含 `-canary.`），其余的 **release 与同名 tag 一并删除**。
+- **正式版 release 完全不碰**（脚本只筛 `-canary.` 的 pre-release）。
+- **权限**：用 CI 内置 `GITHUB_TOKEN`（workflow 已有 `permissions: contents: write`），无需额外 secret。
+- **不破坏 App 内更新**：App 的 canary 通道读最新 pre-release，保留的 2 个即最新，`checkUpdate()` 判定与命名规则自洽。
+- **手动补清**（可选）：`GH_TOKEN=xxx KEEP_CANARY_RELEASES=2 python3 scripts/cleanup_canary_releases.py`。
+- **调整保留数量**：改 workflow 里 `KEEP_CANARY_RELEASES` 环境变量值即可（默认 `'2'`）。
+
+## 能否把 canary 变成「私人」
+
+GitHub 的 release **没有单独的「设为私有」开关**，只有三条路：
+
+| 方案 | 做法 | 代价 |
+|---|---|---|
+| **A（当前采用）** | 保持公开 + CI 自动清理旧 canary | 无代价，App 内更新/下载完全不受影响 |
+| B | canary 改发 Actions artifact（固定名 + 7 天过期） | 下载要进 Actions run 页面；App 内 canary 更新通道失效 |
+| C | canary 移到单独的 private 仓库（CI 用 PAT 跨仓推） | 公开仓库零痕迹；手机下载需登录；App 内 canary 通道失效 |
+| D | 整个 repo 转 private | 正式版公开分发和 App 内更新全崩，**不可行** |
+
+结论：**变私人后当前构建流程照样能用**（变的是发布落点，不是构建流程——`assembleCanary`、时间戳后缀、独立 keystore、`.canary` applicationId 全不变）。
+
+
 ## 检查更新逻辑（App 侧，与命名自洽）
 
 - `AppUpdateManager.checkUpdate()` 渠道感知：canary 构建只跟踪 **pre-release**，正式版只跟踪 latest。
