@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -65,6 +66,7 @@ import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.ThumbnailCornerRadius
+import com.jussicodes.music.constants.isLandscapePhone
 import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.playMediaAt
@@ -123,6 +125,7 @@ fun AlbumScreen(
     val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
         .collectAsState(emptyList())
     val currentAlbum = albumDetailState?.getOrNull()?.album
+    val isLandscape = isLandscapePhone()
 
     fun togglePinnedAlbum(album: Album) {
         coroutineScope.launch {
@@ -132,55 +135,138 @@ fun AlbumScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        if (showAlbumTitle) playlistTitle else stringResource(R.string.album),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { navController.navigateUp() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
-                    }
-                },
-                actions = {
-                    currentAlbum?.let { album ->
-                        val isPinned = album.id in pinnedAlbums.map { it.id }
-                        if (isPinned) {
-                            FilledTonalIconButton(onClick = {
-                                togglePinnedAlbum(album)
-                                Toast.makeText(context, "已取消置顶《${album.name}》", Toast.LENGTH_SHORT).show()
-                            }) {
-                                Icon(
-                                    imageVector = PushPinFill,
-                                    contentDescription = "取消固定",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+            // 横屏（矮屏）走主从双栏，顶栏按钮移到左栏顶部，这里不显示顶栏。
+            if (!isLandscape) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            if (showAlbumTitle) playlistTitle else stringResource(R.string.album),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.navigateUp() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        }
+                    },
+                    actions = {
+                        currentAlbum?.let { album ->
+                            val isPinned = album.id in pinnedAlbums.map { it.id }
+                            if (isPinned) {
+                                FilledTonalIconButton(onClick = {
+                                    togglePinnedAlbum(album)
+                                    Toast.makeText(context, "已取消置顶《${album.name}》", Toast.LENGTH_SHORT).show()
+                                }) {
+                                    Icon(
+                                        imageVector = PushPinFill,
+                                        contentDescription = "取消固定",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            } else {
+                                IconButton(onClick = {
+                                    togglePinnedAlbum(album)
+                                    Toast.makeText(context, "已固定到主页", Toast.LENGTH_SHORT).show()
+                                }) {
+                                    Icon(
+                                        imageVector = PushPin,
+                                        contentDescription = "固定到主页"
+                                    )
+                                }
                             }
-                        } else {
-                            IconButton(onClick = {
-                                togglePinnedAlbum(album)
-                                Toast.makeText(context, "已固定到主页", Toast.LENGTH_SHORT).show()
-                            }) {
+                            IconButton(onClick = { sharePayload = SharePayload.AlbumShare(album) }) {
                                 Icon(
-                                    imageVector = PushPin,
-                                    contentDescription = "固定到主页"
+                                    imageVector = Icons.Outlined.Share,
+                                    contentDescription = stringResource(R.string.share)
                                 )
                             }
                         }
-                        IconButton(onClick = { sharePayload = SharePayload.AlbumShare(album) }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Share,
-                                contentDescription = stringResource(R.string.share)
-                            )
-                        }
                     }
-                }
-            )
+                )
+            }
         }
     ) { padding ->
+        if (isLandscape) {
+            albumDetailState?.onSuccess { detail ->
+                val album = detail.album
+                val isPinned = album.id in pinnedAlbums.map { it.id }
+                AlbumLandscapeBody(
+                    albumName = album.name,
+                    artistName = album.artist.name,
+                    publishTimeText = formatTimestamp(album.publishTime),
+                    cover = {
+                        with(sharedTransitionScope) {
+                            AsyncImage(
+                                model = album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL),
+                                contentDescription = album.name,
+                                contentScale = ContentScale.Crop,
+                                filterQuality = FilterQuality.High,
+                                modifier = Modifier
+                                    .sharedElement(
+                                        sharedTransitionScope.rememberSharedContentState(key = album.id),
+                                        animatedVisibilityScope = animatedContentScope
+                                    )
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                    .clickable {
+                                        previewCoverUrl = album.picUrl.toCoverImageUrl(CoverImageSize.LARGE)
+                                    }
+                            )
+                        }
+                    },
+                    isSubscribed = albumInfoState?.isSub == true,
+                    isPinned = isPinned,
+                    songs = detail.songs,
+                    isPlaying = isPlaying,
+                    currentMediaId = currentMediaId,
+                    likedSongIds = songIds,
+                    hasMiniPlayer = hasMiniPlayer,
+                    onBack = { navController.navigateUp() },
+                    onArtistClick = { navController.navigate(ArtistNav(artistId = album.artist.id)) },
+                    onToggleSubscribe = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        albumScreenViewModel.albumSub(isSub = albumInfoState?.isSub != true)
+                    },
+                    onTogglePin = {
+                        togglePinnedAlbum(album)
+                        Toast.makeText(
+                            context,
+                            if (isPinned) "已取消置顶《${album.name}》" else "已固定到主页",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    onShare = { sharePayload = SharePayload.AlbumShare(album) },
+                    onPlayAll = {
+                        mediaController?.setPlaylist(
+                            detail.songs,
+                            sourceId = album.id,
+                            sourceName = album.name,
+                            sourceType = MediaSessionConstants.SOURCE_TYPE_ALBUM,
+                            navId = album.id
+                        )
+                        mediaController?.playMediaAt()
+                    },
+                    onComments = { openAlbumComments = true },
+                    onSongClick = { song ->
+                        mediaController?.setPlaylist(
+                            detail.songs,
+                            sourceId = album.id,
+                            sourceName = album.name,
+                            sourceType = MediaSessionConstants.SOURCE_TYPE_ALBUM,
+                            navId = album.id
+                        )
+                        mediaController?.playMediaAtId(song.id)
+                    },
+                    onSongMenu = { song ->
+                        selectSong = song
+                        openBottomSheet = true
+                    },
+                    modifier = Modifier.padding(padding)
+                )
+            }
+            return@Scaffold
+        }
         LazyColumn(contentPadding = padding, state = listState) {
             albumDetailState?.onSuccess { detail ->
                 playlistTitle = detail.album.name

@@ -177,6 +177,14 @@ fun contentMaxWidth(): Dp? {
 const val LandscapeSidePanelFraction = 0.46f
 
 /**
+ * 横屏详情页「主从双栏」左栏宽度占比：**左 40% / 右 60%**。
+ *
+ * 专辑/歌单详情页在横屏下换成黄金比例双栏：左栏放封面 + 文案 + 3 枚药丸按钮，
+ * 右栏留给可滚动的曲目列表。左栏占比再大就会把列表挤到放不下行标题。
+ */
+const val LandscapeDetailLeftFraction = 0.4f
+
+/**
  * 详情页大封面边长（歌单/专辑/电台头图）。
  *
  * 固定 200dp 在横屏手机上会吃掉大部分可视高度：矮屏总高仅 411dp，减去 200dp 封面
