@@ -62,6 +62,7 @@ import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.MiniPlayerHeight
+import com.jussicodes.music.constants.isLandscapePhone
 import com.jussicodes.music.R
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
@@ -121,337 +122,411 @@ fun ArtistScreen(
         ?: artistHeadInfoState?.data?.artist?.picUrl
     val avatarUrl = artistHeadInfoState?.data?.artist?.picUrl ?: heroUrl
 
-    // 实色底：撤掉 NavHost 全局纯色后，主页背景层在 MainScreen 渲染，
-    // 本页根布局需自带不透明底，避免背景透出。
-    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        // 固定头部：歌手封面 hero（不随 tab 内容滚动）
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.BottomStart
-        ) {
-            AsyncImage(
-                model = heroUrl.toCoverImageUrl(CoverImageSize.HERO),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .aspectRatio(4f / 3f)
-                    .clickable(enabled = heroUrl != null) {
-                        previewArtistImageUrl = heroUrl
-                    }
-            )
-            AsyncImage(
-                model = avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .padding(12.dp)
-                    .size(84.dp)
-                    .clip(CircleShape)
-                    .clickable(enabled = avatarUrl != null) {
-                        previewArtistImageUrl = avatarUrl
-                    }
-            )
-        }
-        // 信息行：歌手名 / 粉丝数 / 收藏
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Text(
-                    text = artistHeadInfoState?.data?.artist?.name.orEmpty(),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                val stats = artistFollowStats
-                if (stats != null) {
-                    val parts = mutableListOf("粉丝 ${formatPlayCount(stats.fansCnt.toDouble())}")
-                    if (isArtistSubscribed && stats.followDay.isNotBlank()) {
-                        parts.add(stats.followDay)
-                    }
-                    Text(
-                        text = parts.joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+    // 横屏（矮屏）走左右分栏：左栏沉浸区 + 右栏内容浏览区。
+    // 竖屏保持「顶部横幅 + 三 tab」的单列堆叠，两套布局互不影响。
+    if (isLandscapePhone()) {
+        ArtistLandscapeBody(
+            artistName = artistHeadInfoState?.data?.artist?.name.orEmpty(),
+            briefDesc = artistHeadInfoState?.data?.artist?.briefDesc,
+            fansText = artistFollowStats?.let { "粉丝 ${formatPlayCount(it.fansCnt.toDouble())}" },
+            followText = if (isArtistSubscribed) {
+                artistFollowStats?.followDay?.takeIf { it.isNotBlank() }
+            } else {
+                null
+            },
+            isSubscribed = isArtistSubscribed,
+            subscribeEnabled = !isArtistSubUpdating && artistHeadInfoState != null,
+            onToggleSubscribe = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                artistScreenViewModel.toggleArtistSub()
+            },
+            heroUrl = heroUrl,
+            posterUrl = heroUrl,
+            onPosterClick = { previewArtistImageUrl = it },
+            onBack = { navController.navigateUp() },
+            onPlayAll = {
+                val queue = allSongsForQueue
+                    ?: artistTopSongState?.songs
+                    ?: artistAllSongs.itemSnapshotList.items
+                if (queue.isNotEmpty()) {
+                    mediaController?.setPlaylist(
+                        queue,
+                        sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                        sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                        navId = artistHeadInfoState?.data?.artist?.id ?: 0L
                     )
+                    mediaController?.playMediaAtId(queue.first().id)
+                }
+            },
+            songMode = songMode,
+            onSongModeChange = { artistScreenViewModel.setSongMode(it) },
+            sortOrder = sortOrder,
+            onSortOrderChange = { artistScreenViewModel.setSortOrder(it) },
+            topSongs = artistTopSongState?.songs.orEmpty(),
+            allSongs = artistAllSongs,
+            albums = artistAlbumList,
+            simiArtists = simiArtists,
+            likedSongIds = likedSongIds,
+            isPlaying = isPlaying,
+            currentMediaId = currentMediaId,
+            hasMiniPlayer = hasMiniPlayer,
+            onSongClick = { song ->
+                // 「全部歌曲」模式下队列用全量列表；热门模式用 Top 50
+                val queue = if (songMode == "all") {
+                    allSongsForQueue ?: artistTopSongState?.songs.orEmpty()
+                } else {
+                    artistTopSongState?.songs.orEmpty()
+                }
+                mediaController?.setPlaylist(
+                    queue,
+                    sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                    sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                    navId = artistHeadInfoState?.data?.artist?.id ?: 0L
+                )
+                mediaController?.playMediaAtId(song.id)
+            },
+            onSongMenu = { song ->
+                selectSong = song
+                openBottomSheet = true
+            },
+            onAlbumClick = { navController.navigate(AlbumNav(albumId = it.id)) },
+            onSimilarArtistClick = {
+                navController.navigate(ArtistNav(artistId = it.id))
+            }
+        )
+    } else {
+        // 实色底：撤掉 NavHost 全局纯色后，主页背景层在 MainScreen 渲染，
+        // 本页根布局需自带不透明底，避免背景透出。
+        Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            // 固定头部：歌手封面 hero（不随 tab 内容滚动）
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.BottomStart
+            ) {
+                AsyncImage(
+                    model = heroUrl.toCoverImageUrl(CoverImageSize.HERO),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .aspectRatio(4f / 3f)
+                        .clickable(enabled = heroUrl != null) {
+                            previewArtistImageUrl = heroUrl
+                        }
+                )
+                AsyncImage(
+                    model = avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .padding(12.dp)
+                        .size(84.dp)
+                        .clip(CircleShape)
+                        .clickable(enabled = avatarUrl != null) {
+                            previewArtistImageUrl = avatarUrl
+                        }
+                )
+            }
+            // 信息行：歌手名 / 粉丝数 / 收藏
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = artistHeadInfoState?.data?.artist?.name.orEmpty(),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val stats = artistFollowStats
+                    if (stats != null) {
+                        val parts = mutableListOf("粉丝 ${formatPlayCount(stats.fansCnt.toDouble())}")
+                        if (isArtistSubscribed && stats.followDay.isNotBlank()) {
+                            parts.add(stats.followDay)
+                        }
+                        Text(
+                            text = parts.joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                OutlinedButton(
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        artistScreenViewModel.toggleArtistSub()
+                    },
+                    enabled = !isArtistSubUpdating && artistHeadInfoState != null,
+                    modifier = Modifier.padding(start = 8.dp)
+                ) {
+                    Text(text = if (isArtistSubscribed) "取消收藏" else "收藏")
                 }
             }
-            OutlinedButton(
-                onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    artistScreenViewModel.toggleArtistSub()
-                },
-                enabled = !isArtistSubUpdating && artistHeadInfoState != null,
-                modifier = Modifier.padding(start = 8.dp)
-            ) {
-                Text(text = if (isArtistSubscribed) "取消收藏" else "收藏")
-            }
-        }
 
-        // 三个 tab 页左右滑动（可预览相邻页），各页独立懒列
-        SwipableTabPager(
-            titles = listOf(
-                stringResource(R.string.explore),
-                stringResource(R.string.song),
-                stringResource(R.string.album)
-            ),
-            pagerState = pagerState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-        ) { page ->
-            when (page) {
-                0 -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    item(key = "explore-info") {
-                        NavigationTitle(
-                            title = stringResource(R.string.artist_info),
-                            modifier = Modifier.animateItem(placementSpec = null)
-                        )
-                        artistHeadInfoState?.data?.artist?.briefDesc?.trimIndent()?.let {
-                            Card(
-                                modifier = Modifier
-                                    .animateItem(placementSpec = null)
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp)
-                                    .padding(bottom = 12.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainer
-                                )
-                            ) {
-                                Text(
-                                    text = if (it.isNotBlank()) it else stringResource(R.string.no_brief),
-                                    modifier = Modifier.padding(12.dp),
-                                    style = MaterialTheme.typography.bodyMedium
+            // 三个 tab 页左右滑动（可预览相邻页），各页独立懒列
+            SwipableTabPager(
+                titles = listOf(
+                    stringResource(R.string.explore),
+                    stringResource(R.string.song),
+                    stringResource(R.string.album)
+                ),
+                pagerState = pagerState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) { page ->
+                when (page) {
+                    0 -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        item(key = "explore-info") {
+                            NavigationTitle(
+                                title = stringResource(R.string.artist_info),
+                                modifier = Modifier.animateItem(placementSpec = null)
+                            )
+                            artistHeadInfoState?.data?.artist?.briefDesc?.trimIndent()?.let {
+                                Card(
+                                    modifier = Modifier
+                                        .animateItem(placementSpec = null)
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp)
+                                        .padding(bottom = 12.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceContainer
+                                    )
+                                ) {
+                                    Text(
+                                        text = if (it.isNotBlank()) it else stringResource(R.string.no_brief),
+                                        modifier = Modifier.padding(12.dp),
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            }
+                        }
+                        if (simiArtists.isNotEmpty()) {
+                            item {
+                                NavigationTitle(title = "相似歌手")
+                            }
+                            itemsIndexed(
+                                items = simiArtists,
+                                key = { _, artist -> "explore-artist-${artist.id}" }
+                            ) { _, artist ->
+                                ArtistListItem(
+                                    artist = artist,
+                                    modifier = Modifier
+                                        .animateItem(placementSpec = null)
+                                        .clickable {
+                                            navController.navigate(ArtistNav(artistId = artist.id))
+                                        }
                                 )
                             }
                         }
-                    }
-                    if (simiArtists.isNotEmpty()) {
+
                         item {
-                            NavigationTitle(title = "相似歌手")
+                            // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                            if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
                         }
-                        itemsIndexed(
-                            items = simiArtists,
-                            key = { _, artist -> "explore-artist-${artist.id}" }
-                        ) { _, artist ->
-                            ArtistListItem(
-                                artist = artist,
+                    }
+
+                    1 -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        item(key = "song-toolbar") {
+                            Row(
                                 modifier = Modifier
-                                    .animateItem(placementSpec = null)
-                                    .clickable {
-                                        navController.navigate(ArtistNav(artistId = artist.id))
-                                    }
-                            )
-                        }
-                    }
-
-                    item {
-                        // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
-                        if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
-                    }
-                }
-
-                1 -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    item(key = "song-toolbar") {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp)
-                                .padding(top = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            FilterChip(
-                                selected = songMode == "top",
-                                onClick = { artistScreenViewModel.setSongMode("top") },
-                                label = { Text(stringResource(R.string.artist_song_top50)) }
-                            )
-                            FilterChip(
-                                selected = songMode == "all",
-                                onClick = { artistScreenViewModel.setSongMode("all") },
-                                label = { Text(stringResource(R.string.artist_song_all)) }
-                            )
-                            Spacer(Modifier.weight(1f))
-                            Box {
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp)
+                                    .padding(top = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 FilterChip(
-                                    selected = sortMenuExpanded,
-                                    enabled = songMode == "all",
-                                    onClick = { sortMenuExpanded = true },
-                                    label = { Text(stringResource(R.string.artist_sort)) },
-                                    trailingIcon = {
-                                        Icon(
-                                            imageVector = ChevronDown,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
+                                    selected = songMode == "top",
+                                    onClick = { artistScreenViewModel.setSongMode("top") },
+                                    label = { Text(stringResource(R.string.artist_song_top50)) }
                                 )
-                                DropdownMenu(
-                                    expanded = sortMenuExpanded,
-                                    onDismissRequest = { sortMenuExpanded = false }
-                                ) {
-                                    listOf("hot" to stringResource(R.string.artist_sort_hot),
-                                        "time" to stringResource(R.string.artist_sort_time)
-                                    ).forEach { (order, label) ->
-                                        val checked = sortOrder == order
-                                        DropdownMenuItem(
-                                            text = { Text(label) },
-                                            leadingIcon = {
-                                                Checkbox(checked = checked, onCheckedChange = null)
-                                            },
-                                            onClick = {
-                                                artistScreenViewModel.setSortOrder(order)
-                                                sortMenuExpanded = false
-                                            }
-                                        )
+                                FilterChip(
+                                    selected = songMode == "all",
+                                    onClick = { artistScreenViewModel.setSongMode("all") },
+                                    label = { Text(stringResource(R.string.artist_song_all)) }
+                                )
+                                Spacer(Modifier.weight(1f))
+                                Box {
+                                    FilterChip(
+                                        selected = sortMenuExpanded,
+                                        enabled = songMode == "all",
+                                        onClick = { sortMenuExpanded = true },
+                                        label = { Text(stringResource(R.string.artist_sort)) },
+                                        trailingIcon = {
+                                            Icon(
+                                                imageVector = ChevronDown,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    )
+                                    DropdownMenu(
+                                        expanded = sortMenuExpanded,
+                                        onDismissRequest = { sortMenuExpanded = false }
+                                    ) {
+                                        listOf("hot" to stringResource(R.string.artist_sort_hot),
+                                            "time" to stringResource(R.string.artist_sort_time)
+                                        ).forEach { (order, label) ->
+                                            val checked = sortOrder == order
+                                            DropdownMenuItem(
+                                                text = { Text(label) },
+                                                leadingIcon = {
+                                                    Checkbox(checked = checked, onCheckedChange = null)
+                                                },
+                                                onClick = {
+                                                    artistScreenViewModel.setSortOrder(order)
+                                                    sortMenuExpanded = false
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    if (songMode == "top") {
-                        artistTopSongState?.songs?.let { songs ->
-                            itemsIndexed(
-                                items = songs,
-                                key = { _, song -> "top-song-${song.id}" }
-                            ) { index, song ->
-                                SongListItem(
-                                    song = song,
-                                    isPlaying = isPlaying,
-                                    showLikedIcon = song.id in likedSongIds,
-                                    isActive = currentMediaId == song.id,
-                                    songIndex = index + 1,
-                                    modifier = Modifier
-                                        .animateItem(placementSpec = null)
-                                        .clickable {
-                                            mediaController?.setPlaylist(
-                                                songs,
-                                                sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
-                                                sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
-                                                navId = artistHeadInfoState?.data?.artist?.id ?: 0L
-                                            )
-                                            mediaController?.playMediaAtId(song.id)
-                                        },
-                                    trailingContent = {
-                                        IconButton(onClick = {
-                                            selectSong = song
-                                            openBottomSheet = true
-                                        }) {
-                                            Icon(
-                                                imageVector = Icons.Default.MoreVert,
-                                                contentDescription = stringResource(R.string.more)
-                                            )
+                        if (songMode == "top") {
+                            artistTopSongState?.songs?.let { songs ->
+                                itemsIndexed(
+                                    items = songs,
+                                    key = { _, song -> "top-song-${song.id}" }
+                                ) { index, song ->
+                                    SongListItem(
+                                        song = song,
+                                        isPlaying = isPlaying,
+                                        showLikedIcon = song.id in likedSongIds,
+                                        isActive = currentMediaId == song.id,
+                                        songIndex = index + 1,
+                                        modifier = Modifier
+                                            .animateItem(placementSpec = null)
+                                            .clickable {
+                                                mediaController?.setPlaylist(
+                                                    songs,
+                                                    sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                                                    sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                                                    navId = artistHeadInfoState?.data?.artist?.id ?: 0L
+                                                )
+                                                mediaController?.playMediaAtId(song.id)
+                                            },
+                                        trailingContent = {
+                                            IconButton(onClick = {
+                                                selectSong = song
+                                                openBottomSheet = true
+                                            }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.MoreVert,
+                                                    contentDescription = stringResource(R.string.more)
+                                                )
+                                            }
                                         }
-                                    }
-                                )
+                                    )
+                                }
+                            }
+                        } else {
+                            items(
+                                count = artistAllSongs.itemCount,
+                                key = { index -> "all-song-${artistAllSongs.peek(index)?.id ?: index}" }
+                            ) { index ->
+                                artistAllSongs[index]?.let { song ->
+                                    val queueSongs = allSongsForQueue
+                                        ?: artistAllSongs.itemSnapshotList.items
+                                    SongListItem(
+                                        song = song,
+                                        isPlaying = isPlaying,
+                                        showLikedIcon = song.id in likedSongIds,
+                                        isActive = currentMediaId == song.id,
+                                        songIndex = index + 1,
+                                        modifier = Modifier
+                                            .animateItem(placementSpec = null)
+                                            .clickable {
+                                                mediaController?.setPlaylist(
+                                                    queueSongs,
+                                                    sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                                                    sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                                                    navId = artistHeadInfoState?.data?.artist?.id ?: 0L
+                                                )
+                                                mediaController?.playMediaAtId(song.id)
+                                            },
+                                        trailingContent = {
+                                            IconButton(onClick = {
+                                                selectSong = song
+                                                openBottomSheet = true
+                                            }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.MoreVert,
+                                                    contentDescription = stringResource(R.string.more)
+                                                )
+                                            }
+                                        }
+                                    )
+                                }
                             }
                         }
-                    } else {
+
+                        item {
+                            // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                            if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
+                        }
+                    }
+
+                    else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(
-                            count = artistAllSongs.itemCount,
-                            key = { index -> "all-song-${artistAllSongs.peek(index)?.id ?: index}" }
+                            count = artistAlbumList.itemCount,
+                            key = { index -> "album-${artistAlbumList.peek(index)?.id ?: index}" }
                         ) { index ->
-                            artistAllSongs[index]?.let { song ->
-                                val queueSongs = allSongsForQueue
-                                    ?: artistAllSongs.itemSnapshotList.items
-                                SongListItem(
-                                    song = song,
-                                    isPlaying = isPlaying,
-                                    showLikedIcon = song.id in likedSongIds,
-                                    isActive = currentMediaId == song.id,
-                                    songIndex = index + 1,
+                            artistAlbumList[index]?.let {
+                                AlbumListItem(
+                                    album = it,
                                     modifier = Modifier
                                         .animateItem(placementSpec = null)
                                         .clickable {
-                                            mediaController?.setPlaylist(
-                                                queueSongs,
-                                                sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
-                                                sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
-                                                navId = artistHeadInfoState?.data?.artist?.id ?: 0L
-                                            )
-                                            mediaController?.playMediaAtId(song.id)
-                                        },
-                                    trailingContent = {
-                                        IconButton(onClick = {
-                                            selectSong = song
-                                            openBottomSheet = true
-                                        }) {
-                                            Icon(
-                                                imageVector = Icons.Default.MoreVert,
-                                                contentDescription = stringResource(R.string.more)
-                                            )
+                                            navController.navigate(AlbumNav(albumId = it.id))
                                         }
-                                    }
                                 )
                             }
                         }
-                    }
 
-                    item {
-                        // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
-                        if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
-                    }
-                }
-
-                else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(
-                        count = artistAlbumList.itemCount,
-                        key = { index -> "album-${artistAlbumList.peek(index)?.id ?: index}" }
-                    ) { index ->
-                        artistAlbumList[index]?.let {
-                            AlbumListItem(
-                                album = it,
-                                modifier = Modifier
-                                    .animateItem(placementSpec = null)
-                                    .clickable {
-                                        navController.navigate(AlbumNav(albumId = it.id))
-                                    }
-                            )
+                        item {
+                            // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                            if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
                         }
-                    }
-
-                    item {
-                        // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
-                        if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
                     }
                 }
             }
         }
-    }
 
-    TopAppBar(
-        title = {
-            Text(
-                text = "",
-                maxLines = 1,
-                style = MaterialTheme.typography.titleLarge,
-                overflow = TextOverflow.Ellipsis
-            )
-        },
-        navigationIcon = {
-            IconButton(
-                onClick = { navController.navigateUp() },
-                colors = IconButtonDefaults.filledIconButtonColors()
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = null
+        TopAppBar(
+            title = {
+                Text(
+                    text = "",
+                    maxLines = 1,
+                    style = MaterialTheme.typography.titleLarge,
+                    overflow = TextOverflow.Ellipsis
                 )
-            }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = Color.Transparent
+            },
+            navigationIcon = {
+                IconButton(
+                    onClick = { navController.navigateUp() },
+                    colors = IconButtonDefaults.filledIconButtonColors()
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = null
+                    )
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = Color.Transparent
+            )
         )
-    )
+    }
 
     SongMenuBottomSheet(
         navController = navController,
