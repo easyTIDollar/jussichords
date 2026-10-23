@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -60,6 +61,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -377,34 +379,49 @@ fun AlbumScreen(
                                 )
                             }
                             Spacer(Modifier.height(12.dp))
+                            // 专辑名与歌手要能一眼分开：专辑名大字号加粗，歌手小字号主色；
+                            // 发布时间跟在歌手同一行，不再单起一行。
                             Text(
                                 text = detail.album.name,
                                 style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 textAlign = TextAlign.Center,
                                 overflow = TextOverflow.Ellipsis,
                                 maxLines = 2,
                                 modifier = Modifier.padding(horizontal = 10.dp)
                             )
-                            Text(
-                                text = detail.album.artist.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center,
-                                overflow = TextOverflow.Ellipsis,
-                                maxLines = 2,
-                                modifier = Modifier
-                                    .clickable { navController.navigate(ArtistNav(artistId = detail.album.artist.id)) }
-                                    .padding(horizontal = 10.dp)
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                text = formatTimestamp(detail.album.publishTime),
-                                style = MaterialTheme.typography.labelMedium,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center,
+                            Spacer(Modifier.height(4.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
                                 modifier = Modifier.padding(horizontal = 10.dp)
-                            )
+                            ) {
+                                Text(
+                                    text = detail.album.artist.name,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    textAlign = TextAlign.Center,
+                                    overflow = TextOverflow.Ellipsis,
+                                    maxLines = 1,
+                                    modifier = Modifier
+                                        .clickable { navController.navigate(ArtistNav(artistId = detail.album.artist.id)) }
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "·",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = formatTimestamp(detail.album.publishTime),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    overflow = TextOverflow.Ellipsis,
+                                    maxLines = 1
+                                )
+                            }
                             Spacer(Modifier.height(6.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 OutlinedButton(

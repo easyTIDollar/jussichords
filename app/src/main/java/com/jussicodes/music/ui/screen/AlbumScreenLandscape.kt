@@ -3,9 +3,12 @@ package com.jussicodes.music.ui.screen
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -24,15 +27,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MiniPlayerHeight
-import com.jussicodes.music.ui.components.LandscapeTopBarIconButton
 import com.jussicodes.music.ui.components.MasterDetailLandscape
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.icons.LibraryAdd
@@ -85,23 +89,23 @@ fun AlbumLandscapeBody(
     MasterDetailLandscape(
         modifier = modifier,
         topActions = {
-            LandscapeTopBarIconButton(
-                onClick = onBack,
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = null
-            )
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+            }
             Spacer(Modifier.weight(1f))
-            LandscapeTopBarIconButton(
-                onClick = onToggleSearch,
-                icon = Search,
-                contentDescription = stringResource(R.string.search)
-            )
-            Box {
-                LandscapeTopBarIconButton(
-                    onClick = { menuExpanded = true },
-                    icon = Icons.Default.MoreVert,
-                    contentDescription = stringResource(R.string.more)
+            IconButton(onClick = onToggleSearch) {
+                Icon(
+                    imageVector = Search,
+                    contentDescription = stringResource(R.string.search)
                 )
+            }
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = stringResource(R.string.more)
+                    )
+                }
                 AlbumOverflowMenu(
                     expanded = menuExpanded,
                     onDismiss = { menuExpanded = false },
@@ -118,31 +122,43 @@ fun AlbumLandscapeBody(
             }
         },
         cover = cover,
-        // 专辑页：专辑名 + 歌手 + 日期都在封面上方，纯展示（无简介浮层）
+        // 专辑页：专辑名 + 歌手 + 日期都在封面上方，纯展示（无简介浮层）。
+        // 专辑名与歌手要能一眼分开：专辑名用较大字号 + 加粗 + onSurface，
+        // 歌手用小字号 + 主色（可点）；发布时间跟歌手同一行，不再单起一行。
         headerContent = {
             Text(
                 text = albumName,
                 style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
                 overflow = TextOverflow.Ellipsis,
                 maxLines = 2
             )
-            Text(
-                text = artistName,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                overflow = TextOverflow.Ellipsis,
-                maxLines = 1,
-                modifier = Modifier
-                    .padding(top = 2.dp)
-                    .clickable(onClick = onArtistClick)
-            )
-            Text(
-                text = publishTimeText,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                maxLines = 1
-            )
+            Spacer(Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = artistName,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    overflow = TextOverflow.Ellipsis,
+                    maxLines = 1,
+                    modifier = Modifier.clickable(onClick = onArtistClick)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = "·",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = publishTimeText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    overflow = TextOverflow.Ellipsis,
+                    maxLines = 1
+                )
+            }
         },
         // 复用竖屏页三按钮：收藏 / 播放 / 评论（顺序与竖屏一致）
         pillActions = {
@@ -205,10 +221,10 @@ fun AlbumLandscapeBody(
                     isActive = currentMediaId == song.id,
                     showLikedIcon = song.id in likedSongIds,
                     song = song,
-                    // 用 songIndex（标题前缀序号）而不是 albumIndex：albumIndex 会让
-                    // 缩略图位置显示纯数字、看不到封面，也看不到正在播放的动态均衡器。
-                    // 需求里要的是「封面 + 频谱 + VIP 角标 + 爱心」，所以走封面那一条。
-                    songIndex = index + 1,
+                    // 专辑页同一张封面重复 N 次没有意义：左侧已有大封面，
+                    // 列表左侧改显示曲目序号（albumIndex 走纯数字那条分支），
+                    // 正在播放的动态均衡器依然保留。
+                    albumIndex = index + 1,
                     modifier = Modifier.clickable { onSongClick(song) },
                     trailingContent = {
                         SongMenuIconButton(onClick = { onSongMenu(song) })

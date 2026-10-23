@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -123,7 +122,7 @@ fun MasterDetailLandscape(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 content = topActions
             )
@@ -265,36 +264,6 @@ fun MasterDetailLandscape(
                 }
             }
         }
-    }
-}
-
-/**
- * 横屏顶栏专用的小图标按钮。
- *
- * 横屏是沉浸式（状态栏隐藏），顶栏高度全部让给内容区；同时 Material3 的
- * [IconButton] 带 48dp 最小触摸区约束，在矮屏上顶栏会虚高一大截。这里改用
- * 普通 [Box] + [clickable]：高度只比图标略高（28dp vs 24dp 图标），
- * 视觉上仍然紧凑。
- */
-@Composable
-fun LandscapeTopBarIconButton(
-    onClick: () -> Unit,
-    icon: ImageVector,
-    contentDescription: String?,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .size(28.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            modifier = Modifier.size(24.dp)
-        )
     }
 }
 
