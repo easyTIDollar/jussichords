@@ -68,13 +68,14 @@ fun MasterDetailLandscape(
     /**
      * 右栏曲目列表内容。
      *
-     * 类型刻意用**普通** composable 函数类型 `(LazyListScope) -> Unit`，而不是扩展
-     * 函数类型 `LazyListScope.() -> Unit`：后者在被调用方以 `f(scope)` 形式显式
-     * 传接收者时，Compose 编译器会报
+     * 必须是**非 composable** 的扩展函数类型 `LazyListScope.() -> Unit`（与
+     * LazyColumn 尾随 lambda 同一形态）：`LazyColumn { }` 的 builder lambda 本身
+     * 不是 composable 上下文，只有每个 item 的行内容才是，所以任何 @Composable
+     * 形态的 listContent 在这里调用都会报
      * 「@Composable invocations can only happen from the context of a @Composable function」。
-     * 普通函数类型与 Scaffold 的 `content(PaddingValues)` 同形，编译器一定认。
+     * 行内容（itemsIndexed 的 lambda）自带 @Composable，不受影响。
      */
-    listContent: @Composable (LazyListScope) -> Unit,
+    listContent: LazyListScope.() -> Unit,
 ) {
     Row(modifier = modifier.fillMaxSize()) {
         Column(
@@ -151,10 +152,9 @@ fun MasterDetailLandscape(
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                listContent(this)
-            }
+                    .fillMaxWidth(),
+                content = listContent
+            )
         }
     }
 }

@@ -132,8 +132,8 @@ fun AlbumLandscapeBody(
                 modifier = Modifier.weight(1f)
             )
         },
-        listContent = { scope ->
-            scope.itemsIndexed(songs) { index, song ->
+        listContent = {
+            itemsIndexed(songs) { index, song ->
                 SongListItem(
                     isPlaying = isPlaying,
                     isActive = currentMediaId == song.id,
@@ -150,7 +150,7 @@ fun AlbumLandscapeBody(
                 )
             }
             if (hasMiniPlayer) {
-                scope.item { Spacer(Modifier.size(MiniPlayerHeight)) }
+                item { Spacer(Modifier.size(MiniPlayerHeight)) }
             }
         }
     )

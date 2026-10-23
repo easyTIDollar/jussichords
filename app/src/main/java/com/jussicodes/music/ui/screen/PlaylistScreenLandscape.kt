@@ -91,8 +91,8 @@ fun PlaylistLandscapeBody(
             )
         },
         listHeader = listHeader,
-        listContent = { scope ->
-            scope.itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
+        listContent = {
+            itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
                 SongListItem(
                     song = song,
                     isPlaying = isPlaying,
@@ -106,7 +106,7 @@ fun PlaylistLandscapeBody(
                 )
             }
             if (hasMiniPlayer) {
-                scope.item { Spacer(Modifier.size(MiniPlayerHeight)) }
+                item { Spacer(Modifier.size(MiniPlayerHeight)) }
             }
         }
     )
