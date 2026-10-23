@@ -65,7 +65,16 @@ fun MasterDetailLandscape(
     pillActions: @Composable RowScope.() -> Unit = {},
     /** 右栏列表上方的固定区域（搜索框等）。 */
     listHeader: (@Composable () -> Unit) = {},
-    listContent: @Composable LazyListScope.() -> Unit,
+    /**
+     * 右栏曲目列表内容。
+     *
+     * 类型刻意用**普通** composable 函数类型 `(LazyListScope) -> Unit`，而不是扩展
+     * 函数类型 `LazyListScope.() -> Unit`：后者在被调用方以 `f(scope)` 形式显式
+     * 传接收者时，Compose 编译器会报
+     * 「@Composable invocations can only happen from the context of a @Composable function」。
+     * 普通函数类型与 Scaffold 的 `content(PaddingValues)` 同形，编译器一定认。
+     */
+    listContent: @Composable (LazyListScope) -> Unit,
 ) {
     Row(modifier = modifier.fillMaxSize()) {
         Column(
@@ -136,13 +145,14 @@ fun MasterDetailLandscape(
             // 「actual LazyListState? but LazyListState was expected」+
             // 「content 期望 Function1<LazyListScope, Unit>」。这里用尾随 lambda，
             // 只匹配公开重载。
+            // LazyColumn 的 content 是接收者函数类型 `LazyListScope.() -> Unit`，
+            // 尾随 lambda 里不能声明参数（只能隐式用 this）。listContent 是**普通**
+            // 函数类型 `(LazyListScope) -> Unit`，所以可以显式传 this。
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                // 显式传接收者：listContent 是 LazyListScope.() -> Unit 的值，
-                // 用 listContent(this) 调用不依赖隐式接收者解析。
                 listContent(this)
             }
         }
@@ -163,33 +173,40 @@ fun DetailPillButton(
 ) {
     val shape = RoundedCornerShape(percent = 50)
     val contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-    val content: @Composable () -> Unit = {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp)
-        )
-        Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
     if (filled) {
         Button(
             onClick = onClick,
             shape = shape,
             contentPadding = contentPadding,
             modifier = modifier
-        ) { content() }
+        ) {
+            DetailPillButtonContent(text = text, icon = icon)
+        }
     } else {
         OutlinedButton(
             onClick = onClick,
             shape = shape,
             contentPadding = contentPadding,
             modifier = modifier
-        ) { content() }
+        ) {
+            DetailPillButtonContent(text = text, icon = icon)
+        }
     }
+}
+
+/** 药丸按钮内部：图标 + 间距 + 文字。独立成 @Composable 函数，避免局部 composable lambda。 */
+@Composable
+private fun DetailPillButtonContent(text: String, icon: ImageVector) {
+    Icon(
+        imageVector = icon,
+        contentDescription = null,
+        modifier = Modifier.size(16.dp)
+    )
+    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
 }

@@ -56,13 +56,14 @@ fun PlaylistLandscapeBody(
     topActions: @Composable RowScope.() -> Unit = {},
     listHeader: (@Composable () -> Unit) = {},
 ) {
-    // 注意：显式用局部 val + 显式接收者调用，避免命名实参与本地参数同名造成歧义。
-    val actions = topActions
-    val coverContent = cover
+    // 注意：topActions / cover 是扩展函数类型或普通 composable 类型的**值**，
+    // 直接作为实参透传，不要写成 `{ actions(this) }` / `{ cover() }`：
+    // 对扩展函数类型显式传接收者调用会被 Compose 编译器拒绝
+    // （「@Composable invocations can only happen from the context of a @Composable function」）。
     MasterDetailLandscape(
         modifier = modifier,
-        topActions = { actions(this) },
-        cover = { coverContent() },
+        topActions = topActions,
+        cover = cover,
         title = playlistName,
         meta = metaText,
         description = description,
@@ -90,8 +91,8 @@ fun PlaylistLandscapeBody(
             )
         },
         listHeader = listHeader,
-        listContent = {
-            itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
+        listContent = { scope ->
+            scope.itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
                 SongListItem(
                     song = song,
                     isPlaying = isPlaying,
@@ -105,7 +106,7 @@ fun PlaylistLandscapeBody(
                 )
             }
             if (hasMiniPlayer) {
-                item { Spacer(Modifier.size(MiniPlayerHeight)) }
+                scope.item { Spacer(Modifier.size(MiniPlayerHeight)) }
             }
         }
     )

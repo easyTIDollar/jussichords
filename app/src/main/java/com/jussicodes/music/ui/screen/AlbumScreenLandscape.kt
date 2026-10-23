@@ -67,7 +67,6 @@ fun AlbumLandscapeBody(
     onSongMenu: (Song) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val coverContent = cover
     MasterDetailLandscape(
         modifier = modifier,
         topActions = {
@@ -95,7 +94,7 @@ fun AlbumLandscapeBody(
                 )
             }
         },
-        cover = { coverContent() },
+        cover = cover,
         title = albumName,
         subtitle = {
             Text(
@@ -133,8 +132,8 @@ fun AlbumLandscapeBody(
                 modifier = Modifier.weight(1f)
             )
         },
-        listContent = {
-            itemsIndexed(songs) { index, song ->
+        listContent = { scope ->
+            scope.itemsIndexed(songs) { index, song ->
                 SongListItem(
                     isPlaying = isPlaying,
                     isActive = currentMediaId == song.id,
@@ -151,7 +150,7 @@ fun AlbumLandscapeBody(
                 )
             }
             if (hasMiniPlayer) {
-                item { Spacer(Modifier.size(MiniPlayerHeight)) }
+                scope.item { Spacer(Modifier.size(MiniPlayerHeight)) }
             }
         }
     )
