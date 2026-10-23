@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MiniPlayerHeight
+import com.jussicodes.music.ui.components.LandscapeTopBarIconButton
 import com.jussicodes.music.ui.components.MasterDetailLandscape
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.icons.LibraryAdd
@@ -84,23 +85,23 @@ fun AlbumLandscapeBody(
     MasterDetailLandscape(
         modifier = modifier,
         topActions = {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
-            }
+            LandscapeTopBarIconButton(
+                onClick = onBack,
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = null
+            )
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onToggleSearch) {
-                Icon(
-                    imageVector = Search,
-                    contentDescription = stringResource(R.string.search)
-                )
-            }
+            LandscapeTopBarIconButton(
+                onClick = onToggleSearch,
+                icon = Search,
+                contentDescription = stringResource(R.string.search)
+            )
             Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = stringResource(R.string.more)
-                    )
-                }
+                LandscapeTopBarIconButton(
+                    onClick = { menuExpanded = true },
+                    icon = Icons.Default.MoreVert,
+                    contentDescription = stringResource(R.string.more)
+                )
                 AlbumOverflowMenu(
                     expanded = menuExpanded,
                     onDismiss = { menuExpanded = false },

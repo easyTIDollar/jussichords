@@ -36,6 +36,7 @@ import com.jussicodes.music.extensions.init
 import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.playback.PlayerState
 import com.jussicodes.music.playback.state
+import com.jussicodes.music.ui.components.LandscapeStatusBarImmersive
 import com.jussicodes.music.ui.components.UpdateDialog
 import com.jussicodes.music.ui.components.formatFileSize
 import com.jussicodes.music.ui.screen.MainScreen
@@ -241,6 +242,9 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     ) {
+                        // 横屏沉浸式：横屏一律隐藏状态栏（全局），竖屏恢复。
+                        // 放在 composition 顶层，任何页面转到横屏都生效。
+                        LandscapeStatusBarImmersive()
                         // DPI 模拟：覆盖 LocalDensity.density，dp 视口随之变化，
                         // 所有布局按「目标屏幕」真实走一遍（不是整体缩小）。
                         MainScreen()

@@ -95,6 +95,7 @@ import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.components.PlayerComments
+import com.jussicodes.music.ui.components.LandscapeTopBarIconButton
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.PlaylistThumbnailImage
 import com.jussicodes.music.ui.components.SongListItem
@@ -395,40 +396,37 @@ fun PlaylistScreen(
                         descriptionOverlayVisible = showDescriptionOverlay,
                         onDescriptionOverlayDismiss = { showDescriptionOverlay = false },
                         topActions = {
-                            IconButton(onClick = {
-                                if (searchActive) {
-                                    searchActive = false
-                                    searchQuery = ""
-                                    keyboardController?.hide()
-                                } else {
-                                    navController.navigateUp()
-                                }
-                            }) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = null
-                                )
-                            }
+                            LandscapeTopBarIconButton(
+                                onClick = {
+                                    if (searchActive) {
+                                        searchActive = false
+                                        searchQuery = ""
+                                        keyboardController?.hide()
+                                    } else {
+                                        navController.navigateUp()
+                                    }
+                                },
+                                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = null
+                            )
                             Spacer(Modifier.weight(1f))
-                            IconButton(onClick = {
-                                searchActive = !searchActive
-                                if (!searchActive) {
-                                    searchQuery = ""
-                                    keyboardController?.hide()
-                                }
-                            }) {
-                                Icon(
-                                    imageVector = Search,
-                                    contentDescription = stringResource(R.string.search)
-                                )
-                            }
+                            LandscapeTopBarIconButton(
+                                onClick = {
+                                    searchActive = !searchActive
+                                    if (!searchActive) {
+                                        searchQuery = ""
+                                        keyboardController?.hide()
+                                    }
+                                },
+                                icon = Search,
+                                contentDescription = stringResource(R.string.search)
+                            )
                             Box {
-                                IconButton(onClick = { playlistMenuExpanded = true }) {
-                                    Icon(
-                                        imageVector = Icons.Default.MoreVert,
-                                        contentDescription = stringResource(R.string.more)
-                                    )
-                                }
+                                LandscapeTopBarIconButton(
+                                    onClick = { playlistMenuExpanded = true },
+                                    icon = Icons.Default.MoreVert,
+                                    contentDescription = stringResource(R.string.more)
+                                )
                                 PlaylistOverflowMenu(
                                     expanded = playlistMenuExpanded,
                                     onDismiss = { playlistMenuExpanded = false },

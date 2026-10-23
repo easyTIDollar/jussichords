@@ -1,8 +1,5 @@
 package com.jussicodes.music.ui.components
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import androidx.activity.compose.BackHandler
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -129,20 +126,21 @@ fun PlayerLandscape(
     val dimColor = MaterialTheme.colorScheme.onSurfaceVariant
     val panelColor = MaterialTheme.colorScheme.surfaceContainer
 
-    // 沉浸式：进入横屏播放页隐藏状态栏/导航栏，离开时恢复。
-    // 用 WindowInsetsControllerCompat，不碰系统 UI flag，旋转/退出时由 DisposableEffect 复原。
+    // 沉浸式：横屏播放页额外隐藏导航栏（状态栏由全局的
+    // LandscapeStatusBarImmersive 负责）。用 WindowInsetsControllerCompat，
+    // 不碰系统 UI flag，旋转/退出时由 DisposableEffect 复原。
     val view = LocalView.current
     if (!view.isInEditMode) {
         DisposableEffect(Unit) {
             val window = view.context.findActivity()?.window
             val controller = window?.let { WindowCompat.getInsetsController(it, view) }
             controller?.let {
-                it.hide(WindowInsetsCompat.Type.systemBars())
+                it.hide(WindowInsetsCompat.Type.navigationBars())
                 it.systemBarsBehavior =
                     WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
             onDispose {
-                controller?.show(WindowInsetsCompat.Type.systemBars())
+                controller?.show(WindowInsetsCompat.Type.navigationBars())
             }
         }
     }
@@ -461,13 +459,6 @@ fun PlayerLandscape(
         // 在 Lyric 之后注册，优先级更高。
         BackHandler { onBackPressed() }
     }
-}
-
-/** 沿 ContextWrapper 链找到 Activity，拿它的 Window 做沉浸式系统栏控制。 */
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
 }
 
 /** 统一的无涟漪图标按钮。[touchSize] 为可点区域（矮屏下比视觉图标大）。 */
