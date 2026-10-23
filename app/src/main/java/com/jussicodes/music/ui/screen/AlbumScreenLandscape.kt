@@ -1,7 +1,9 @@
 package com.jussicodes.music.ui.screen
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -9,16 +11,22 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -29,8 +37,7 @@ import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.icons.LibraryAdd
 import com.jussicodes.music.ui.icons.LibraryAddCheck
 import com.jussicodes.music.ui.icons.ModeComment
-import com.jussicodes.music.ui.icons.PushPin
-import com.jussicodes.music.ui.icons.PushPinFill
+import com.jussicodes.music.ui.icons.Search
 import com.rcmiku.ncmapi.model.Song
 
 /**
@@ -39,10 +46,10 @@ import com.rcmiku.ncmapi.model.Song
  * 与竖屏 [AlbumScreen] 是两套布局：横屏只有 ~411dp 可视高度，
  * 「封面在上、列表在下」的堆叠会把曲目列表挤没，必须换成分栏。
  *
- * 左栏：顶部操作按钮行（返回 / 置顶 / 分享）+ 封面 + 名称 + 艺术家 +
- * 发行时间 + 3 枚药丸按钮（收藏 / 播放 / 评论）。
- * 右栏：曲目列表，直接复用 [SongListItem] —— 正在播放的动态均衡器、
- * VIP 角标、喜欢爱心、右侧操作菜单全部保留。
+ * 左栏：顶部操作按钮行（返回 / 搜索 / 更多，与歌单页横屏一致）+ 封面 +
+ * 名称 + 艺术家 + 发行时间 + 3 枚药丸按钮（收藏 / 播放 / 评论）。
+ * 右栏：曲目列表（搜索框在列表上方），直接复用 [SongListItem] ——
+ * 正在播放的动态均衡器、VIP 角标、喜欢爱心、右侧操作菜单全部保留。
  */
 @Composable
 fun AlbumLandscapeBody(
@@ -57,6 +64,11 @@ fun AlbumLandscapeBody(
     currentMediaId: Long?,
     likedSongIds: List<Long>,
     hasMiniPlayer: Boolean,
+    searchActive: Boolean,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    onToggleSearch: () -> Unit,
+    searchFocusRequester: FocusRequester,
     onBack: () -> Unit,
     onArtistClick: () -> Unit,
     onToggleSubscribe: () -> Unit,
@@ -68,6 +80,7 @@ fun AlbumLandscapeBody(
     onSongMenu: (Song) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
     MasterDetailLandscape(
         modifier = modifier,
         topActions = {
@@ -75,23 +88,31 @@ fun AlbumLandscapeBody(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
             }
             Spacer(Modifier.weight(1f))
-            if (isPinned) {
-                IconButton(onClick = onTogglePin) {
+            IconButton(onClick = onToggleSearch) {
+                Icon(
+                    imageVector = Search,
+                    contentDescription = stringResource(R.string.search)
+                )
+            }
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
                     Icon(
-                        imageVector = PushPinFill,
-                        contentDescription = "取消固定",
-                        tint = MaterialTheme.colorScheme.primary
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = stringResource(R.string.more)
                     )
                 }
-            } else {
-                IconButton(onClick = onTogglePin) {
-                    Icon(imageVector = PushPin, contentDescription = "固定到主页")
-                }
-            }
-            IconButton(onClick = onShare) {
-                Icon(
-                    imageVector = Icons.Outlined.Share,
-                    contentDescription = stringResource(R.string.share)
+                AlbumOverflowMenu(
+                    expanded = menuExpanded,
+                    onDismiss = { menuExpanded = false },
+                    isPinned = isPinned,
+                    onTogglePin = {
+                        menuExpanded = false
+                        onTogglePin()
+                    },
+                    onShare = {
+                        menuExpanded = false
+                        onShare()
+                    }
                 )
             }
         },
@@ -160,6 +181,20 @@ fun AlbumLandscapeBody(
                 )
                 Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                 Text(text = "评论")
+            }
+        },
+        listHeader = {
+            if (searchActive) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChange,
+                    placeholder = { Text(stringResource(R.string.search)) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(searchFocusRequester)
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                )
             }
         },
         listContent = {

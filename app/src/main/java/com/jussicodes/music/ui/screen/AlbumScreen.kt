@@ -7,6 +7,7 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,19 +24,22 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -47,11 +51,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -78,11 +85,11 @@ import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
 import com.jussicodes.music.ui.components.SharePayload
 import com.jussicodes.music.ui.components.ShareSheet
+import com.jussicodes.music.ui.components.rememberFilteredSongs
 import com.jussicodes.music.ui.icons.LibraryAdd
 import com.jussicodes.music.ui.icons.LibraryAddCheck
 import com.jussicodes.music.ui.icons.ModeComment
-import com.jussicodes.music.ui.icons.PushPin
-import com.jussicodes.music.ui.icons.PushPinFill
+import com.jussicodes.music.ui.icons.Search
 import com.jussicodes.music.ui.navigation.ArtistNav
 import com.jussicodes.music.ui.navigation.UserNav
 import com.jussicodes.music.utils.CoverImageSize
@@ -118,14 +125,34 @@ fun AlbumScreen(
     var sharePayload by remember { mutableStateOf<SharePayload?>(null) }
     var selectSong by remember { mutableStateOf<Song?>(null) }
     var previewCoverUrl by remember { mutableStateOf<String?>(null) }
+    var albumMenuExpanded by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val searchFocusRequester = remember { FocusRequester() }
+    var searchActive by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     val pinnedAlbums by PinnedAlbumStore.albums.collectAsState()
     val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
         .collectAsState(emptyList())
     val currentAlbum = albumDetailState?.getOrNull()?.album
     val isLandscape = isLandscapePhone()
+    val albumSongs = remember(albumDetailState?.getOrNull()?.songs) {
+        albumDetailState?.getOrNull()?.songs.orEmpty()
+    }
+    val visibleSongs = rememberFilteredSongs(albumSongs, searchQuery)
+    // 序号取全量列表里的位置：搜索过滤后不重新编号
+    val albumIndexById = remember(albumSongs) { albumSongs.withIndex().associate { it.value.id to it.index + 1 } }
+    val isPinned = pinnedAlbums.any { it.id == currentAlbum?.id }
+
+    LaunchedEffect(searchActive) {
+        if (searchActive) {
+            // requestFocus 在 requester 尚未挂载到节点时会抛 IllegalStateException，用 runCatching 兜住。
+            runCatching { searchFocusRequester.requestFocus() }
+            keyboardController?.show()
+        }
+    }
 
     fun togglePinnedAlbum(album: Album) {
         coroutineScope.launch {
@@ -139,48 +166,85 @@ fun AlbumScreen(
             if (!isLandscape) {
                 TopAppBar(
                     title = {
-                        Text(
-                            if (showAlbumTitle) playlistTitle else stringResource(R.string.album),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        if (searchActive) {
+                            TextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(searchFocusRequester),
+                                placeholder = { Text(stringResource(R.string.search)) },
+                                singleLine = true,
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedIndicatorColor = MaterialTheme.colorScheme.outlineVariant
+                                )
+                            )
+                        } else {
+                            Text(
+                                if (showAlbumTitle) playlistTitle else stringResource(R.string.album),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     },
                     navigationIcon = {
-                        IconButton(onClick = { navController.navigateUp() }) {
+                        IconButton(onClick = {
+                            if (searchActive) {
+                                searchActive = false
+                                searchQuery = ""
+                                keyboardController?.hide()
+                            } else {
+                                navController.navigateUp()
+                            }
+                        }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                         }
                     },
                     actions = {
-                        currentAlbum?.let { album ->
-                            val isPinned = album.id in pinnedAlbums.map { it.id }
-                            if (isPinned) {
-                                FilledTonalIconButton(onClick = {
-                                    togglePinnedAlbum(album)
-                                    Toast.makeText(context, "已取消置顶《${album.name}》", Toast.LENGTH_SHORT).show()
-                                }) {
-                                    Icon(
-                                        imageVector = PushPinFill,
-                                        contentDescription = "取消固定",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            } else {
-                                IconButton(onClick = {
-                                    togglePinnedAlbum(album)
-                                    Toast.makeText(context, "已固定到主页", Toast.LENGTH_SHORT).show()
-                                }) {
-                                    Icon(
-                                        imageVector = PushPin,
-                                        contentDescription = "固定到主页"
-                                    )
-                                }
+                        IconButton(onClick = {
+                            searchActive = !searchActive
+                            if (!searchActive) {
+                                searchQuery = ""
+                                keyboardController?.hide()
                             }
-                            IconButton(onClick = { sharePayload = SharePayload.AlbumShare(album) }) {
+                        }) {
+                            Icon(
+                                imageVector = Search,
+                                contentDescription = stringResource(R.string.search)
+                            )
+                        }
+                        Box {
+                            IconButton(onClick = { albumMenuExpanded = true }) {
                                 Icon(
-                                    imageVector = Icons.Outlined.Share,
-                                    contentDescription = stringResource(R.string.share)
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = stringResource(R.string.more)
                                 )
                             }
+                            AlbumOverflowMenu(
+                                expanded = albumMenuExpanded,
+                                onDismiss = { albumMenuExpanded = false },
+                                isPinned = isPinned,
+                                onTogglePin = {
+                                    albumMenuExpanded = false
+                                    currentAlbum?.let { album ->
+                                        togglePinnedAlbum(album)
+                                        Toast.makeText(
+                                            context,
+                                            if (isPinned) "已取消置顶《${album.name}》" else "已固定到主页",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                },
+                                onShare = {
+                                    albumMenuExpanded = false
+                                    currentAlbum?.let { album ->
+                                        sharePayload = SharePayload.AlbumShare(album)
+                                    }
+                                }
+                            )
                         }
                     }
                 )
@@ -194,7 +258,6 @@ fun AlbumScreen(
             if (landscapeDetail != null) {
                 val detail = landscapeDetail
                 val album = detail.album
-                val isPinned = album.id in pinnedAlbums.map { it.id }
                 AlbumLandscapeBody(
                     albumName = album.name,
                     artistName = album.artist.name,
@@ -221,11 +284,22 @@ fun AlbumScreen(
                     },
                     isSubscribed = albumInfoState?.isSub == true,
                     isPinned = isPinned,
-                    songs = detail.songs,
+                    songs = visibleSongs,
                     isPlaying = isPlaying,
                     currentMediaId = currentMediaId,
                     likedSongIds = songIds,
                     hasMiniPlayer = hasMiniPlayer,
+                    searchActive = searchActive,
+                    searchQuery = searchQuery,
+                    onSearchQueryChange = { searchQuery = it },
+                    searchFocusRequester = searchFocusRequester,
+                    onToggleSearch = {
+                        searchActive = !searchActive
+                        if (!searchActive) {
+                            searchQuery = ""
+                            keyboardController?.hide()
+                        }
+                    },
                     onBack = { navController.navigateUp() },
                     onArtistClick = { navController.navigate(ArtistNav(artistId = album.artist.id)) },
                     onToggleSubscribe = {
@@ -274,122 +348,124 @@ fun AlbumScreen(
         LazyColumn(contentPadding = padding, state = listState) {
             albumDetailState?.onSuccess { detail ->
                 playlistTitle = detail.album.name
-                item {
-                    Column(
-                        modifier = Modifier
-                            .padding(horizontal = 12.dp)
-                            .fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        with(sharedTransitionScope) {
-                            AsyncImage(
-                                model = detail.album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL),
-                                contentDescription = detail.album.name,
-                                contentScale = ContentScale.Crop,
-                                filterQuality = FilterQuality.High,
-                                modifier = Modifier
-                                    .sharedElement(
-                                        sharedTransitionScope.rememberSharedContentState(key = detail.album.id),
-                                        animatedVisibilityScope = animatedContentScope
-                                    )
-                                    .size(200.dp)
-                                    .clip(RoundedCornerShape(ThumbnailCornerRadius))
-                                    .clickable {
-                                        previewCoverUrl = detail.album.picUrl.toCoverImageUrl(
-                                            CoverImageSize.LARGE
-                                        )
-                                    }
-                            )
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = detail.album.name,
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            textAlign = TextAlign.Center,
-                            overflow = TextOverflow.Ellipsis,
-                            maxLines = 2,
-                            modifier = Modifier.padding(horizontal = 10.dp)
-                        )
-                        Text(
-                            text = detail.album.artist.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                            overflow = TextOverflow.Ellipsis,
-                            maxLines = 2,
+                if (!searchActive || searchQuery.isBlank()) {
+                    item {
+                        Column(
                             modifier = Modifier
-                                .clickable { navController.navigate(ArtistNav(artistId = detail.album.artist.id)) }
-                                .padding(horizontal = 10.dp)
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            text = formatTimestamp(detail.album.publishTime),
-                            style = MaterialTheme.typography.labelMedium,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 10.dp)
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            OutlinedButton(
-                                onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    albumInfoState?.isSub?.let { isSub -> albumScreenViewModel.albumSub(isSub = !isSub) }
-                                },
-                                contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = if (albumInfoState?.isSub == true) LibraryAddCheck else LibraryAdd,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(ButtonDefaults.IconSize)
+                                .padding(horizontal = 12.dp)
+                                .fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            with(sharedTransitionScope) {
+                                AsyncImage(
+                                    model = detail.album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL),
+                                    contentDescription = detail.album.name,
+                                    contentScale = ContentScale.Crop,
+                                    filterQuality = FilterQuality.High,
+                                    modifier = Modifier
+                                        .sharedElement(
+                                            sharedTransitionScope.rememberSharedContentState(key = detail.album.id),
+                                            animatedVisibilityScope = animatedContentScope
+                                        )
+                                        .size(200.dp)
+                                        .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                        .clickable {
+                                            previewCoverUrl = detail.album.picUrl.toCoverImageUrl(
+                                                CoverImageSize.LARGE
+                                            )
+                                        }
                                 )
-                                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                                Text(text = if (albumInfoState?.isSub == true) stringResource(R.string.library_add_check) else stringResource(R.string.library_add))
                             }
-                            Button(
-                                onClick = {
-                                    mediaController?.setPlaylist(
-                                        detail.songs,
-                                        sourceId = detail.album.id,
-                                        sourceName = detail.album.name,
-                                        sourceType = MediaSessionConstants.SOURCE_TYPE_ALBUM,
-                                        navId = detail.album.id
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                text = detail.album.name,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.Center,
+                                overflow = TextOverflow.Ellipsis,
+                                maxLines = 2,
+                                modifier = Modifier.padding(horizontal = 10.dp)
+                            )
+                            Text(
+                                text = detail.album.artist.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                overflow = TextOverflow.Ellipsis,
+                                maxLines = 2,
+                                modifier = Modifier
+                                    .clickable { navController.navigate(ArtistNav(artistId = detail.album.artist.id)) }
+                                    .padding(horizontal = 10.dp)
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                text = formatTimestamp(detail.album.publishTime),
+                                style = MaterialTheme.typography.labelMedium,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 10.dp)
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                OutlinedButton(
+                                    onClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        albumInfoState?.isSub?.let { isSub -> albumScreenViewModel.albumSub(isSub = !isSub) }
+                                    },
+                                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = if (albumInfoState?.isSub == true) LibraryAddCheck else LibraryAdd,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(ButtonDefaults.IconSize)
                                     )
-                                    mediaController?.playMediaAt()
-                                },
-                                contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-                                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                                Text(text = stringResource(R.string.play))
-                            }
-                            OutlinedButton(
-                                onClick = { openAlbumComments = true },
-                                contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = ModeComment,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(ButtonDefaults.IconSize)
-                                )
-                                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                                Text(text = "评论")
+                                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                                    Text(text = if (albumInfoState?.isSub == true) stringResource(R.string.library_add_check) else stringResource(R.string.library_add))
+                                }
+                                Button(
+                                    onClick = {
+                                        mediaController?.setPlaylist(
+                                            detail.songs,
+                                            sourceId = detail.album.id,
+                                            sourceName = detail.album.name,
+                                            sourceType = MediaSessionConstants.SOURCE_TYPE_ALBUM,
+                                            navId = detail.album.id
+                                        )
+                                        mediaController?.playMediaAt()
+                                    },
+                                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                                    Text(text = stringResource(R.string.play))
+                                }
+                                OutlinedButton(
+                                    onClick = { openAlbumComments = true },
+                                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = ModeComment,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(ButtonDefaults.IconSize)
+                                    )
+                                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                                    Text(text = "评论")
+                                }
                             }
                         }
                     }
                 }
 
-                itemsIndexed(detail.songs) { index, song ->
+                itemsIndexed(visibleSongs) { _, song ->
                     SongListItem(
                         isPlaying = isPlaying,
                         isActive = currentMediaId == song.id,
                         showLikedIcon = song.id in songIds,
                         song = song,
-                        albumIndex = index + 1,
+                        albumIndex = albumIndexById[song.id],
                         modifier = Modifier.clickable {
                             mediaController?.setPlaylist(
                                 detail.songs,
@@ -462,5 +538,33 @@ fun AlbumScreen(
                 }
             )
         }
+    }
+}
+
+/**
+ * 专辑「更多」下拉菜单（固定专辑 / 分享）。
+ *
+ * 与歌单页的「更多」菜单一致：纯文字条目，不用图标。
+ */
+@Composable
+fun AlbumOverflowMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    isPinned: Boolean,
+    onTogglePin: () -> Unit,
+    onShare: () -> Unit,
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss
+    ) {
+        DropdownMenuItem(
+            text = { Text(if (isPinned) "取消固定" else "固定专辑") },
+            onClick = onTogglePin
+        )
+        DropdownMenuItem(
+            text = { Text("分享") },
+            onClick = onShare
+        )
     }
 }

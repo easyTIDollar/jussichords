@@ -8,7 +8,6 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.net.Uri
-import android.icu.text.Transliterator
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -99,6 +98,7 @@ import com.jussicodes.music.ui.components.PlayerComments
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.PlaylistThumbnailImage
 import com.jussicodes.music.ui.components.SongListItem
+import com.jussicodes.music.ui.components.rememberFilteredSongs
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
 import com.jussicodes.music.ui.components.SharePayload
 import com.jussicodes.music.ui.components.ShareSheet
@@ -117,10 +117,7 @@ import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.Playlist
 import coil3.compose.AsyncImage
 import java.io.File
-import java.util.Locale
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.withContext
 import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.core.view.ViewCompat
 import com.jussicodes.music.utils.rememberPreference
@@ -927,69 +924,6 @@ private fun PlaylistOverflowMenu(
     }
 }
 
-private class PlaylistSongSearchEntry(song: Song) {
-    val song = song
-    private val title = song.name.toSearchText()
-    private val artists = song.ar.joinToString(" ") { it.name }.toSearchText()
-    private val initials = buildString {
-        append(song.name.toInitials())
-        append(' ')
-        song.ar.forEach { artist ->
-            append(artist.name.toInitials())
-            append(' ')
-        }
-    }
-
-    fun matches(normalizedQuery: String): Boolean {
-        if (normalizedQuery.isBlank()) return true
-        return title.contains(normalizedQuery) ||
-            artists.contains(normalizedQuery) ||
-            initials.contains(normalizedQuery)
-    }
-}
-
-private fun String.toSearchText(): String =
-    lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }
-
-private fun String.toInitials(): String =
-    PinyinInitialTransliterator.transliterate(this)
-        .split(' ', '-', '_', '/', '\\', '.', ',', '(', ')', '[', ']', '·')
-        .mapNotNull { word -> word.firstOrNull { it.isLetterOrDigit() } }
-        .joinToString("")
-        .lowercase(Locale.ROOT)
-
-/**
- * Filters [tracks] for in-list search without blocking the UI thread.
- * The pinyin search index (ICU transliteration per song and artist) is built
- * on [Dispatchers.Default]. When no query is active the full list is returned
- * as-is, so merely opening a large playlist does no per-song work at all;
- * filtering only runs against the pre-computed index once a query is entered.
- */
-@Composable
-private fun rememberFilteredSongs(tracks: List<Song>, query: String): List<Song> {
-    val normalizedQuery = remember(query) { query.toSearchText() }
-    var index by remember(tracks) { mutableStateOf<PlaylistSearchIndex?>(null) }
-    LaunchedEffect(tracks) {
-        index = withContext(Dispatchers.Default) { tracks.toSearchIndex() }
-    }
-    return when {
-        normalizedQuery.isBlank() -> tracks
-        index == null -> tracks
-        else -> index!!.filter(normalizedQuery)
-    }
-}
-
-private fun List<Song>.toSearchIndex(): PlaylistSearchIndex =
-    PlaylistSearchIndex(map(::PlaylistSongSearchEntry))
-
-private class PlaylistSearchIndex(private val entries: List<PlaylistSongSearchEntry>) {
-    fun filter(normalizedQuery: String): List<Song> =
-        entries.asSequence()
-            .filter { it.matches(normalizedQuery) }
-            .map { it.song }
-            .toList()
-}
-
 private fun Uri.copyToPlaylistCoverCache(context: Context, scale: Float, offset: Offset): File? {
     val outputSize = PLAYLIST_COVER_UPLOAD_SIZE
     val previewSize = 260f
@@ -1025,12 +959,4 @@ private fun Uri.copyToPlaylistCoverCache(context: Context, scale: Float, offset:
         } ?: return null
         file
     }.getOrNull()
-}
-
-private object PinyinInitialTransliterator {
-    private val transliterator by lazy {
-        Transliterator.getInstance("Han-Latin/Names; Latin-ASCII")
-    }
-
-    fun transliterate(value: String): String = transliterator.transliterate(value)
 }
