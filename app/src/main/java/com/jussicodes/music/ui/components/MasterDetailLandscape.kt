@@ -115,75 +115,83 @@ fun MasterDetailLandscape(
     val hasDescription = !description.isNullOrBlank()
 
     Box(modifier = modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxSize()) {
-            // ── 左侧展示栏（40%） ──────────────────────────────
-            Column(
+        Column(Modifier.fillMaxSize()) {
+            // ── 顶栏：横跨整个屏幕宽度 ─────────────────────────
+            // 早先顶栏放在左栏内部（只占 40% 宽），搜索/更多按钮卡在屏幕
+            // 中间偏左的位置。现在顶栏提到最外层，横跨左右两栏：返回在左端，
+            // 搜索 / 更多由调用方用 Spacer(weight) 推到最右端。
+            Row(
                 modifier = Modifier
-                    .weight(LandscapeDetailLeftFraction)
-                    .fillMaxHeight()
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    content = topActions
-                )
-                // 结构（自上而下，整块在左栏剩余空间垂直居中）：
-                // 1. headerContent —— 标题/歌手/日期（由调用方给，歌单页点标题
-                //    展开全屏简介浮层；专辑页纯展示）
-                // 2. 封面：缩小并水平居中
-                // 3. 3 枚按钮：横排，左右与封面两端对齐
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                content = topActions
+            )
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                // ── 左侧展示栏（40%） ──────────────────────────────
                 Column(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .weight(LandscapeDetailLeftFraction)
+                        .fillMaxHeight()
+                        .padding(horizontal = 12.dp)
                 ) {
-                    headerContent()
-                    Spacer(Modifier.height(10.dp))
-                    BoxWithConstraints(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.TopCenter
+                    // 结构（自上而下，整块在左栏剩余空间垂直居中）：
+                    // 1. headerContent —— 标题/歌手/日期（由调用方给，歌单页点标题
+                    //    展开全屏简介浮层；专辑页纯展示）
+                    // 2. 封面：缩小并水平居中
+                    // 3. 3 枚按钮：横排，左右与封面两端对齐
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // coverSize 缩小（0.6 倍可用空间），保证同屏能看到
-                        // 标题栏 + 封面 + 按钮排。
-                        val coverSize = minOf(maxWidth, maxHeight) * 0.6f
-                        Column(
+                        headerContent()
+                        Spacer(Modifier.height(10.dp))
+                        BoxWithConstraints(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            contentAlignment = Alignment.TopCenter
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(coverSize)
-                                    .clip(RoundedCornerShape(ThumbnailCornerRadius))
-                            ) { cover() }
-                            Spacer(Modifier.height(10.dp))
-                            // 3 枚按钮：横排，宽度与封面两端对齐（外层宽度=coverSize）
-                            Row(
-                                modifier = Modifier.width(coverSize),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                                content = pillActions
-                            )
+                            // coverSize 缩小（0.6 倍可用空间），保证同屏能看到
+                            // 标题栏 + 封面 + 按钮排。
+                            val coverSize = minOf(maxWidth, maxHeight) * 0.6f
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(coverSize)
+                                        .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                ) { cover() }
+                                Spacer(Modifier.height(10.dp))
+                                // 3 枚按钮：横排，宽度与封面两端对齐（外层宽度=coverSize）
+                                Row(
+                                    modifier = Modifier.width(coverSize),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    content = pillActions
+                                )
+                            }
                         }
                     }
                 }
-            }
-            // ── 右侧曲目列表（60%） ────────────────────────────
-            Column(
-                modifier = Modifier
-                    .weight(1f - LandscapeDetailLeftFraction)
-                    .fillMaxHeight()
-            ) {
-                listHeader()
-                // LazyColumn 的 content 是接收者函数类型，直接传值，别包一层 lambda。
-                LazyColumn(
+                // ── 右侧曲目列表（60%） ────────────────────────────
+                Column(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    content = listContent
-                )
+                        .weight(1f - LandscapeDetailLeftFraction)
+                        .fillMaxHeight()
+                ) {
+                    listHeader()
+                    // LazyColumn 的 content 是接收者函数类型，直接传值，别包一层 lambda。
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        content = listContent
+                    )
+                }
             }
         }
 
