@@ -182,6 +182,7 @@ fun PlaylistScreen(
         }
     }
     val isLandscape = isLandscapePhone()
+    var showDescriptionOverlay by remember { mutableStateOf(false) }
 
     LaunchedEffect(searchActive) {
         if (searchActive) {
@@ -393,6 +394,9 @@ fun PlaylistScreen(
                             selectSong = song
                             openBottomSheet = true
                         },
+                        onTitleClick = { showDescriptionOverlay = true },
+                        descriptionOverlayVisible = showDescriptionOverlay,
+                        onDescriptionOverlayDismiss = { showDescriptionOverlay = false },
                         topActions = {
                             IconButton(onClick = {
                                 if (searchActive) {

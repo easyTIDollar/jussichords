@@ -10,10 +10,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Share
-import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -22,8 +24,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MiniPlayerHeight
-import com.jussicodes.music.ui.components.DetailCircleIconButton
-import com.jussicodes.music.ui.components.DetailPillButton
 import com.jussicodes.music.ui.components.MasterDetailLandscape
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.icons.LibraryAdd
@@ -76,7 +76,7 @@ fun AlbumLandscapeBody(
             }
             Spacer(Modifier.weight(1f))
             if (isPinned) {
-                FilledTonalIconButton(onClick = onTogglePin) {
+                IconButton(onClick = onTogglePin) {
                     Icon(
                         imageVector = PushPinFill,
                         contentDescription = "取消固定",
@@ -96,11 +96,18 @@ fun AlbumLandscapeBody(
             }
         },
         cover = cover,
-        title = albumName,
-        subtitle = {
+        // 专辑页：专辑名 + 歌手 + 日期都在封面上方，纯展示（无简介浮层）
+        headerContent = {
+            Text(
+                text = albumName,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                overflow = TextOverflow.Ellipsis,
+                maxLines = 2
+            )
             Text(
                 text = artistName,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 overflow = TextOverflow.Ellipsis,
                 maxLines = 1,
@@ -108,28 +115,52 @@ fun AlbumLandscapeBody(
                     .padding(top = 2.dp)
                     .clickable(onClick = onArtistClick)
             )
+            Text(
+                text = publishTimeText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                maxLines = 1
+            )
         },
-        meta = publishTimeText,
-        // 横排：主操作「播放」胶囊在最左（浅绿填充、自适应宽度），
-        // 「已收藏」「评论」转为等高正圆线框图标按钮
+        // 复用竖屏页三按钮：播放（实心主色 Button）/ 收藏（OutlinedButton）/ 评论（OutlinedButton）
         pillActions = {
-            DetailPillButton(
-                text = stringResource(R.string.play),
-                icon = Icons.Outlined.PlayArrow,
-                onClick = onPlayAll
-            )
-            DetailCircleIconButton(
-                icon = if (isSubscribed) LibraryAddCheck else LibraryAdd,
+            Button(
+                onClick = onPlayAll,
+                contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                Text(text = stringResource(R.string.play))
+            }
+            OutlinedButton(
                 onClick = onToggleSubscribe,
-                contentDescription = stringResource(
-                    if (isSubscribed) R.string.library_add_check else R.string.library_add
+                contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = if (isSubscribed) LibraryAddCheck else LibraryAdd,
+                    contentDescription = null,
+                    modifier = Modifier.size(ButtonDefaults.IconSize)
                 )
-            )
-            DetailCircleIconButton(
-                icon = ModeComment,
+                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                Text(text = stringResource(
+                    if (isSubscribed) R.string.library_add_check else R.string.library_add
+                ))
+            }
+            OutlinedButton(
                 onClick = onComments,
-                contentDescription = "评论"
-            )
+                contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = ModeComment,
+                    contentDescription = null,
+                    modifier = Modifier.size(ButtonDefaults.IconSize)
+                )
+                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                Text(text = "评论")
+            }
         },
         listContent = {
             itemsIndexed(songs) { index, song ->

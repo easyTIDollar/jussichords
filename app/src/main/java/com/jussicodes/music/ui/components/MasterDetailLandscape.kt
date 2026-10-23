@@ -20,10 +20,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -42,7 +42,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,10 +76,23 @@ fun MasterDetailLandscape(
     meta: String? = null,
     description: String? = null,
     /**
-     * 药丸按钮内容（**竖向**排布在封面右侧）。无接收者：按钮不参与 weight
-     * 分配，各自自适应内容大小。
+     * 封面上方的标题区（歌单：歌单名；专辑：专辑名+歌手+日期）。由调用方
+     * 组装，浮层触发逻辑也在调用方 —— 骨架只管摆位。
      */
-    pillActions: @Composable () -> Unit = {},
+    headerContent: (@Composable () -> Unit) = {},
+    /**
+     * 标题点击回调（骨架在浮层可见性上持有状态，由调用方决定 header 里的
+     * 哪个元素触发 —— 通常是歌单名）。
+     */
+    onTitleClick: () -> Unit = {},
+    /** 浮层可见性（受控）。null = 骨架内部自持（专辑页无浮层需求）。 */
+    descriptionOverlayVisible: Boolean? = null,
+    /** 浮层关闭回调（受控模式下点背景/关闭按钮时回调）。 */
+    onDescriptionOverlayDismiss: () -> Unit = {},
+    /**
+     * 药丸按钮内容（**横向**排在封面下方，RowScope 接收者可分配宽度）。
+     */
+    pillActions: @Composable RowScope.() -> Unit = {},
     /** 右栏列表上方的固定区域（搜索框等）。 */
     listHeader: (@Composable () -> Unit) = {},
     /**
@@ -95,7 +107,10 @@ fun MasterDetailLandscape(
      */
     listContent: LazyListScope.() -> Unit,
 ) {
-    var showDescriptionOverlay by remember { mutableStateOf(false) }
+    // 浮层可见性受控：由调用方持有状态（歌单页需要从标题点击打开浮层）。
+    // descriptionOverlayVisible != null 时完全受控；否则骨架内部自持（专辑页不需要浮层）。
+    var internalOverlay by remember { mutableStateOf(false) }
+    val showDescriptionOverlay = descriptionOverlayVisible ?: internalOverlay
     val hasDescription = !description.isNullOrBlank()
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -112,8 +127,11 @@ fun MasterDetailLandscape(
                     verticalAlignment = Alignment.CenterVertically,
                     content = topActions
                 )
-                // 整块在左栏剩余空间里垂直居中。封面 + 右侧按钮列等高对齐，
-                // 简介在封面下方单独一层（层级弱化），消除大片突兀空白。
+                // 结构（自上而下，整块在左栏剩余空间垂直居中）：
+                // 1. headerContent —— 标题/歌手/日期（由调用方给，歌单页点标题
+                //    展开全屏简介浮层；专辑页纯展示）
+                // 2. 封面：缩小并水平居中
+                // 3. 3 枚按钮：横排，左右与封面两端对齐
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -121,91 +139,34 @@ fun MasterDetailLandscape(
                         .padding(vertical = 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    headerContent()
+                    Spacer(Modifier.height(10.dp))
                     BoxWithConstraints(
                         modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.TopStart
+                        contentAlignment = Alignment.TopCenter
                     ) {
-                        // coverSize 在最外层算一次：封面正方形与按钮列共用同一个值，
-                        // 按钮列上下两端与封面齐平。
-                        val coverSize = minOf(maxWidth, maxHeight) * 0.78f
-                        Row(
+                        // coverSize 缩小（0.6 倍可用空间），保证同屏能看到
+                        // 标题栏 + 封面 + 按钮排。
+                        val coverSize = minOf(maxWidth, maxHeight) * 0.6f
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                        // 封面 + 覆盖其上的标题：正方形。标题放在封面 Box 内部
-                        // 对齐 BottomCenter，只覆盖封面自身的宽度。
                             Box(
                                 modifier = Modifier
                                     .size(coverSize)
                                     .clip(RoundedCornerShape(ThumbnailCornerRadius))
-                            ) {
-                                cover()
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .align(Alignment.BottomCenter)
-                                        .background(
-                                            Brush.verticalGradient(
-                                                colors = listOf(
-                                                    Color.Transparent,
-                                                    Color.Black.copy(alpha = 0.72f)
-                                                )
-                                            )
-                                        )
-                                        .clickable(enabled = hasDescription) {
-                                            showDescriptionOverlay = true
-                                        }
-                                ) {
-                                    Text(
-                                        text = title,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = Color.White,
-                                        overflow = TextOverflow.Ellipsis,
-                                        maxLines = 2,
-                                        modifier = Modifier.padding(
-                                            horizontal = 10.dp, vertical = 8.dp
-                                        )
-                                    )
-                                }
-                            }
-                        // 3 枚按钮：竖向排列、无文字（圆角矩形描边），上下两端
-                        // 与封面齐平 —— 固定高度 = coverSize + SpaceBetween 均匀撑开。
-                            Column(
-                                modifier = Modifier.height(coverSize),
-                                verticalArrangement = Arrangement.SpaceBetween,
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                pillActions()
-                            }
+                            ) { cover() }
+                            Spacer(Modifier.height(10.dp))
+                            // 3 枚按钮：横排，宽度与封面两端对齐（外层宽度=coverSize）
+                            Row(
+                                modifier = Modifier.width(coverSize),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                                content = pillActions
+                            )
                         }
                     }
-                    // 简介在封面下方独立一层：弱化层级（小字号 + 低对比度），
-                    // 2 行截断，点击展开全屏浮层
-                    description?.let { desc ->
-                        Text(
-                            text = desc,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            overflow = TextOverflow.Ellipsis,
-                            maxLines = 2,
-                            modifier = Modifier
-                                .padding(top = 8.dp)
-                                .clickable(enabled = hasDescription) {
-                                    showDescriptionOverlay = true
-                                }
-                        )
-                    }
-                    meta?.let {
-                        Text(
-                            text = it,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            overflow = TextOverflow.Ellipsis,
-                            maxLines = 1
-                        )
-                    }
-                    subtitle()
                 }
             }
             // ── 右侧曲目列表（60%） ────────────────────────────
@@ -235,7 +196,13 @@ fun MasterDetailLandscape(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.6f))
-                    .clickable { showDescriptionOverlay = false },
+                    .clickable {
+                        if (descriptionOverlayVisible != null) {
+                            onDescriptionOverlayDismiss()
+                        } else {
+                            internalOverlay = false
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -252,13 +219,28 @@ fun MasterDetailLandscape(
                             maxLines = 1,
                             modifier = Modifier.weight(1f)
                         )
-                        IconButton(onClick = { showDescriptionOverlay = false }) {
+                        IconButton(onClick = {
+                            if (descriptionOverlayVisible != null) {
+                                onDescriptionOverlayDismiss()
+                            } else {
+                                internalOverlay = false
+                            }
+                        }) {
                             Icon(
                                 imageVector = Icons.Outlined.Close,
                                 contentDescription = "关闭",
                                 tint = Color.White
                             )
                         }
+                    }
+                    // 日期/播放数：与简介正文区分 —— 小字号 + 主色调 + 加大上间距
+                    meta?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
                     }
                     description?.let { desc ->
                         Text(
@@ -268,7 +250,7 @@ fun MasterDetailLandscape(
                             modifier = Modifier
                                 .weight(1f, fill = false)
                                 .verticalScroll(rememberScrollState())
-                                .padding(top = 12.dp)
+                                .padding(top = 6.dp)
                         )
                     }
                 }
