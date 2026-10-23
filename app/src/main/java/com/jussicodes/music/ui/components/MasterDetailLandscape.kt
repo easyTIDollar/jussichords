@@ -1,5 +1,10 @@
 package com.jussicodes.music.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -16,39 +21,45 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.constants.LandscapeDetailLeftFraction
 
 /**
- * 横屏（矮屏）详情页的「主从双栏」骨架：左侧信息栏 + 右侧列表栏。
+ * 横屏（矮屏）详情页的「主从双栏」骨架：左侧展示栏 + 右侧曲目列表。
  *
- * 竖屏详情页是「上下堆叠」（封面在上、列表在下），横屏必须换成分栏，否则
- * 411dp 的可视高度里封面吃掉大半、列表首屏看不到东西。
+ * 比例取 **左 40% / 右 60%**（[LandscapeDetailLeftFraction]）。
  *
- * 比例取 **左 40% / 右 60%**（[LandscapeDetailLeftFraction]）——
- * 左栏只放封面 + 文案 + 3 枚药丸按钮，右栏留给可滚动的曲目列表。
+ * 左栏内部是**横向两块**（不是上下堆叠）：
+ * 1. 左块：封面 —— 边长取「剩余高度」与「半块宽」的较小值，居中放置。
+ *    不能用 fillMaxWidth + aspectRatio(1f)：会撑破 411dp 高的视口。
+ * 2. 右块：标题 / 艺术家 / 时间 / 简介 + **竖向**排的 3 枚药丸按钮（收藏 /
+ *    播放 / 评论）。简介超过 3 行截断，点击标题或简介弹出全屏简介浮层
+ *    （半透明压暗背景，点背景或关闭按钮退出）。
  *
- * 左栏内部结构（自上而下）：
- * 1. 顶部操作按钮行（返回 / 置顶 / 分享等，由调用方给内容）
- * 2. 封面：边长取「剩余高度」与「栏宽」的较小值 —— **不能**用
- *    `fillMaxWidth().aspectRatio(1f)`：左栏 ~330dp 宽会让封面变成 330dp 的
- *    正方形，直接撑破 411dp 高的视口。
- * 3. 标题 / 副标题 / 时间 / 简介
- * 4. 药丸按钮行
- *
- * 右栏：可选的列表头部（如搜索框）+ 纵向滚动的列表。
+ * 左栏顶部仍有操作按钮行（返回 / 置顶 / 分享等，横跨整栏）。
+ * 右栏：可选列表头部（搜索框）+ 纵向滚动列表。
  */
 @Composable
 fun MasterDetailLandscape(
@@ -61,100 +72,174 @@ fun MasterDetailLandscape(
     subtitle: (@Composable () -> Unit) = {},
     meta: String? = null,
     description: String? = null,
-    /** 药丸按钮行。 */
-    pillActions: @Composable RowScope.() -> Unit = {},
+    /**
+     * 药丸按钮内容（**竖向**排布）。
+     *
+     * 无接收者的普通 composable lambda：竖排高度自适应，不需要 weight 语义，
+     * 也避开扩展函数类型调用点的编译器限制。
+     */
+    pillActions: @Composable () -> Unit = {},
     /** 右栏列表上方的固定区域（搜索框等）。 */
     listHeader: (@Composable () -> Unit) = {},
     /**
      * 右栏曲目列表内容。
      *
      * 必须是**非 composable** 的扩展函数类型 `LazyListScope.() -> Unit`（与
-     * LazyColumn 尾随 lambda 同一形态）：`LazyColumn { }` 的 builder lambda 本身
-     * 不是 composable 上下文，只有每个 item 的行内容才是，所以任何 @Composable
-     * 形态的 listContent 在这里调用都会报
+     * LazyColumn 的 content 参数同一形态）：`LazyColumn { }` 的 builder lambda
+     * 本身不是 composable 上下文，只有每个 item 的行内容才是，所以任何
+     * @Composable 形态的 listContent 在这里都会报
      * 「@Composable invocations can only happen from the context of a @Composable function」。
      * 行内容（itemsIndexed 的 lambda）自带 @Composable，不受影响。
      */
     listContent: LazyListScope.() -> Unit,
 ) {
-    Row(modifier = modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .weight(LandscapeDetailLeftFraction)
-                .fillMaxHeight()
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                content = topActions
-            )
-            BoxWithConstraints(
+    var showDescriptionOverlay by remember { mutableStateOf(false) }
+    val hasDescription = !description.isNullOrBlank()
+
+    Box(modifier = modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxSize()) {
+            // ── 左侧展示栏（40%） ──────────────────────────────
+            Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp),
+                    .weight(LandscapeDetailLeftFraction)
+                    .fillMaxHeight()
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = topActions
+                )
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // 封面：左半块，边长 = 剩余高度与半块宽的较小值
+                    BoxWithConstraints(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val coverSize = minOf(maxWidth, maxHeight)
+                        Box(modifier = Modifier.size(coverSize)) { cover() }
+                    }
+                    // 信息 + 竖排药丸按钮：右半块
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            overflow = TextOverflow.Ellipsis,
+                            maxLines = 2,
+                            modifier = Modifier.clickable(enabled = hasDescription) {
+                                showDescriptionOverlay = true
+                            }
+                        )
+                        subtitle()
+                        meta?.let {
+                            Text(
+                                text = it,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                overflow = TextOverflow.Ellipsis,
+                                maxLines = 1
+                            )
+                        }
+                        description?.let { desc ->
+                            Text(
+                                text = desc,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                overflow = TextOverflow.Ellipsis,
+                                maxLines = 3,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable(enabled = hasDescription) {
+                                        showDescriptionOverlay = true
+                                    }
+                            )
+                        }
+                        // 3 枚药丸按钮：竖向排布
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            pillActions()
+                        }
+                    }
+                }
+            }
+            // ── 右侧曲目列表（60%） ────────────────────────────
+            Column(
+                modifier = Modifier
+                    .weight(1f - LandscapeDetailLeftFraction)
+                    .fillMaxHeight()
+            ) {
+                listHeader()
+                // LazyColumn 的 content 是接收者函数类型，直接传值，别包一层 lambda。
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    content = listContent
+                )
+            }
+        }
+
+        // ── 全屏简介浮层：半透明压暗背景 + 居中可滚动简介 ──
+        AnimatedVisibility(
+            visible = showDescriptionOverlay,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .clickable { showDescriptionOverlay = false },
                 contentAlignment = Alignment.Center
             ) {
-                val coverSize = minOf(maxWidth, maxHeight)
-                Box(
-                    modifier = Modifier.size(coverSize)
-                ) { cover() }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 64.dp, vertical = 32.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleLarge,
+                            color = Color.White,
+                            overflow = TextOverflow.Ellipsis,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { showDescriptionOverlay = false }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "关闭",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                    description?.let { desc ->
+                        Text(
+                            text = desc,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = 0.92f),
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .verticalScroll(rememberScrollState())
+                                .padding(top = 12.dp)
+                        )
+                    }
+                }
             }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                overflow = TextOverflow.Ellipsis,
-                maxLines = 2
-            )
-            subtitle()
-            meta?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    overflow = TextOverflow.Ellipsis,
-                    maxLines = 1
-                )
-            }
-            description?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    overflow = TextOverflow.Ellipsis,
-                    maxLines = 3
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                content = pillActions
-            )
-        }
-        Column(
-            modifier = Modifier
-                .weight(1f - LandscapeDetailLeftFraction)
-                .fillMaxHeight()
-        ) {
-            listHeader()
-            // 不要给 LazyColumn 传可空的 state + 具名 content：Compose 里 LazyColumn 有
-            // 一个内部重载 `state: LazyListState`（非空）+ 非 composable 的 content，
-            // 传可空 state 会命中它并报
-            // 「actual LazyListState? but LazyListState was expected」+
-            // 「content 期望 Function1<LazyListScope, Unit>」。这里用尾随 lambda，
-            // 只匹配公开重载。
-            // LazyColumn 的 content 是接收者函数类型 `LazyListScope.() -> Unit`，
-            // 尾随 lambda 里不能声明参数（只能隐式用 this）。listContent 是**普通**
-            // 函数类型 `(LazyListScope) -> Unit`，所以可以显式传 this。
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                content = listContent
-            )
         }
     }
 }

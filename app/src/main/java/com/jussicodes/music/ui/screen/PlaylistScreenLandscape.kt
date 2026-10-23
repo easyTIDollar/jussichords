@@ -73,21 +73,18 @@ fun PlaylistLandscapeBody(
                     if (isSubscribed) R.string.library_add_check else R.string.library_add
                 ),
                 icon = if (isSubscribed) LibraryAddCheck else LibraryAdd,
-                onClick = onToggleSubscribe,
-                modifier = Modifier.weight(1f)
+                onClick = onToggleSubscribe
             )
             DetailPillButton(
                 text = stringResource(R.string.play),
                 icon = Icons.Outlined.PlayArrow,
                 onClick = onPlayAll,
-                filled = true,
-                modifier = Modifier.weight(1f)
+                filled = true
             )
             DetailPillButton(
                 text = "评论",
                 icon = ModeComment,
-                onClick = onComments,
-                modifier = Modifier.weight(1f)
+                onClick = onComments
             )
         },
         listHeader = listHeader,
