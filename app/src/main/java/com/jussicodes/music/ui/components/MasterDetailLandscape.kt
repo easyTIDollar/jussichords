@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
@@ -166,10 +165,10 @@ fun MasterDetailLandscape(
                                         .clip(RoundedCornerShape(ThumbnailCornerRadius))
                                 ) { cover() }
                                 Spacer(Modifier.height(10.dp))
-                                // 3 枚按钮：横排，宽度与封面两端对齐（外层宽度=coverSize）
+                                // 3 枚按钮：横排，等分左栏宽度（与竖屏页一致，不再与封面宽度对齐）
                                 Row(
-                                    modifier = Modifier.width(coverSize),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     content = pillActions
                                 )

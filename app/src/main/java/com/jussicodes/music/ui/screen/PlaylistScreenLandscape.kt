@@ -90,17 +90,8 @@ fun PlaylistLandscapeBody(
         onTitleClick = onTitleClick,
         descriptionOverlayVisible = descriptionOverlayVisible,
         onDescriptionOverlayDismiss = onDescriptionOverlayDismiss,
-        // 复用竖屏页三按钮：播放（实心 Button）/ 收藏 / 评论（OutlinedButton）
+        // 复用竖屏页三按钮：收藏 / 播放 / 评论（顺序与竖屏一致）
         pillActions = {
-            Button(
-                onClick = onPlayAll,
-                contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                Text(text = stringResource(R.string.play))
-            }
             OutlinedButton(
                 onClick = onToggleSubscribe,
                 contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
@@ -115,6 +106,15 @@ fun PlaylistLandscapeBody(
                 Text(text = stringResource(
                     if (isSubscribed) R.string.library_add_check else R.string.library_add
                 ))
+            }
+            Button(
+                onClick = onPlayAll,
+                contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                Text(text = stringResource(R.string.play))
             }
             OutlinedButton(
                 onClick = onComments,
