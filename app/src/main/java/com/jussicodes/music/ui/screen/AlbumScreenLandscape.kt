@@ -109,19 +109,21 @@ fun AlbumLandscapeBody(
             )
         },
         meta = publishTimeText,
+        // 横排：主操作「播放」在左（实心），「收藏」「评论」描边在右
         pillActions = {
+            DetailPillButton(
+                text = stringResource(R.string.play),
+                icon = Icons.Outlined.PlayArrow,
+                onClick = onPlayAll,
+                filled = true,
+                modifier = Modifier.weight(1f, fill = false)
+            )
             DetailPillButton(
                 text = stringResource(
                     if (isSubscribed) R.string.library_add_check else R.string.library_add
                 ),
                 icon = if (isSubscribed) LibraryAddCheck else LibraryAdd,
                 onClick = onToggleSubscribe
-            )
-            DetailPillButton(
-                text = stringResource(R.string.play),
-                icon = Icons.Outlined.PlayArrow,
-                onClick = onPlayAll,
-                filled = true
             )
             DetailPillButton(
                 text = "评论",
