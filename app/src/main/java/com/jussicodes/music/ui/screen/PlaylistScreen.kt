@@ -364,7 +364,6 @@ fun PlaylistScreen(
                         currentMediaId = currentMediaId,
                         likedSongIds = songIds,
                         hasMiniPlayer = hasMiniPlayer,
-                        listState = listState,
                         onToggleSubscribe = {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             playlistScreenViewModel.playlistSub(shouldSubscribe = !subscribed)

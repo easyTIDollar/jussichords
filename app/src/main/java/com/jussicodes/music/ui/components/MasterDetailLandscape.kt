@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,15 +58,13 @@ fun MasterDetailLandscape(
     /** 封面内容（调用方自行提供 AsyncImage / 共享元素与点击行为）。 */
     cover: @Composable () -> Unit = {},
     title: String,
-    subtitle: (@Composable () -> Unit)? = null,
+    subtitle: (@Composable () -> Unit) = {},
     meta: String? = null,
     description: String? = null,
     /** 药丸按钮行。 */
     pillActions: @Composable RowScope.() -> Unit = {},
     /** 右栏列表上方的固定区域（搜索框等）。 */
-    listHeader: (@Composable () -> Unit)? = null,
-    /** 右栏列表的滚动状态（歌单页拖拽排序需要绑定到同一个 state）。 */
-    listState: LazyListState? = null,
+    listHeader: (@Composable () -> Unit) = {},
     listContent: @Composable LazyListScope.() -> Unit,
 ) {
     Row(modifier = modifier.fillMaxSize()) {
@@ -101,7 +98,7 @@ fun MasterDetailLandscape(
                 overflow = TextOverflow.Ellipsis,
                 maxLines = 2
             )
-            subtitle?.invoke()
+            subtitle()
             meta?.let {
                 Text(
                     text = it,
@@ -132,14 +129,22 @@ fun MasterDetailLandscape(
                 .weight(1f - LandscapeDetailLeftFraction)
                 .fillMaxHeight()
         ) {
-            listHeader?.invoke()
+            listHeader()
+            // 不要给 LazyColumn 传可空的 state + 具名 content：Compose 里 LazyColumn 有
+            // 一个内部重载 `state: LazyListState`（非空）+ 非 composable 的 content，
+            // 传可空 state 会命中它并报
+            // 「actual LazyListState? but LazyListState was expected」+
+            // 「content 期望 Function1<LazyListScope, Unit>」。这里用尾随 lambda，
+            // 只匹配公开重载。
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth(),
-                state = listState,
-                content = listContent
-            )
+                    .fillMaxWidth()
+            ) {
+                // 显式传接收者：listContent 是 LazyListScope.() -> Unit 的值，
+                // 用 listContent(this) 调用不依赖隐式接收者解析。
+                listContent(this)
+            }
         }
     }
 }

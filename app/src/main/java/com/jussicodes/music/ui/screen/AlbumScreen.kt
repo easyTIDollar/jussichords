@@ -188,7 +188,11 @@ fun AlbumScreen(
         }
     ) { padding ->
         if (isLandscape) {
-            albumDetailState?.onSuccess { detail ->
+            // 不要在 onSuccess{}/let{} 这类内联 lambda 里调 @Composable 函数：
+            // 编译器对内联 lambda 中的 composable 调用有额外限制。显式判空后直调。
+            val landscapeDetail = albumDetailState?.getOrNull()
+            if (landscapeDetail != null) {
+                val detail = landscapeDetail
                 val album = detail.album
                 val isPinned = album.id in pinnedAlbums.map { it.id }
                 AlbumLandscapeBody(

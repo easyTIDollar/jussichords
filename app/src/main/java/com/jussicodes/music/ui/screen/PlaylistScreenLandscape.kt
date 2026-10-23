@@ -4,7 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -48,7 +47,6 @@ fun PlaylistLandscapeBody(
     currentMediaId: Long?,
     likedSongIds: List<Long>,
     hasMiniPlayer: Boolean,
-    listState: LazyListState,
     onToggleSubscribe: () -> Unit,
     onPlayAll: () -> Unit,
     onComments: () -> Unit,
@@ -56,7 +54,7 @@ fun PlaylistLandscapeBody(
     onSongMenu: (Song) -> Unit,
     modifier: Modifier = Modifier,
     topActions: @Composable RowScope.() -> Unit = {},
-    listHeader: (@Composable () -> Unit)? = null,
+    listHeader: (@Composable () -> Unit) = {},
 ) {
     // 注意：显式用局部 val + 显式接收者调用，避免命名实参与本地参数同名造成歧义。
     val actions = topActions
@@ -92,7 +90,6 @@ fun PlaylistLandscapeBody(
             )
         },
         listHeader = listHeader,
-        listState = listState,
         listContent = {
             itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
                 SongListItem(
