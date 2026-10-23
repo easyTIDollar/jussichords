@@ -109,26 +109,25 @@ fun AlbumLandscapeBody(
             )
         },
         meta = publishTimeText,
-        // 横排：主操作「播放」在左（实心），「收藏」「评论」描边在右
+        // 横排：主操作「播放」胶囊在最左（浅绿填充、自适应宽度），
+        // 「已收藏」「评论」转为等高正圆线框图标按钮
         pillActions = {
             DetailPillButton(
                 text = stringResource(R.string.play),
                 icon = Icons.Outlined.PlayArrow,
-                onClick = onPlayAll,
-                filled = true,
-                modifier = Modifier.weight(1f, fill = false)
+                onClick = onPlayAll
             )
-            DetailPillButton(
-                text = stringResource(
-                    if (isSubscribed) R.string.library_add_check else R.string.library_add
-                ),
+            DetailCircleIconButton(
                 icon = if (isSubscribed) LibraryAddCheck else LibraryAdd,
-                onClick = onToggleSubscribe
+                onClick = onToggleSubscribe,
+                contentDescription = stringResource(
+                    if (isSubscribed) R.string.library_add_check else R.string.library_add
+                )
             )
-            DetailPillButton(
-                text = "评论",
+            DetailCircleIconButton(
                 icon = ModeComment,
-                onClick = onComments
+                onClick = onComments,
+                contentDescription = "评论"
             )
         },
         listContent = {

@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -31,7 +33,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
@@ -246,54 +248,74 @@ fun MasterDetailLandscape(
     }
 }
 
+/** 按钮排的标准高度：圆形图标按钮的直径 = 胶囊按钮的高度，两者等高对齐。 */
+val DetailActionRowHeight = 36.dp
+
 /**
- * 药丸按钮（完全圆角）。`filled = true` 时用主色实心（用于主推的「播放」），
- * 否则用描边（收藏 / 评论）。
+ * 主操作胶囊按钮（「播放」）：浅绿（primaryContainer）填充高亮，图标 + 文字，
+ * 宽度**自适应内容** —— 不做 weight/弹性伸缩，永远是舒展的药丸形。
  */
 @Composable
 fun DetailPillButton(
     text: String,
     icon: ImageVector,
     onClick: () -> Unit,
-    filled: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(percent = 50)
-    val contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-    if (filled) {
-        Button(
-            onClick = onClick,
-            shape = shape,
-            contentPadding = contentPadding,
-            modifier = modifier
-        ) {
-            DetailPillButtonContent(text = text, icon = icon)
-        }
-    } else {
-        OutlinedButton(
-            onClick = onClick,
-            shape = shape,
-            contentPadding = contentPadding,
-            modifier = modifier
-        ) {
-            DetailPillButtonContent(text = text, icon = icon)
-        }
+    Button(
+        onClick = onClick,
+        shape = RoundedCornerShape(percent = 50),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        ),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+        modifier = modifier.height(DetailActionRowHeight)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
-/** 药丸按钮内部：图标 + 间距 + 文字。独立成 @Composable 函数，避免局部 composable lambda。 */
+/**
+ * 次要操作正圆线框图标按钮（「已收藏」/「评论」）：无文字，深底细描边圆，
+ * 直径 = [DetailActionRowHeight]，与主胶囊等高。
+ */
 @Composable
-private fun DetailPillButtonContent(text: String, icon: ImageVector) {
-    Icon(
-        imageVector = icon,
-        contentDescription = null,
-        modifier = Modifier.size(16.dp)
-    )
-    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelLarge,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis
-    )
+fun DetailCircleIconButton(
+    icon: ImageVector,
+    onClick: () -> Unit,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .size(DetailActionRowHeight)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                shape = CircleShape
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp)
+        )
+    }
 }
