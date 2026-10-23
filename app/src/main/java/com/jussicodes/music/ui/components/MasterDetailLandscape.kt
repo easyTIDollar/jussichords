@@ -71,7 +71,8 @@ fun MasterDetailLandscape(
     topActions: @Composable RowScope.() -> Unit = {},
     /** 封面内容（调用方自行提供 AsyncImage / 共享元素与点击行为）。 */
     cover: @Composable () -> Unit = {},
-    title: String,
+    /** 浮层标题（受控浮层显示用）。标题展示本身由 headerContent 负责。 */
+    title: String = "",
     subtitle: (@Composable () -> Unit) = {},
     meta: String? = null,
     description: String? = null,
