@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MiniPlayerHeight
+import com.jussicodes.music.ui.components.DetailCircleIconButton
 import com.jussicodes.music.ui.components.DetailPillButton
 import com.jussicodes.music.ui.components.MasterDetailLandscape
 import com.jussicodes.music.ui.components.SongListItem

@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MiniPlayerHeight
+import com.jussicodes.music.ui.components.DetailCircleIconButton
 import com.jussicodes.music.ui.components.DetailPillButton
 import com.jussicodes.music.ui.components.MasterDetailLandscape
 import com.jussicodes.music.ui.components.SongListItem
