@@ -42,11 +42,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.constants.LandscapeDetailLeftFraction
+import com.jussicodes.music.constants.ThumbnailCornerRadius
 
 /**
  * 横屏（矮屏）详情页的「主从双栏」骨架：左侧展示栏 + 右侧曲目列表。
@@ -75,9 +77,10 @@ fun MasterDetailLandscape(
     meta: String? = null,
     description: String? = null,
     /**
-     * 药丸按钮内容（**横向**排布，RowScope 接收者 —— 按钮可用 weight 分配宽度）。
+     * 药丸按钮内容（**竖向**排布在封面右侧）。无接收者：按钮不参与 weight
+     * 分配，各自自适应内容大小。
      */
-    pillActions: @Composable RowScope.() -> Unit = {},
+    pillActions: @Composable () -> Unit = {},
     /** 右栏列表上方的固定区域（搜索框等）。 */
     listHeader: (@Composable () -> Unit) = {},
     /**
@@ -109,74 +112,100 @@ fun MasterDetailLandscape(
                     verticalAlignment = Alignment.CenterVertically,
                     content = topActions
                 )
-                // 关键：顶部对齐（Alignment.Top）—— 右侧文字区高度由内容决定
-                // 并被压缩到与封面正方形基本持平，消除封面左上角的突兀空白。
-                // 封面本身从顶部开始画，底边即封面正方形的底。
-                Row(
+                // 整块在左栏剩余空间里垂直居中。封面 + 右侧按钮列等高对齐，
+                // 简介在封面下方单独一层（层级弱化），消除大片突兀空白。
+                Column(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                         .padding(vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.Top
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // 封面：左半块，正方形 —— 边长取「剩余高度」与「半块宽」的较小值。
-                    // BoxWithConstraints 高度跟随内容（封面），不再 fillMaxHeight，
-                    // 否则它会把右侧文字区也拉成整列高。
                     BoxWithConstraints(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                         contentAlignment = Alignment.TopStart
                     ) {
-                        val coverSize = minOf(maxWidth, maxHeight)
-                        Box(modifier = Modifier.size(coverSize)) { cover() }
+                        // coverSize 在最外层算一次：封面正方形与按钮列共用同一个值，
+                        // 按钮列上下两端与封面齐平。
+                        val coverSize = minOf(maxWidth, maxHeight) * 0.78f
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                        // 封面 + 覆盖其上的标题：正方形。标题放在封面 Box 内部
+                        // 对齐 BottomCenter，只覆盖封面自身的宽度。
+                            Box(
+                                modifier = Modifier
+                                    .size(coverSize)
+                                    .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                            ) {
+                                cover()
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .align(Alignment.BottomCenter)
+                                        .background(
+                                            Brush.verticalGradient(
+                                                colors = listOf(
+                                                    Color.Transparent,
+                                                    Color.Black.copy(alpha = 0.72f)
+                                                )
+                                            )
+                                        )
+                                        .clickable(enabled = hasDescription) {
+                                            showDescriptionOverlay = true
+                                        }
+                                ) {
+                                    Text(
+                                        text = title,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = Color.White,
+                                        overflow = TextOverflow.Ellipsis,
+                                        maxLines = 2,
+                                        modifier = Modifier.padding(
+                                            horizontal = 10.dp, vertical = 8.dp
+                                        )
+                                    )
+                                }
+                            }
+                        // 3 枚按钮：竖向排列、无文字（圆角矩形描边），上下两端
+                        // 与封面齐平 —— 固定高度 = coverSize + SpaceBetween 均匀撑开。
+                            Column(
+                                modifier = Modifier.height(coverSize),
+                                verticalArrangement = Arrangement.SpaceBetween,
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                pillActions()
+                            }
+                        }
                     }
-                    // 信息 + 横排药丸按钮：右半块，顶部对齐
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
+                    // 简介在封面下方独立一层：弱化层级（小字号 + 低对比度），
+                    // 2 行截断，点击展开全屏浮层
+                    description?.let { desc ->
                         Text(
-                            text = title,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            text = desc,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                             overflow = TextOverflow.Ellipsis,
                             maxLines = 2,
-                            lineHeight = MaterialTheme.typography.titleMedium.lineHeight,
-                            modifier = Modifier.clickable(enabled = hasDescription) {
-                                showDescriptionOverlay = true
-                            }
-                        )
-                        subtitle()
-                        meta?.let {
-                            Text(
-                                text = it,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                overflow = TextOverflow.Ellipsis,
-                                maxLines = 1
-                            )
-                        }
-                        description?.let { desc ->
-                            Text(
-                                text = desc,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                overflow = TextOverflow.Ellipsis,
-                                maxLines = 2,
-                                modifier = Modifier.clickable(enabled = hasDescription) {
+                            modifier = Modifier
+                                .padding(top = 8.dp)
+                                .clickable(enabled = hasDescription) {
                                     showDescriptionOverlay = true
                                 }
-                            )
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        // 3 枚药丸按钮：横向并排 —— 主操作「播放」在左（实心高亮），
-                        // 「收藏」「评论」描边样式在右。由调用方决定顺序与填充。
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            content = pillActions
                         )
                     }
+                    meta?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            overflow = TextOverflow.Ellipsis,
+                            maxLines = 1
+                        )
+                    }
+                    subtitle()
                 }
             }
             // ── 右侧曲目列表（60%） ────────────────────────────
@@ -288,8 +317,8 @@ fun DetailPillButton(
 }
 
 /**
- * 次要操作正圆线框图标按钮（「已收藏」/「评论」）：无文字，深底细描边圆，
- * 直径 = [DetailActionRowHeight]，与主胶囊等高。
+ * 次要操作圆角矩形线框图标按钮（「已收藏」/「评论」）：无文字，深底细描边，
+ * 尺寸与主胶囊等高 [DetailActionRowHeight] 的正方形（圆角矩形）。
  */
 @Composable
 fun DetailCircleIconButton(
@@ -298,15 +327,16 @@ fun DetailCircleIconButton(
     contentDescription: String,
     modifier: Modifier = Modifier,
 ) {
+    val shape = RoundedCornerShape(12.dp)
     Box(
         modifier = modifier
             .size(DetailActionRowHeight)
-            .clip(CircleShape)
+            .clip(shape)
             .background(MaterialTheme.colorScheme.surface)
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
-                shape = CircleShape
+                shape = shape
             )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
