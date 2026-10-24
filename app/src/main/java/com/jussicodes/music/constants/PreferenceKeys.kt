@@ -72,3 +72,8 @@ val homeTransparentCardKey = booleanPreferencesKey("homeTransparentCard")
 val cacheAutoCleanEnabledKey = booleanPreferencesKey("cacheAutoCleanEnabled")
 /** 缓存自动清理阈值（字节）；默认 1GB。仅在开关打开时生效。 */
 val cacheAutoCleanThresholdKey = longPreferencesKey("cacheAutoCleanThresholdBytes")
+/**
+ * 定时播放（睡眠定时）用户自定义的快捷时长，逗号分隔的分钟数（如 "25,45"）。
+ * 顶部快捷选择里除了内置档位，还会把这里保存的档位一并列出。
+ */
+val sleepTimerShortcutsKey = stringPreferencesKey("sleepTimerShortcuts")

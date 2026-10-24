@@ -1,6 +1,5 @@
 package com.jussicodes.music.ui.components
 
-import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
@@ -21,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,14 +50,10 @@ import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MediaItemHeight
-import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.extensions.currentMediaItems
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.removeSong
 import com.jussicodes.music.ui.icons.DragHandle
-import com.jussicodes.music.ui.icons.Repeat
-import com.jussicodes.music.ui.icons.RepeatOne
-import com.jussicodes.music.ui.icons.Shuffle
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -79,12 +73,6 @@ fun PlayerQueue(
     val currentMediaId = playerState?.player?.currentMediaItem?.mediaId
     val currentIndex = playerState?.player?.currentMediaItemIndex
     var cacheMediaItems by remember { mutableStateOf(currentMediaItems) }
-
-    val repeatIcon = when (repeatMode) {
-        0 -> Repeat
-        1 -> RepeatOne
-        else -> Repeat
-    }
 
     BackHandler {
         onBackPressed()
@@ -157,40 +145,19 @@ fun PlayerQueue(
                 }
 
                 Row {
-                    FilledTonalIconButton(
+                    // 随机与循环合并成一个播放模式按钮，点击在
+                    // 顺序 → 列表循环 → 单曲循环 → 随机 之间循环切换。
+                    PlaybackModeButton(
+                        state = currentPlaybackMode(shuffleMode, repeatMode),
                         onClick = {
-                            mediaController?.sendCustomCommand(
-                                MediaSessionConstants.CommandToggleShuffle,
-                                Bundle.EMPTY
+                            applyPlaybackMode(
+                                mediaController,
+                                nextPlaybackMode(currentPlaybackMode(shuffleMode, repeatMode))
                             )
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Shuffle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.alpha(if (!shuffleMode) 0.4f else 1f)
-                        )
-                    }
-
-                    FilledTonalIconButton(
-                        onClick = {
-                            val newMode = when (repeatMode) {
-                                0 -> 2
-                                1 -> 0
-                                2 -> 1
-                                else -> 0
-                            }
-                            mediaController?.repeatMode = newMode
-                        }
-                    ) {
-                        Icon(
-                            imageVector = repeatIcon,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.alpha(if (repeatMode == 0) 0.4f else 1f)
-                        )
-                    }
+                        },
+                        size = 22.dp,
+                        touchSize = 42.dp,
+                    )
                 }
 
             }

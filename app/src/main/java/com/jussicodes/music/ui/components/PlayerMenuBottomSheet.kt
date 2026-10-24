@@ -1,7 +1,6 @@
 ﻿package com.jussicodes.music.ui.components
 
 import android.widget.Toast
-import android.os.Bundle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -9,11 +8,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Card
@@ -24,7 +28,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,10 +47,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.R
-import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.audioSourceKey
 import com.jussicodes.music.constants.directSourceKey
 import com.jussicodes.music.playback.ListenTogetherSession
@@ -55,11 +61,8 @@ import com.jussicodes.music.constants.audioEffectReverbEnabledKey
 import com.jussicodes.music.constants.audioEffectSpeedKey
 import com.jussicodes.music.playback.audio.AudioEffectMode
 import androidx.compose.material.icons.outlined.Dns
-import com.jussicodes.music.ui.icons.AudioLines
-import com.jussicodes.music.ui.icons.ListenTogether
-import com.jussicodes.music.ui.icons.Repeat
-import com.jussicodes.music.ui.icons.RepeatOne
-import com.jussicodes.music.ui.icons.Shuffle
+import com.jussicodes.music.ui.icons.GraphicEq
+import com.jussicodes.music.ui.icons.Headphones
 import com.jussicodes.music.ui.icons.Timelapse
 import com.jussicodes.music.ui.icons.Timer
 import com.jussicodes.music.utils.rememberEnumPreference
@@ -83,6 +86,9 @@ fun PlayerMenuBottomSheet(
     // 直接开一起听面板，而不是先开菜单再让用户点一次「一起听」。
     listenTogetherOpen: Boolean = false,
     onListenTogetherOpenChange: (Boolean) -> Unit = {},
+    // 横屏（矮屏）用对话框承载菜单：底部弹层在 411dp 高度里几乎占满整屏，
+    // 改成居中对话框 + 左右两栏，既不遮歌词也不需要长距离滚动。
+    landscape: Boolean = false,
 ) {
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var timePicker by rememberSaveable { mutableStateOf(false) }
@@ -91,6 +97,8 @@ fun PlayerMenuBottomSheet(
     val isSleepTimerSet = playerState?.isSleepTimerSet == true
     val shuffleMode = playerState?.shuffleModeEnabled == true
     val repeatMode = playerState?.repeatMode ?: 0
+    // 随机 / 循环合并成一个「播放模式」，四档循环切换。
+    val playbackMode = currentPlaybackMode(shuffleMode, repeatMode)
     var audioEffectMode by rememberEnumPreference(audioEffectModeKey, AudioEffectMode.OFF)
     var eightDEnabledPreference by rememberPreference(audioEffectEightDEnabledKey, audioEffectMode == AudioEffectMode.EIGHT_D)
     var reverbEnabledPreference by rememberPreference(audioEffectReverbEnabledKey, audioEffectMode == AudioEffectMode.REVERB)
@@ -99,20 +107,17 @@ fun PlayerMenuBottomSheet(
     var showAudioEffectPage by rememberSaveable { mutableStateOf(false) }
     val eightDEnabled = eightDEnabledPreference || audioEffectMode == AudioEffectMode.EIGHT_D
     val reverbEnabled = reverbEnabledPreference || audioEffectMode == AudioEffectMode.REVERB
-    val repeatIcon = when (repeatMode) {
-        1 -> RepeatOne
-        else -> Repeat
-    }
     val audioEffectModeText = when {
         eightDEnabled && reverbEnabled -> "双耳空间 + 混响"
         eightDEnabled -> "双耳空间"
         reverbEnabled -> "混响"
         else -> "关闭"
     }
-    val repeatModeText = when (repeatMode) {
-        1 -> stringResource(R.string.playback_mode_repeat_one)
-        2 -> stringResource(R.string.playback_mode_repeat_all)
-        else -> stringResource(R.string.playback_mode_sequential)
+    val playbackModeText = when (playbackMode) {
+        PlaybackModeState.SEQUENTIAL -> stringResource(R.string.playback_mode_sequential)
+        PlaybackModeState.REPEAT_ALL -> stringResource(R.string.playback_mode_repeat_all)
+        PlaybackModeState.REPEAT_ONE -> stringResource(R.string.playback_mode_repeat_one)
+        PlaybackModeState.SHUFFLE -> stringResource(R.string.shuffle_mode)
     }
     val remainingTimeText = playerState?.remainingTime?.toDuration(DurationUnit.SECONDS)?.toComponents { hours, minutes, seconds, _ ->
         if (hours > 0) {
@@ -151,35 +156,101 @@ fun PlayerMenuBottomSheet(
 
     LaunchedEffect(openBottomSheet) {
         if (openBottomSheet) {
-            bottomSheetState.show()
+            if (!landscape) bottomSheetState.show()
         } else {
-            bottomSheetState.hide()
+            if (!landscape) bottomSheetState.hide()
         }
     }
 
-    if (openBottomSheet) {
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = bottomSheetState,
-        ) {
-            if (showAudioEffectPage) {
-                AudioEffectPage(
-                    eightDEnabled = eightDEnabled,
-                    onEightDEnabledChange = {
-                        eightDEnabledPreference = it
-                        audioEffectMode = AudioEffectMode.OFF
-                    },
-                    reverbEnabled = reverbEnabled,
-                    onReverbEnabledChange = {
-                        reverbEnabledPreference = it
-                        audioEffectMode = AudioEffectMode.OFF
-                    },
-                    intensity = audioEffectIntensity,
-                    onIntensityChange = { audioEffectIntensity = it },
-                    speed = audioEffectSpeed,
-                    onSpeedChange = { audioEffectSpeed = it },
-                    onBack = { showAudioEffectPage = false }
-                )
+    // 菜单主体：竖屏走底部弹层的单栏列表，横屏走对话框的双栏布局。
+    val menuContent: @Composable () -> Unit = {
+        if (showAudioEffectPage) {
+            AudioEffectPage(
+                eightDEnabled = eightDEnabled,
+                onEightDEnabledChange = {
+                    eightDEnabledPreference = it
+                    audioEffectMode = AudioEffectMode.OFF
+                },
+                reverbEnabled = reverbEnabled,
+                onReverbEnabledChange = {
+                    reverbEnabledPreference = it
+                    audioEffectMode = AudioEffectMode.OFF
+                },
+                intensity = audioEffectIntensity,
+                onIntensityChange = { audioEffectIntensity = it },
+                speed = audioEffectSpeed,
+                onSpeedChange = { audioEffectSpeed = it },
+                onBack = { showAudioEffectPage = false }
+            )
+        } else {
+            if (landscape) {
+                // 横屏：左栏「播放 + 音频」，右栏「操作」，一屏看全，不用上下滚。
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        MenuSectionLabel("播放")
+                        PlaybackMenuSection(
+                            listenTogetherValue = listenTogetherState.room?.let { "${it.members.size} 人" } ?: "未进房",
+                            onListenTogetherClick = {
+                                setListenTogetherOpen(true)
+                                onDismiss()
+                            },
+                            playbackModeText = playbackModeText,
+                            playbackModeIcon = playbackModeIcon(playbackMode),
+                            playbackModeActive = playbackMode != PlaybackModeState.SEQUENTIAL,
+                            onPlaybackModeClick = {
+                                applyPlaybackMode(mediaController, nextPlaybackMode(playbackMode))
+                            },
+                            isSleepTimerSet = isSleepTimerSet,
+                            remainingTimeText = remainingTimeText,
+                            onSleepTimerClick = {
+                                if (isSleepTimerSet) {
+                                    cancelSleepTimer = true
+                                } else {
+                                    timePicker = true
+                                }
+                            }
+                        )
+                        MenuSectionLabel("音频")
+                        AudioMenuSection(
+                            audioEffectModeText = audioEffectModeText,
+                            audioEffectActive = eightDEnabled || reverbEnabled,
+                            onAudioEffectClick = { showAudioEffectPage = true },
+                            sourceLabel = sourceLabel,
+                            onSourceClick = {
+                                showSourcePicker = true
+                                onDismiss()
+                            }
+                        )
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        MenuSectionLabel("操作")
+                        ActionMenuSection(
+                            onAddToSongList = {
+                                openSongListBottomSheet = true
+                                onDismiss()
+                            },
+                            onShare = {
+                                openShareSheet = true
+                                onDismiss()
+                            }
+                        )
+                    }
+                }
             } else {
                 LazyColumn(
                     Modifier.padding(horizontal = 16.dp),
@@ -189,59 +260,28 @@ fun PlayerMenuBottomSheet(
                         Column(Modifier.fillMaxWidth()) {
                             MenuSectionLabel("播放")
                             Spacer(Modifier.height(8.dp))
-                            MenuGroupContainer {
-                                MenuRow(
-                                    icon = ListenTogether,
-                                    title = "一起听",
-                                    value = listenTogetherState.room?.let { "${it.members.size} 人" } ?: "未进房",
-                                    onClick = {
-                                        setListenTogetherOpen(true)
-                                        onDismiss()
+                            PlaybackMenuSection(
+                                listenTogetherValue = listenTogetherState.room?.let { "${it.members.size} 人" } ?: "未进房",
+                                onListenTogetherClick = {
+                                    setListenTogetherOpen(true)
+                                    onDismiss()
+                                },
+                                playbackModeText = playbackModeText,
+                                playbackModeIcon = playbackModeIcon(playbackMode),
+                                playbackModeActive = playbackMode != PlaybackModeState.SEQUENTIAL,
+                                onPlaybackModeClick = {
+                                    applyPlaybackMode(mediaController, nextPlaybackMode(playbackMode))
+                                },
+                                isSleepTimerSet = isSleepTimerSet,
+                                remainingTimeText = remainingTimeText,
+                                onSleepTimerClick = {
+                                    if (isSleepTimerSet) {
+                                        cancelSleepTimer = true
+                                    } else {
+                                        timePicker = true
                                     }
-                                )
-                                MenuDivider()
-                                MenuRow(
-                                    icon = Shuffle,
-                                    title = stringResource(R.string.shuffle_mode),
-                                    value = stringResource(if (shuffleMode) R.string.shuffle_on else R.string.shuffle_off),
-                                    iconAlpha = if (shuffleMode) 1f else 0.4f,
-                                    onClick = {
-                                        mediaController?.sendCustomCommand(
-                                            MediaSessionConstants.CommandToggleShuffle,
-                                            Bundle.EMPTY
-                                        )
-                                    }
-                                )
-                                MenuDivider()
-                                MenuRow(
-                                    icon = repeatIcon,
-                                    title = stringResource(R.string.playback_mode),
-                                    value = repeatModeText,
-                                    iconAlpha = if (repeatMode == 0) 0.4f else 1f,
-                                    onClick = {
-                                        mediaController?.repeatMode = when (repeatMode) {
-                                            0 -> 2
-                                            1 -> 0
-                                            2 -> 1
-                                            else -> 0
-                                        }
-                                    }
-                                )
-                                MenuDivider()
-                                MenuRow(
-                                    icon = if (isSleepTimerSet) Timelapse else Timer,
-                                    title = stringResource(if (isSleepTimerSet) R.string.remaining_time else R.string.sleep_timer),
-                                    value = if (isSleepTimerSet) remainingTimeText else null,
-                                    iconAlpha = if (isSleepTimerSet) 1f else 0.4f,
-                                    onClick = {
-                                        if (isSleepTimerSet) {
-                                            cancelSleepTimer = true
-                                        } else {
-                                            timePicker = true
-                                        }
-                                    }
-                                )
-                            }
+                                }
+                            )
                         }
                     }
 
@@ -249,26 +289,16 @@ fun PlayerMenuBottomSheet(
                         Column(Modifier.fillMaxWidth()) {
                             MenuSectionLabel("音频")
                             Spacer(Modifier.height(8.dp))
-                            MenuGroupContainer {
-                                MenuRow(
-                                    icon = AudioLines,
-                                    title = "音效",
-                                    value = audioEffectModeText,
-                                    iconAlpha = if (eightDEnabled || reverbEnabled) 1f else 0.4f,
-                                    onClick = { showAudioEffectPage = true }
-                                )
-                                MenuDivider()
-                                MenuRow(
-                                    icon = Icons.Outlined.Dns,
-                                    title = "切换音源",
-                                    value = sourceLabel,
-                                    iconAlpha = 1f,
-                                    onClick = {
-                                        showSourcePicker = true
-                                        onDismiss()
-                                    }
-                                )
-                            }
+                            AudioMenuSection(
+                                audioEffectModeText = audioEffectModeText,
+                                audioEffectActive = eightDEnabled || reverbEnabled,
+                                onAudioEffectClick = { showAudioEffectPage = true },
+                                sourceLabel = sourceLabel,
+                                onSourceClick = {
+                                    showSourcePicker = true
+                                    onDismiss()
+                                }
+                            )
                         }
                     }
 
@@ -276,55 +306,78 @@ fun PlayerMenuBottomSheet(
                         Column(Modifier.fillMaxWidth()) {
                             MenuSectionLabel("操作")
                             Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                MenuActionButton(
-                                    text = stringResource(R.string.add_to_songList),
-                                    onClick = {
-                                        openSongListBottomSheet = true
-                                        onDismiss()
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                MenuActionButton(
-                                    text = stringResource(R.string.share),
-                                    onClick = {
-                                        openShareSheet = true
-                                        onDismiss()
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                            Spacer(Modifier.height(8.dp))
+                            ActionMenuSection(
+                                onAddToSongList = {
+                                    openSongListBottomSheet = true
+                                    onDismiss()
+                                },
+                                onShare = {
+                                    openShareSheet = true
+                                    onDismiss()
+                                }
+                            )
                         }
                     }
                 }
             }
+        }
+    }
 
-            if (timePicker) {
-                TimePickerDialog(
-                    onDismiss = {
-                        timePicker = false
-                    },
-                    onTimeSet = {
-                        playerState?.startTimer(it)
-                        timePicker = false
+    if (openBottomSheet) {
+        if (landscape) {
+            // 注意：同包的 [Dialog]（AlertDialog 封装）与 window.Dialog 同名，
+            // 这里显式用全限定名，避免解析到同包那个。
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = onDismiss,
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                ScaledDialogContent {
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier
+                            .width(620.dp)
+                            .heightIn(max = 380.dp)
+                    ) {
+                        menuContent()
                     }
-                )
+                }
             }
-
-            if (cancelSleepTimer) {
-                Dialog(
-                    onConfirmation = {
-                        playerState?.cancelTimer()
-                        cancelSleepTimer = false
-                    },
-                    onDismissRequest = {
-                        cancelSleepTimer = false
-                    },
-                    dialogTitle = stringResource(R.string.sleep_timer_cancel),
-                )
+        } else {
+            ModalBottomSheet(
+                onDismissRequest = onDismiss,
+                sheetState = bottomSheetState,
+            ) {
+                menuContent()
             }
         }
+    }
+
+    // 定时播放 / 取消定时 放在最外层：无论竖屏弹层还是横屏对话框，
+    // 这两个弹窗都是独立窗口，嵌在弹层里会互相遮挡。
+    if (timePicker) {
+        SleepTimerDialog(
+            onDismiss = {
+                timePicker = false
+            },
+            onTimeSet = {
+                playerState?.startTimer(it)
+                timePicker = false
+            }
+        )
+    }
+
+    if (cancelSleepTimer) {
+        Dialog(
+            onConfirmation = {
+                playerState?.cancelTimer()
+                cancelSleepTimer = false
+            },
+            onDismissRequest = {
+                cancelSleepTimer = false
+            },
+            dialogTitle = stringResource(R.string.sleep_timer_cancel),
+        )
     }
 
     if (showSourcePicker) {
@@ -362,6 +415,99 @@ fun PlayerMenuBottomSheet(
         openBottomSheet = openListenTogetherSheet,
         onDismiss = { setListenTogetherOpen(false) }
     )
+}
+
+/**
+ * 「播放」分组：一起听 / 播放模式（随机+循环合并）/ 定时播放。
+ *
+ * 竖屏是纵向一栏，横屏是左栏的一半 —— 两种形态复用同一份行定义。
+ */
+@Composable
+private fun PlaybackMenuSection(
+    listenTogetherValue: String,
+    onListenTogetherClick: () -> Unit,
+    playbackModeText: String,
+    playbackModeIcon: ImageVector,
+    playbackModeActive: Boolean,
+    onPlaybackModeClick: () -> Unit,
+    isSleepTimerSet: Boolean,
+    remainingTimeText: String?,
+    onSleepTimerClick: () -> Unit,
+) {
+    MenuGroupContainer {
+        MenuRow(
+            icon = Headphones,
+            title = "一起听",
+            value = listenTogetherValue,
+            onClick = onListenTogetherClick
+        )
+        MenuDivider()
+        // 随机与循环合并成一个「播放模式」行：点一下就在
+        // 顺序 → 列表循环 → 单曲循环 → 随机 之间循环切换。
+        MenuRow(
+            icon = playbackModeIcon,
+            title = stringResource(R.string.playback_mode),
+            value = playbackModeText,
+            iconAlpha = if (playbackModeActive) 1f else 0.4f,
+            onClick = onPlaybackModeClick
+        )
+        MenuDivider()
+        MenuRow(
+            icon = if (isSleepTimerSet) Timelapse else Timer,
+            title = stringResource(if (isSleepTimerSet) R.string.remaining_time else R.string.sleep_timer),
+            value = if (isSleepTimerSet) remainingTimeText else null,
+            iconAlpha = if (isSleepTimerSet) 1f else 0.4f,
+            onClick = onSleepTimerClick
+        )
+    }
+}
+
+/** 「音频」分组：音效 / 切换音源。 */
+@Composable
+private fun AudioMenuSection(
+    audioEffectModeText: String,
+    audioEffectActive: Boolean,
+    onAudioEffectClick: () -> Unit,
+    sourceLabel: String,
+    onSourceClick: () -> Unit,
+) {
+    MenuGroupContainer {
+        MenuRow(
+            icon = GraphicEq,
+            title = "音效",
+            value = audioEffectModeText,
+            iconAlpha = if (audioEffectActive) 1f else 0.4f,
+            onClick = onAudioEffectClick
+        )
+        MenuDivider()
+        MenuRow(
+            icon = Icons.Outlined.Dns,
+            title = "切换音源",
+            value = sourceLabel,
+            iconAlpha = 1f,
+            onClick = onSourceClick
+        )
+    }
+}
+
+/** 「操作」分组：添加到歌单 / 分享。 */
+@Composable
+private fun ActionMenuSection(
+    onAddToSongList: () -> Unit,
+    onShare: () -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        MenuActionButton(
+            text = stringResource(R.string.add_to_songList),
+            onClick = onAddToSongList,
+            modifier = Modifier.weight(1f)
+        )
+        MenuActionButton(
+            text = stringResource(R.string.share),
+            onClick = onShare,
+            modifier = Modifier.weight(1f)
+        )
+    }
 }
 
 /**
@@ -405,8 +551,14 @@ private fun LocalSourcePickerSheet(
     }
 }
 
+/**
+ * 音效设置页（双耳空间 / 混响 / 强度 / 空间旋转速度）。
+ *
+ * 播放页「更多」菜单与设置页共用这一份实现：两处都是 [GraphicEq] 均衡器图标，
+ * 打开的是同一个页面、同一套偏好项。
+ */
 @Composable
-private fun AudioEffectPage(
+fun AudioEffectPage(
     eightDEnabled: Boolean,
     onEightDEnabledChange: (Boolean) -> Unit,
     reverbEnabled: Boolean,
@@ -720,4 +872,3 @@ private fun MenuActionButton(
         )
     }
 }
-

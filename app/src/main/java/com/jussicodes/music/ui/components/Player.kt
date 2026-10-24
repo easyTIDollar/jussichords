@@ -144,6 +144,11 @@ fun Player(
     val playerState = LocalPlayerState.current
     val mediaController = LocalPlayerController.current.controller
     val isPlaying = playerState?.isPlaying == true
+    // 随机与循环合并成一个「播放模式」，四档循环切换（与横屏播放页同一份实现）。
+    val playbackMode = currentPlaybackMode(
+        playerState?.shuffleModeEnabled == true,
+        playerState?.repeatMode ?: 0
+    )
     val context = LocalContext.current.applicationContext
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -520,7 +525,7 @@ fun Player(
                                 )
                             }
                         }
-                        // 一起听房间标识：两个成员头像交叠、两侧各一只 AirPods 轮廓作陪衬。
+                        // 一起听房间标识：成员头像交叠 + 一只耳机（🎧）作陪衬。
                         // 只在进房时占位；点击复用底部菜单栈（PlayerMenuBottomSheet 内已挂
                         // ListenTogetherSheet），无需另起宿主。
                         listenTogetherState.room?.let { ltRoom ->
@@ -659,16 +664,33 @@ fun Player(
                         }
                 ) {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        PlayerControlButtons(
-                            isPlaying = isPlaying,
-                            onPrevious = { mediaController?.seekToPrevious() },
-                            onNext = { mediaController?.seekToNext() },
-                            onTogglePlay = {
-                                if (!isPlaying) mediaController?.play() else mediaController?.pause()
-                            },
+                        // 播放模式（随机+循环合并，点击循环切换）放在左端，
+                        // 与横屏播放页一致；中间的切歌/播放三键仍居中。
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                        )
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            PlaybackModeButton(
+                                state = playbackMode,
+                                onClick = {
+                                    applyPlaybackMode(
+                                        mediaController,
+                                        nextPlaybackMode(playbackMode)
+                                    )
+                                }
+                            )
+                            Spacer(Modifier.weight(1f))
+                            PlayerControlButtons(
+                                isPlaying = isPlaying,
+                                onPrevious = { mediaController?.seekToPrevious() },
+                                onNext = { mediaController?.seekToNext() },
+                                onTogglePlay = {
+                                    if (!isPlaying) mediaController?.play() else mediaController?.pause()
+                                },
+                                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            )
+                            Spacer(Modifier.weight(1f))
+                        }
 
                         Box(
                             contentAlignment = Alignment.Center,
@@ -756,7 +778,9 @@ fun Player(
             onDismiss = { openPlayerBottomSheet = false },
             openBottomSheet = openPlayerBottomSheet,
             listenTogetherOpen = openListenTogetherSheet,
-            onListenTogetherOpenChange = { openListenTogetherSheet = it }
+            onListenTogetherOpenChange = { openListenTogetherSheet = it },
+            // 横屏（矮屏）改用居中对话框 + 双栏，底部弹层在 411dp 高度里几乎占满整屏。
+            landscape = isLandscapePhone(),
         )
 
         coverPreviewUrl?.let { url ->

@@ -29,6 +29,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.rounded.HighQuality
 import androidx.compose.material.icons.outlined.DensityMedium
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.KeyboardArrowRight
@@ -45,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -120,7 +122,7 @@ import com.jussicodes.music.ui.components.UnblockSourceDialog
 import com.jussicodes.music.ui.components.UpdateDialog
 import com.jussicodes.music.ui.components.unblockSourceOptions
 import com.jussicodes.music.ui.icons.Album
-import com.jussicodes.music.ui.icons.AudioLines
+import com.jussicodes.music.ui.icons.GraphicEq
 import com.jussicodes.music.ui.icons.DesktopLyrics
 import androidx.compose.material.icons.outlined.Dns
 import com.jussicodes.music.ui.icons.Gesture
@@ -155,9 +157,16 @@ import com.rcmiku.ncmapi.api.AudioSources
 import com.rcmiku.ncmapi.api.LocalSources
 import com.rcmiku.ncmapi.api.player.PlayerApi
 import com.jussicodes.music.lx.AudioSourceSwitcher
+import com.jussicodes.music.ui.components.AudioEffectPage
 import com.jussicodes.music.ui.components.AudioSourceSelector
 import com.jussicodes.music.ui.components.CacheManagerDialog
 import com.jussicodes.music.ui.components.cacheSubtitle
+import com.jussicodes.music.constants.audioEffectEightDEnabledKey
+import com.jussicodes.music.constants.audioEffectIntensityKey
+import com.jussicodes.music.constants.audioEffectModeKey
+import com.jussicodes.music.constants.audioEffectReverbEnabledKey
+import com.jussicodes.music.constants.audioEffectSpeedKey
+import com.jussicodes.music.playback.audio.AudioEffectMode
 import com.jussicodes.music.ui.components.LocalSourceDialog
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.utils.json
@@ -335,6 +344,27 @@ fun SettingsScreen(navController: NavHostController) {
         }
     }
     var showQualityDialog by remember { mutableStateOf(false) }
+    var showAudioEffectDialog by remember { mutableStateOf(false) }
+    // 音效（双耳空间 / 混响）：与播放页「更多」菜单共用同一份偏好与页面。
+    var audioEffectMode by rememberEnumPreference(audioEffectModeKey, AudioEffectMode.OFF)
+    var eightDEnabledPreference by rememberPreference(
+        audioEffectEightDEnabledKey,
+        audioEffectMode == AudioEffectMode.EIGHT_D
+    )
+    var reverbEnabledPreference by rememberPreference(
+        audioEffectReverbEnabledKey,
+        audioEffectMode == AudioEffectMode.REVERB
+    )
+    var audioEffectIntensity by rememberPreference(audioEffectIntensityKey, 0.5f)
+    var audioEffectSpeed by rememberPreference(audioEffectSpeedKey, 0.5f)
+    val eightDEnabled = eightDEnabledPreference || audioEffectMode == AudioEffectMode.EIGHT_D
+    val reverbEnabled = reverbEnabledPreference || audioEffectMode == AudioEffectMode.REVERB
+    val audioEffectModeText = when {
+        eightDEnabled && reverbEnabled -> "双耳空间 + 混响"
+        eightDEnabled -> "双耳空间"
+        reverbEnabled -> "混响"
+        else -> "关闭"
+    }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
     var showDirectSourceDialog by remember { mutableStateOf(false) }
     var showCacheDialog by remember { mutableStateOf(false) }
@@ -670,8 +700,14 @@ fun SettingsScreen(navController: NavHostController) {
                     SongLevel.DOLBY -> stringResource(R.string.dolby)
                     SongLevel.JYMASTER -> stringResource(R.string.jymaster)
                 },
-                imageVector = AudioLines,
+                imageVector = Icons.Rounded.HighQuality,
                 onClick = { showQualityDialog = true }
+            ),
+            SettingItemData(
+                title = "音效",
+                subtitle = audioEffectModeText,
+                imageVector = GraphicEq,
+                onClick = { showAudioEffectDialog = true }
             ),
             SettingItemData(
                 title = "缓存",
@@ -966,6 +1002,40 @@ fun SettingsScreen(navController: NavHostController) {
             onDismiss = { showQualityDialog = false },
             onQualitySelected = { audioQuality = it }
         )
+    }
+
+    if (showAudioEffectDialog) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showAudioEffectDialog = false }
+        ) {
+            ScaledDialogContent {
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    AudioEffectPage(
+                        eightDEnabled = eightDEnabled,
+                        onEightDEnabledChange = {
+                            eightDEnabledPreference = it
+                            audioEffectMode = AudioEffectMode.OFF
+                        },
+                        reverbEnabled = reverbEnabled,
+                        onReverbEnabledChange = {
+                            reverbEnabledPreference = it
+                            audioEffectMode = AudioEffectMode.OFF
+                        },
+                        intensity = audioEffectIntensity,
+                        onIntensityChange = { audioEffectIntensity = it },
+                        speed = audioEffectSpeed,
+                        onSpeedChange = { audioEffectSpeed = it },
+                        onBack = { showAudioEffectDialog = false }
+                    )
+                }
+            }
+        }
     }
 
     if (showCacheDialog) {
