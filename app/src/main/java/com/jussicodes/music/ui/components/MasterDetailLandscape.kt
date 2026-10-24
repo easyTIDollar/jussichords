@@ -105,7 +105,13 @@ fun MasterDetailLandscape(
      * 「@Composable invocations can only happen from the context of a @Composable function」。
      * 行内容（itemsIndexed 的 lambda）自带 @Composable，不受影响。
      */
-    listContent: LazyListScope.() -> Unit,
+    listContent: LazyListScope.() -> Unit = {},
+    /**
+     * 右栏**自定义内容**（非列表形态）。传了就用它替换默认的 LazyColumn，
+     * 适合「右栏是 tab + pager」这类结构（歌手页横屏：探索/歌曲/专辑三 tab）。
+     * 不传就走 listContent 的普通列表。
+     */
+    rightContent: (@Composable () -> Unit)? = null,
 ) {
     // 浮层可见性受控：由调用方持有状态（歌单页需要从标题点击打开浮层）。
     // descriptionOverlayVisible != null 时完全受控；否则骨架内部自持（专辑页不需要浮层）。
@@ -176,20 +182,31 @@ fun MasterDetailLandscape(
                         }
                     }
                 }
-                // ── 右侧曲目列表（60%） ────────────────────────────
+                // ── 右侧内容区（60%） ─────────────────────────────
                 Column(
                     modifier = Modifier
                         .weight(1f - LandscapeDetailLeftFraction)
                         .fillMaxHeight()
                 ) {
                     listHeader()
-                    // LazyColumn 的 content 是接收者函数类型，直接传值，别包一层 lambda。
-                    LazyColumn(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        content = listContent
-                    )
+                    if (rightContent != null) {
+                        // 自定义右栏（tab + pager 等），占满剩余高度
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                        ) {
+                            rightContent()
+                        }
+                    } else {
+                        // LazyColumn 的 content 是接收者函数类型，直接传值，别包一层 lambda。
+                        LazyColumn(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            content = listContent
+                        )
+                    }
                 }
             }
         }
