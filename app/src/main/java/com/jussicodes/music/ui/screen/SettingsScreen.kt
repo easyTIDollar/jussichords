@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.DensityMedium
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.ScreenRotation
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.Card
@@ -107,6 +108,9 @@ import com.jussicodes.music.constants.homeBgOpacityKey
 import com.jussicodes.music.constants.homeBgScaleKey
 import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
+import com.jussicodes.music.constants.updateBackgroundCheckEnabledKey
+import com.jussicodes.music.constants.updateLastCheckAtKey
+import com.jussicodes.music.constants.updateLastErrorKey
 import com.jussicodes.music.lyric.DesktopLyricManager
 import com.jussicodes.music.ui.components.ScaledDialogContent
 import com.jussicodes.music.ui.components.Dialog
@@ -137,6 +141,8 @@ import com.jussicodes.music.utils.CacheManager
 import com.jussicodes.music.utils.SettingsAppearanceBus
 import com.jussicodes.music.utils.NcmCookieNormalizer
 import com.jussicodes.music.utils.ApiServerStatus
+import com.jussicodes.music.utils.UpdateBackgroundCheckScheduler
+import com.jussicodes.music.utils.UpdateCheckCoordinator
 import com.jussicodes.music.utils.UpdateDownloadPhase
 import com.jussicodes.music.utils.UpdateDownloadService
 import com.jussicodes.music.utils.UpdateDownloadStateStore
@@ -220,6 +226,10 @@ fun SettingsScreen(navController: NavHostController) {
         "当前正在使用 $inUseLabel"
     }
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
+    // 检查更新的可见状态：上次检查时间 + 上次失败原因（失败不再静默）。
+    var updateLastCheckAt by rememberPreference(updateLastCheckAtKey, 0L)
+    var updateLastError by rememberPreference(updateLastErrorKey, "")
+    var backgroundUpdateCheckEnabled by rememberPreference(updateBackgroundCheckEnabledKey, false)
     // DPI 模拟（调试）：1.0=关闭。覆盖 density 让 dp 视口变成别的屏幕的尺寸。
     var densityScale by rememberPreference(densityScaleKey, 1f)
     var orientationLockKeyValue by rememberPreference(orientationLockKey, "unlocked")
@@ -452,14 +462,17 @@ fun SettingsScreen(navController: NavHostController) {
                     updateDownloadProgress = 1f
                     updateDownloadText = "下载完成，正在打开安装器"
                     snapshot.apkPath?.let { apkPath ->
-                        AppUpdateManager.installApk(context, File(apkPath))
-                            .onFailure { throwable ->
-                                Toast.makeText(
-                                    context,
-                                    throwable.message ?: "无法打开安装器",
-                                    Toast.LENGTH_LONG
-                                ).show()
-                            }
+                        // 同一份下载只允许拉起一次安装器（主界面也 collect 同一个 store）。
+                        if (UpdateDownloadStateStore.claimInstallLaunch()) {
+                            AppUpdateManager.installApk(context, File(apkPath))
+                                .onFailure { throwable ->
+                                    Toast.makeText(
+                                        context,
+                                        throwable.message ?: "无法打开安装器",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                        }
                     }
                     pendingUpdateInfo = null
                 }
@@ -472,6 +485,12 @@ fun SettingsScreen(navController: NavHostController) {
                         snapshot.message ?: "下载失败",
                         Toast.LENGTH_LONG
                     ).show()
+                }
+                UpdateDownloadPhase.CANCELLED -> {
+                    // 用户主动取消：回到可重新下载状态。
+                    downloadingUpdate = false
+                    updateDownloadProgress = 0f
+                    updateDownloadText = "下载已取消"
                 }
             }
         }
@@ -736,28 +755,41 @@ fun SettingsScreen(navController: NavHostController) {
             ),
             SettingItemData(
                 title = if (updating) "正在检查" else "检查更新",
-                subtitle = "v${BuildConfig.VERSION_NAME}",
+                subtitle = buildString {
+                    append("v${BuildConfig.VERSION_NAME}")
+                    if (updateLastCheckAt > 0L) {
+                        append(" · 上次检查 ")
+                        append(
+                            android.text.format.DateUtils.getRelativeTimeSpanString(
+                                updateLastCheckAt,
+                                System.currentTimeMillis(),
+                                android.text.format.DateUtils.MINUTE_IN_MILLIS
+                            )
+                        )
+                    }
+                },
+                // 上次检查失败的原因直接挂在这一行：之前失败是完全静默的，
+                // 用户只会看到「没有更新提示」，不知道是被限流还是网络问题。
+                warning = updateLastError.takeIf { it.isNotBlank() },
                 imageVector = Github,
                 onClick = {
                     if (!updating) {
                         updating = true
                         coroutineScope.launch {
-                            val updateResult = AppUpdateManager.checkUpdate()
-                            val updateInfo = updateResult.getOrElse {
+                            // 手动检查强制联网（force=true），无视 6 小时节流窗口。
+                            val outcome = UpdateCheckCoordinator.check(context, force = true)
+                            updating = false
+                            val info = outcome.updateInfo
+                            if (outcome.error != null) {
                                 Toast.makeText(
                                     context,
-                                    it.message ?: "更新失败",
+                                    "更新检查失败：${outcome.error}",
                                     Toast.LENGTH_LONG
                                 ).show()
-                                updating = false
-                                return@launch
-                            }
-
-                            updating = false
-                            if (updateInfo == null) {
+                            } else if (info == null) {
                                 Toast.makeText(context, "当前已是最新版本", Toast.LENGTH_SHORT).show()
                             } else {
-                                pendingUpdateInfo = updateInfo
+                                pendingUpdateInfo = info
                             }
                         }
                     }
@@ -771,6 +803,28 @@ fun SettingsScreen(navController: NavHostController) {
                             testingGithubSources = false
                         }
                     }
+                }
+            ),
+            SettingItemData(
+                title = "后台检查更新",
+                subtitle = if (backgroundUpdateCheckEnabled) {
+                    "每 6 小时在后台检查一次，有新版本时发通知"
+                } else {
+                    "关闭时只在打开 App 时检查"
+                },
+                imageVector = Icons.Outlined.Notifications,
+                trailingContent = {
+                    Switch(
+                        checked = backgroundUpdateCheckEnabled,
+                        onCheckedChange = { enabled ->
+                            backgroundUpdateCheckEnabled = enabled
+                            // 立即重排/取消周期任务，不用等下次启动。
+                            // 用内存里的新值直接 apply：DataStore 写入是异步的，
+                            // 立刻回读可能拿到旧值。
+                            UpdateBackgroundCheckScheduler.apply(context, enabled)
+                        }
+                    )
+                    Spacer(Modifier.width(12.dp))
                 }
             )
         )
@@ -1152,6 +1206,12 @@ fun SettingsScreen(navController: NavHostController) {
                     updateInfo,
                     githubDownloadSource
                 )
+            },
+            onCancelDownload = {
+                UpdateDownloadService.cancelDownload()
+                downloadingUpdate = false
+                updateDownloadProgress = 0f
+                updateDownloadText = "下载已取消"
             }
         )
     }
@@ -1363,7 +1423,7 @@ private fun GitHubDownloadSourceDialog(
                             Text(source.name, style = MaterialTheme.typography.titleMedium)
                             Text(
                                 text = when {
-                                    testing && status == null -> "测速中..."
+                                    testing && status == null -> "Ping 中..."
                                     status == null -> source.detail
                                     status.available -> "可用 · ${status.latencyMs ?: 0} ms"
                                     else -> "不可用 · ${status.message}"
@@ -1383,7 +1443,7 @@ private fun GitHubDownloadSourceDialog(
         },
         dismissButton = {
             TextButton(onClick = onRefresh, enabled = !testing) {
-                Text("重新测速")
+                Text("重新 Ping")
             }
         }
     )
@@ -1394,7 +1454,7 @@ private fun GitHubDownloadSourceDialog(
  * 可增删的 ncmapi 后端列表对话框。
  *
  * 列表持久化在 DataStore（apiServerListKey）：可添加/删除自定义地址。点行或单选
- * 即激活该服务器；「重新测速」并行 Ping 列表全部地址。当前活动服务器若不在列表
+ * 即激活该服务器；「重新 Ping」并行 Ping 列表全部地址。当前活动服务器若不在列表
  * 中，会置顶显示为系统行（不可删除）。
  */
 @Composable
@@ -1546,9 +1606,9 @@ private fun ApiServerPingDialog(
                                 )
                                 Text(
                                     text = when {
-                                        testing && status == null -> "测速中..."
+                                        testing && status == null -> "Ping 中..."
                                         status == null ->
-                                            if (server == currentServer) "当前" else "未测"
+                                            if (server == currentServer) "当前" else "未 Ping"
                                         status.available -> "可用 · ${status.latencyMs ?: 0} ms"
                                         else -> "不可用 · ${status.message}"
                                     },
@@ -1595,7 +1655,7 @@ private fun ApiServerPingDialog(
         },
         dismissButton = {
             TextButton(onClick = { runPing(activateFastest = false) }, enabled = !testing) {
-                Text("重新测速")
+                Text("重新 Ping")
             }
         }
     )

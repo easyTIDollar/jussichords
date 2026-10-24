@@ -54,6 +54,7 @@ fun UpdateDialog(
     onDismiss: () -> Unit,
     onIgnoreVersion: () -> Unit,
     onDownload: () -> Unit,
+    onCancelDownload: () -> Unit = {},
 ) {
     val notes = updateInfo.body.trim()
 
@@ -135,7 +136,7 @@ fun UpdateDialog(
                         onClick = { if (!isMeasuringSources) onMeasureSources() },
                         enabled = !isDownloading && !isMeasuringSources
                     ) {
-                        Text("测速对比")
+                        Text("Ping")
                     }
                     if (isMeasuringSources) {
                         CircularProgressIndicator(
@@ -143,7 +144,7 @@ fun UpdateDialog(
                             strokeWidth = 2.dp
                         )
                         Text(
-                            text = " 对比中…",
+                            text = " Ping 中…",
                             modifier = Modifier.padding(start = 4.dp)
                         )
                     }
@@ -189,6 +190,12 @@ fun UpdateDialog(
                     TextButton(onClick = onDismiss) {
                         Text("稍后再说")
                     }
+                }
+            } else {
+                // 下载中：原来这里什么都不渲染，用户既关不掉弹窗也停不下下载，
+                // 只能等它自己结束（失败时更久）。给出明确的取消入口。
+                TextButton(onClick = onCancelDownload) {
+                    Text("取消下载")
                 }
             }
         }

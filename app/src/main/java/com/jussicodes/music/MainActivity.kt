@@ -43,6 +43,8 @@ import com.jussicodes.music.ui.screen.MainScreen
 import com.jussicodes.music.ui.theme.JetMeloTheme
 import com.jussicodes.music.utils.AppUpdateManager
 import com.jussicodes.music.utils.SongListUtil
+import com.jussicodes.music.utils.UpdateBackgroundCheckScheduler
+import com.jussicodes.music.utils.UpdateCheckCoordinator
 import com.jussicodes.music.utils.UpdateDownloadPhase
 import com.jussicodes.music.utils.UpdateDownloadService
 import com.jussicodes.music.utils.UpdateDownloadStateStore
@@ -125,10 +127,18 @@ class MainActivity : ComponentActivity() {
                 val ignoredVersion = withContext(Dispatchers.IO) {
                     dataStore.data.first()[ignoredUpdateVersionKey].orEmpty()
                 }
-                val updateResult = AppUpdateManager.checkUpdate()
-                val updateInfo = updateResult.getOrNull()
-                if (updateInfo != null && updateInfo.versionName != ignoredVersion) {
-                    pendingUpdateInfo = updateInfo
+                // 检查更新放到独立协程里跑，不能挡在私信缓存预热前面：
+                // 网络最坏 30s（两个源各 15s 超时），挡着就等于启动被更新检查拖住。
+                // force=false：命中 6 小时窗口内直接用缓存（零网络），
+                // 失败原因落盘设置页可见，避免「静默什么都不提示」。
+                lifecycleScope.launch {
+                    val outcome = UpdateCheckCoordinator.check(applicationContext, force = false)
+                    val updateInfo = outcome.updateInfo
+                    if (updateInfo != null && updateInfo.versionName != ignoredVersion) {
+                        pendingUpdateInfo = updateInfo
+                    }
+                    // 后台静默检查更新的周期任务：按偏好重新排/取消。
+                    UpdateBackgroundCheckScheduler.sync(applicationContext)
                 }
 
                 // 私信会话缓存预热：并行拉 /msg/private + /msg/recentcontact，
@@ -166,14 +176,18 @@ class MainActivity : ComponentActivity() {
                             downloadProgress = 1f
                             downloadProgressText = "下载完成，正在打开安装器"
                             snapshot.apkPath?.let { apkPath ->
-                                AppUpdateManager.installApk(applicationContext, File(apkPath))
-                                    .onFailure { throwable ->
-                                        Toast.makeText(
-                                            applicationContext,
-                                            throwable.message ?: "无法打开安装器",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    }
+                                // 同一份下载只允许拉起一次安装器：
+                                // 主界面和设置页都 collect 这个 store，否则会弹两个安装窗口。
+                                if (UpdateDownloadStateStore.claimInstallLaunch()) {
+                                    AppUpdateManager.installApk(applicationContext, File(apkPath))
+                                        .onFailure { throwable ->
+                                            Toast.makeText(
+                                                applicationContext,
+                                                throwable.message ?: "无法打开安装器",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                }
                             }
                             pendingUpdateInfo = null
                         }
@@ -186,6 +200,12 @@ class MainActivity : ComponentActivity() {
                                 snapshot.message ?: "下载失败",
                                 Toast.LENGTH_LONG
                             ).show()
+                        }
+                        UpdateDownloadPhase.CANCELLED -> {
+                            // 用户主动取消：回到可重新下载状态，保留已下载的提示信息。
+                            isDownloadingUpdate = false
+                            downloadProgress = 0f
+                            downloadProgressText = "下载已取消"
                         }
                     }
                 }
@@ -290,6 +310,12 @@ class MainActivity : ComponentActivity() {
                                     updateInfo,
                                     githubDownloadSource
                                 )
+                            },
+                            onCancelDownload = {
+                                UpdateDownloadService.cancelDownload()
+                                isDownloadingUpdate = false
+                                downloadProgress = 0f
+                                downloadProgressText = "下载已取消"
                             }
                         )
                     }

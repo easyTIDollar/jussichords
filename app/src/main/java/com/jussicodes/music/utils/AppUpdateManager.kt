@@ -4,9 +4,12 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import androidx.core.content.FileProvider
 import com.jussicodes.music.BuildConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.supervisorScope
@@ -46,7 +49,7 @@ const val GITHUB_RELEASES_LATEST_PAGE =
  * 失败自动回落到其余源。gh-proxy 为主源（国内直连 GitHub release），GitHub 直连兜底。
  *
  * 各源各自声明：如何拉 release 列表（fetchReleasesText）、如何把「GitHub 规范下载链接」
- * 换算成自己可直连的 URL（toDownloadUrl）、以及测速探测（probeRequest）。
+ * 换算成自己可直连的 URL（toDownloadUrl）、以及 Ping 探测（probeRequest）。
  */
 sealed class UpdateSource {
     abstract val id: String
@@ -60,7 +63,7 @@ sealed class UpdateSource {
     /** 把 GitHub 规范下载链接换算成本源可直连的 URL（默认原样透传）。 */
     open fun toDownloadUrl(canonicalGithubDownloadUrl: String): String = canonicalGithubDownloadUrl
 
-    /** 测速探测请求（短超时）。 */
+    /** Ping 探测请求（短超时）。 */
     abstract fun probeRequest(): Request
 }
 
@@ -217,6 +220,9 @@ object AppUpdateManager {
                         apkName = asset.name,
                         apkSize = apkSize,
                         downloadUrl = canonicalGitHubDownloadUrl(release.tagName, asset.name),
+                        // GitHub 现在会给每个 asset 附 sha256 摘要（老 release 可能为空）。
+                        // 有摘要就能在装包前校验下载到的字节，第三方代理链路多一层保险。
+                        sha256 = asset.digest?.removePrefix("sha256:")?.trim()?.takeIf { it.isNotEmpty() },
                     )
                 }
                 // canary 通道：若该源落后于已安装版本（最新 tag 的时间戳后缀
@@ -258,6 +264,15 @@ object AppUpdateManager {
         sourceId: String = downloadSources.first().id,
         onProgress: (DownloadProgress) -> Unit,
     ): File = withContext(Dispatchers.IO) {
+        doDownloadApk(context, updateInfo, sourceId, onProgress)
+    }
+
+    private suspend fun doDownloadApk(
+        context: Context,
+        updateInfo: UpdateInfo,
+        sourceId: String,
+        onProgress: (DownloadProgress) -> Unit,
+    ): File {
         val updateDir = File(context.cacheDir, UPDATE_DIR).apply { mkdirs() }
         updateDir.listFiles()
             ?.filter {
@@ -272,60 +287,103 @@ object AppUpdateManager {
 
         val targetFile = File(updateDir, updateInfo.apkName)
         val tempFile = File(updateDir, "${updateInfo.apkName}.part")
+        val expectedSha = updateInfo.sha256?.takeIf { it.isNotBlank() }
 
-        if (targetFile.exists() && updateInfo.apkSize > 0L && targetFile.length() == updateInfo.apkSize) {
+        // 最多两轮：第一轮允许断点续传；摘要对不上说明续传拼进了不属于本版本的字节
+        // （canary 各版本 asset 同名 jussichords-canary.apk，旧 .part 不会被清掉），
+        // 这时删干净从零重下一轮；再来还不对就报错，绝不把坏文件交给安装器。
+        var attempt = 0
+        var result: File? = null
+        loop@ while (result == null) {
+            attempt++
+
+            if (targetFile.exists() && updateInfo.apkSize > 0L && targetFile.length() == updateInfo.apkSize) {
+                val cachedOk = expectedSha == null || sha256Of(targetFile).equals(expectedSha, ignoreCase = true)
+                if (cachedOk) {
+                    onProgress(
+                        DownloadProgress(
+                            downloadedBytes = updateInfo.apkSize,
+                            totalBytes = updateInfo.apkSize,
+                            progress = 1f,
+                            done = true
+                        )
+                    )
+                    result = targetFile
+                    break@loop
+                }
+                targetFile.delete()
+            }
+
+            if (updateInfo.apkSize > 0L && tempFile.exists() && tempFile.length() > updateInfo.apkSize) {
+                tempFile.delete()
+            }
+
+            val existingBytes = tempFile.takeIf(File::exists)?.length() ?: 0L
             onProgress(
                 DownloadProgress(
-                    downloadedBytes = updateInfo.apkSize,
+                    downloadedBytes = existingBytes,
                     totalBytes = updateInfo.apkSize,
+                    progress = if (updateInfo.apkSize > 0L) {
+                        existingBytes.toFloat() / updateInfo.apkSize
+                    } else {
+                        0f
+                    }
+                )
+            )
+
+            downloadWithRetry(updateInfo, tempFile, sourceId, onProgress)
+
+            val expectedSize = updateInfo.apkSize.takeIf { it > 0 } ?: tempFile.length()
+            val actualSize = tempFile.length()
+            if (expectedSize > 0 && actualSize != expectedSize) {
+                error("Downloaded APK is incomplete: expected $expectedSize bytes, got $actualSize bytes")
+            }
+
+            if (targetFile.exists()) targetFile.delete()
+            if (!tempFile.renameTo(targetFile)) {
+                tempFile.copyTo(targetFile, overwrite = true)
+                tempFile.delete()
+            }
+
+            if (expectedSha != null) {
+                val actual = sha256Of(targetFile)
+                if (!actual.equals(expectedSha, ignoreCase = true)) {
+                    targetFile.delete()
+                    if (attempt >= 2) {
+                        error("APK 校验失败：SHA-256 与 release 摘要不一致")
+                    }
+                    // 续传残留导致的混合文件：清掉 .part 从零重来。
+                    tempFile.delete()
+                    continue@loop
+                }
+            }
+
+            onProgress(
+                DownloadProgress(
+                    downloadedBytes = targetFile.length(),
+                    totalBytes = expectedSize,
                     progress = 1f,
                     done = true
                 )
             )
-            return@withContext targetFile
+            result = targetFile
         }
-
-        if (updateInfo.apkSize > 0L && tempFile.exists() && tempFile.length() > updateInfo.apkSize) {
-            tempFile.delete()
-        }
-
-        val existingBytes = tempFile.takeIf(File::exists)?.length() ?: 0L
-        onProgress(
-            DownloadProgress(
-                downloadedBytes = existingBytes,
-                totalBytes = updateInfo.apkSize,
-                progress = if (updateInfo.apkSize > 0L) {
-                    existingBytes.toFloat() / updateInfo.apkSize
-                } else {
-                    0f
-                }
-            )
-        )
-
-        downloadWithRetry(updateInfo, tempFile, sourceId, onProgress)
-
-        val expectedSize = updateInfo.apkSize.takeIf { it > 0 } ?: tempFile.length()
-        val actualSize = tempFile.length()
-        if (expectedSize > 0 && actualSize != expectedSize) {
-            error("Downloaded APK is incomplete: expected $expectedSize bytes, got $actualSize bytes")
-        }
-
-        if (targetFile.exists()) targetFile.delete()
-        if (!tempFile.renameTo(targetFile)) {
-            tempFile.copyTo(targetFile, overwrite = true)
-            tempFile.delete()
-        }
-
-        onProgress(
-            DownloadProgress(
-                downloadedBytes = targetFile.length(),
-                totalBytes = expectedSize,
-                progress = 1f,
-                done = true
-            )
-        )
-        targetFile
+        return result ?: throw IllegalStateException("下载未完成")
     }
+
+    /** 计算文件 SHA-256（小写 hex）；读文件失败返回空串（不阻断流程）。 */
+    private fun sha256Of(file: File): String = runCatching {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }.getOrDefault("")
 
     fun createInstallIntent(context: Context, apkFile: File): Intent {
         val apkUri: Uri = FileProvider.getUriForFile(
@@ -340,7 +398,32 @@ object AppUpdateManager {
         }
     }
 
+    /**
+     * 是否已获得「安装未知应用」权限。
+     *
+     * Android 8 起，安装 APK 需要用户对本应用单独授权（`REQUEST_INSTALL_PACKAGES`），
+     * 没授权时直接拉起安装器只会得到一个系统的报错提示，用户不知道要去哪里开。
+     */
+    fun canInstallPackages(context: Context): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            context.packageManager.canRequestPackageInstalls()
+
+    /** 拉起系统「安装未知应用」设置页；返回是否成功拉起。 */
+    fun requestInstallPermission(context: Context): Boolean = runCatching {
+        val intent = Intent(
+            android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+            Uri.parse("package:${context.packageName}")
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+        true
+    }.getOrDefault(false)
+
     fun installApk(context: Context, apkFile: File): Result<Unit> = runCatching {
+        if (!canInstallPackages(context)) {
+            // 没权限：先把用户送到系统设置页，失败信息里写清楚要做什么。
+            requestInstallPermission(context)
+            throw IllegalStateException("需要先允许「安装未知应用」，已在设置页中打开")
+        }
         val intent = createInstallIntent(context, apkFile)
         try {
             context.startActivity(intent)
@@ -358,7 +441,7 @@ object AppUpdateManager {
         }
     }
 
-    /** 并行探测全部下载源（各源自探测），返回延迟与可用性，供「测速」弹窗展示。 */
+    /** 并行探测全部下载源（各源自探测），返回延迟与可用性，供「Ping」弹窗展示。 */
     suspend fun measureDownloadSources(): List<UpdateSourceStatus> =
         withContext(Dispatchers.IO) {
             supervisorScope {
@@ -436,7 +519,7 @@ object AppUpdateManager {
             .map { it.toDownloadUrl(updateInfo.downloadUrl) }
             .distinct()
 
-    private fun downloadWithRetry(
+    private suspend fun downloadWithRetry(
         updateInfo: UpdateInfo,
         tempFile: File,
         sourceId: String,
@@ -452,6 +535,12 @@ object AppUpdateManager {
                 }.onSuccess {
                     return
                 }.onFailure { throwable ->
+                    // 取消（协程被 cancel）必须原样抛出：runCatching 会把
+                    // CancellationException 当普通失败吞掉，然后继续换源重试，
+                    // 用户点了「取消下载」却还在下载。
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
                     lastException = throwable
                     val hasMoreCandidates = index < candidateUrls.lastIndex
                     val canRetry = attempt < DOWNLOAD_MAX_RETRIES && throwable.isRetryableDownloadError()
@@ -465,7 +554,7 @@ object AppUpdateManager {
         throw lastException ?: error("Failed to download update")
     }
 
-    private fun downloadOnce(
+    private suspend fun downloadOnce(
         url: String,
         updateInfo: UpdateInfo,
         tempFile: File,
@@ -519,6 +608,9 @@ object AppUpdateManager {
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     var downloaded = existingBytes
                     while (true) {
+                        // 读循环是阻塞 IO，不检查协程取消的话，点「取消下载」要等
+                        // 整个包下完才生效 —— 这里每轮检查一次，取消立刻抛出去。
+                        currentCoroutineContext().ensureActive()
                         val read = input.read(buffer)
                         if (read < 0) break
                         output.write(buffer, 0, read)
@@ -572,6 +664,8 @@ data class UpdateInfo(
     val apkName: String,
     val apkSize: Long,
     val downloadUrl: String,
+    /** GitHub release asset 的 SHA-256 摘要（hex）。空 = 该 release 没提供摘要，跳过校验。 */
+    val sha256: String? = null,
 )
 
 data class DownloadProgress(
@@ -596,4 +690,6 @@ private data class GitHubAsset(
     val name: String,
     val size: Long = 0,
     @SerialName("browser_download_url") val downloadUrl: String,
+    /** GitHub 提供的资产摘要，形如 "sha256:abcd…"；老 release 可能是 null。 */
+    @SerialName("digest") val digest: String? = null,
 )

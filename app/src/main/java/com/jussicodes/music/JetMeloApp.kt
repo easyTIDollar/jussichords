@@ -30,6 +30,7 @@ import com.jussicodes.music.data.HomeUserInfoStore
 import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.utils.AppVisibilityTracker
 import com.jussicodes.music.utils.AppUpdateManager
+import com.jussicodes.music.utils.UpdateBackgroundCheckScheduler
 import com.jussicodes.music.utils.CacheManager
 import com.jussicodes.music.utils.UserAgentUtil
 import com.jussicodes.music.utils.apiServers
@@ -90,6 +91,12 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
             com.jussicodes.music.lx.LxPluginManager.resolveUrl(songId, songLevel)
         }
         applicationScope.launch { com.jussicodes.music.lx.LxPluginManager.warmUp() }
+        // 后台静默检查更新：按偏好排/取消周期任务（JobScheduler）。
+        // 放在这里而不是 Activity，是为了让「用户改了开关但还没回到桌面」的情况
+        // 也能立刻生效，且不依赖 MainActivity 是否被创建。
+        applicationScope.launch {
+            runCatching { UpdateBackgroundCheckScheduler.sync(this@JetMeloApp) }
+        }
         // Fill the explore flows from disk cache immediately, so the explore
         // tab renders content on first frame even while the cookie config
         // and network fetch are still in flight.

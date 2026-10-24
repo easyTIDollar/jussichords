@@ -44,6 +44,14 @@ val audioSourceKey = stringPreferencesKey("audioSource")
 // 直连音源档位下的六源单选（AUTO 或具体 key）
 val directSourceKey = stringPreferencesKey("directSource")
 val ignoredUpdateVersionKey = stringPreferencesKey("ignoredUpdateVersion")
+/** 上次成功/失败检查更新的时间戳（毫秒）。用于自动检查节流，避免每次启动都打 GitHub API。 */
+val updateLastCheckAtKey = longPreferencesKey("updateLastCheckAt")
+/** 上次检查更新的失败原因（成功时清空）。设置页展示，让用户知道为什么没提示更新。 */
+val updateLastErrorKey = stringPreferencesKey("updateLastError")
+/** 上次检查到的更新信息（UpdateInfo 的 JSON）。用于免网络的即时弹窗 + 后台检查命中后复用。 */
+val updateCacheJsonKey = stringPreferencesKey("updateCacheJson")
+/** 是否开启后台静默检查更新（JobScheduler 周期任务）。 */
+val updateBackgroundCheckEnabledKey = booleanPreferencesKey("updateBackgroundCheckEnabled")
 val uiScaleKey = floatPreferencesKey("uiScale")
 /**
  * DPI 模拟倍数（调试用）。1.0=关闭。覆盖 LocalDensity.density，dp 视口随之变化，
