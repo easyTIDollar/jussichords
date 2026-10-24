@@ -22,7 +22,6 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -127,6 +126,8 @@ fun SongMenuBottomSheet(
                 onDismissRequest = onDismiss,
                 sheetState = bottomSheetState,
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                // 内容是一整条 Column（头 + 快捷区 + 三组行），横屏 360dp 高放不下，开滚动。
+                landscapeScrollable = true,
             ) {
                 SongMenuContent(
                 song = s,
@@ -534,10 +535,12 @@ private fun ArtistPickerBottomSheet(
     }
 
     if (openBottomSheet) {
-        ModalBottomSheet(
+        ResponsiveModalBottomSheet(
             modifier = Modifier.statusBarsPadding(),
             onDismissRequest = onDismiss,
-            sheetState = bottomSheetState
+            sheetState = bottomSheetState,
+            // 歌手列表是一整条 Column，横屏面板高度封顶后需要滚动。
+            landscapeScrollable = true,
         ) {
             Column(
                 Modifier

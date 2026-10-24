@@ -45,7 +45,6 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -108,6 +107,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.hypot
 import kotlin.math.roundToInt
+import com.jussicodes.music.ui.components.ResponsiveAlertDialog
 
 @Composable
 fun MainScreen() {
@@ -690,7 +690,7 @@ fun MainScreen() {
                     showBgCancelConfirm = false
                 }
                 if (showBgCancelConfirm) {
-                    AlertDialog(
+                    ResponsiveAlertDialog(
                         onDismissRequest = { showBgCancelConfirm = false },
                         title = { Text("放弃主页背景修改？") },
                         text = { Text("已调整的背景尚未保存，离开编辑模式会被丢弃。") },

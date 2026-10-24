@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
@@ -69,7 +68,7 @@ fun SleepTimerDialog(
     // 所以先把可空值收成非空再比较。
     val savedMinutes = parsedMinutes?.takeIf { userShortcuts.contains(it) }
 
-    AlertDialog(
+    ResponsiveAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = "定时播放") },
         text = {

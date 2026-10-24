@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import com.jussicodes.music.R
 import com.rcmiku.ncmapi.api.player.SongLevel
 
@@ -29,7 +28,7 @@ fun SongQualityDialog(
     onDismiss: () -> Unit,
     onQualitySelected: (SongLevel) -> Unit
 ) {
-    Dialog(onDismissRequest = onDismiss) {
+    ResponsiveDialogWindow(onDismissRequest = onDismiss) {
         ScaledDialogContent {
         Card(
             shape = MaterialTheme.shapes.extraLarge

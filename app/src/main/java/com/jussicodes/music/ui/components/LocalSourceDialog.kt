@@ -18,7 +18,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import com.rcmiku.ncmapi.api.LocalSources
 
 data class LocalSourceOption(
@@ -39,7 +38,7 @@ fun LocalSourceDialog(
     onDismiss: () -> Unit,
     onSourceSelected: (String) -> Unit
 ) {
-    Dialog(onDismissRequest = onDismiss) {
+    ResponsiveDialogWindow(onDismissRequest = onDismiss) {
         ScaledDialogContent {
             Card(shape = MaterialTheme.shapes.extraLarge) {
                 Column(

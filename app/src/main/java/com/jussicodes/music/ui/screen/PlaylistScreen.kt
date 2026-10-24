@@ -33,7 +33,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -123,6 +122,7 @@ import androidx.core.view.ViewCompat
 import com.jussicodes.music.utils.rememberPreference
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import com.jussicodes.music.ui.components.ResponsiveAlertDialog
 
 private const val PLAYLIST_COVER_UPLOAD_SIZE = 300
 
@@ -746,7 +746,7 @@ fun PlaylistScreen(
     }
 
     if (showEditPlaylistDialog) {
-        AlertDialog(
+        ResponsiveAlertDialog(
             onDismissRequest = { showEditPlaylistDialog = false },
             title = { Text("编辑歌单") },
             text = {
@@ -796,7 +796,7 @@ fun PlaylistScreen(
     }
 
     selectedCoverUri?.let { uri ->
-        AlertDialog(
+        ResponsiveAlertDialog(
             onDismissRequest = { selectedCoverUri = null },
             title = { Text("编辑封面") },
             text = {

@@ -26,7 +26,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -115,6 +114,7 @@ fun ShareSheet(
         ResponsiveModalBottomSheet(
             onDismissRequest = onDismiss,
             sheetState = bottomSheetState,
+            landscapeScrollable = true,
         ) {
             val chosen = selectedContact
             if (chosen != null) {

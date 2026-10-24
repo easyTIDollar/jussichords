@@ -25,7 +25,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -551,9 +550,11 @@ private fun LocalSourcePickerSheet(
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     LaunchedEffect(Unit) { bottomSheetState.show() }
 
-    ModalBottomSheet(
+    ResponsiveModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = bottomSheetState,
+        // 音源选择器是普通 Column，横屏面板高度封顶后需要滚动。
+        landscapeScrollable = true,
     ) {
         Column(modifier = Modifier.padding(vertical = 12.dp)) {
             Text(

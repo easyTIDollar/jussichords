@@ -49,7 +49,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -165,6 +164,7 @@ import com.rcmiku.ncmapi.utils.parseCookieString
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
+import com.jussicodes.music.ui.components.ResponsiveAlertDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -873,7 +873,7 @@ fun SettingsScreen(navController: NavHostController) {
     }
 
     if (showOrientationDialog) {
-        AlertDialog(
+        ResponsiveAlertDialog(
             onDismissRequest = { showOrientationDialog = false },
             title = { Text("屏幕方向") },
             text = {
@@ -916,7 +916,7 @@ fun SettingsScreen(navController: NavHostController) {
     }
 
     if (showDensityScaleDialog) {
-        AlertDialog(
+        ResponsiveAlertDialog(
             onDismissRequest = { showDensityScaleDialog = false },
             title = { Text("DPI 模拟") },
             text = {
@@ -1123,7 +1123,7 @@ fun SettingsScreen(navController: NavHostController) {
     }
 
     if (bgSelectFailureReason != null) {
-        AlertDialog(
+        ResponsiveAlertDialog(
             onDismissRequest = { bgSelectFailureReason = null },
             title = { Text("选取图片失败") },
             text = {
@@ -1368,7 +1368,7 @@ private fun GitHubDownloadSourceDialog(
     onSourceSelected: (String) -> Unit,
 ) {
     ScaledDialogContent {
-    AlertDialog(
+    ResponsiveAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("更换更新源") },
         text = {
@@ -1481,7 +1481,7 @@ private fun ApiServerPingDialog(
     }
 
     ScaledDialogContent {
-    AlertDialog(
+    ResponsiveAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("API 服务器") },
         text = {
@@ -1666,7 +1666,7 @@ private fun CookieEditDialog(
     var editedCookie by rememberSaveable(currentCookie) { mutableStateOf(currentCookie) }
 
     ScaledDialogContent {
-    AlertDialog(
+    ResponsiveAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("账号 Cookie") },
         text = {

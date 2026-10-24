@@ -20,7 +20,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import com.jussicodes.music.R
 
 @Composable
@@ -33,7 +32,7 @@ fun UrlEditDialog(
 ) {
     var editedUrl by rememberSaveable { mutableStateOf(currentUrl) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    ResponsiveDialogWindow(onDismissRequest = onDismiss) {
         Card(shape = MaterialTheme.shapes.extraLarge) {
             Column(modifier = Modifier.padding(24.dp)) {
                 Text(

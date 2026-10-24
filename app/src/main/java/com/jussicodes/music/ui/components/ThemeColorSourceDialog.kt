@@ -25,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import com.jussicodes.music.ui.theme.ThemeColorSource
 import kotlin.math.roundToInt
 
@@ -65,7 +64,7 @@ fun ThemeColorSourceDialog(
         uiScaleValue = snapped
         onUiScaleSelected(snapped)
     }
-    Dialog(onDismissRequest = onDismiss) {
+    ResponsiveDialogWindow(onDismissRequest = onDismiss) {
         ScaledDialogContent {
         Card(shape = MaterialTheme.shapes.extraLarge) {
             Column(

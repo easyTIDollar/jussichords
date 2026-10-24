@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,6 +46,7 @@ import com.rcmiku.ncmapi.utils.json
 import com.rcmiku.ncmapi.utils.parseCookieString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+import com.jussicodes.music.ui.components.ResponsiveAlertDialog
 
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -197,7 +197,7 @@ private fun CookieLoginDialog(
     }
     var text by rememberSaveable { mutableStateOf(initialCookie) }
 
-    AlertDialog(
+    ResponsiveAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Cookie 登录") },
         text = {

@@ -35,7 +35,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -119,6 +118,7 @@ import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.core.view.ViewCompat
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import com.jussicodes.music.ui.components.ResponsiveAlertDialog
 
 private const val LIKED_PLAYLIST_NAME_FRAGMENT = "\u559c\u6b22"
 private const val AVATAR_UPLOAD_SIZE = 800
@@ -416,7 +416,7 @@ fun LibraryScreen(
     }
 
     editingPlaylist?.let { playlist ->
-        AlertDialog(
+        ResponsiveAlertDialog(
             onDismissRequest = { editingPlaylist = null },
             title = { Text("编辑歌单") },
             text = {
@@ -467,7 +467,7 @@ fun LibraryScreen(
     }
 
     if (showEditProfileDialog) {
-        AlertDialog(
+        ResponsiveAlertDialog(
             onDismissRequest = {
                 if (!profileUpdateBusy) showEditProfileDialog = false
             },
@@ -527,7 +527,7 @@ fun LibraryScreen(
     }
 
     selectedCoverUri?.let { uri ->
-        AlertDialog(
+        ResponsiveAlertDialog(
             onDismissRequest = {
                 selectedCoverUri = null
                 coverEditingPlaylist = null
@@ -634,7 +634,7 @@ fun LibraryScreen(
     }
 
     if (showCreatePlaylistDialog) {
-        AlertDialog(
+        ResponsiveAlertDialog(
             onDismissRequest = { showCreatePlaylistDialog = false },
             title = { Text("新建歌单") },
             text = {
@@ -678,7 +678,7 @@ fun LibraryScreen(
     }
 
     selectedAvatarUri?.let { uri ->
-        AlertDialog(
+        ResponsiveAlertDialog(
             onDismissRequest = { selectedAvatarUri = null },
             title = { Text("编辑头像") },
             text = {

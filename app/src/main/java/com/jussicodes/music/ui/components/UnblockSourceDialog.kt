@@ -18,7 +18,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 
 data class UnblockSourceOption(
     val value: String,
@@ -38,7 +37,7 @@ fun UnblockSourceDialog(
     onDismiss: () -> Unit,
     onSourceSelected: (String) -> Unit
 ) {
-    Dialog(onDismissRequest = onDismiss) {
+    ResponsiveDialogWindow(onDismissRequest = onDismiss) {
         ScaledDialogContent {
         Card(shape = MaterialTheme.shapes.extraLarge) {
             Column(

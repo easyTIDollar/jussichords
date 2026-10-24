@@ -25,7 +25,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -75,6 +74,7 @@ import com.jussicodes.music.viewModel.UserFollowType
 import com.jussicodes.music.viewModel.UserScreenViewModel
 import com.rcmiku.ncmapi.model.Playlist
 import java.io.File
+import com.jussicodes.music.ui.components.ResponsiveAlertDialog
 
 private const val LIKED_PLAYLIST_NAME_FRAGMENT = "\u559c\u6b22"
 
@@ -289,7 +289,7 @@ fun UserScreen(
     }
 
     if (showAvatarEditDialog) {
-        AlertDialog(
+        ResponsiveAlertDialog(
             onDismissRequest = { showAvatarEditDialog = false },
             title = { Text("调整头像尺寸") },
             text = {

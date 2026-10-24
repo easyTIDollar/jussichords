@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -79,6 +78,7 @@ import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.jussicodes.music.ui.components.ResponsiveAlertDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -228,7 +228,7 @@ fun MessagesScreen(
 
         // 长按会话行 → 删除确认框（本地隐藏该会话，持久化；顶栏 ⋮ 可一键恢复）
         deleteTarget?.let { target ->
-            AlertDialog(
+            ResponsiveAlertDialog(
                 onDismissRequest = { deleteTarget = null },
                 title = { Text(stringResource(R.string.msg_session_delete_title)) },
                 text = { Text(stringResource(R.string.msg_session_delete_text, target.user.nickname)) },
