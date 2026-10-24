@@ -212,8 +212,8 @@ fun PlayerMenuBottomSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
                     Column(
                         modifier = Modifier
@@ -356,8 +356,9 @@ fun PlayerMenuBottomSheet(
                         shape = RoundedCornerShape(24.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         modifier = Modifier
-                            .width(620.dp)
-                            .heightIn(max = 380.dp)
+                            .width(640.dp)
+                            .heightIn(max = 400.dp)
+                            .padding(horizontal = 12.dp, vertical = 12.dp)
                     ) {
                         menuContent()
                     }
