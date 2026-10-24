@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -89,7 +90,10 @@ fun ResponsiveAlertDialog(
             // safeDrawingPadding：横屏时刘海/挖孔在屏幕侧边，不避让的话面板会被切掉一条。
             modifier = Modifier
                 .fillMaxSize()
-                .safeDrawingPadding(),
+                .safeDrawingPadding()
+                // 带输入框的弹窗（Cookie / 定时播放）：横屏下键盘弹出时面板上移，
+                // 不被键盘遮住下半截。
+                .imePadding(),
             contentAlignment = Alignment.Center,
         ) {
             val panelWidth = landscapePanelWidth(maxWidth)
@@ -171,7 +175,10 @@ fun ResponsiveDialogWindow(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .safeDrawingPadding(),
+                .safeDrawingPadding()
+                // 带输入框的弹窗（Cookie / 定时播放）：横屏下键盘弹出时面板上移，
+                // 不被键盘遮住下半截。
+                .imePadding(),
             contentAlignment = Alignment.Center,
         ) {
             val panelWidth = landscapePanelWidth(maxWidth)
