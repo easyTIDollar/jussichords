@@ -23,9 +23,11 @@ jobs:
       BUILD_TYPE: ${{ inputs.build_type || 'release' }}
       APP_VERSION: ''
     steps:
-      # 拉取仓库
+      # 拉取仓库（需要完整历史 + tag：更新说明按「上一个版本 → 本次构建」的提交差异生成）
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # 安装 Java (已移除冲突的 cache: gradle)
       - name: Set up Java 17
@@ -169,6 +171,25 @@ jobs:
           mv "$APK" "app/build/outputs/apk/$BUILD_TYPE/$TARGET"
           echo "Generated: app/build/outputs/apk/$BUILD_TYPE/$TARGET"
 
+      # 生成更新说明（release notes）
+      # 说明跟着代码走，不再是写死的一段旧文案：
+      #   - canary：按「上一个 canary → 本次构建」的提交自动生成，每次发布的说明都对应这一版真实改动
+      #   - 正式版：优先用 release-notes/<tag>.md（聊天定稿后写入仓库），没有则同样自动生成
+      - name: Generate release notes
+        shell: bash
+        run: |
+          if [ "$BUILD_TYPE" = "canary" ]; then
+            python3 scripts/generate_release_notes.py \
+              --out "$RUNNER_TEMP/release-notes.md" \
+              --prefer canary
+          else
+            python3 scripts/generate_release_notes.py \
+              --out "$RUNNER_TEMP/release-notes.md" \
+              --override "release-notes/${GITHUB_REF_NAME}.md" \
+              --prefer stable
+          fi
+          echo "RELEASE_NOTES_FILE=$RUNNER_TEMP/release-notes.md" >> "$GITHUB_ENV"
+
       # 创建 GitHub Release（canary 为 pre-release）
       - name: Create GitHub Release
         if: env.BUILD_TYPE == 'canary'
@@ -179,24 +200,9 @@ jobs:
           name: ${{ env.RELEASE_NAME }}
           draft: false
           prerelease: true
-          body: |
-            **改进**
-            播放
-            - 弱网断流自动重试与续播
-            - 补 WAKE_LOCK 权限，修后台被杀闪退
-            一起听
-            - 修同步回声回灌、队列版本、锚点丢失、僵尸房间
-            界面
-            - 底部导航选中态与封面切换动效统一
-            - 主页壁纸/信息卡闪烁修复
-            - 卡片圆角、网格封面尺寸自适应
-            - 歌曲菜单取色跟随全局设置
-            横屏与大屏
-            - 横屏播放页双栏沉浸式布局
-            - 大屏响应式布局 + 宽屏竖排导航栏
-            功能
-            - 软件缓存统计与清理
-            - 一起听房间成员小组件
+          # tag 必须指向本次构建的提交，否则下一个 canary 无法以上一个 tag 为 diff 基线
+          target_commitish: ${{ github.sha }}
+          body_path: ${{ env.RELEASE_NOTES_FILE }}
 
       # 清理旧的 canary release（只保留最新 2 个，release + tag 一起删），避免长期堆积垃圾。
       # 正式版 release 不受影响；App 内 canary 更新通道仍能看到最新 pre-release。
@@ -218,11 +224,5 @@ jobs:
           name: ${{ env.RELEASE_NAME }}
           draft: false
           prerelease: false
-          body: |
-            - 新增播放状态上报：切歌生成 12 位会话 ID，进度与播放模式经 /relay/play/state/submit 上报
-            - 最近播放页新增下拉刷新
-            - 修复免费歌曲播放：unblock 失败/返回占位时回退不带 unblock 的主 API
-            - 修复识别 NCM outer/url 占位外链，不再把反爬 HTML 当可播链接
-            - 打卡（scrobble）被服务端拒绝/失败时 toast 提示
-            - 默认 API 服务器改为 8.134.163.111:3000
+          body_path: ${{ env.RELEASE_NOTES_FILE }}
 
