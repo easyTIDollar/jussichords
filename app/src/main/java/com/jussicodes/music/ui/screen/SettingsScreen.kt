@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.ScreenRotation
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -1394,10 +1395,20 @@ private fun GitHubDownloadSourceDialog(
                                 .weight(1f)
                                 .padding(vertical = 8.dp)
                         ) {
-                            Text(source.name, style = MaterialTheme.typography.titleMedium)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(source.name, style = MaterialTheme.typography.titleMedium)
+                                // 测速中：源名后面挂一个小转圈，不写「Ping 中…」文字。
+                                if (testing && status == null) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier
+                                            .padding(start = 6.dp)
+                                            .size(16.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                }
+                            }
                             Text(
                                 text = when {
-                                    testing && status == null -> "Ping 中..."
                                     status == null -> source.detail
                                     status.available -> "可用 · ${status.latencyMs ?: 0} ms"
                                     else -> "不可用 · ${status.message}"
@@ -1572,15 +1583,25 @@ private fun ApiServerPingDialog(
                                     .weight(1f)
                                     .padding(vertical = 8.dp)
                             ) {
-                                Text(
-                                    server,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    overflow = TextOverflow.Ellipsis,
-                                    maxLines = 1
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        server,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        overflow = TextOverflow.Ellipsis,
+                                        maxLines = 1
+                                    )
+                                    // 测速中：地址后面挂一个小转圈，不写「Ping 中…」文字。
+                                    if (testing && status == null) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier
+                                                .padding(start = 6.dp)
+                                                .size(16.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    }
+                                }
                                 Text(
                                     text = when {
-                                        testing && status == null -> "Ping 中..."
                                         status == null ->
                                             if (server == currentServer) "当前" else "未 Ping"
                                         status.available -> "可用 · ${status.latencyMs ?: 0} ms"

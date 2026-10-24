@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -114,16 +115,31 @@ fun UpdateDialog(
                             onClick = { if (!isDownloading) onSourceSelected(source.id) },
                             enabled = !isDownloading
                         )
-                        Text(
-                            text = buildString {
-                                append(source.name)
-                                status?.let {
-                                    append(" · ")
-                                    append(if (it.available) "${it.latencyMs ?: 0} ms" else it.message)
+                        Row(
+                            modifier = Modifier.padding(top = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = buildString {
+                                    append(source.name)
+                                    status?.let {
+                                        append(" · ")
+                                        append(if (it.available) "${it.latencyMs ?: 0} ms" else it.message)
+                                    }
                                 }
-                            },
-                            modifier = Modifier.padding(top = 12.dp)
-                        )
+                            )
+                            // 测速进行中：源名后面挂一个小转圈。
+                            // 不写「测速中…」文字（弹窗里堆字很土），转圈跟文字一样大，
+                            // 视觉上就是「这个名字的延迟还在测」的意思。
+                            if (isMeasuringSources) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier
+                                        .padding(start = 6.dp)
+                                        .size(16.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            }
+                        }
                     }
                 }
                 Row(
@@ -137,16 +153,6 @@ fun UpdateDialog(
                         enabled = !isDownloading && !isMeasuringSources
                     ) {
                         Text("Ping")
-                    }
-                    if (isMeasuringSources) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.padding(start = 4.dp),
-                            strokeWidth = 2.dp
-                        )
-                        Text(
-                            text = " Ping 中…",
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
                     }
                 }
                 if (isDownloading) {
