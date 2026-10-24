@@ -1,9 +1,13 @@
 package com.jussicodes.music.ui.components
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
@@ -13,12 +17,29 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.utils.UpdateSourceStatus
 import com.jussicodes.music.utils.UpdateInfo
 import com.jussicodes.music.utils.downloadSources
 import kotlin.math.ln
 import kotlin.math.pow
+
+/**
+ * 更新说明区域的最大高度（占屏幕高度的比例）。
+ *
+ * 更新说明来自 release body，长度不可控（canary 说明是按提交差异自动生成的，
+ * 一次发版可能有十几条）。不限制高度的话，AlertDialog 的正文区会把整个弹窗
+ * 顶出屏幕 —— Material3 的 AlertDialog 正文本身**不带滚动**，超出的部分直接被裁掉，
+ * 用户既看不到尾部内容也点不到下面的按钮。
+ *
+ * 所以把说明放进一个「高度封顶 + 自身可上下滚动」的容器里：
+ * 内容少时正常显示，内容多时在说明内部滚动，弹窗高度始终受控。
+ */
+private const val NotesMaxHeightRatio = 0.32f
+private const val NotesMaxHeightMin = 96.dp
+private const val NotesMaxHeightMax = 240.dp
 
 @Composable
 fun UpdateDialog(
@@ -35,7 +56,19 @@ fun UpdateDialog(
     onIgnoreVersion: () -> Unit,
     onDownload: () -> Unit,
 ) {
+    val notes = updateInfo.body.trim()
+
     ScaledDialogContent {
+    // 说明区高度上限：在弹窗自己的密度空间里算，保证「封顶高度对应的真实像素」
+    // 就是屏幕的那个比例 —— 界面缩放会放大弹窗里的 dp，不换算的话缩放一开就溢出。
+    val dialogDensity = LocalDensity.current
+    val scale = ScaledDialogDensity.scale.coerceAtLeast(0.01f)
+    val realDensity = dialogDensity.density / scale
+    val screenHeightPx = LocalConfiguration.current.screenHeightDp * realDensity
+    val notesMaxHeightPx = (screenHeightPx * NotesMaxHeightRatio)
+        .coerceIn(NotesMaxHeightMin * realDensity, NotesMaxHeightMax * realDensity)
+    val notesMaxHeight = with(dialogDensity) { notesMaxHeightPx.toDp() }
+
     AlertDialog(
         onDismissRequest = {
             if (!isDownloading) onDismiss()
@@ -49,13 +82,21 @@ fun UpdateDialog(
                         if (updateInfo.apkSize > 0L) {
                             appendLine("安装包大小: ${formatFileSize(updateInfo.apkSize)}")
                         }
-                        val notes = updateInfo.body.trim()
-                        if (notes.isNotEmpty()) {
-                            appendLine()
-                            append(notes)
-                        }
                     }.trim()
                 )
+                if (notes.isNotEmpty()) {
+                    // 更新说明：高度封顶 + 内部可上下滑动，长说明不会把弹窗撑爆。
+                    // padding 放在滚动容器之外，否则它会跟着内容一起滚走。
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .heightIn(max = notesMaxHeight)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(text = notes)
+                    }
+                }
                 Text(
                     text = "下载源",
                     modifier = Modifier.padding(top = 12.dp)
