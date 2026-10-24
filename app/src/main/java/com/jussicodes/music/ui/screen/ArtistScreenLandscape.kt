@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,10 +19,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -50,24 +53,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
 import coil3.compose.AsyncImage
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MiniPlayerHeight
-import com.jussicodes.music.ui.components.ArtistListItem
 import com.jussicodes.music.ui.components.NavigationTitle
 import com.jussicodes.music.ui.components.PlayingIndicatorBox
 import com.jussicodes.music.ui.icons.FavoriteFill
@@ -209,24 +210,13 @@ fun ArtistLandscapeBody(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // 整栏沉浸背景：艺人封面放大 + 上下羽化遮罩
+                    // 海报区（不再铺模糊的艺人封面背景，只留玻璃卡 + 方形海报）
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(190.dp)
-                            .clip(RoundedCornerShape(24.dp)),
+                            .height(190.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        AsyncImage(
-                            model = heroUrl?.toCoverImageUrl(CoverImageSize.HERO),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer { alpha = 0.32f }
-                                .blur(28.dp)
-                        )
-                        // 玻璃卡片：半透明表面 + 细描边
                         BoxWithConstraints(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
@@ -517,8 +507,13 @@ private fun ArtistLandscapeExplorePage(
     onSimilarArtistClick: (SearchArtist) -> Unit,
     hasMiniPlayer: Boolean,
 ) {
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        item(key = "explore-brief") {
+    // 相似歌手：四列网格（探索页整体用网格，简介卡片跨满整行）
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(4),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 8.dp)
+    ) {
+        item(key = "explore-brief", span = { GridItemSpan(maxLineSpan) }) {
             NavigationTitle(title = stringResource(R.string.artist_info))
             Card(
                 modifier = Modifier
@@ -542,7 +537,7 @@ private fun ArtistLandscapeExplorePage(
             }
         }
         if (simiArtists.isNotEmpty()) {
-            item(key = "explore-simi-title") {
+            item(key = "explore-simi-title", span = { GridItemSpan(maxLineSpan) }) {
                 NavigationTitle(title = "相似歌手")
             }
             items(
@@ -550,15 +545,52 @@ private fun ArtistLandscapeExplorePage(
                 key = { index -> "simi-artist-${simiArtists[index].id}-$index" }
             ) { index ->
                 val artist = simiArtists[index]
-                ArtistListItem(
+                ArtistLandscapeSimilarItem(
                     artist = artist,
-                    modifier = Modifier.clickable { onSimilarArtistClick(artist) }
+                    modifier = Modifier
+                        .padding(6.dp)
+                        .clickable { onSimilarArtistClick(artist) }
                 )
             }
         }
         if (hasMiniPlayer) {
-            item { Spacer(Modifier.height(MiniPlayerHeight)) }
+            item(key = "explore-bottom", span = { GridItemSpan(maxLineSpan) }) {
+                Spacer(Modifier.height(MiniPlayerHeight))
+            }
         }
+    }
+}
+
+/** 相似歌手网格单元：圆形头像 + 名字（两行内截断）。 */
+@Composable
+private fun ArtistLandscapeSimilarItem(
+    artist: SearchArtist,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        AsyncImage(
+            model = artist.cover.toCoverImageUrl(CoverImageSize.LIST),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = artist.name,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
@@ -637,6 +669,17 @@ private fun ArtistLandscapeSongRow(
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // 歌曲封面（专辑小图）
+        AsyncImage(
+            model = song.al.picUrl.toCoverImageUrl(CoverImageSize.LIST),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+        )
+        Spacer(Modifier.width(10.dp))
         // 序号 / 正在播放的动态均衡器
         Box(
             modifier = Modifier.width(26.dp),
@@ -761,7 +804,7 @@ private fun ArtistLandscapeAlbumsPage(
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(140.dp)
+                            .aspectRatio(1f)
                             .clip(shape)
                             .background(MaterialTheme.colorScheme.surfaceContainer)
                     )
