@@ -123,7 +123,7 @@ fun SongMenuBottomSheet(
         // 只有设置选了「从当前播放封面取色」时才真正生效，否则回落壁纸配色。
         // 容器用 surfaceContainerHigh 带上适量强调色，和整体不割裂。
         JetMeloTheme(artwork = s.al.picUrl.toCoverImageUrl(CoverImageSize.LIST)) {
-            ModalBottomSheet(
+            ResponsiveModalBottomSheet(
                 onDismissRequest = onDismiss,
                 sheetState = bottomSheetState,
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,

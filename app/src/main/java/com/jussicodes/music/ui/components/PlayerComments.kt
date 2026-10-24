@@ -283,7 +283,7 @@ fun PlayerComments(
             }
     }
 
-    ModalBottomSheet(
+    ResponsiveModalBottomSheet(
         onDismissRequest = onBackPressed,
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),

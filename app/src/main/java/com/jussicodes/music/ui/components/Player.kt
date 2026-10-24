@@ -807,7 +807,7 @@ fun AlbumBottomSheet(
     }
 
     if (openBottomSheet) {
-        ModalBottomSheet(
+        ResponsiveModalBottomSheet(
             modifier = Modifier.statusBarsPadding(),
             onDismissRequest = onDismiss,
             sheetState = bottomSheetState
@@ -869,7 +869,7 @@ fun ArtistBottomSheet(
     }
 
     if (openBottomSheet) {
-        ModalBottomSheet(
+        ResponsiveModalBottomSheet(
             modifier = Modifier.statusBarsPadding(),
             onDismissRequest = onDismiss,
             sheetState = bottomSheetState

@@ -87,7 +87,10 @@ fun ListenTogetherSheet(
     }
 
     if (openBottomSheet) {
-        ModalBottomSheet(onDismissRequest = onDismiss, sheetState = bottomSheetState) {
+        ResponsiveModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = bottomSheetState,
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()

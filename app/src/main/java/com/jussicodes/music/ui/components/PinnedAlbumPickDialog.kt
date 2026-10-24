@@ -111,7 +111,7 @@ fun PinnedAlbumPickDialog(onDismiss: () -> Unit) {
         }
     }
 
-    ModalBottomSheet(
+    ResponsiveModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState()
     ) {

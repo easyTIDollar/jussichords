@@ -77,7 +77,7 @@ fun SongListBottomSheet(
     }
 
     if (openBottomSheet) {
-        ModalBottomSheet(
+        ResponsiveModalBottomSheet(
             onDismissRequest = onDismiss,
             sheetState = bottomSheetState,
         ) {

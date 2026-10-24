@@ -112,7 +112,7 @@ fun ShareSheet(
         .filter { it.user.userType in MsgSessionCache.allowedUserTypes }
 
     if (openBottomSheet) {
-        ModalBottomSheet(
+        ResponsiveModalBottomSheet(
             onDismissRequest = onDismiss,
             sheetState = bottomSheetState,
         ) {

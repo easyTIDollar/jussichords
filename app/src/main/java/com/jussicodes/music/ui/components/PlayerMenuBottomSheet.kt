@@ -364,7 +364,7 @@ fun PlayerMenuBottomSheet(
                 }
             }
         } else {
-            ModalBottomSheet(
+            ResponsiveModalBottomSheet(
                 onDismissRequest = onDismiss,
                 sheetState = bottomSheetState,
             ) {
