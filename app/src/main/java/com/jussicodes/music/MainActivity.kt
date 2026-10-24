@@ -126,12 +126,20 @@ class MainActivity : ComponentActivity() {
                 val ignoredVersion = withContext(Dispatchers.IO) {
                     dataStore.data.first()[ignoredUpdateVersionKey].orEmpty()
                 }
-                // 检查更新放到独立协程里跑，不能挡在私信缓存预热前面：
-                // 网络最坏 30s（两个源各 15s 超时），挡着就等于启动被更新检查拖住。
-                // force=false：命中 6 小时窗口内直接用缓存（零网络），
-                // 失败原因落盘设置页可见，避免「静默什么都不提示」。
+                // 每次打开都检查更新（不看节流窗口）。
+                // 放在独立协程里跑，不能挡在私信缓存预热前面：网络最坏 30s
+                //（两个源各 15s 超时），挡着就等于启动被更新检查拖住。
+                // 两步走：
+                //  1. 先读缓存，零网络、立刻把上次发现的更新弹出来（避免联网前空窗）；
+                //  2. 再 force=true 强制联网查一次，命中新版本就覆盖弹窗。
+                // 这样「每次打开都检查」，离线时也不会因为联网失败而看不到已知更新。
                 lifecycleScope.launch {
-                    val outcome = UpdateCheckCoordinator.check(applicationContext, force = false)
+                    UpdateCheckCoordinator.cachedUpdate(applicationContext)?.let { info ->
+                        if (info.versionName != ignoredVersion) {
+                            pendingUpdateInfo = info
+                        }
+                    }
+                    val outcome = UpdateCheckCoordinator.check(applicationContext, force = true)
                     val updateInfo = outcome.updateInfo
                     if (updateInfo != null && updateInfo.versionName != ignoredVersion) {
                         pendingUpdateInfo = updateInfo
