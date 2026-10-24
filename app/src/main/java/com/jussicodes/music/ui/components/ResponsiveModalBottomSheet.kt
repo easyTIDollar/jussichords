@@ -44,11 +44,14 @@ fun ResponsiveModalBottomSheet(
                 shape = RoundedCornerShape(24.dp),
                 color = containerColor,
                 modifier = modifier
-                    .width(420.dp)
-                    .heightIn(max = 340.dp)
-                    .padding(16.dp)
+                    .width(460.dp)
+                    .heightIn(max = 360.dp)
             ) {
-                Box(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 22.dp, vertical = 26.dp)
+                ) {
                     content()
                 }
             }

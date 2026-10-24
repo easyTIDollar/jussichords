@@ -358,9 +358,14 @@ fun PlayerMenuBottomSheet(
                         modifier = Modifier
                             .width(640.dp)
                             .heightIn(max = 400.dp)
-                            .padding(horizontal = 12.dp, vertical = 12.dp)
                     ) {
-                        menuContent()
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            menuContent()
+                        }
                     }
                 }
             }
