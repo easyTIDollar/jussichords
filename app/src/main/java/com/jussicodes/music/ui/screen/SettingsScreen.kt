@@ -32,7 +32,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.DensityMedium
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.ScreenRotation
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.Card
@@ -108,7 +107,6 @@ import com.jussicodes.music.constants.homeBgOpacityKey
 import com.jussicodes.music.constants.homeBgScaleKey
 import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
-import com.jussicodes.music.constants.updateBackgroundCheckEnabledKey
 import com.jussicodes.music.constants.updateLastCheckAtKey
 import com.jussicodes.music.constants.updateLastErrorKey
 import com.jussicodes.music.lyric.DesktopLyricManager
@@ -141,7 +139,6 @@ import com.jussicodes.music.utils.CacheManager
 import com.jussicodes.music.utils.SettingsAppearanceBus
 import com.jussicodes.music.utils.NcmCookieNormalizer
 import com.jussicodes.music.utils.ApiServerStatus
-import com.jussicodes.music.utils.UpdateBackgroundCheckScheduler
 import com.jussicodes.music.utils.UpdateCheckCoordinator
 import com.jussicodes.music.utils.UpdateDownloadPhase
 import com.jussicodes.music.utils.UpdateDownloadService
@@ -229,7 +226,6 @@ fun SettingsScreen(navController: NavHostController) {
     // 检查更新的可见状态：上次检查时间 + 上次失败原因（失败不再静默）。
     var updateLastCheckAt by rememberPreference(updateLastCheckAtKey, 0L)
     var updateLastError by rememberPreference(updateLastErrorKey, "")
-    var backgroundUpdateCheckEnabled by rememberPreference(updateBackgroundCheckEnabledKey, false)
     // DPI 模拟（调试）：1.0=关闭。覆盖 density 让 dp 视口变成别的屏幕的尺寸。
     var densityScale by rememberPreference(densityScaleKey, 1f)
     var orientationLockKeyValue by rememberPreference(orientationLockKey, "unlocked")
@@ -803,28 +799,6 @@ fun SettingsScreen(navController: NavHostController) {
                             testingGithubSources = false
                         }
                     }
-                }
-            ),
-            SettingItemData(
-                title = "后台检查更新",
-                subtitle = if (backgroundUpdateCheckEnabled) {
-                    "每 6 小时在后台检查一次，有新版本时发通知"
-                } else {
-                    "关闭时只在打开 App 时检查"
-                },
-                imageVector = Icons.Outlined.Notifications,
-                trailingContent = {
-                    Switch(
-                        checked = backgroundUpdateCheckEnabled,
-                        onCheckedChange = { enabled ->
-                            backgroundUpdateCheckEnabled = enabled
-                            // 立即重排/取消周期任务，不用等下次启动。
-                            // 用内存里的新值直接 apply：DataStore 写入是异步的，
-                            // 立刻回读可能拿到旧值。
-                            UpdateBackgroundCheckScheduler.apply(context, enabled)
-                        }
-                    )
-                    Spacer(Modifier.width(12.dp))
                 }
             )
         )

@@ -50,8 +50,6 @@ val updateLastCheckAtKey = longPreferencesKey("updateLastCheckAt")
 val updateLastErrorKey = stringPreferencesKey("updateLastError")
 /** 上次检查到的更新信息（UpdateInfo 的 JSON）。用于免网络的即时弹窗 + 后台检查命中后复用。 */
 val updateCacheJsonKey = stringPreferencesKey("updateCacheJson")
-/** 是否开启后台静默检查更新（JobScheduler 周期任务）。 */
-val updateBackgroundCheckEnabledKey = booleanPreferencesKey("updateBackgroundCheckEnabled")
 val uiScaleKey = floatPreferencesKey("uiScale")
 /**
  * DPI 模拟倍数（调试用）。1.0=关闭。覆盖 LocalDensity.density，dp 视口随之变化，

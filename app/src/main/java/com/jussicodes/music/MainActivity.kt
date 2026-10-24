@@ -43,7 +43,6 @@ import com.jussicodes.music.ui.screen.MainScreen
 import com.jussicodes.music.ui.theme.JetMeloTheme
 import com.jussicodes.music.utils.AppUpdateManager
 import com.jussicodes.music.utils.SongListUtil
-import com.jussicodes.music.utils.UpdateBackgroundCheckScheduler
 import com.jussicodes.music.utils.UpdateCheckCoordinator
 import com.jussicodes.music.utils.UpdateDownloadPhase
 import com.jussicodes.music.utils.UpdateDownloadService
@@ -137,8 +136,6 @@ class MainActivity : ComponentActivity() {
                     if (updateInfo != null && updateInfo.versionName != ignoredVersion) {
                         pendingUpdateInfo = updateInfo
                     }
-                    // 后台静默检查更新的周期任务：按偏好重新排/取消。
-                    UpdateBackgroundCheckScheduler.sync(applicationContext)
                 }
 
                 // 私信会话缓存预热：并行拉 /msg/private + /msg/recentcontact，
