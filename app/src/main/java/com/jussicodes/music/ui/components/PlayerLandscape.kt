@@ -382,7 +382,24 @@ fun PlayerLandscape(
                             PlaybackModeButton(
                                 state = playbackMode,
                                 onClick = {
-                                    applyPlaybackMode(mediaController, nextPlaybackMode(playbackMode))
+                                    when (nextPlaybackMode(playbackMode)) {
+                                        PlaybackModeState.SEQUENTIAL -> {
+                                            mediaController?.shuffleModeEnabled = false
+                                            mediaController?.repeatMode = androidx.media3.common.Player.REPEAT_MODE_OFF
+                                        }
+                                        PlaybackModeState.REPEAT_ALL -> {
+                                            mediaController?.shuffleModeEnabled = false
+                                            mediaController?.repeatMode = androidx.media3.common.Player.REPEAT_MODE_ALL
+                                        }
+                                        PlaybackModeState.REPEAT_ONE -> {
+                                            mediaController?.shuffleModeEnabled = false
+                                            mediaController?.repeatMode = androidx.media3.common.Player.REPEAT_MODE_ONE
+                                        }
+                                        PlaybackModeState.SHUFFLE -> {
+                                            mediaController?.shuffleModeEnabled = true
+                                            mediaController?.repeatMode = androidx.media3.common.Player.REPEAT_MODE_OFF
+                                        }
+                                    }
                                 },
                             )
 

@@ -9,9 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -67,9 +65,9 @@ fun SleepTimerDialog(
     }
 
     val parsedMinutes = remember(inputText) { parseSleepTimerInput(inputText) }
-    // parsedMinutes 是可空 Int，不能直接 `in List<Int>`（元素类型不匹配会编译不过）。
-    val selectedMinutes = parsedMinutes
-    val hasSavedShortcut = parsedMinutes != null && userShortcuts.contains(parsedMinutes)
+    // parsedMinutes 是可空 Int，不能直接 `in List<Int>`（元素类型不匹配编译不过），
+    // 所以先把可空值收成非空再比较。
+    val savedMinutes = parsedMinutes?.takeIf { userShortcuts.contains(it) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -120,15 +118,6 @@ fun SleepTimerDialog(
                     value = inputText,
                     onValueChange = { inputText = it },
                     label = { Text(text = "自定义时长") },
-                    supportingText = {
-                        Text(
-                            text = if (parsedMinutes != null) {
-                                "即 $parsedMinutes 分钟"
-                            } else {
-                                "请输入 1-720 的分钟数，或 1:30 这样的 时:分"
-                            }
-                        )
-                    },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
@@ -141,11 +130,11 @@ fun SleepTimerDialog(
                     TextButton(
                         onClick = {
                             val minutes = parsedMinutes ?: return@TextButton
-                            if (minutes in userShortcuts) return@TextButton
+                            if (savedMinutes != null) return@TextButton
                             val next = (userShortcuts + minutes).takeLast(MaxUserSleepTimerShortcuts)
                             shortcutsPref = next.joinToString(",")
                         },
-                        enabled = parsedMinutes != null && parsedMinutes !in userShortcuts
+                        enabled = parsedMinutes != null && savedMinutes == null
                     ) {
                         Text(text = "保存为快捷")
                     }

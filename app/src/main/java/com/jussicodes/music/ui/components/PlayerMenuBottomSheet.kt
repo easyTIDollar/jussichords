@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -30,7 +29,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -126,6 +124,32 @@ fun PlayerMenuBottomSheet(
             "%02dm:%02ds".format(minutes, seconds)
         }
     }
+    // 随机与循环合并成一个「播放模式」：点一下在
+    // 顺序 → 列表循环 → 单曲循环 → 随机 之间循环切换。
+    // 随机与循环互斥：切到随机时关掉循环，切到循环时关掉随机。
+    val cyclePlaybackMode: () -> Unit = {
+        when (nextPlaybackMode(playbackMode)) {
+            PlaybackModeState.SEQUENTIAL -> {
+                mediaController?.shuffleModeEnabled = false
+                mediaController?.repeatMode = androidx.media3.common.Player.REPEAT_MODE_OFF
+            }
+
+            PlaybackModeState.REPEAT_ALL -> {
+                mediaController?.shuffleModeEnabled = false
+                mediaController?.repeatMode = androidx.media3.common.Player.REPEAT_MODE_ALL
+            }
+
+            PlaybackModeState.REPEAT_ONE -> {
+                mediaController?.shuffleModeEnabled = false
+                mediaController?.repeatMode = androidx.media3.common.Player.REPEAT_MODE_ONE
+            }
+
+            PlaybackModeState.SHUFFLE -> {
+                mediaController?.shuffleModeEnabled = true
+                mediaController?.repeatMode = androidx.media3.common.Player.REPEAT_MODE_OFF
+            }
+        }
+    }
     val context = LocalContext.current
     var cancelSleepTimer by rememberSaveable { mutableStateOf(false) }
     var openSongListBottomSheet by rememberSaveable { mutableStateOf(false) }
@@ -207,9 +231,7 @@ fun PlayerMenuBottomSheet(
                             playbackModeText = playbackModeText,
                             playbackModeIcon = playbackModeIcon(playbackMode),
                             playbackModeActive = playbackMode != PlaybackModeState.SEQUENTIAL,
-                            onPlaybackModeClick = {
-                                applyPlaybackMode(mediaController, nextPlaybackMode(playbackMode))
-                            },
+                            onPlaybackModeClick = cyclePlaybackMode,
                             isSleepTimerSet = isSleepTimerSet,
                             remainingTimeText = remainingTimeText,
                             onSleepTimerClick = {
@@ -269,9 +291,7 @@ fun PlayerMenuBottomSheet(
                                 playbackModeText = playbackModeText,
                                 playbackModeIcon = playbackModeIcon(playbackMode),
                                 playbackModeActive = playbackMode != PlaybackModeState.SEQUENTIAL,
-                                onPlaybackModeClick = {
-                                    applyPlaybackMode(mediaController, nextPlaybackMode(playbackMode))
-                                },
+                                onPlaybackModeClick = cyclePlaybackMode,
                                 isSleepTimerSet = isSleepTimerSet,
                                 remainingTimeText = remainingTimeText,
                                 onSleepTimerClick = {

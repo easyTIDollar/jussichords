@@ -10,13 +10,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,7 +26,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.jussicodes.music.data.LTMember
-import com.jussicodes.music.ui.icons.Headphones
 
 private val AvatarSize = 30.dp
 
@@ -74,14 +70,6 @@ fun ListenTogetherMemberChip(
         // 不用 Arrangement.spacedBy 负间距（传负 Dp 行为不可靠），改用子项自己的 offset。
         modifier = modifier.clickable(onClick = onClick)
     ) {
-        // 耳机（🎧）作陪衬：一眼能认出这是「一起听」而不是普通头像。
-        Icon(
-            imageVector = Headphones,
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(Modifier.width(4.dp))
         ListenTogetherAvatar(members.getOrNull(0), slotColor, tint, overallAlpha)
         ListenTogetherAvatar(
             member = members.getOrNull(1),

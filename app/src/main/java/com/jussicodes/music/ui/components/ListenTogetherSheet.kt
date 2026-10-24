@@ -49,7 +49,6 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.jussicodes.music.playback.ListenTogetherSession
 import com.jussicodes.music.ui.icons.Crown
-import com.jussicodes.music.ui.icons.Headphones
 import com.jussicodes.music.ui.icons.Users
 
 /**
@@ -106,13 +105,6 @@ fun ListenTogetherSheet(
                             contentDescription = "关闭"
                         )
                     }
-                    Icon(
-                        imageVector = Headphones,
-                        contentDescription = null,
-                        modifier = Modifier.size(22.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "一起听",
                         style = MaterialTheme.typography.titleLarge,

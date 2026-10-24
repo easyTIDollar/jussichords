@@ -43,7 +43,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.media3.session.MediaController
 import com.jussicodes.music.animation.MotionSpring
 import com.jussicodes.music.ui.icons.PauseFill
 import com.jussicodes.music.ui.icons.Repeat
@@ -188,36 +187,6 @@ fun nextPlaybackMode(state: PlaybackModeState): PlaybackModeState = when (state)
     PlaybackModeState.REPEAT_ALL -> PlaybackModeState.REPEAT_ONE
     PlaybackModeState.REPEAT_ONE -> PlaybackModeState.SHUFFLE
     PlaybackModeState.SHUFFLE -> PlaybackModeState.SEQUENTIAL
-}
-
-/**
- * 把播放模式写回播放器。
- *
- * 随机与循环互斥：切到随机时关掉循环，切到任一循环模式时关掉随机。
- * 竖屏 / 横屏播放页、播放队列页共用这一份实现，避免三处行为不一致。
- */
-fun applyPlaybackMode(controller: MediaController?, mode: PlaybackModeState) {
-    when (mode) {
-        PlaybackModeState.SEQUENTIAL -> {
-            controller?.shuffleModeEnabled = false
-            controller?.repeatMode = androidx.media3.common.Player.REPEAT_MODE_OFF
-        }
-
-        PlaybackModeState.REPEAT_ALL -> {
-            controller?.shuffleModeEnabled = false
-            controller?.repeatMode = androidx.media3.common.Player.REPEAT_MODE_ALL
-        }
-
-        PlaybackModeState.REPEAT_ONE -> {
-            controller?.shuffleModeEnabled = false
-            controller?.repeatMode = androidx.media3.common.Player.REPEAT_MODE_ONE
-        }
-
-        PlaybackModeState.SHUFFLE -> {
-            controller?.shuffleModeEnabled = true
-            controller?.repeatMode = androidx.media3.common.Player.REPEAT_MODE_OFF
-        }
-    }
 }
 
 /** 播放模式对应的图标。 */
