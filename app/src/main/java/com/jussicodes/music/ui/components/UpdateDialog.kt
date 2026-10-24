@@ -18,7 +18,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.utils.UpdateSourceStatus
 import com.jussicodes.music.utils.UpdateInfo
@@ -38,8 +37,8 @@ import kotlin.math.pow
  * 内容少时正常显示，内容多时在说明内部滚动，弹窗高度始终受控。
  */
 private const val NotesMaxHeightRatio = 0.32f
-private const val NotesMaxHeightMin = 96.dp
-private const val NotesMaxHeightMax = 240.dp
+private const val NotesMaxHeightMinDp = 96f
+private const val NotesMaxHeightMaxDp = 240f
 
 @Composable
 fun UpdateDialog(
@@ -59,15 +58,20 @@ fun UpdateDialog(
     val notes = updateInfo.body.trim()
 
     ScaledDialogContent {
-    // 说明区高度上限：在弹窗自己的密度空间里算，保证「封顶高度对应的真实像素」
-    // 就是屏幕的那个比例 —— 界面缩放会放大弹窗里的 dp，不换算的话缩放一开就溢出。
-    val dialogDensity = LocalDensity.current
+    // 说明区高度上限：按屏幕高度比例算，并夹在合理区间内。
+    //
+    // 界面缩放：弹窗里的 dp 会乘 ScaledDialogDensity.scale 才是真实像素，
+    // 而 LocalConfiguration 的 screenHeightDp 是**未缩放**的真实 dp。
+    // 所以先按真实 dp 算出高度预算，再除以 scale 转成弹窗内的 dp，
+    // 这样缩放一开也不会把说明区撑出屏幕。
     val scale = ScaledDialogDensity.scale.coerceAtLeast(0.01f)
-    val realDensity = dialogDensity.density / scale
-    val screenHeightPx = LocalConfiguration.current.screenHeightDp * realDensity
-    val notesMaxHeightPx = (screenHeightPx * NotesMaxHeightRatio)
-        .coerceIn(NotesMaxHeightMin * realDensity, NotesMaxHeightMax * realDensity)
-    val notesMaxHeight = with(dialogDensity) { notesMaxHeightPx.toDp() }
+    val screenHeightDp = LocalConfiguration.current.screenHeightDp
+    // 注意用 coerceAtLeast/coerceAtMost 而不是 coerceIn：后者在值越界时直接抛异常，
+    // 屏幕一高（比例算出来 > 上限）就会让弹窗崩掉。
+    val realDpBudget = (screenHeightDp * NotesMaxHeightRatio)
+        .coerceAtLeast(NotesMaxHeightMinDp)
+        .coerceAtMost(NotesMaxHeightMaxDp)
+    val notesMaxHeight = (realDpBudget / scale).dp
 
     AlertDialog(
         onDismissRequest = {
