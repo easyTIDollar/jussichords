@@ -4,7 +4,6 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -24,7 +23,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -32,23 +30,17 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -61,7 +53,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
@@ -71,9 +62,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
-import com.jussicodes.music.animation.MotionSpring
 import androidx.media3.common.C
 import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
@@ -90,9 +79,6 @@ import com.jussicodes.music.ui.icons.Artist
 import com.jussicodes.music.ui.icons.ChevronDown
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.FavoriteFill
-import com.jussicodes.music.ui.icons.PauseFill
-import com.jussicodes.music.ui.icons.SkipNextFill
-import com.jussicodes.music.ui.icons.SkipPreviousFill
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.ArtistNav
 import com.jussicodes.music.ui.navigation.UserNav
@@ -118,7 +104,6 @@ import com.rcmiku.ncmapi.model.Artist
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.SongAlbum
 import com.rcmiku.ncmapi.utils.json
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -266,13 +251,14 @@ fun Player(
         // 收起全屏播放器，露出来源页 + 迷你播放器
         onBackPressed()
     }
-    var coverOffsetX by remember { mutableFloatStateOf(0f) }
-    var coverOffsetY by remember { mutableFloatStateOf(0f) }
-    var swipeThresholdHapticFired by remember { mutableStateOf(false) }
-    var swipeCancelHapticFired by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
-    var coverAnimationJob by remember { mutableStateOf<Job?>(null) }
-    var coverDismissAnimationJob by remember { mutableStateOf<Job?>(null) }
+
+    // 封面手势（横向切歌 / 下拉收起）：与横屏播放页共用同一份实现。
+    val coverGestures = rememberPlayerCoverGestures(
+        onSwipeNext = { mediaController?.seekToNextMediaItem() },
+        onSwipePrevious = { mediaController?.seekToPreviousMediaItem() },
+        onDismiss = { onBackPressed() }
+    )
 
     LaunchedEffect(mediaId) {
         playerState?.currentMediaItem?.mediaMetadata?.extras?.getString("song")?.let {
@@ -281,49 +267,14 @@ fun Player(
     }
 
     val screenHeight = LocalConfiguration.current.screenHeightDp
-    val swipeThresholdPx = with(density) { 72.dp.toPx() }
-    val coverDragLimitPx = swipeThresholdPx * 1.6f
-    val swipeEdgeHapticPx = swipeThresholdPx * 0.7f
-    val dismissThresholdPx = with(density) { 96.dp.toPx() }
-    val coverDismissLimitPx = dismissThresholdPx * 1.1f
     val dragDirectionSlopPx = with(density) { 3.dp.toPx() }
     val queueOpenThresholdPx = with(density) { 40.dp.toPx() }
     val tutorialContentColor = MaterialTheme.colorScheme.onSurface
     val tutorialAccentColor = MaterialTheme.colorScheme.primary
-    val coverDragProgress = maxOf(
-        abs(coverOffsetX) / swipeThresholdPx,
-        coverOffsetY / dismissThresholdPx
-    ).coerceIn(0f, 1f)
 
     LaunchedEffect(showGestureTutorial) {
         if (showGestureTutorial) {
             gestureTutorialActionCompleted = false
-        }
-    }
-
-    fun animateCoverOffsetTo(target: Float) {
-        coverAnimationJob?.cancel()
-        coverAnimationJob = scope.launch {
-            animate(
-                initialValue = coverOffsetX,
-                targetValue = target,
-                animationSpec = MotionSpring.artworkHorizontal
-            ) { value, _ ->
-                coverOffsetX = value
-            }
-        }
-    }
-
-    fun animateCoverDismissOffsetTo(target: Float) {
-        coverDismissAnimationJob?.cancel()
-        coverDismissAnimationJob = scope.launch {
-            animate(
-                initialValue = coverOffsetY,
-                targetValue = target,
-                animationSpec = MotionSpring.artworkDismiss
-            ) { value, _ ->
-                coverOffsetY = value
-            }
         }
     }
 
@@ -344,6 +295,26 @@ fun Player(
                 liked = mediaId?.toLongOrNull() in songIds,
                 onBackPressed = onBackPressed,
                 onMoreClick = { openPlayerBottomSheet = true },
+                onCommentsClick = { openComments = true },
+                // 歌名 / 歌手跳转：与竖屏同一套逻辑（歌名进专辑、歌手进音乐人页）。
+                onTitleClick = {
+                    if (fmDirectNav && currentSong?.al?.id != 0L) {
+                        navController.navigate(AlbumNav(albumId = currentSong?.al?.id ?: 0L))
+                        onAfterNavigate?.invoke() ?: onBackPressed()
+                    } else {
+                        openAlbumSheet = true
+                    }
+                },
+                onArtistClick = {
+                    val artists = currentSong?.ar.orEmpty()
+                    when {
+                        artists.size == 1 -> {
+                            navController.navigate(ArtistNav(artistId = artists.first().id))
+                            onAfterNavigate?.invoke() ?: onBackPressed()
+                        }
+                        artists.size > 1 -> openArtistSheet = true
+                    }
+                },
                 onToggleFavorite = {
                     scope.launch {
                         mediaId?.toLongOrNull()?.let { songId ->
@@ -364,13 +335,7 @@ fun Player(
                     .fillMaxSize()
                     .statusBarsPadding()
                     .navigationBarsPadding()
-                    .graphicsLayer {
-                        translationY = coverOffsetY
-                        val scale =
-                            1f - (coverOffsetY / dismissThresholdPx).coerceIn(0f, 1f) * 0.02f
-                        scaleX = scale
-                        scaleY = scale
-                    },
+                    .then(coverGestures.dismissGraphics()),
                 verticalArrangement = if (screenHeight.dp < 700.dp) Arrangement.spacedBy(8.dp) else Arrangement.spacedBy(
                     24.dp
                 )
@@ -453,130 +418,14 @@ fun Player(
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
                     .aspectRatio(1f)
-                    .graphicsLayer {
-                        translationX = coverOffsetX
-                        rotationZ = (coverOffsetX / swipeThresholdPx).coerceIn(-1f, 1f) * 6f
-                        val scale = 1f - coverDragProgress * 0.04f
-                        scaleX = scale
-                        scaleY = scale
-                    }
+                    .then(coverGestures.coverGraphics())
                     .clip(MaterialTheme.shapes.small)
-                    .pointerInput(mediaId, swipeThresholdPx) {
-                        detectHorizontalDragGestures(
-                            onDragStart = {
-                                coverAnimationJob?.cancel()
-                                swipeThresholdHapticFired = false
-                                swipeCancelHapticFired = false
-                                // 三段震动之一：起手
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            },
-                            onHorizontalDrag = { change, dragAmount ->
-                                change.consume()
-                                coverOffsetX = (coverOffsetX + dragAmount).coerceIn(
-                                    -coverDragLimitPx,
-                                    coverDragLimitPx
-                                )
-                                // 三段震动之二：贴近切歌边界（比实际切歌阈值再早一点，但比起手更靠近边缘）
-                                if (abs(coverOffsetX) >= swipeEdgeHapticPx && !swipeThresholdHapticFired) {
-                                    swipeThresholdHapticFired = true
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                }
-                            },
-                            onDragEnd = {
-                                val switched = when {
-                                    coverOffsetX <= -swipeThresholdPx -> {
-                                        mediaController?.seekToNextMediaItem()
-                                        true
-                                    }
-                                    coverOffsetX >= swipeThresholdPx -> {
-                                        mediaController?.seekToPreviousMediaItem()
-                                        true
-                                    }
-                                    else -> false
-                                }
-                                if (switched) {
-                                    // 已切歌：重置两个标记
-                                    swipeThresholdHapticFired = false
-                                    swipeCancelHapticFired = false
-                                } else if (swipeThresholdHapticFired && !swipeCancelHapticFired) {
-                                    // 三段震动之三：曾越过分段线、但反悔回中（未切歌）
-                                    swipeCancelHapticFired = true
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                }
-                                animateCoverOffsetTo(0f)
-                            },
-                            onDragCancel = {
-                                swipeThresholdHapticFired = false
-                                swipeCancelHapticFired = false
-                                animateCoverOffsetTo(0f)
-                            }
+                    .then(coverGestures.coverSwipeGestures())
+                    .then(
+                        coverGestures.coverDismissGestures(
+                            enabled = !openAlbumSheet && !openArtistSheet && !openPlayerBottomSheet
                         )
-                    }
-                    .pointerInput(
-                        mediaId,
-                        openAlbumSheet,
-                        openArtistSheet,
-                        openPlayerBottomSheet,
-                        dismissThresholdPx
-                    ) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            coverDismissAnimationJob?.cancel()
-
-                            var totalDragX = 0f
-                            var totalDragY = 0f
-                            var isVerticalDrag: Boolean? = null
-                            var isDismissed = false
-
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                if (!change.pressed) break
-
-                                val positionChange = change.positionChange()
-                                totalDragX += positionChange.x
-                                totalDragY += positionChange.y
-
-                                if (isVerticalDrag == null &&
-                                    (abs(totalDragX) > dragDirectionSlopPx || abs(totalDragY) > dragDirectionSlopPx)
-                                ) {
-                                    isVerticalDrag = abs(totalDragY) > abs(totalDragX)
-                                }
-
-                                if (isVerticalDrag == false) {
-                                    break
-                                }
-
-                                if (isVerticalDrag == true &&
-                                    !openAlbumSheet &&
-                                    !openArtistSheet &&
-                                    !openPlayerBottomSheet
-                                ) {
-                                    coverOffsetY = (coverOffsetY + positionChange.y).coerceIn(
-                                        0f,
-                                        coverDismissLimitPx
-                                    )
-                                    if (coverOffsetY > 0f) {
-                                        change.consume()
-                                    }
-                                }
-                            }
-
-                            if (isVerticalDrag == true) {
-                                if (coverOffsetY >= dismissThresholdPx) {
-                                    coverOffsetY = 0f
-                                    isDismissed = true
-                                    onBackPressed()
-                                } else {
-                                    animateCoverDismissOffsetTo(0f)
-                                }
-                            }
-
-                            if (!isDismissed && isVerticalDrag != true && coverOffsetY > 0f) {
-                                animateCoverDismissOffsetTo(0f)
-                            }
-                        }
-                    }
+                    )
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onTap = { onClick() },
@@ -706,8 +555,8 @@ fun Player(
                     if (screenHeight.dp > 700.dp)
                         Spacer(Modifier.height(24.dp))
 
-                    val interactionSource = remember { MutableInteractionSource() }
-                    Slider(
+                    // 进度条与横屏播放页、私人 FM 共用同一套细样式。
+                    PlayerProgressSlider(
                         value = (sliderPosition ?: position).toFloat(),
                         valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
                         onValueChange = { sliderPosition = it.toLong() },
@@ -718,19 +567,7 @@ fun Player(
                             }
                             sliderPosition = null
                         },
-                        track = { sliderState ->
-                            SliderDefaults.Track(
-                                sliderState = sliderState,
-                                thumbTrackGapSize = 2.dp,
-                                modifier = Modifier.height(4.dp)
-                            )
-                        },
-                        thumb = {
-                            SliderDefaults.Thumb(
-                                interactionSource = interactionSource,
-                                thumbSize = DpSize(4.dp, 20.dp)
-                            )
-                        }
+                        modifier = Modifier.fillMaxWidth(),
                     )
 
                     Row {
@@ -822,43 +659,16 @@ fun Player(
                         }
                 ) {
                     Column(modifier = Modifier.fillMaxSize()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                        PlayerControlButtons(
+                            isPlaying = isPlaying,
+                            onPrevious = { mediaController?.seekToPrevious() },
+                            onNext = { mediaController?.seekToNext() },
+                            onTogglePlay = {
+                                if (!isPlaying) mediaController?.play() else mediaController?.pause()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            FilledTonalIconButton(
-                                onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    mediaController?.seekToPrevious()
-                                },
-                                modifier = Modifier.size(48.dp)
-                            ) {
-                                Icon(SkipPreviousFill, contentDescription = null)
-                            }
-                            FilledIconButton(
-                                modifier = Modifier.size(72.dp),
-                                onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    if (!isPlaying) mediaController?.play() else mediaController?.pause()
-                                }
-                            ) {
-                                Icon(
-                                    if (isPlaying) PauseFill else Icons.Filled.PlayArrow,
-                                    modifier = Modifier.size(36.dp),
-                                    contentDescription = null
-                                )
-                            }
-                            FilledTonalIconButton(
-                                onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    mediaController?.seekToNext()
-                                },
-                                modifier = Modifier.size(48.dp)
-                            ) {
-                                Icon(SkipNextFill, contentDescription = null)
-                            }
-                        }
+                        )
 
                         Box(
                             contentAlignment = Alignment.Center,

@@ -5,7 +5,6 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -15,7 +14,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,19 +28,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -68,7 +62,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.animation.MotionSpring
 import androidx.media3.common.C
@@ -87,14 +80,13 @@ import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.components.Lyric
 import com.jussicodes.music.ui.components.PlayerComments
+import com.jussicodes.music.ui.components.PlayerControlButtons
+import com.jussicodes.music.ui.components.PlayerProgressSlider
 import com.jussicodes.music.ui.components.PlayerQueue
 import com.jussicodes.music.ui.components.Player as FullPlayer
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.FavoriteFill
-import com.jussicodes.music.ui.icons.PauseFill
 import com.jussicodes.music.ui.icons.PersonalRadio
-import com.jussicodes.music.ui.icons.SkipNextFill
-import com.jussicodes.music.ui.icons.SkipPreviousFill
 import com.jussicodes.music.utils.FavoriteSongAction
 import com.jussicodes.music.utils.makeTimeString
 import com.rcmiku.ncmapi.api.recommend.RecommendApi
@@ -746,25 +738,13 @@ private fun RoamPlayerContent(
 
                     val resolvedDuration =
                         if (duration == C.TIME_UNSET || duration < 0L) 0L else duration
-                    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                    Slider(
+                    // 进度条与主播放器共用同一套细样式。
+                    PlayerProgressSlider(
                         value = (sliderPosition ?: position).coerceIn(0L, resolvedDuration).toFloat(),
                         valueRange = 0f..resolvedDuration.toFloat(),
                         onValueChange = { onSliderChange(it.toLong()) },
                         onValueChangeFinished = onSliderFinished,
-                        track = { sliderState ->
-                            SliderDefaults.Track(
-                                sliderState = sliderState,
-                                thumbTrackGapSize = 2.dp,
-                                modifier = Modifier.height(4.dp)
-                            )
-                        },
-                        thumb = {
-                            SliderDefaults.Thumb(
-                                interactionSource = interactionSource,
-                                thumbSize = DpSize(4.dp, 20.dp)
-                            )
-                        }
+                        modifier = Modifier.fillMaxWidth(),
                     )
 
                     Row {
@@ -788,42 +768,17 @@ private fun RoamPlayerContent(
                     Spacer(Modifier.height(24.dp))
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                // 控制键与主播放器共用同一套按钮样式。
+                PlayerControlButtons(
+                    isPlaying = isPlaying,
+                    onPrevious = onPrevious,
+                    onNext = onPlayPersonalFm,
+                    onTogglePlay = onPlayPause,
                     modifier = Modifier
                         .padding(horizontal = 24.dp)
-                        .fillMaxWidth()
-                ) {
-                    FilledTonalIconButton(
-                        onClick = onPrevious,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            imageVector = SkipPreviousFill,
-                            contentDescription = null
-                        )
-                    }
-                    FilledIconButton(
-                        modifier = Modifier.size(72.dp),
-                        onClick = onPlayPause
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) PauseFill else Icons.Filled.PlayArrow,
-                            modifier = Modifier.size(36.dp),
-                            contentDescription = null
-                        )
-                    }
-                    FilledTonalIconButton(
-                        onClick = onPlayPersonalFm,
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            imageVector = SkipNextFill,
-                            contentDescription = null
-                        )
-                    }
-                }
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                )
 
                 Box(
                     modifier = Modifier
