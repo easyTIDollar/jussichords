@@ -581,8 +581,11 @@ private fun OnlineSourceRow(
                 Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 }
+            } else if (isInstalled) {
+                // 只做「有没有装」，不做版本比较：装了就直接置灰。
+                TextButton(onClick = {}, enabled = false) { Text("已安装") }
             } else {
-                TextButton(onClick = onInstall) { Text(if (isInstalled) "更新" else "安装") }
+                TextButton(onClick = onInstall) { Text("安装") }
             }
         }
     }
