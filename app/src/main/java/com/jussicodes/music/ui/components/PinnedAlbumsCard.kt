@@ -64,6 +64,7 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.ThumbnailCornerRadius
+import com.jussicodes.music.constants.isLandscapePhone
 import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.extensions.playMediaAt
@@ -75,6 +76,7 @@ import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.rcmiku.ncmapi.api.album.AlbumApi
 import com.rcmiku.ncmapi.model.Album
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -83,6 +85,10 @@ import sh.calvin.reorderable.ReorderableLazyGridState
 import sh.calvin.reorderable.rememberReorderableLazyGridState
 
 private val CARD_GRID_SPACING = 8.dp
+// 横屏（矮屏）下封面最长边的上限：宽度翻倍而列数不变会把封面放大到 ~270dp，
+// 矮屏按这个上限反推列数（只增不减，竖屏手设的 2~6 列不受影响）。
+private val LANDSCAPE_COVER_LIMIT = 140.dp
+private const val LANDSCAPE_MAX_COLUMNS = 8
 
 /**
  * 主页"置顶专辑墙"卡片（无标题栏）。
@@ -328,8 +334,18 @@ private fun PinnedAlbumsGrid(
     onRemove: (Album) -> Unit,
     onEnterEdit: () -> Unit
 ) {
-    val colCount = columns.coerceIn(2, 6)
+    val baseColumns = columns.coerceIn(2, 6)
     BoxWithConstraints {
+        // 横屏适配：矮屏可用宽度是竖屏的两倍多，沿用竖屏列数会把单个封面撑到 ~270dp。
+        // 这里用「封面最长边」反推需要的列数（n >= (可用宽+间距)/(上限+间距)），
+        // 只在横屏取 max(用户列数, 反推列数) —— 竖屏保持用户手设列数，逐像素不变。
+        val colCount = if (isLandscapePhone()) {
+            ceil(
+                ((maxWidth + CARD_GRID_SPACING) / (LANDSCAPE_COVER_LIMIT + CARD_GRID_SPACING))
+            ).toInt().coerceIn(baseColumns, LANDSCAPE_MAX_COLUMNS)
+        } else {
+            baseColumns
+        }
         val totalCells = albums.size + if (showAddTile) 1 else 0
         val rowCount = (totalCells + colCount - 1) / colCount
         val coverSize =
