@@ -84,6 +84,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -148,15 +149,16 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
     var fontSizeDraft by remember(fontSize) { mutableFloatStateOf(fontSize) }
     var strokeDraft by remember(strokeScale) { mutableFloatStateOf(strokeScale) }
 
-    // 点预览背景 → 从相册换图（SAF：不需要存储权限，读到的图会拷成本地 JPEG）。
+    // 点预览背景 → 系统相册（Photo Picker；设备不支持时 contract 自动退回 ACTION_OPEN_DOCUMENT）。
     val previewBgPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
+        ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val path = DesktopLyricPreviewBgStore.save(context, uri)
             if (path != null) {
                 previewBgPath = path
+                Toast.makeText(context, "已更换预览背景", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(context, "图片读取失败，换一张试试", Toast.LENGTH_SHORT).show()
             }
@@ -263,7 +265,11 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                         currentLine = previewCurrent,
                         nextLine = previewNext,
                         customBgPath = previewBgPath,
-                        onPickBackground = { previewBgPicker.launch(arrayOf("image/*")) },
+                        onPickBackground = {
+                            previewBgPicker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
                         onResetBackground = {
                             previewBgPath = ""
                             DesktopLyricPreviewBgStore.clear(context)
@@ -307,7 +313,11 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                 currentLine = previewCurrent,
                 nextLine = previewNext,
                 customBgPath = previewBgPath,
-                onPickBackground = { previewBgPicker.launch(arrayOf("image/*")) },
+                onPickBackground = {
+                    previewBgPicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
                 onResetBackground = {
                     previewBgPath = ""
                     DesktopLyricPreviewBgStore.clear(context)
@@ -450,7 +460,7 @@ private fun PreviewCard(
         }
     }
     Text(
-        text = "点预览换背景图 · 右上角可恢复默认",
+        text = "点预览换背景图",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(start = 4.dp, top = 6.dp)
