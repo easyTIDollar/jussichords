@@ -34,7 +34,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.jussicodes.music.R
-import com.jussicodes.music.constants.desktopLyricBgVisibleKey
+import com.jussicodes.music.constants.desktopLyricStrokeScaleKey
 import com.jussicodes.music.constants.desktopLyricFontSizeKey
 import com.jussicodes.music.constants.desktopLyricLockedKey
 import com.jussicodes.music.constants.desktopLyricTextColorKey
@@ -198,7 +198,7 @@ class DesktopLyricService : Service() {
     private fun readStyle(): DesktopLyricStyle = DesktopLyricStyle(
         fontSizeSp = applicationContext.dataStore.get(desktopLyricFontSizeKey, DesktopLyricDefaultFontSizeSp),
         textColor = applicationContext.dataStore.get(desktopLyricTextColorKey, Color.WHITE),
-        backgroundVisible = applicationContext.dataStore.get(desktopLyricBgVisibleKey, true),
+        strokeScale = applicationContext.dataStore.get(desktopLyricStrokeScaleKey, 1f),
         locked = applicationContext.dataStore.get(desktopLyricLockedKey, false),
         translationEnabled = applicationContext.dataStore.get(lyricTranslationEnabledKey, false),
     )
@@ -234,7 +234,7 @@ class DesktopLyricService : Service() {
                     DesktopLyricStyle(
                         fontSizeSp = prefs[desktopLyricFontSizeKey] ?: DesktopLyricDefaultFontSizeSp,
                         textColor = prefs[desktopLyricTextColorKey] ?: Color.WHITE,
-                        backgroundVisible = prefs[desktopLyricBgVisibleKey] ?: true,
+                        strokeScale = prefs[desktopLyricStrokeScaleKey] ?: 1f,
                         locked = prefs[desktopLyricLockedKey] ?: false,
                         translationEnabled = prefs[lyricTranslationEnabledKey] ?: false,
                     )
@@ -412,7 +412,8 @@ class DesktopLyricService : Service() {
             clipChildren = false
             clipToPadding = false
             setPadding(dp(24), dp(16), dp(24), dp(16))
-            background = if (style.backgroundVisible) createLyricBackground() else null
+            // 背景框常态不显示：只在未锁定且展开控制面板时出现（applyBackground 负责切换）。
+            background = null
         }
 
         currentLineView = StrokeTextView(this).apply {
@@ -659,11 +660,9 @@ class DesktopLyricService : Service() {
             view.setStrokeWidth(newStyle.secondaryStrokeWidth(resources.displayMetrics.density))
             view.setStrokeColor(newStyle.secondaryStrokeColor)
         }
-        if (previous.backgroundVisible != newStyle.backgroundVisible) {
-            applyBackground()
-        }
         if (previous.locked != newStyle.locked) {
             if (newStyle.locked) panelExpanded = false
+            applyBackground()
             applyLockState()
         }
         if (previous.fontSizeSp != newStyle.fontSizeSp ||
@@ -678,7 +677,7 @@ class DesktopLyricService : Service() {
     }
 
     private fun applyBackground() {
-        lyricRoot?.background = if (style.backgroundVisible) createLyricBackground() else null
+        lyricRoot?.background = if (panelExpanded && !style.locked) createLyricBackground() else null
     }
 
     private fun applyLockState() {
@@ -718,6 +717,9 @@ class DesktopLyricService : Service() {
         ensureControlWindow()
         panelView?.visibility = if (!style.locked && panelExpanded) View.VISIBLE else View.GONE
         lockDotView?.visibility = if (style.locked) View.VISIBLE else View.GONE
+        // 面板可能是刚创建的：立刻把播放/翻译状态同步过来，别留在默认图标上。
+        updatePlaybackButton()
+        updateTranslationState()
         positionControlWindow()
     }
 
@@ -735,7 +737,7 @@ class DesktopLyricService : Service() {
         )
         root.addView(
             dot,
-            FrameLayout.LayoutParams(dp(40), dp(40))
+            FrameLayout.LayoutParams(dp(48), dp(48))
         )
         root.setOnTouchListener { _, event ->
             if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
@@ -787,8 +789,17 @@ class DesktopLyricService : Service() {
         if (controlWidth <= 0 || controlHeight <= 0) return
 
         val area = screenArea()
-        var y = lyric.y + lyric.height + dp(8)
-        if (y + controlHeight > area.bottom - dp(4)) {
+        var y = if (style.locked) {
+            // 锁定态的小锁贴在歌词上方，距离近一点
+            lyric.y - controlHeight - dp(2)
+        } else {
+            lyric.y + lyric.height + dp(8)
+        }
+        if (style.locked) {
+            if (y < area.top + dp(2)) {
+                y = lyric.y + lyric.height + dp(2)
+            }
+        } else if (y + controlHeight > area.bottom - dp(4)) {
             // 下方放不下就翻到歌词上方
             y = lyric.y - controlHeight - dp(8)
         }
@@ -911,7 +922,7 @@ class DesktopLyricService : Service() {
     private fun createLockDot(): LockIconView = LockIconView(this).apply {
         tintColor = Color.WHITE
         drawDot = true
-        dotRadiusPx = dp(8).toFloat()
+        dotRadiusPx = dp(11).toFloat()
         contentDescription = "解锁桌面歌词"
         setOnClickListener { setLocked(false) }
     }
@@ -960,12 +971,14 @@ class DesktopLyricService : Service() {
 
     private fun togglePanel() {
         panelExpanded = !panelExpanded
+        applyBackground()
         updateControlVisibility()
     }
 
     private fun collapsePanel() {
         if (!panelExpanded) return
         panelExpanded = false
+        applyBackground()
         updateControlVisibility()
     }
 
@@ -983,6 +996,7 @@ class DesktopLyricService : Service() {
     private fun setLocked(locked: Boolean) {
         style = style.copy(locked = locked)
         if (locked) panelExpanded = false
+        applyBackground()
         applyLockState()
         updateControlVisibility()
         serviceScope.launch {

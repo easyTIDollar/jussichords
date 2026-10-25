@@ -397,7 +397,6 @@ fun SettingsScreen(navController: NavHostController) {
     var overlayPermissionGranted by remember {
         mutableStateOf(DesktopLyricManager.canDrawOverlays(context))
     }
-    var pendingOverlayGrant by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var accountAvatar by rememberSaveable { mutableStateOf("") }
     var accountNickname by rememberSaveable { mutableStateOf("") }
@@ -406,17 +405,6 @@ fun SettingsScreen(navController: NavHostController) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 overlayPermissionGranted = DesktopLyricManager.canDrawOverlays(context)
-                // 从系统悬浮窗授权页返回且已授权 → 自动开启桌面歌词
-                if (pendingOverlayGrant && overlayPermissionGranted) {
-                    pendingOverlayGrant = false
-                    coroutineScope.launch {
-                        DesktopLyricManager.setEnabled(
-                            context = context,
-                            enabled = true,
-                            requestPermissionIfNeeded = false,
-                        )
-                    }
-                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -504,21 +492,6 @@ fun SettingsScreen(navController: NavHostController) {
 
     // 桌面歌词有效开关 = 存储开启 && 悬浮窗权限已授予
     val lyricOn = desktopLyricEnabled && overlayPermissionGranted
-    fun setLyricTarget(on: Boolean) {
-        if (on && !overlayPermissionGranted) {
-            // 未授权：记录意图并直接跳系统授权页，返回后自动开启
-            pendingOverlayGrant = true
-            DesktopLyricManager.requestOverlayPermission(context)
-        } else {
-            coroutineScope.launch {
-                DesktopLyricManager.setEnabled(
-                    context = context,
-                    enabled = on,
-                    requestPermissionIfNeeded = false,
-                )
-            }
-        }
-    }
 
     val appearanceTitle = "外观"
     val appearanceSubtitle = when (themeColorSource) {
@@ -626,11 +599,13 @@ fun SettingsScreen(navController: NavHostController) {
                 },
                 imageVector = DesktopLyrics,
                 trailingContent = {
-                    Switch(
-                        checked = lyricOn,
-                        onCheckedChange = { setLyricTarget(it) }
+                    // 开关挪进设置页；这里只留齿轮入口，避免两处状态打架。
+                    Icon(
+                        imageVector = SettingsGear,
+                        contentDescription = "桌面歌词设置",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(8.dp))
                 },
                 onClick = { navController.navigate(Screen.DesktopLyricSettings.route) }
             ),
