@@ -12,6 +12,7 @@ val desktopLyricEnabledKey = booleanPreferencesKey("desktopLyricEnabled")
 // 桌面歌词外观与位置（Service 与设置页共用）。字号单位 sp；颜色是 ARGB Int。
 val desktopLyricFontSizeKey = floatPreferencesKey("desktopLyricFontSize")
 val desktopLyricTextColorKey = intPreferencesKey("desktopLyricTextColor")
+val desktopLyricStrokeColorKey = intPreferencesKey("desktopLyricStrokeColor")
 // 描边粗细倍数：0=不描边，1=默认，最大 2。
 val desktopLyricStrokeScaleKey = floatPreferencesKey("desktopLyricStrokeScale")
 val desktopLyricLockedKey = booleanPreferencesKey("desktopLyricLocked")

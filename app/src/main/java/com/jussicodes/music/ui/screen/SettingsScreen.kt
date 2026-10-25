@@ -405,6 +405,8 @@ fun SettingsScreen(navController: NavHostController) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 overlayPermissionGranted = DesktopLyricManager.canDrawOverlays(context)
+                // 授权页回来后按已保存的开关状态恢复；权限没变时这是空操作。
+                DesktopLyricManager.syncService(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -591,21 +593,29 @@ fun SettingsScreen(navController: NavHostController) {
             ),
             SettingItemData(
                 title = "桌面歌词",
-                subtitle = if (!lyricOn) {
-                    "需要悬浮窗权限"
-                } else {
+                subtitle = (if (lyricOn) {
                     "已开启 · ${desktopLyricFontSize.toInt()}sp" +
                         if (desktopLyricLocked) " · 已锁定" else ""
-                },
+                } else if (desktopLyricEnabled) {
+                    "已开启但缺少悬浮窗权限"
+                } else {
+                    "已关闭"
+                }) + " · 点击进入设置",
                 imageVector = DesktopLyrics,
                 trailingContent = {
-                    // 开关挪进设置页；这里只留齿轮入口，避免两处状态打架。
-                    Icon(
-                        imageVector = SettingsGear,
-                        contentDescription = "桌面歌词设置",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    Switch(
+                        checked = lyricOn,
+                        onCheckedChange = { on ->
+                            coroutineScope.launch {
+                                DesktopLyricManager.setEnabled(
+                                    context = context,
+                                    enabled = on,
+                                    requestPermissionIfNeeded = on
+                                )
+                            }
+                        }
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(12.dp))
                 },
                 onClick = { navController.navigate(Screen.DesktopLyricSettings.route) }
             ),

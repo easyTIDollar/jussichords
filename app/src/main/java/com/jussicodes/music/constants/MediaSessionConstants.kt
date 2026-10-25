@@ -7,6 +7,7 @@ object MediaSessionConstants {
     const val ACTION_TOGGLE_LIKE = "TOGGLE_LIKE"
     const val ACTION_TOGGLE_SHUFFLE = "TOGGLE_SHUFFLE"
     const val ACTION_TOGGLE_DESKTOP_LYRIC = "TOGGLE_DESKTOP_LYRIC"
+    const val ACTION_TOGGLE_DESKTOP_LYRIC_LOCK = "TOGGLE_DESKTOP_LYRIC_LOCK"
     const val EXTRA_SOURCE_ID = "source_id"
     const val EXTRA_SOURCE_NAME = "source_name"
     const val EXTRA_SOURCE_TYPE = "source_type"
@@ -26,6 +27,7 @@ object MediaSessionConstants {
     val CommandToggleLike = SessionCommand(ACTION_TOGGLE_LIKE, Bundle.EMPTY)
     val CommandToggleShuffle = SessionCommand(ACTION_TOGGLE_SHUFFLE, Bundle.EMPTY)
     val CommandToggleDesktopLyric = SessionCommand(ACTION_TOGGLE_DESKTOP_LYRIC, Bundle.EMPTY)
+    val CommandToggleDesktopLyricLock = SessionCommand(ACTION_TOGGLE_DESKTOP_LYRIC_LOCK, Bundle.EMPTY)
 
     /**
      * 把写进 MediaItem extras 的 sourceName 映射成播放页顶部可读的来源文案。

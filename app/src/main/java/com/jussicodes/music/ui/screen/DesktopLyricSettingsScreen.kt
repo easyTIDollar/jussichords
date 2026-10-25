@@ -81,6 +81,7 @@ import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.desktopLyricFontSizeKey
 import com.jussicodes.music.constants.desktopLyricLockedKey
+import com.jussicodes.music.constants.desktopLyricStrokeColorKey
 import com.jussicodes.music.constants.desktopLyricStrokeScaleKey
 import com.jussicodes.music.constants.desktopLyricTextColorKey
 import com.jussicodes.music.constants.isLandscapePhone
@@ -123,7 +124,6 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
 
     var overlayGranted by remember { mutableStateOf(DesktopLyricManager.canDrawOverlays(context)) }
     var pendingOverlayGrant by rememberSaveable { mutableStateOf(false) }
-    var showColorPicker by remember { mutableStateOf(false) }
 
     var fontSizeDraft by remember(fontSize) { mutableFloatStateOf(fontSize) }
     var strokeDraft by remember(strokeScale) { mutableFloatStateOf(strokeScale) }
@@ -171,6 +171,8 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                     scope.launch {
                         DesktopLyricManager.setEnabled(context = context, enabled = true)
                     }
+                } else {
+                    DesktopLyricManager.syncService(context)
                 }
             }
         }
@@ -244,11 +246,7 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                             onStrokeChange = { strokeDraft = it },
                             onStrokeFinished = { strokeScale = strokeDraft }
                         )
-                        ColorCard(
-                            textColor = textColor,
-                            onPick = { textColor = it },
-                            onOpenPicker = { showColorPicker = true }
-                        )
+                        ColorCards()
                         PositionCard {
                             DesktopLyricManager.resetPosition(context)
                             Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
@@ -277,11 +275,7 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                     onStrokeChange = { strokeDraft = it },
                     onStrokeFinished = { strokeScale = strokeDraft }
                 )
-                ColorCard(
-                    textColor = textColor,
-                    onPick = { textColor = it },
-                    onOpenPicker = { showColorPicker = true }
-                )
+                ColorCards()
                 PositionCard {
                     DesktopLyricManager.resetPosition(context)
                     Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
@@ -291,26 +285,28 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
         }
     }
 
-    if (showColorPicker) {
-        ColorPickerDialog(
-            initialColor = textColor,
-            onDismiss = { showColorPicker = false },
-            onConfirm = {
-                textColor = it
-                showColorPicker = false
-            }
-        )
-    }
 }
 
-private val presetColors = listOf(
+/** 字体颜色预设：白、红、暖黄、青、蓝、紫、近黑。 */
+private val textPresetColors = listOf(
     AndroidColor.WHITE,
-    AndroidColor.parseColor("#FFF3C4"),
+    AndroidColor.parseColor("#FF5252"),
     AndroidColor.parseColor("#FFD166"),
     AndroidColor.parseColor("#8AE9C1"),
     AndroidColor.parseColor("#7CD3FF"),
     AndroidColor.parseColor("#C9A7FF"),
     AndroidColor.parseColor("#1A1A1E")
+)
+
+/** 描边颜色预设：黑、白、红、黄、蓝、绿、紫。 */
+private val strokePresetColors = listOf(
+    AndroidColor.BLACK,
+    AndroidColor.WHITE,
+    AndroidColor.parseColor("#FF5252"),
+    AndroidColor.parseColor("#FFD166"),
+    AndroidColor.parseColor("#4FA3FF"),
+    AndroidColor.parseColor("#7BE495"),
+    AndroidColor.parseColor("#C9A7FF")
 )
 
 @Composable
@@ -374,7 +370,7 @@ private fun EnableCard(
             )
             SwitchRow(
                 title = "锁定位置",
-                subtitle = "锁定歌词后歌词触摸穿透，点击歌词上方小锁解锁",
+                subtitle = "锁定后歌词触摸穿透；在通知栏播放控件的开锁按钮解锁",
                 checked = locked,
                 onCheckedChange = onToggleLocked,
                 leadingLockIcon = true
@@ -417,7 +413,7 @@ private fun SizeCard(
                 steps = 19
             )
             Text(
-                text = "副行（翻译/下一句）随主行等比缩放，描边颜色按字体亮度自动取黑或白",
+                text = "副行（翻译/下一句）随主行等比缩放",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -426,24 +422,60 @@ private fun SizeCard(
 }
 
 @Composable
-private fun ColorCard(
-    textColor: Int,
+private fun ColorCards() {
+    var textColor by rememberPreference(desktopLyricTextColorKey, AndroidColor.WHITE)
+    var strokeColor by rememberPreference(desktopLyricStrokeColorKey, AndroidColor.BLACK)
+    // 0=关闭，1=字体颜色，2=描边颜色
+    var pickerTarget by remember { mutableIntStateOf(0) }
+
+    ColorRowCard(
+        title = "字体颜色",
+        color = textColor,
+        presets = textPresetColors,
+        onPick = { textColor = it },
+        onOpenPicker = { pickerTarget = 1 }
+    )
+    ColorRowCard(
+        title = "描边颜色",
+        color = strokeColor,
+        presets = strokePresetColors,
+        onPick = { strokeColor = it },
+        onOpenPicker = { pickerTarget = 2 }
+    )
+
+    if (pickerTarget != 0) {
+        ColorPickerDialog(
+            initialColor = if (pickerTarget == 1) textColor else strokeColor,
+            onDismiss = { pickerTarget = 0 },
+            onConfirm = {
+                if (pickerTarget == 1) textColor = it else strokeColor = it
+                pickerTarget = 0
+            }
+        )
+    }
+}
+
+@Composable
+private fun ColorRowCard(
+    title: String,
+    color: Int,
+    presets: List<Int>,
     onPick: (Int) -> Unit,
     onOpenPicker: () -> Unit
 ) {
-    val customSelected = presetColors.none { sameRgb(it, textColor) }
+    val customSelected = presets.none { sameRgb(it, color) }
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Text("字体颜色", style = MaterialTheme.typography.bodyMedium)
+            Text(title, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                presetColors.forEach { preset ->
+                presets.forEach { preset ->
                     ColorSwatch(
                         color = preset,
-                        selected = !customSelected && sameRgb(preset, textColor),
+                        selected = !customSelected && sameRgb(preset, color),
                         onClick = { onPick(preset) }
                     )
                 }
@@ -473,12 +505,6 @@ private fun ColorCard(
                         .clickable { onOpenPicker() }
                 )
             }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "最后一个色圈是调色盘，可自定义任意颜色",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }

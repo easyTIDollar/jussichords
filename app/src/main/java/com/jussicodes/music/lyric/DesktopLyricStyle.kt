@@ -26,6 +26,7 @@ const val DesktopLyricDefaultYFraction = 0.1f
 data class DesktopLyricStyle(
     val fontSizeSp: Float = DesktopLyricDefaultFontSizeSp,
     val textColor: Int = Color.WHITE,
+    val strokeColor: Int = Color.BLACK,
     val strokeScale: Float = 1f,
     val locked: Boolean = false,
     val translationEnabled: Boolean = false,
@@ -44,28 +45,12 @@ data class DesktopLyricStyle(
     /** 副行描边宽度（px）。 */
     fun secondaryStrokeWidth(density: Float): Float = fontSizeSp * density * 0.11f * strokeScale.coerceAtLeast(0f)
 
-    /** 主行描边色：亮字配黑，暗字配白。 */
-    val strokeColor: Int
-        get() = if (luminance(textColor) > 0.5f) {
-            Color.argb(209, 0, 0, 0)
-        } else {
-            Color.argb(189, 255, 255, 255)
-        }
-
+    /** 副行描边色：沿用描边色，透明度略降。 */
     val secondaryStrokeColor: Int
-        get() = if (luminance(textColor) > 0.5f) {
-            Color.argb(189, 0, 0, 0)
-        } else {
-            Color.argb(160, 255, 255, 255)
-        }
-
-    companion object {
-        /** 相对亮度（0..1），用于决定描边颜色。 */
-        fun luminance(color: Int): Float {
-            val r = Color.red(color) / 255f
-            val g = Color.green(color) / 255f
-            val b = Color.blue(color) / 255f
-            return 0.299f * r + 0.587f * g + 0.114f * b
-        }
-    }
+        get() = Color.argb(
+            (Color.alpha(strokeColor) * 0.82f).toInt().coerceIn(0, 255),
+            Color.red(strokeColor),
+            Color.green(strokeColor),
+            Color.blue(strokeColor)
+        )
 }

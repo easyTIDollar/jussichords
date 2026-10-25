@@ -36,7 +36,9 @@ object DesktopLyricManager {
     ): Boolean {
         val appContext = context.applicationContext
         if (enabled && !canDrawOverlays(appContext)) {
-            appContext.dataStore.edit { it[desktopLyricEnabledKey] = false }
+            // 记住「用户想开」这个意图：授权回来后 ON_RESUME / syncService 能自动恢复。
+            // 之前这里会把开关静默写回 false，导致每次更新后都像被重置、要重新开一次。
+            appContext.dataStore.edit { it[desktopLyricEnabledKey] = true }
             if (requestPermissionIfNeeded) {
                 requestOverlayPermission(appContext)
             }
@@ -86,7 +88,8 @@ object DesktopLyricManager {
     }
 
     private fun startService(context: Context) {
-        context.startService(Intent(context, DesktopLyricService::class.java))
+        // 后台（如更新后的 MY_PACKAGE_REPLACED）拉起 Service 可能被系统拒，别让广播崩掉。
+        runCatching { context.startService(Intent(context, DesktopLyricService::class.java)) }
     }
 
     private fun stopService(context: Context) {
