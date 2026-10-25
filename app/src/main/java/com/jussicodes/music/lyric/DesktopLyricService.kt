@@ -511,16 +511,19 @@ class DesktopLyricService : Service() {
 
     private fun computeLyricHeight(): Int {
         val density = resources.displayMetrics.density
+        // 注意：Paint 自带 style 属性，apply 里直接写 style.xxx 会被解析成 Paint.Style，
+        // 所以先取出外层字段。
+        val currentStyle = style
         val mainPaint = Paint().apply {
-            textSize = sp(style.fontSizeSp)
+            textSize = sp(currentStyle.fontSizeSp)
             typeface = Typeface.DEFAULT_BOLD
         }
         val mainMetrics = mainPaint.fontMetrics
         val mainLineHeight = (mainMetrics.descent - mainMetrics.ascent) * 1.06f
-        val secondaryPaint = Paint().apply { textSize = sp(style.secondaryFontSizeSp) }
+        val secondaryPaint = Paint().apply { textSize = sp(currentStyle.secondaryFontSizeSp) }
         val secondaryMetrics = secondaryPaint.fontMetrics
         val secondaryLineHeight = (secondaryMetrics.descent - secondaryMetrics.ascent) * 1.04f
-        val strokeSlack = style.primaryStrokeWidth(density).toInt()
+        val strokeSlack = currentStyle.primaryStrokeWidth(density).toInt()
         return dp(16) * 2 + (mainLineHeight * 2f).toInt() + dp(6) +
             secondaryLineHeight.toInt() + strokeSlack + dp(2)
     }
