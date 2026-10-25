@@ -107,6 +107,9 @@ object LxPluginManager {
             if (idx >= 0) next[idx] = item else next.add(item)
             next
         }
+        // 体检（importScript → verify）是按新条目自己的 UUID 建的临时沙盒；
+        // 覆盖同名旧脚本时它没有对应条目，一并销毁，避免 WebView 泄漏。
+        if (newItem.id != item.id) engine?.deactivate(newItem.id)
         engine?.deactivate(item.id)
     }
 
@@ -152,6 +155,27 @@ object LxPluginManager {
                 if (resp.isSuccessful) resp.body?.string().orEmpty() else null
             }
         }.getOrNull()?.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * 在线音源安装：下载 → 校验 → 入库。同名脚本按「更新」处理（覆盖旧条目），
+     * 不再弹重名确认框（列表里点的就是那一项）。
+     * @return 安装成功的脚本名；失败返回 null
+     */
+    suspend fun installOnlineSource(source: OnlineSource): String? {
+        val script = LxOnlineSources.download(source) ?: return null
+        val name = source.name.ifBlank { source.slug }
+        return when (val r = importScript(name, script)) {
+            is ImportResult.Success -> {
+                confirmImport(r.item, null)
+                r.item.name
+            }
+            is ImportResult.Duplicate -> {
+                confirmImport(r.newItem, r.existing.id)
+                r.newItem.name
+            }
+            is ImportResult.Failure -> null
+        }
     }
 
     // ---- 解析 ----

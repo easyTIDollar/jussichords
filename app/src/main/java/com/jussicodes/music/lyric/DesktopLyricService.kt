@@ -861,6 +861,20 @@ class DesktopLyricService : Service() {
             setLocked(true)
         }
 
+        // 关闭：写回 enabled=false 并停掉本 Service（悬浮窗、控制条一起消失，
+        // 设置页的开关会因为同一条 DataStore 键自动同步成关闭）。
+        val closeButton = createActionButton(
+            iconRes = android.R.drawable.ic_menu_close_clear_cancel,
+            description = "关闭桌面歌词",
+            sizeDp = 30,
+            paddingDp = 6,
+            marginDp = 8
+        ) {
+            serviceScope.launch {
+                DesktopLyricManager.setEnabled(applicationContext, false)
+            }
+        }
+
         panel.addView(previousButton)
         panel.addView(playPauseButton)
         panel.addView(nextButton)
@@ -873,6 +887,7 @@ class DesktopLyricService : Service() {
         )
         panel.addView(translationToggle)
         panel.addView(lockButton)
+        panel.addView(closeButton)
 
         return panel
     }

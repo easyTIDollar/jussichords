@@ -21,12 +21,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,7 +61,9 @@ import androidx.navigation.NavHostController
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.lx.ImportResult
 import com.jussicodes.music.lx.LxPluginItem
+import com.jussicodes.music.lx.LxOnlineSources
 import com.jussicodes.music.lx.LxPluginManager
+import com.jussicodes.music.lx.OnlineSource
 import com.jussicodes.music.ui.components.Dialog
 import com.jussicodes.music.ui.components.ScaledDialogContent
 import com.jussicodes.music.ui.icons.Script
@@ -79,6 +84,7 @@ fun LxPluginScreen(navController: NavHostController) {
     var pendingDuplicate by remember { mutableStateOf<Pair<LxPluginItem, LxPluginItem>?>(null) }
     var removingId by remember { mutableStateOf<String?>(null) }
     var urlDialogVisible by remember { mutableStateOf(false) }
+    var onlineListVisible by remember { mutableStateOf(false) }
 
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -171,6 +177,12 @@ fun LxPluginScreen(navController: NavHostController) {
                     ) { Text("通过链接导入") }
                 }
             }
+            item {
+                OutlinedButton(
+                    onClick = { onlineListVisible = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("在线音源列表") }
+            }
             if (plugins.isEmpty()) {
                 item {
                     Text(
@@ -224,6 +236,14 @@ fun LxPluginScreen(navController: NavHostController) {
             onDismissRequest = { removingId = null },
             dialogTitle = "删除脚本",
             dialogText = "确定删除「${target?.name ?: ""}」？沙盒会一并销毁。",
+        )
+    }
+
+    if (onlineListVisible) {
+        OnlineSourcesDialog(
+            installedNames = plugins.map { it.name }.toSet(),
+            onDismiss = { onlineListVisible = false },
+            onInstall = { source -> LxPluginManager.installOnlineSource(source) }
         )
     }
 
@@ -397,6 +417,172 @@ private fun UrlScriptDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) 
                         ) { Text("导入") }
                     }
                 }
+            }
+        }
+    }
+}
+/** 在线音源列表弹窗：拉 lx.jussichords.kdns.fr 的公开列表，点「安装」下载脚本入库。 */
+@Composable
+private fun OnlineSourcesDialog(
+    installedNames: Set<String>,
+    onDismiss: () -> Unit,
+    onInstall: suspend (OnlineSource) -> String?
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var sources by remember { mutableStateOf<List<OnlineSource>>(emptyList()) }
+    var installingSlug by remember { mutableStateOf<String?>(null) }
+    var installed by remember { mutableStateOf(installedNames) }
+
+    suspend fun load() {
+        loading = true
+        error = null
+        LxOnlineSources.fetch()
+            .onSuccess { sources = it }
+            .onFailure { error = it.message ?: "网络请求失败" }
+        loading = false
+    }
+
+    fun install(source: OnlineSource) {
+        if (installingSlug != null) return
+        installingSlug = source.slug
+        scope.launch {
+            val name = onInstall(source)
+            installingSlug = null
+            if (name != null) {
+                installed = installed + source.name + name
+                Toast.makeText(context, "已安装 $name", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "安装失败：脚本下载或校验没通过", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) { load() }
+
+    ComposeDialog(onDismissRequest = onDismiss) {
+        ScaledDialogContent {
+            Card(shape = MaterialTheme.shapes.extraLarge) {
+                Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("在线音源", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = "来自 lx.jussichords.kdns.fr 的公开音源列表",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(
+                            enabled = !loading,
+                            onClick = { scope.launch { load() } }
+                        ) { Text("刷新") }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    when {
+                        loading -> Box(
+                            modifier = Modifier.fillMaxWidth().height(140.dp),
+                            contentAlignment = Alignment.Center
+                        ) { CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp) }
+
+                        error != null -> Column(Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "获取列表失败：$error",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            TextButton(onClick = { scope.launch { load() } }) { Text("重试") }
+                        }
+
+                        sources.isEmpty() -> Text(
+                            text = "线上暂时没有可用音源",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 24.dp)
+                        )
+
+                        else -> LazyColumn(
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(sources, key = { it.slug.ifBlank { it.url } }) { source ->
+                                OnlineSourceRow(
+                                    source = source,
+                                    isInstalled = installed.contains(source.name),
+                                    installing = installingSlug == source.slug,
+                                    onInstall = { install(source) }
+                                )
+                            }
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = onDismiss) { Text("关闭") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OnlineSourceRow(
+    source: OnlineSource,
+    isInstalled: Boolean,
+    installing: Boolean,
+    onInstall: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = source.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val meta = buildList {
+                    if (source.author.isNotBlank()) add(source.author)
+                    if (source.sizeText.isNotBlank()) add(source.sizeText)
+                    if (source.versionNo > 0) add("v${source.versionNo}")
+                }.joinToString(" · ")
+                if (meta.isNotBlank()) {
+                    Text(
+                        text = meta,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (source.description.isNotBlank()) {
+                    Text(
+                        text = source.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            if (installing) {
+                Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                }
+            } else {
+                TextButton(onClick = onInstall) { Text(if (isInstalled) "更新" else "安装") }
             }
         }
     }
