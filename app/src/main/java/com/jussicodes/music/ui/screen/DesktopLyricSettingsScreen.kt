@@ -599,7 +599,7 @@ private fun QuickActionsCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                .padding(start = 14.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
