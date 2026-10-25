@@ -255,14 +255,6 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        QuickActionsCard(
-                            locked = locked,
-                            onToggleLocked = { locked = it },
-                            onResetPosition = {
-                                DesktopLyricManager.resetPosition(context)
-                                Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
-                            }
-                        )
                         PreviewCard(
                             fontSize = fontSizeDraft,
                             strokeScale = strokeDraft,
@@ -275,6 +267,28 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                             onResetBackground = {
                                 previewBgPath = ""
                                 DesktopLyricPreviewBgStore.clear(context)
+                            }
+                        )
+                        PreviewCard(
+                    fontSize = fontSizeDraft,
+                    strokeScale = strokeDraft,
+                    textColor = textColor,
+                    strokeColor = strokeColor,
+                    currentLine = previewCurrent,
+                    nextLine = previewNext,
+                    customBgPath = previewBgPath,
+                    onPickBackground = { previewBgPicker.launch(arrayOf("image/*")) },
+                    onResetBackground = {
+                        previewBgPath = ""
+                        DesktopLyricPreviewBgStore.clear(context)
+                    }
+                )
+                QuickActionsCard(
+                            locked = locked,
+                            onToggleLocked = { locked = it },
+                            onResetPosition = {
+                                DesktopLyricManager.resetPosition(context)
+                                Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
                             }
                         )
                         EnableCard(
@@ -305,20 +319,6 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                     onResetPosition = {
                         DesktopLyricManager.resetPosition(context)
                         Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
-                    }
-                )
-                PreviewCard(
-                    fontSize = fontSizeDraft,
-                    strokeScale = strokeDraft,
-                    textColor = textColor,
-                    strokeColor = strokeColor,
-                    currentLine = previewCurrent,
-                    nextLine = previewNext,
-                    customBgPath = previewBgPath,
-                    onPickBackground = { previewBgPicker.launch(arrayOf("image/*")) },
-                    onResetBackground = {
-                        previewBgPath = ""
-                        DesktopLyricPreviewBgStore.clear(context)
                     }
                 )
                 EnableCard(
@@ -395,6 +395,7 @@ private fun PreviewCard(
         }
     }
 
+    Column(modifier = Modifier.fillMaxWidth()) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -447,14 +448,13 @@ private fun PreviewCard(
                 )
             }
         }
-        Text(
-            text = "点背景换图",
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.55f),
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(horizontal = 8.dp, vertical = 6.dp)
-        )
+    }
+    Text(
+        text = "点预览换背景图 · 右上角可恢复默认",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 4.dp, top = 6.dp)
+    )
     }
 }
 
@@ -607,9 +607,9 @@ private fun QuickActionsCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Switch(checked = locked, onCheckedChange = onToggleLocked)
-            Spacer(Modifier.width(4.dp))
             TextButton(onClick = onResetPosition) { Text("重置位置") }
+            Spacer(Modifier.width(4.dp))
+            Switch(checked = locked, onCheckedChange = onToggleLocked)
         }
     }
 }
