@@ -256,45 +256,31 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         PreviewCard(
-                            fontSize = fontSizeDraft,
-                            strokeScale = strokeDraft,
-                            textColor = textColor,
-                            strokeColor = strokeColor,
-                            currentLine = previewCurrent,
-                            nextLine = previewNext,
-                            customBgPath = previewBgPath,
-                            onPickBackground = { previewBgPicker.launch(arrayOf("image/*")) },
-                            onResetBackground = {
-                                previewBgPath = ""
-                                DesktopLyricPreviewBgStore.clear(context)
-                            }
+                        fontSize = fontSizeDraft,
+                        strokeScale = strokeDraft,
+                        textColor = textColor,
+                        strokeColor = strokeColor,
+                        currentLine = previewCurrent,
+                        nextLine = previewNext,
+                        customBgPath = previewBgPath,
+                        onPickBackground = { previewBgPicker.launch(arrayOf("image/*")) },
+                        onResetBackground = {
+                            previewBgPath = ""
+                            DesktopLyricPreviewBgStore.clear(context)
+                        }
                         )
-                        PreviewCard(
-                    fontSize = fontSizeDraft,
-                    strokeScale = strokeDraft,
-                    textColor = textColor,
-                    strokeColor = strokeColor,
-                    currentLine = previewCurrent,
-                    nextLine = previewNext,
-                    customBgPath = previewBgPath,
-                    onPickBackground = { previewBgPicker.launch(arrayOf("image/*")) },
-                    onResetBackground = {
-                        previewBgPath = ""
-                        DesktopLyricPreviewBgStore.clear(context)
-                    }
-                )
-                QuickActionsCard(
-                            locked = locked,
-                            onToggleLocked = { locked = it },
-                            onResetPosition = {
-                                DesktopLyricManager.resetPosition(context)
-                                Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
-                            }
+                        QuickActionsCard(
+                        locked = locked,
+                        onToggleLocked = { locked = it },
+                        onResetPosition = {
+                            DesktopLyricManager.resetPosition(context)
+                            Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
+                        }
                         )
                         EnableCard(
-                            effectiveOn = effectiveOn,
-                            overlayGranted = overlayGranted,
-                            onToggleEnabled = { toggleEnabled(it) }
+                        effectiveOn = effectiveOn,
+                        overlayGranted = overlayGranted,
+                        onToggleEnabled = { toggleEnabled(it) }
                         )
                     }
                     Column(
@@ -302,37 +288,51 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         SizeCard(
-                            fontSize = fontSizeDraft,
-                            strokeScale = strokeDraft,
-                            onFontSizeChange = { fontSizeDraft = it },
-                            onFontSizeFinished = { fontSize = fontSizeDraft },
-                            onStrokeChange = { strokeDraft = it },
-                            onStrokeFinished = { strokeScale = strokeDraft }
+                        fontSize = fontSizeDraft,
+                        strokeScale = strokeDraft,
+                        onFontSizeChange = { fontSizeDraft = it },
+                        onFontSizeFinished = { fontSize = fontSizeDraft },
+                        onStrokeChange = { strokeDraft = it },
+                        onStrokeFinished = { strokeScale = strokeDraft }
                         )
                         ColorCards()
                     }
                 }
             } else {
+                PreviewCard(
+                fontSize = fontSizeDraft,
+                strokeScale = strokeDraft,
+                textColor = textColor,
+                strokeColor = strokeColor,
+                currentLine = previewCurrent,
+                nextLine = previewNext,
+                customBgPath = previewBgPath,
+                onPickBackground = { previewBgPicker.launch(arrayOf("image/*")) },
+                onResetBackground = {
+                    previewBgPath = ""
+                    DesktopLyricPreviewBgStore.clear(context)
+                }
+                )
                 QuickActionsCard(
-                    locked = locked,
-                    onToggleLocked = { locked = it },
-                    onResetPosition = {
-                        DesktopLyricManager.resetPosition(context)
-                        Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
-                    }
+                locked = locked,
+                onToggleLocked = { locked = it },
+                onResetPosition = {
+                    DesktopLyricManager.resetPosition(context)
+                    Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
+                }
                 )
                 EnableCard(
-                    effectiveOn = effectiveOn,
-                    overlayGranted = overlayGranted,
-                    onToggleEnabled = { toggleEnabled(it) }
+                effectiveOn = effectiveOn,
+                overlayGranted = overlayGranted,
+                onToggleEnabled = { toggleEnabled(it) }
                 )
                 SizeCard(
-                    fontSize = fontSizeDraft,
-                    strokeScale = strokeDraft,
-                    onFontSizeChange = { fontSizeDraft = it },
-                    onFontSizeFinished = { fontSize = fontSizeDraft },
-                    onStrokeChange = { strokeDraft = it },
-                    onStrokeFinished = { strokeScale = strokeDraft }
+                fontSize = fontSizeDraft,
+                strokeScale = strokeDraft,
+                onFontSizeChange = { fontSizeDraft = it },
+                onFontSizeFinished = { fontSize = fontSizeDraft },
+                onStrokeChange = { strokeDraft = it },
+                onStrokeFinished = { strokeScale = strokeDraft }
                 )
                 ColorCards()
             }
