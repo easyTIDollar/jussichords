@@ -220,13 +220,6 @@ class PlaybackService : MediaSessionService() {
             .setSessionCommand(MediaSessionConstants.CommandToggleDesktopLyric)
             .build()
 
-    private val desktopLyricButtonOn: CommandButton
-        get() = CommandButton.Builder(ICON_UNDEFINED)
-            .setCustomIconResId(R.drawable.ic_lyrics_on)
-            .setDisplayName("desktop_lyric_on")
-            .setSessionCommand(MediaSessionConstants.CommandToggleDesktopLyric)
-            .build()
-
     /** 未锁定 → 显示「锁」图标，点一下锁定。 */
     private val desktopLyricLockButton: CommandButton
         get() = CommandButton.Builder(ICON_UNDEFINED)
@@ -243,16 +236,23 @@ class PlaybackService : MediaSessionService() {
             .setSessionCommand(MediaSessionConstants.CommandToggleDesktopLyricLock)
             .build()
 
-    /** 通知栏 / 媒体控件的自定义按钮组合。锁定按钮只在桌面歌词开启时出现。 */
+    /**
+     * 通知栏 / 系统媒体卡片的自定义按钮组合。
+     *
+     * 系统媒体卡片只放得下 5 个按钮（上一首 / 播放暂停 / 下一首 + 2 个自定义），
+     * 所以这里固定只给 2 个自定义按钮：桌面歌词关着时是「开启歌词」，
+     * 开着时这个位置让给「锁定 / 解锁」（开关本身在设置页里）。
+     */
     private fun currentCustomLayout(): ImmutableList<CommandButton> {
         val liked = favoriteSongIds.contains(
             mediaSession?.player?.currentMediaItem?.mediaId?.toLong()
         )
         val builder = ImmutableList.builder<CommandButton>()
             .add(if (liked) favoriteButtonOn else favoriteButton)
-            .add(if (desktopLyricEnabled) desktopLyricButtonOn else desktopLyricButton)
         if (desktopLyricEnabled) {
             builder.add(if (desktopLyricLocked) desktopLyricUnlockButton else desktopLyricLockButton)
+        } else {
+            builder.add(desktopLyricButton)
         }
         return builder.build()
     }
