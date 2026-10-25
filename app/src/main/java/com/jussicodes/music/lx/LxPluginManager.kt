@@ -125,18 +125,35 @@ object LxPluginManager {
         if (!enabled) engine?.deactivate(id)
     }
 
-    suspend fun setPriority(id: String, newIndex: Int) {
+    /**
+     * 拖拽排序落盘：按传入的 id 顺序重排，未出现在 ids 里的条目保持原有相对顺序跟在后面。
+     * 解析顺序就是列表顺序（见 [resolveUrl]），所以这里一次写完即可。
+     */
+    suspend fun reorder(ids: List<String>) {
+        if (ids.isEmpty()) return
         LxPluginStore.update { list ->
-            val next = list.toMutableList()
-            val idx = next.indexOfFirst { it.id == id }
-            if (idx < 0) {
-                next
-            } else {
-                val item = next.removeAt(idx)
-                next.add(newIndex.coerceIn(0, next.size), item)
-                next
-            }
+            val byId = list.associateBy { it.id }
+            val ordered = ids.mapNotNull { byId[it] }
+            // 没排到的条目（理论上不该有）原序接在后面，绝不丢条目。
+            ordered + list.filterNot { it.id in ids }
         }
+    }
+
+    /** 批量启用/停用；停用后顺手销毁对应沙盒。 */
+    suspend fun setEnabled(ids: Collection<String>, enabled: Boolean) {
+        if (ids.isEmpty()) return
+        LxPluginStore.update { list ->
+            list.map { if (it.id in ids) it.copy(isEnabled = enabled) else it }
+        }
+        if (!enabled) ids.forEach { engine?.deactivate(it) }
+    }
+
+    /** 批量删除；内置脚本不参与删除。 */
+    suspend fun removeAll(ids: Collection<String>) {
+        val targets = ids.filter { it != BUILTIN_ID }
+        if (targets.isEmpty()) return
+        targets.forEach { engine?.deactivate(it) }
+        LxPluginStore.update { list -> list.filterNot { it.id in targets } }
     }
 
     /** 预热：把已启用的插件脚本装进沙盒池（不命中时首播不再等建沙盒）。 */

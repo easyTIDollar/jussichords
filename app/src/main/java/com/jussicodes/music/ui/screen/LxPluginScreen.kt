@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,12 +23,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -68,9 +70,11 @@ import com.jussicodes.music.ui.components.Dialog
 import com.jussicodes.music.ui.components.ScaledDialogContent
 import com.jussicodes.music.ui.icons.Script
 import kotlinx.coroutines.launch
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 /**
- * LX 脚本音源管理页：导入 / 启停 / 删除 / 上移下移。
+ * LX 脚本音源管理页：导入 / 启停 / 删除 / 长按拖动排序 / 多选批量操作。
  * 与设置页「音源三」同一份数据源 [LxPluginManager.plugins]。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -85,6 +89,40 @@ fun LxPluginScreen(navController: NavHostController) {
     var removingId by remember { mutableStateOf<String?>(null) }
     var urlDialogVisible by remember { mutableStateOf(false) }
     var onlineListVisible by remember { mutableStateOf(false) }
+    var batchDeleteConfirm by remember { mutableStateOf(false) }
+
+    // ---- 列表顺序（长按拖动）与多选 ----
+    val listState = rememberLazyListState()
+    var displayed by remember { mutableStateOf(plugins) }
+    var dragChanged by remember { mutableStateOf(false) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+
+    // 用 item key（脚本 id）换算插件下标：LazyColumn 顶部还有说明/按钮等非插件条目，
+    // 直接拿 from.index/to.index 当插件下标会错位。
+    val reorderableState = rememberReorderableLazyListState(listState) { from, to ->
+        val fromId = from.key as? String ?: return@rememberReorderableLazyListState
+        val toId = to.key as? String ?: return@rememberReorderableLazyListState
+        val fromIdx = displayed.indexOfFirst { it.id == fromId }
+        val toIdx = displayed.indexOfFirst { it.id == toId }
+        if (fromIdx < 0 || toIdx < 0 || fromIdx == toIdx) {
+            return@rememberReorderableLazyListState
+        }
+        displayed = displayed.toMutableList().apply { add(toIdx, removeAt(fromIdx)) }
+        dragChanged = true
+    }
+
+    // 拖拽中不要被 DataStore 回流覆盖本地顺序
+    LaunchedEffect(plugins) {
+        if (!reorderableState.isAnyItemDragging) displayed = plugins
+    }
+    // 松手才落盘，避免每一帧都写一次
+    LaunchedEffect(reorderableState.isAnyItemDragging) {
+        if (!reorderableState.isAnyItemDragging && dragChanged) {
+            dragChanged = false
+            LxPluginManager.reorder(displayed.map { it.id })
+        }
+    }
 
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -115,10 +153,35 @@ fun LxPluginScreen(navController: NavHostController) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("LX 脚本音源") },
+                title = { Text(if (selectionMode) "已选 ${selected.size} 项" else "LX 脚本音源") },
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null)
+                    }
+                },
+                actions = {
+                    if (selectionMode) {
+                        TextButton(onClick = {
+                            val allIds = displayed.map { it.id }
+                            selected = if (allIds.isNotEmpty() && selected.size == allIds.size) {
+                                emptySet()
+                            } else {
+                                allIds.toSet()
+                            }
+                        }) {
+                            Text(
+                                if (displayed.isNotEmpty() && selected.size == displayed.size) "取消全选" else "全选"
+                            )
+                        }
+                        TextButton(onClick = {
+                            selectionMode = false
+                            selected = emptySet()
+                        }) { Text("完成") }
+                    } else if (displayed.isNotEmpty()) {
+                        TextButton(onClick = {
+                            selectionMode = true
+                            selected = emptySet()
+                        }) { Text("选择") }
                     }
                 },
             )
@@ -128,6 +191,7 @@ fun LxPluginScreen(navController: NavHostController) {
             WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
+            state = listState,
             contentPadding = PaddingValues(
                 start = 12.dp,
                 top = padding.calculateTopPadding(),
@@ -139,6 +203,7 @@ fun LxPluginScreen(navController: NavHostController) {
             item {
                 Text(
                     text = "在独立 WebView 沙盒里运行 LX Music 社区脚本，按列表顺序依次尝试解析直链。" +
+                        "长按卡片可拖动排序，右上角「选择」进入多选批量启停/删除。" +
                         "脚本可在沙盒内自行发起网络请求；仅在你主动启用时参与解析。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -193,19 +258,85 @@ fun LxPluginScreen(navController: NavHostController) {
                     )
                 }
             }
-            itemsIndexed(plugins, key = { _, item -> item.id }) { index, item ->
-                LxPluginRow(
-                    item = item,
-                    isBuiltin = item.id == LxPluginManager.BUILTIN_ID,
-                    canMoveUp = index > 0,
-                    canMoveDown = index < plugins.lastIndex,
-                    onToggle = { enabled ->
-                        scope.launch { LxPluginManager.toggle(item.id, enabled) }
-                    },
-                    onMoveUp = { scope.launch { LxPluginManager.setPriority(item.id, index - 1) } },
-                    onMoveDown = { scope.launch { LxPluginManager.setPriority(item.id, index + 1) } },
-                    onDelete = { if (item.id != LxPluginManager.BUILTIN_ID) removingId = item.id }
-                )
+            if (selectionMode) {
+                item {
+                    val deletableCount = selected.count { it != LxPluginManager.BUILTIN_ID }
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(
+                                enabled = selected.isNotEmpty(),
+                                onClick = {
+                                    val ids = selected
+                                    scope.launch { LxPluginManager.setEnabled(ids, true) }
+                                }
+                            ) { Text("启用") }
+                            TextButton(
+                                enabled = selected.isNotEmpty(),
+                                onClick = {
+                                    val ids = selected
+                                    scope.launch { LxPluginManager.setEnabled(ids, false) }
+                                }
+                            ) { Text("停用") }
+                            Spacer(Modifier.weight(1f))
+                            TextButton(
+                                enabled = deletableCount > 0,
+                                onClick = { batchDeleteConfirm = true }
+                            ) {
+                                Text(
+                                    text = "删除",
+                                    color = if (deletableCount > 0) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            items(displayed, key = { it.id }) { item ->
+                ReorderableItem(
+                    state = reorderableState,
+                    key = item.id,
+                    enabled = !selectionMode
+                ) { isDragging ->
+                    // 长按整张卡片即进入拖动；多选模式下拖动手势关掉，点击改成勾选。
+                    val rowModifier = if (selectionMode) {
+                        Modifier
+                    } else {
+                        Modifier.longPressDraggableHandle()
+                    }
+                    LxPluginRow(
+                        item = item,
+                        isBuiltin = item.id == LxPluginManager.BUILTIN_ID,
+                        selectionMode = selectionMode,
+                        selected = selected.contains(item.id),
+                        dragging = isDragging,
+                        modifier = rowModifier,
+                        onToggle = { enabled ->
+                            scope.launch { LxPluginManager.toggle(item.id, enabled) }
+                        },
+                        onSelectToggle = {
+                            selected = if (selected.contains(item.id)) {
+                                selected - item.id
+                            } else {
+                                selected + item.id
+                            }
+                        },
+                        onDelete = { if (item.id != LxPluginManager.BUILTIN_ID) removingId = item.id }
+                    )
+                }
             }
         }
     }
@@ -223,6 +354,24 @@ fun LxPluginScreen(navController: NavHostController) {
                 pendingDuplicate = null
             },
             onDismiss = { pendingDuplicate = null }
+        )
+    }
+
+    if (batchDeleteConfirm) {
+        val count = selected.count { it != LxPluginManager.BUILTIN_ID }
+        Dialog(
+            onConfirmation = {
+                val ids = selected
+                scope.launch {
+                    LxPluginManager.removeAll(ids)
+                    selected = emptySet()
+                    selectionMode = false
+                }
+                batchDeleteConfirm = false
+            },
+            onDismissRequest = { batchDeleteConfirm = false },
+            dialogTitle = "删除脚本",
+            dialogText = "确定删除选中的 $count 个脚本？沙盒会一并销毁。"
         )
     }
 
@@ -278,17 +427,26 @@ fun LxPluginScreen(navController: NavHostController) {
 @Composable
 private fun LxPluginRow(
     item: LxPluginItem,
-    canMoveUp: Boolean,
-    canMoveDown: Boolean,
     isBuiltin: Boolean,
+    selectionMode: Boolean,
+    selected: Boolean,
+    dragging: Boolean,
+    modifier: Modifier = Modifier,
     onToggle: (Boolean) -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
+    onSelectToggle: () -> Unit,
     onDelete: () -> Unit
 ) {
     Card(
+        modifier = if (selectionMode) modifier.clickable(onClick = onSelectToggle) else modifier,
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (dragging) 8.dp else 0.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            }
+        )
     ) {
         Row(
             modifier = Modifier
@@ -338,21 +496,31 @@ private fun LxPluginRow(
                     )
                 }
             }
-            Switch(checked = item.isEnabled, onCheckedChange = onToggle)
+            if (selectionMode) {
+                Checkbox(checked = selected, onCheckedChange = { onSelectToggle() })
+            } else {
+                Switch(checked = item.isEnabled, onCheckedChange = onToggle)
+            }
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 14.dp, end = 6.dp, bottom = 4.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextButton(enabled = canMoveUp, onClick = onMoveUp) { Text("上移") }
-            TextButton(enabled = canMoveDown, onClick = onMoveDown) { Text("下移") }
-            TextButton(
-                enabled = !isBuiltin,
-                onClick = onDelete
-            ) { Text("删除", color = if (isBuiltin) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error) }
+        // 多选时操作统一走顶部工具条，单条不再露按钮
+        if (!selectionMode) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 14.dp, end = 6.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    enabled = !isBuiltin,
+                    onClick = onDelete
+                ) {
+                    Text(
+                        text = "删除",
+                        color = if (isBuiltin) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+                    )
+                }
+            }
         }
     }
 }
