@@ -1,8 +1,7 @@
 package com.jussicodes.music.ui.screen
 
-import android.app.WallpaperManager
 import android.content.Context
-import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.ComposeShader
@@ -14,7 +13,6 @@ import android.graphics.SweepGradient
 import android.graphics.Typeface
 import android.text.TextPaint
 import android.text.TextUtils
-import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Toast
@@ -71,29 +69,36 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavHostController
+import com.jussicodes.music.R
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.desktopLyricFontSizeKey
 import com.jussicodes.music.constants.desktopLyricLockedKey
+import com.jussicodes.music.constants.desktopLyricPreviewBgKey
 import com.jussicodes.music.constants.desktopLyricStrokeColorKey
 import com.jussicodes.music.constants.desktopLyricStrokeScaleKey
 import com.jussicodes.music.constants.desktopLyricTextColorKey
 import com.jussicodes.music.constants.isLandscapePhone
+import com.jussicodes.music.data.DesktopLyricPreviewBgStore
 import com.jussicodes.music.lyric.DesktopLyricDefaultFontSizeSp
 import com.jussicodes.music.lyric.DesktopLyricDefaultStrokeScale
 import com.jussicodes.music.lyric.DesktopLyricManager
@@ -111,7 +116,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.atan2
 import kotlin.math.cos
-import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -134,12 +138,28 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
     var strokeScale by rememberPreference(desktopLyricStrokeScaleKey, DesktopLyricDefaultStrokeScale)
     var strokeColor by rememberPreference(desktopLyricStrokeColorKey, AndroidColor.BLACK)
     var locked by rememberPreference(desktopLyricLockedKey, false)
+    var previewBgPath by rememberPreference(desktopLyricPreviewBgKey, "")
 
     var overlayGranted by remember { mutableStateOf(DesktopLyricManager.canDrawOverlays(context)) }
     var pendingOverlayGrant by rememberSaveable { mutableStateOf(false) }
 
     var fontSizeDraft by remember(fontSize) { mutableFloatStateOf(fontSize) }
     var strokeDraft by remember(strokeScale) { mutableFloatStateOf(strokeScale) }
+
+    // 点预览背景 → 从相册换图（SAF：不需要存储权限，读到的图会拷成本地 JPEG）。
+    val previewBgPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val path = DesktopLyricPreviewBgStore.save(context, uri)
+            if (path != null) {
+                previewBgPath = path
+            } else {
+                Toast.makeText(context, "图片读取失败，换一张试试", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     // 预览用当前播放歌词：复用 LyricViewModel（同一份缓存），位置每 400ms 取一次。
     val mediaController = PlayerController.controller
@@ -233,20 +253,32 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        QuickActionsCard(
+                            locked = locked,
+                            onToggleLocked = { locked = it },
+                            onResetPosition = {
+                                DesktopLyricManager.resetPosition(context)
+                                Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
+                            }
+                        )
                         PreviewCard(
                             fontSize = fontSizeDraft,
                             strokeScale = strokeDraft,
                             textColor = textColor,
                             strokeColor = strokeColor,
                             currentLine = previewCurrent,
-                            nextLine = previewNext
+                            nextLine = previewNext,
+                            customBgPath = previewBgPath,
+                            onPickBackground = { previewBgPicker.launch(arrayOf("image/*")) },
+                            onResetBackground = {
+                                previewBgPath = ""
+                                DesktopLyricPreviewBgStore.clear(context)
+                            }
                         )
                         EnableCard(
                             effectiveOn = effectiveOn,
                             overlayGranted = overlayGranted,
-                            locked = locked,
-                            onToggleEnabled = { toggleEnabled(it) },
-                            onToggleLocked = { locked = it }
+                            onToggleEnabled = { toggleEnabled(it) }
                         )
                     }
                     Column(
@@ -262,27 +294,35 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                             onStrokeFinished = { strokeScale = strokeDraft }
                         )
                         ColorCards()
-                        PositionCard {
-                            DesktopLyricManager.resetPosition(context)
-                            Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
-                        }
                     }
                 }
             } else {
+                QuickActionsCard(
+                    locked = locked,
+                    onToggleLocked = { locked = it },
+                    onResetPosition = {
+                        DesktopLyricManager.resetPosition(context)
+                        Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
+                    }
+                )
                 PreviewCard(
                     fontSize = fontSizeDraft,
                     strokeScale = strokeDraft,
                     textColor = textColor,
                     strokeColor = strokeColor,
                     currentLine = previewCurrent,
-                    nextLine = previewNext
+                    nextLine = previewNext,
+                    customBgPath = previewBgPath,
+                    onPickBackground = { previewBgPicker.launch(arrayOf("image/*")) },
+                    onResetBackground = {
+                        previewBgPath = ""
+                        DesktopLyricPreviewBgStore.clear(context)
+                    }
                 )
                 EnableCard(
                     effectiveOn = effectiveOn,
                     overlayGranted = overlayGranted,
-                    locked = locked,
-                    onToggleEnabled = { toggleEnabled(it) },
-                    onToggleLocked = { locked = it }
+                    onToggleEnabled = { toggleEnabled(it) }
                 )
                 SizeCard(
                     fontSize = fontSizeDraft,
@@ -293,10 +333,6 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                     onStrokeFinished = { strokeScale = strokeDraft }
                 )
                 ColorCards()
-                PositionCard {
-                    DesktopLyricManager.resetPosition(context)
-                    Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
-                }
             }
             Spacer(Modifier.height(bottomInset + 16.dp))
         }
@@ -333,26 +369,41 @@ private fun PreviewCard(
     textColor: Int,
     strokeColor: Int,
     currentLine: String,
-    nextLine: String
+    nextLine: String,
+    customBgPath: String,
+    onPickBackground: () -> Unit,
+    onResetBackground: () -> Unit
 ) {
     val context = LocalContext.current
-    var wallpaper by remember { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(Unit) {
-        wallpaper = withContext(Dispatchers.IO) {
-            loadWallpaperImage(context)?.asImageBitmap()
+    var background by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(customBgPath) {
+        background = withContext(Dispatchers.IO) {
+            val bitmap = DesktopLyricPreviewBgStore.load(customBgPath)
+                ?: BitmapFactory.decodeResource(
+                    context.resources,
+                    R.drawable.desktop_lyric_preview_bg
+                )
+            bitmap?.asImageBitmap()
         }
     }
-    val background = wallpaper
+    val paint = remember {
+        TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = Typeface.DEFAULT_BOLD
+            textAlign = Paint.Align.CENTER
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(132.dp)
-            .clip(RoundedCornerShape(22.dp)),
-        contentAlignment = Alignment.Center
+            .clip(RoundedCornerShape(22.dp))
+            .clickable { onPickBackground() }
     ) {
-        if (background != null) {
+        val bg = background
+        if (bg != null) {
             Image(
-                bitmap = background,
+                bitmap = bg,
                 contentDescription = null,
                 modifier = Modifier.matchParentSize(),
                 contentScale = ContentScale.Crop
@@ -364,157 +415,199 @@ private fun PreviewCard(
                     .background(Color(0xFF101014))
             )
         }
-        // 用真实绘制（与悬浮窗同一套描边算法）来做预览，字号/描边/颜色所见即所得。
-        AndroidView(
-            factory = { ctx -> LyricPreviewView(ctx) },
-            update = { view ->
-                view.strokeScale = strokeScale
-                view.applyStyle(fontSize, textColor, strokeColor, currentLine, nextLine)
-            },
+        // 歌词用原生 Canvas 画（与悬浮窗同一套描边算法），字号/描边/颜色所见即所得。
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(132.dp)
+                .matchParentSize()
+                .drawBehind {
+                    drawLyricPreview(
+                        paint = paint,
+                        primaryText = currentLine,
+                        secondaryText = nextLine,
+                        fontSizeSp = fontSize,
+                        textColor = textColor,
+                        strokeColor = strokeColor,
+                        strokeScale = strokeScale
+                    )
+                }
+        )
+        if (customBgPath.isNotBlank()) {
+            TextButton(
+                onClick = onResetBackground,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+            ) {
+                Text(
+                    text = "恢复默认",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White
+                )
+            }
+        }
+        Text(
+            text = "点背景换图",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White.copy(alpha = 0.55f),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(horizontal = 8.dp, vertical = 6.dp)
         )
     }
 }
 
-/** 桌面壁纸缩到 1080px 内当预览背景；取不到就用深色底板。 */
-private fun loadWallpaperImage(context: Context): Bitmap? = runCatching {
-    val drawable = WallpaperManager.getInstance(context).drawable ?: return@runCatching null
-    val rawWidth = drawable.intrinsicWidth.coerceAtLeast(1)
-    val rawHeight = drawable.intrinsicHeight.coerceAtLeast(1)
-    val scale = min(1f, 1080f / max(rawWidth, rawHeight).toFloat())
-    val width = (rawWidth * scale).toInt().coerceAtLeast(1)
-    val height = (rawHeight * scale).toInt().coerceAtLeast(1)
-    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-    drawable.setBounds(0, 0, width, height)
-    drawable.draw(Canvas(bitmap))
-    bitmap
-}.getOrNull()
+/** 在预览卡片里画主行 + 副行，几何与 DesktopLyricService 一致。 */
+private fun DrawScope.drawLyricPreview(
+    paint: TextPaint,
+    primaryText: String,
+    secondaryText: String,
+    fontSizeSp: Float,
+    textColor: Int,
+    strokeColor: Int,
+    strokeScale: Float
+) {
+    val primarySize = fontSizeSp.sp.toPx()
+    val secondarySize = primarySize * 0.66f
+    val maxTextWidth = (size.width - 24.dp.toPx()).coerceAtLeast(1f)
 
-/** 预览用歌词：主行 + 副行，描边宽度和悬浮窗一致（字号 × 0.17 × 倍数）。 */
-private class LyricPreviewView(context: Context) : View(context) {
-    private var primaryText = ""
-    private var secondaryText = ""
-    private var fontSizeSp = 18f
-    private var fillColor = AndroidColor.WHITE
-    private var strokeColor = AndroidColor.BLACK
-    var strokeScale = 1f
+    paint.textSize = primarySize
+    val primaryMetrics = paint.fontMetrics
+    val primaryHeight = primaryMetrics.descent - primaryMetrics.ascent
+    paint.textSize = secondarySize
+    val secondaryMetrics = paint.fontMetrics
+    val secondaryHeight = secondaryMetrics.descent - secondaryMetrics.ascent
+    val gap = 6.dp.toPx()
+    val top = (size.height - (primaryHeight + gap + secondaryHeight)) / 2f
+    val secondaryColor = AndroidColor.argb(
+        204,
+        AndroidColor.red(textColor),
+        AndroidColor.green(textColor),
+        AndroidColor.blue(textColor)
+    )
 
-    private val density = resources.displayMetrics.density
-    private val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        typeface = Typeface.DEFAULT_BOLD
-        textAlign = Paint.Align.CENTER
-    }
-
-    fun applyStyle(fontSize: Float, text: Int, stroke: Int, current: String, next: String) {
-        fontSizeSp = fontSize
-        fillColor = text
-        strokeColor = stroke
-        primaryText = current
-        secondaryText = next
-        invalidate()
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        if (width <= 0 || height <= 0) return
-        val primarySize = TypedValue.applyDimension(
-            TypedValue.COMPLEX_UNIT_SP,
-            fontSizeSp,
-            resources.displayMetrics
-        )
-        val secondarySize = primarySize * 0.66f
-        val maxTextWidth = (width - 24f * density).coerceAtLeast(1f)
-
+    drawIntoCanvas { canvas ->
+        val nativeCanvas = canvas.nativeCanvas
         paint.textSize = primarySize
-        val primaryMetrics = paint.fontMetrics
-        val primaryHeight = primaryMetrics.descent - primaryMetrics.ascent
-        paint.textSize = secondarySize
-        val secondaryMetrics = paint.fontMetrics
-        val secondaryHeight = secondaryMetrics.descent - secondaryMetrics.ascent
-        val gap = 6f * density
-        val top = (height - (primaryHeight + gap + secondaryHeight)) / 2f
-        val secondaryColor = AndroidColor.argb(
-            204,
-            AndroidColor.red(fillColor),
-            AndroidColor.green(fillColor),
-            AndroidColor.blue(fillColor)
+        val primary = TextUtils.ellipsize(
+            primaryText,
+            paint,
+            maxTextWidth,
+            TextUtils.TruncateAt.END
         )
-
-        paint.textSize = primarySize
-        drawStroked(
-            canvas = canvas,
-            text = ellipsize(primaryText, maxTextWidth),
+        drawStrokedText(
+            canvas = nativeCanvas,
+            paint = paint,
+            text = primary,
+            centerX = size.width / 2f,
             baseline = top - primaryMetrics.ascent,
             sizePx = primarySize,
-            color = fillColor
+            fillColor = textColor,
+            strokeColor = strokeColor,
+            strokeScale = strokeScale
         )
         paint.textSize = secondarySize
-        drawStroked(
-            canvas = canvas,
-            text = ellipsize(secondaryText, maxTextWidth),
+        val secondary = TextUtils.ellipsize(
+            secondaryText,
+            paint,
+            maxTextWidth,
+            TextUtils.TruncateAt.END
+        )
+        drawStrokedText(
+            canvas = nativeCanvas,
+            paint = paint,
+            text = secondary,
+            centerX = size.width / 2f,
             baseline = top + primaryHeight + gap - secondaryMetrics.ascent,
             sizePx = secondarySize,
-            color = secondaryColor
+            fillColor = secondaryColor,
+            strokeColor = strokeColor,
+            strokeScale = strokeScale
         )
     }
+}
 
-    private fun ellipsize(text: String, maxWidth: Float): CharSequence {
-        if (text.isEmpty()) return text
-        return TextUtils.ellipsize(text, paint, maxWidth, TextUtils.TruncateAt.END)
+private fun drawStrokedText(
+    canvas: Canvas,
+    paint: Paint,
+    text: CharSequence,
+    centerX: Float,
+    baseline: Float,
+    sizePx: Float,
+    fillColor: Int,
+    strokeColor: Int,
+    strokeScale: Float
+) {
+    if (text.isEmpty()) return
+    val strokeWidth = sizePx * 0.17f * strokeScale
+    if (strokeWidth > 0.05f) {
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = strokeWidth
+        paint.color = strokeColor
+        canvas.drawText(text, 0, text.length, centerX, baseline, paint)
     }
-
-    private fun drawStroked(
-        canvas: Canvas,
-        text: CharSequence,
-        baseline: Float,
-        sizePx: Float,
-        color: Int
-    ) {
-        if (text.isEmpty()) return
-        val strokeWidth = sizePx * 0.17f * strokeScale
-        if (strokeWidth > 0.05f) {
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = strokeWidth
-            paint.color = strokeColor
-            canvas.drawText(text, 0, text.length, width / 2f, baseline, paint)
-        }
-        paint.style = Paint.Style.FILL
-        paint.color = color
-        canvas.drawText(text, 0, text.length, width / 2f, baseline, paint)
-    }
+    paint.style = Paint.Style.FILL
+    paint.color = fillColor
+    canvas.drawText(text, 0, text.length, centerX, baseline, paint)
 }
 
 @Composable
 private fun EnableCard(
     effectiveOn: Boolean,
     overlayGranted: Boolean,
-    locked: Boolean,
-    onToggleEnabled: (Boolean) -> Unit,
-    onToggleLocked: (Boolean) -> Unit
+    onToggleEnabled: (Boolean) -> Unit
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column {
-            SwitchRow(
-                title = "启用桌面歌词",
-                subtitle = when {
-                    effectiveOn -> "已开启，退出 App 后显示"
-                    !overlayGranted -> "需要悬浮窗权限"
-                    else -> "已关闭"
-                },
-                checked = effectiveOn,
-                onCheckedChange = onToggleEnabled
+        SwitchRow(
+            title = "启用桌面歌词",
+            subtitle = when {
+                effectiveOn -> "已开启，退出 App 后显示"
+                !overlayGranted -> "需要悬浮窗权限"
+                else -> "已关闭"
+            },
+            checked = effectiveOn,
+            onCheckedChange = onToggleEnabled
+        )
+    }
+}
+
+/** 顶部横置小卡片：锁定开关 + 重置位置。 */
+@Composable
+private fun QuickActionsCard(
+    locked: Boolean,
+    onToggleLocked: (Boolean) -> Unit,
+    onResetPosition: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Lock,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            SwitchRow(
-                title = "锁定位置",
-                subtitle = "锁定后歌词触摸穿透；在通知栏播放控件的开锁按钮解锁",
-                checked = locked,
-                onCheckedChange = onToggleLocked,
-                leadingLockIcon = true
-            )
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("锁定位置", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = "触摸穿透 · 通知栏开锁",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = locked, onCheckedChange = onToggleLocked)
+            Spacer(Modifier.width(4.dp))
+            TextButton(onClick = onResetPosition) { Text("重置位置") }
         }
     }
 }
@@ -645,25 +738,6 @@ private fun ColorRowCard(
                         .clickable { onOpenPicker() }
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun PositionCard(onReset: () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("位置", style = MaterialTheme.typography.bodyMedium)
-            Text(
-                text = "拖动歌词即可移动，位置按屏幕比例记住；歌词始终不会移出屏幕。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(8.dp))
-            TextButton(onClick = onReset) { Text("重置位置") }
         }
     }
 }

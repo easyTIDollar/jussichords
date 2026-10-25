@@ -19,6 +19,8 @@ val desktopLyricLockedKey = booleanPreferencesKey("desktopLyricLocked")
 // 位置存归一化比例（0..1，相对可移动范围），换机/横竖屏/分屏都能还原。
 val desktopLyricXFractionKey = floatPreferencesKey("desktopLyricXFraction")
 val desktopLyricYFractionKey = floatPreferencesKey("desktopLyricYFraction")
+// 设置页预览背景：用户自选图片的本地路径，空=用内置默认图。
+val desktopLyricPreviewBgKey = stringPreferencesKey("desktopLyricPreviewBg")
 val currentPlayMediaIdKey = longPreferencesKey("currentPlayMediaId")
 val autoSkipNextOnErrorKey = booleanPreferencesKey("autoSkipNextOnError")
 val audioQualityKey = stringPreferencesKey("audioQuality")
