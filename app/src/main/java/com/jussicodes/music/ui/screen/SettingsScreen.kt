@@ -86,6 +86,8 @@ import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.cacheAutoCleanEnabledKey
 import com.jussicodes.music.constants.cacheAutoCleanThresholdKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
+import com.jussicodes.music.constants.desktopLyricFontSizeKey
+import com.jussicodes.music.constants.desktopLyricLockedKey
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.audioSourceKey
 import com.jussicodes.music.constants.directSourceKey
@@ -109,6 +111,7 @@ import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.constants.updateLastErrorKey
 import com.jussicodes.music.lyric.DesktopLyricManager
+import com.jussicodes.music.lyric.DesktopLyricDefaultFontSizeSp
 import com.jussicodes.music.ui.components.ScaledDialogContent
 import com.jussicodes.music.ui.components.Dialog
 import com.jussicodes.music.ui.components.SongQualityDialog
@@ -174,6 +177,8 @@ fun SettingsScreen(navController: NavHostController) {
     val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
     var desktopLyricEnabled by rememberPreference(desktopLyricEnabledKey, false)
+    var desktopLyricFontSize by rememberPreference(desktopLyricFontSizeKey, DesktopLyricDefaultFontSizeSp)
+    var desktopLyricLocked by rememberPreference(desktopLyricLockedKey, false)
     var audioQuality by rememberEnumPreference(audioQualityKey, defaultValue = SongLevel.STANDARD)
     var themeColorSource by rememberEnumPreference(
         themeColorSourceKey,
@@ -613,7 +618,12 @@ fun SettingsScreen(navController: NavHostController) {
             ),
             SettingItemData(
                 title = "桌面歌词",
-                subtitle = if (lyricOn) "已开启" else "需要悬浮窗权限",
+                subtitle = if (!lyricOn) {
+                    "需要悬浮窗权限"
+                } else {
+                    "已开启 · ${desktopLyricFontSize.toInt()}sp" +
+                        if (desktopLyricLocked) " · 已锁定" else ""
+                },
                 imageVector = DesktopLyrics,
                 trailingContent = {
                     Switch(
@@ -622,7 +632,7 @@ fun SettingsScreen(navController: NavHostController) {
                     )
                     Spacer(Modifier.width(12.dp))
                 },
-                onClick = { setLyricTarget(!lyricOn) }
+                onClick = { navController.navigate(Screen.DesktopLyricSettings.route) }
             ),
             SettingItemData(
                 title = "主页专辑墙",

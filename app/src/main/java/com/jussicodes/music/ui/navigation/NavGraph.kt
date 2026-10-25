@@ -28,6 +28,7 @@ import com.jussicodes.music.ui.screen.AlbumScreen
 import com.jussicodes.music.ui.screen.AlbumSublistScreen
 import com.jussicodes.music.ui.screen.ArtistScreen
 import com.jussicodes.music.ui.screen.CloudSongScreen
+import com.jussicodes.music.ui.screen.DesktopLyricSettingsScreen
 import com.jussicodes.music.ui.screen.ExploreScreen
 import com.jussicodes.music.ui.screen.LibraryScreen
 import com.jussicodes.music.ui.screen.LoginScreen
@@ -135,6 +136,9 @@ fun NavGraph(
             composable(Screen.Messages.route) { MessagesScreen(navController = navController) }
             composable(Screen.Search.route) { SearchScreen(navController = navController) }
             composable(Screen.LxPlugins.route) { LxPluginScreen(navController = navController) }
+            composable(Screen.DesktopLyricSettings.route) {
+                DesktopLyricSettingsScreen(navController = navController)
+            }
             composable<PlaylistNav> {
                 PlaylistScreen(
                     navController = navController,

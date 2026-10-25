@@ -4,18 +4,25 @@ import android.app.Service
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.IBinder
+import android.text.TextPaint
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
 import android.view.WindowManager
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -27,11 +34,18 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.jussicodes.music.R
+import com.jussicodes.music.constants.desktopLyricBgVisibleKey
+import com.jussicodes.music.constants.desktopLyricFontSizeKey
+import com.jussicodes.music.constants.desktopLyricLockedKey
+import com.jussicodes.music.constants.desktopLyricTextColorKey
+import com.jussicodes.music.constants.desktopLyricXFractionKey
+import com.jussicodes.music.constants.desktopLyricYFractionKey
 import com.jussicodes.music.constants.lyricTranslationEnabledKey
 import com.jussicodes.music.playback.PlaybackService
-import com.jussicodes.music.utils.LrcLine
 import com.jussicodes.music.utils.AppVisibilityTracker
+import com.jussicodes.music.utils.LrcLine
 import com.jussicodes.music.utils.dataStore
+import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.parseLrc
 import com.jussicodes.music.utils.parseYrc
 import com.rcmiku.ncmapi.api.player.PlayerApi
@@ -42,34 +56,57 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.min
 
+/**
+ * 桌面歌词悬浮窗。
+ *
+ * 两个窗口：
+ * 1. 歌词窗：宽高固定（宽度按整首歌最长行测量，一首歌内不变），拖动/穿透由它决定；
+ * 2. 控制窗：展开时是控制面板，锁定态是右上角的小锁点；位置由歌词窗派生，不参与歌词布局。
+ *
+ * 关键约束：窗口尺寸固定后，文本长度变化只在内部重排，背景框和文字都不会随句子跳动。
+ */
 class DesktopLyricService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private lateinit var windowManager: WindowManager
-    private var overlayView: View? = null
-    private var rootView: LinearLayout? = null
-    private var lyricContainerView: LinearLayout? = null
-    private var controlPanelView: LinearLayout? = null
+    private val windowManager by lazy { getSystemService(Context.WINDOW_SERVICE) as WindowManager }
+
+    private var lyricRoot: LinearLayout? = null
+    private var lyricParams: WindowManager.LayoutParams? = null
     private var currentLineView: StrokeTextView? = null
     private var secondaryLineView: StrokeTextView? = null
+
+    private var controlRoot: FrameLayout? = null
+    private var controlParams: WindowManager.LayoutParams? = null
+    private var panelView: LinearLayout? = null
+    private var lockDotView: LockIconView? = null
     private var playPauseButton: ImageButton? = null
     private var translationButton: ImageButton? = null
     private var translationStateView: TextView? = null
+
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
     private var progressJob: Job? = null
     private var preferenceJob: Job? = null
     private var visibilityJob: Job? = null
+
     private var currentMediaId: String? = null
     private var lyricLines: List<DesktopLyricLine> = emptyList()
     private var currentLineText: String? = null
     private var secondaryLineText: String? = null
-    private var translationEnabled = false
+
+    /** 整首歌最长行宽度（px），换歌/改字号/开关翻译时重算。 */
+    private var contentWidthPx = 0f
+
+    private var style = DesktopLyricStyle()
+    private var xFraction = DesktopLyricDefaultXFraction
+    private var yFraction = DesktopLyricDefaultYFraction
     private var panelExpanded = false
     private var hasPlaybackStarted = false
     private var isAppInForeground = AppVisibilityTracker.isAppInForeground.value
@@ -77,10 +114,6 @@ class DesktopLyricService : Service() {
     private val lyricBackgroundColor = Color.parseColor("#D92F2F33")
     private val controlBackgroundColor = Color.parseColor("#E62B2B2F")
     private val outlineColor = adjustAlpha(Color.WHITE, 0.1f)
-    private val primaryTextColor = Color.WHITE
-    private val secondaryTextColor = Color.parseColor("#F0F0F0")
-    private val textStrokeColor = adjustAlpha(Color.BLACK, 0.82f)
-    private val secondaryStrokeColor = adjustAlpha(Color.BLACK, 0.74f)
     private val buttonTintColor = Color.parseColor("#F2FFFFFF")
     private val buttonBackgroundColor = adjustAlpha(Color.WHITE, 0.08f)
 
@@ -100,7 +133,7 @@ class DesktopLyricService : Service() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) {
                 hasPlaybackStarted = true
-                ensureOverlayView()
+                ensureLyricWindow()
             }
             ensureProgressLoop()
             updatePlaybackButton()
@@ -118,6 +151,9 @@ class DesktopLyricService : Service() {
             stopSelf()
             return
         }
+        xFraction = applicationContext.dataStore.get(desktopLyricXFractionKey, DesktopLyricDefaultXFraction)
+        yFraction = applicationContext.dataStore.get(desktopLyricYFractionKey, DesktopLyricDefaultYFraction)
+        style = readStyle()
         connectController()
         observePreferences()
         observeAppVisibility()
@@ -128,10 +164,21 @@ class DesktopLyricService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_RESET_POSITION) {
+            resetPosition()
+        }
         ensureProgressLoop()
         updatePlaybackButton()
         updateLyric()
         return START_STICKY
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // 旋转/分屏/折叠屏：可用区域变了，按比例重新落位，避免跑到屏幕外。
+        contentWidthPx = measureContentWidth()
+        relayout()
+        positionControlWindow()
     }
 
     override fun onDestroy() {
@@ -141,12 +188,20 @@ class DesktopLyricService : Service() {
         controller?.removeListener(playerListener)
         controllerFuture?.let(MediaController::releaseFuture)
         controller = null
-        removeOverlayView()
+        removeWindows()
         serviceScope.cancel()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun readStyle(): DesktopLyricStyle = DesktopLyricStyle(
+        fontSizeSp = applicationContext.dataStore.get(desktopLyricFontSizeKey, DesktopLyricDefaultFontSizeSp),
+        textColor = applicationContext.dataStore.get(desktopLyricTextColorKey, Color.WHITE),
+        backgroundVisible = applicationContext.dataStore.get(desktopLyricBgVisibleKey, true),
+        locked = applicationContext.dataStore.get(desktopLyricLockedKey, false),
+        translationEnabled = applicationContext.dataStore.get(lyricTranslationEnabledKey, false),
+    )
 
     private fun connectController() {
         val token = SessionToken(this, ComponentName(this, PlaybackService::class.java))
@@ -159,7 +214,7 @@ class DesktopLyricService : Service() {
                     mediaController.addListener(playerListener)
                     hasPlaybackStarted = mediaController.isPlaying
                     if (shouldShowOverlay()) {
-                        ensureOverlayView()
+                        ensureLyricWindow()
                     }
                     syncTrack(mediaController.currentMediaItem)
                     ensureProgressLoop()
@@ -175,12 +230,17 @@ class DesktopLyricService : Service() {
         preferenceJob?.cancel()
         preferenceJob = serviceScope.launch {
             applicationContext.dataStore.data
-                .map { it[lyricTranslationEnabledKey] ?: false }
-                .collectLatest { enabled ->
-                    translationEnabled = enabled
-                    updateTranslationButton()
-                    updateLyric()
+                .map { prefs ->
+                    DesktopLyricStyle(
+                        fontSizeSp = prefs[desktopLyricFontSizeKey] ?: DesktopLyricDefaultFontSizeSp,
+                        textColor = prefs[desktopLyricTextColorKey] ?: Color.WHITE,
+                        backgroundVisible = prefs[desktopLyricBgVisibleKey] ?: true,
+                        locked = prefs[desktopLyricLockedKey] ?: false,
+                        translationEnabled = prefs[lyricTranslationEnabledKey] ?: false,
+                    )
                 }
+                .distinctUntilChanged()
+                .collectLatest { applyStyle(it) }
         }
     }
 
@@ -190,11 +250,13 @@ class DesktopLyricService : Service() {
             AppVisibilityTracker.isAppInForeground.collectLatest { inForeground ->
                 isAppInForeground = inForeground
                 if (inForeground) {
-                    removeOverlayView()
+                    removeWindows()
                 } else if (shouldShowOverlay()) {
-                    ensureOverlayView()
+                    ensureLyricWindow()
+                    applyLockState()
+                    updateControlVisibility()
                     updatePlaybackButton()
-                    updateTranslationButton()
+                    updateTranslationState()
                     updateLyric()
                 }
             }
@@ -206,6 +268,8 @@ class DesktopLyricService : Service() {
         if (mediaId.isNullOrBlank()) {
             currentMediaId = null
             lyricLines = emptyList()
+            contentWidthPx = 0f
+            relayout()
             renderLyric(
                 mediaItem?.mediaMetadata?.title?.toString().orEmpty().ifBlank { "暂无歌词" },
                 mediaItem?.mediaMetadata?.artist?.toString().orEmpty()
@@ -219,6 +283,8 @@ class DesktopLyricService : Service() {
 
         currentMediaId = mediaId
         lyricLines = emptyList()
+        contentWidthPx = 0f
+        relayout()
         renderLyric(
             mediaItem.mediaMetadata.title?.toString().orEmpty().ifBlank { "加载歌词中..." },
             mediaItem.mediaMetadata.artist?.toString().orEmpty()
@@ -258,6 +324,8 @@ class DesktopLyricService : Service() {
             serviceScope.launch {
                 if (currentMediaId != mediaId) return@launch
                 lyricLines = parsedLines
+                contentWidthPx = measureContentWidth()
+                relayout()
                 updateLyric()
             }
         }
@@ -276,10 +344,10 @@ class DesktopLyricService : Service() {
     private fun updateLyric() {
         if (!hasPlaybackStarted) return
         if (isAppInForeground) {
-            removeOverlayView()
+            removeWindows()
             return
         }
-        ensureOverlayView()
+        ensureLyricWindow()
 
         val mediaController = controller
         val mediaItem = mediaController?.currentMediaItem
@@ -308,7 +376,7 @@ class DesktopLyricService : Service() {
         val currentLine = lyricLines.getOrNull(currentIndex)
         val currentText = currentLine?.text.orEmpty()
             .ifBlank { mediaItem.mediaMetadata.title?.toString().orEmpty() }
-        val secondaryText = if (translationEnabled) {
+        val secondaryText = if (style.translationEnabled) {
             currentLine?.translation.orEmpty()
                 .ifBlank { lyricLines.drop(currentIndex + 1).firstOrNull()?.text.orEmpty() }
         } else {
@@ -324,120 +392,408 @@ class DesktopLyricService : Service() {
         secondaryLineText = secondary
         currentLineView?.text = current
         secondaryLineView?.text = secondary
-        secondaryLineView?.visibility = if (secondary.isBlank()) View.GONE else View.VISIBLE
+        // INVISIBLE 而不是 GONE：保留副行高度，窗口高度和基线都不会跳。
+        secondaryLineView?.visibility = if (secondary.isBlank()) View.INVISIBLE else View.VISIBLE
     }
 
-    private fun ensureOverlayView() {
+    /** 歌词窗是否应该出现（播过 + App 不在前台）。 */
+    private fun shouldShowOverlay(): Boolean = hasPlaybackStarted && !isAppInForeground
+
+    private fun ensureLyricWindow() {
         if (!shouldShowOverlay()) return
-        if (overlayView != null) return
-        createOverlayView()
+        if (lyricRoot != null) return
+        createLyricWindow()
     }
 
-    private fun shouldShowOverlay(): Boolean =
-        hasPlaybackStarted && !isAppInForeground
-
-    private fun createOverlayView() {
-        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val container = LinearLayout(this).apply {
+    private fun createLyricWindow() {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            clipChildren = false
-            clipToPadding = false
-        }
-        rootView = container
-
-        lyricContainerView = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
+            gravity = Gravity.CENTER
             clipChildren = false
             clipToPadding = false
             setPadding(dp(24), dp(16), dp(24), dp(16))
-            background = null
+            background = if (style.backgroundVisible) createLyricBackground() else null
         }
 
         currentLineView = StrokeTextView(this).apply {
-            setTextColor(primaryTextColor)
-            setStrokeColor(textStrokeColor)
-            setStrokeWidth(dp(3).toFloat())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            setTextColor(style.textColor)
+            setStrokeColor(style.strokeColor)
+            setStrokeWidth(style.primaryStrokeWidth(resources.displayMetrics.density))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, style.fontSizeSp)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
+            includeFontPadding = false
             maxLines = 2
-            maxWidth = maxContentWidth()
-            text = "暂无歌词"
+            minLines = 2
+            ellipsize = TextUtils.TruncateAt.END
             setLineSpacing(0f, 1.06f)
             setShadowLayer(8f, 0f, 2f, adjustAlpha(Color.BLACK, 0.24f))
-            setPadding(dp(4), 0, dp(4), 0)
+            text = currentLineText.orEmpty().ifBlank { "暂无歌词" }
         }
         secondaryLineView = StrokeTextView(this).apply {
-            setTextColor(secondaryTextColor)
-            setStrokeColor(secondaryStrokeColor)
-            setStrokeWidth(dp(2).toFloat())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(style.secondaryTextColor)
+            setStrokeColor(style.secondaryStrokeColor)
+            setStrokeWidth(style.secondaryStrokeWidth(resources.displayMetrics.density))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, style.secondaryFontSizeSp)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
+            includeFontPadding = false
             maxLines = 1
-            maxWidth = maxContentWidth()
+            minLines = 1
+            ellipsize = TextUtils.TruncateAt.END
             setLineSpacing(0f, 1.04f)
             setShadowLayer(6f, 0f, 2f, adjustAlpha(Color.BLACK, 0.2f))
-            setPadding(dp(3), 0, dp(3), 0)
+            text = secondaryLineText.orEmpty()
+            visibility = if (secondaryLineText.isNullOrBlank()) View.INVISIBLE else View.VISIBLE
         }
 
-        lyricContainerView?.addView(
+        root.addView(
             currentLineView,
             LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
         )
-        lyricContainerView?.addView(
+        root.addView(
             secondaryLineView,
             LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
                 topMargin = dp(6)
             }
         )
-        container.addView(
-            lyricContainerView,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        )
 
-        controlPanelView = createControlPanel().also { panel ->
-            panel.visibility = View.GONE
-            container.addView(
-                panel,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    topMargin = dp(8)
-                }
-            )
+        val width = computeLyricWidth()
+        val height = computeLyricHeight()
+        val params = WindowManager.LayoutParams(
+            width,
+            height,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            lyricWindowFlags(),
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = clampX(xFromFraction(width), width)
+            y = clampY(yFromFraction(height), height)
         }
 
+        lyricRoot = root
+        lyricParams = params
+        root.setOnTouchListener(if (style.locked) null else DragTouchListener(params))
+        runCatching { windowManager.addView(root, params) }
+    }
+
+    private fun lyricWindowFlags(): Int {
+        val base = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        return if (style.locked) base or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else base
+    }
+
+    // ------------------------------------------------------------ 尺寸与位置
+
+    private fun computeLyricWidth(): Int {
+        val area = screenArea()
+        val available = (area.right - area.left).coerceAtLeast(dp(160))
+        val maxTotal = ((available * 0.9f).toInt()).coerceAtLeast(dp(120))
+        val maxTextWidth = (maxTotal - dp(54)).coerceAtLeast(dp(60))
+        val textWidth = if (contentWidthPx > 0f) {
+            contentWidthPx
+        } else {
+            measureTextPaint(style.fontSizeSp)
+                .measureText(currentLineText.orEmpty().ifBlank { "暂无歌词" })
+        }
+        val width = min(textWidth, maxTextWidth.toFloat()).toInt() + dp(54)
+        val upperBound = min(maxTotal, available - dp(16)).coerceAtLeast(dp(120))
+        return width.coerceIn(dp(120), upperBound)
+    }
+
+    private fun computeLyricHeight(): Int {
+        val density = resources.displayMetrics.density
+        val mainPaint = Paint().apply {
+            textSize = sp(style.fontSizeSp)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+        val mainMetrics = mainPaint.fontMetrics
+        val mainLineHeight = (mainMetrics.descent - mainMetrics.ascent) * 1.06f
+        val secondaryPaint = Paint().apply { textSize = sp(style.secondaryFontSizeSp) }
+        val secondaryMetrics = secondaryPaint.fontMetrics
+        val secondaryLineHeight = (secondaryMetrics.descent - secondaryMetrics.ascent) * 1.04f
+        val strokeSlack = style.primaryStrokeWidth(density).toInt()
+        return dp(16) * 2 + (mainLineHeight * 2f).toInt() + dp(6) +
+            secondaryLineHeight.toInt() + strokeSlack + dp(2)
+    }
+
+    private fun measureTextPaint(fontSizeSp: Float): TextPaint =
+        TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = sp(fontSizeSp)
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+    /** 整首歌（主行 + 翻译行）最长行宽度：一首歌内恒定，句句不跳。 */
+    private fun measureContentWidth(): Float {
+        if (lyricLines.isEmpty()) return 0f
+        val mainPaint = measureTextPaint(style.fontSizeSp)
+        val secondaryPaint = measureTextPaint(style.secondaryFontSizeSp)
+        var maxWidth = 0f
+        for (line in lyricLines) {
+            maxWidth = maxOf(maxWidth, mainPaint.measureText(line.text))
+            if (line.translation.isNotBlank()) {
+                maxWidth = maxOf(maxWidth, secondaryPaint.measureText(line.translation))
+            }
+        }
+        return maxWidth
+    }
+
+    private fun relayout() {
+        val root = lyricRoot ?: return
+        val params = lyricParams ?: return
+        val width = computeLyricWidth()
+        val height = computeLyricHeight()
+        if (params.width == width && params.height == height) return
+        params.width = width
+        params.height = height
+        params.x = clampX(params.x, width)
+        params.y = clampY(params.y, height)
+        runCatching { windowManager.updateViewLayout(root, params) }
+        positionControlWindow()
+    }
+
+    private data class ScreenArea(val left: Int, val top: Int, val right: Int, val bottom: Int)
+
+    private fun screenArea(): ScreenArea {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val metrics = windowManager.currentWindowMetrics
+            val bounds = metrics.bounds
+            val insets = metrics.windowInsets.getInsets(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+            )
+            return ScreenArea(
+                left = bounds.left + insets.left,
+                top = bounds.top + insets.top,
+                right = bounds.right - insets.right,
+                bottom = bounds.bottom - insets.bottom
+            )
+        }
+        val displayMetrics = resources.displayMetrics
+        return ScreenArea(0, 0, displayMetrics.widthPixels, displayMetrics.heightPixels)
+    }
+
+    private fun clampX(x: Int, width: Int): Int {
+        val area = screenArea()
+        val minX = area.left + dp(4)
+        val maxX = (area.right - dp(4) - width).coerceAtLeast(minX)
+        return x.coerceIn(minX, maxX)
+    }
+
+    private fun clampY(y: Int, height: Int): Int {
+        val area = screenArea()
+        val minY = area.top + dp(4)
+        val maxY = (area.bottom - dp(4) - height).coerceAtLeast(minY)
+        return y.coerceIn(minY, maxY)
+    }
+
+    private fun xFromFraction(width: Int): Int {
+        val area = screenArea()
+        val free = (area.right - area.left - width).coerceAtLeast(0)
+        return area.left + (free * xFraction.coerceIn(0f, 1f)).toInt()
+    }
+
+    private fun yFromFraction(height: Int): Int {
+        val area = screenArea()
+        val free = (area.bottom - area.top - height).coerceAtLeast(0)
+        return area.top + (free * yFraction.coerceIn(0f, 1f)).toInt()
+    }
+
+    private fun persistPosition() {
+        val params = lyricParams ?: return
+        val area = screenArea()
+        val freeX = (area.right - area.left - params.width).coerceAtLeast(0)
+        val freeY = (area.bottom - area.top - params.height).coerceAtLeast(0)
+        xFraction = if (freeX <= 0) 0f else {
+            ((params.x - area.left).toFloat() / freeX).coerceIn(0f, 1f)
+        }
+        yFraction = if (freeY <= 0) 0f else {
+            ((params.y - area.top).toFloat() / freeY).coerceIn(0f, 1f)
+        }
+        serviceScope.launch {
+            applicationContext.dataStore.edit { prefs ->
+                prefs[desktopLyricXFractionKey] = xFraction
+                prefs[desktopLyricYFractionKey] = yFraction
+            }
+        }
+    }
+
+    private fun resetPosition() {
+        xFraction = DesktopLyricDefaultXFraction
+        yFraction = DesktopLyricDefaultYFraction
+        val params = lyricParams ?: return
+        params.x = clampX(xFromFraction(params.width), params.width)
+        params.y = clampY(yFromFraction(params.height), params.height)
+        lyricRoot?.let { root ->
+            runCatching { windowManager.updateViewLayout(root, params) }
+        }
+        positionControlWindow()
+        persistPosition()
+    }
+
+    // ------------------------------------------------------------ 样式
+
+    private fun applyStyle(newStyle: DesktopLyricStyle) {
+        val previous = style
+        style = newStyle
+
+        currentLineView?.let { view ->
+            view.setTextSize(TypedValue.COMPLEX_UNIT_SP, newStyle.fontSizeSp)
+            view.setTextColor(newStyle.textColor)
+            view.setStrokeWidth(newStyle.primaryStrokeWidth(resources.displayMetrics.density))
+            view.setStrokeColor(newStyle.strokeColor)
+        }
+        secondaryLineView?.let { view ->
+            view.setTextSize(TypedValue.COMPLEX_UNIT_SP, newStyle.secondaryFontSizeSp)
+            view.setTextColor(newStyle.secondaryTextColor)
+            view.setStrokeWidth(newStyle.secondaryStrokeWidth(resources.displayMetrics.density))
+            view.setStrokeColor(newStyle.secondaryStrokeColor)
+        }
+        if (previous.backgroundVisible != newStyle.backgroundVisible) {
+            applyBackground()
+        }
+        if (previous.locked != newStyle.locked) {
+            if (newStyle.locked) panelExpanded = false
+            applyLockState()
+        }
+        if (previous.fontSizeSp != newStyle.fontSizeSp ||
+            previous.translationEnabled != newStyle.translationEnabled
+        ) {
+            contentWidthPx = measureContentWidth()
+            relayout()
+            updateLyric()
+        }
+        updateTranslationState()
+        updateControlVisibility()
+    }
+
+    private fun applyBackground() {
+        lyricRoot?.background = if (style.backgroundVisible) createLyricBackground() else null
+    }
+
+    private fun applyLockState() {
+        val params = lyricParams ?: return
+        val root = lyricRoot ?: return
+        params.flags = lyricWindowFlags()
+        root.setOnTouchListener(if (style.locked) null else DragTouchListener(params))
+        runCatching { windowManager.updateViewLayout(root, params) }
+    }
+
+    private fun createLyricBackground(): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = dp(22).toFloat()
+        setColor(lyricBackgroundColor)
+        setStroke(dp(1), outlineColor)
+    }
+
+    private fun createControlBackground(): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = dp(18).toFloat()
+        setColor(controlBackgroundColor)
+        setStroke(dp(1), outlineColor)
+    }
+
+    // ------------------------------------------------------------ 控制窗
+
+    private fun updateControlVisibility() {
+        if (!shouldShowOverlay()) {
+            removeControlWindow()
+            return
+        }
+        val visible = style.locked || panelExpanded
+        if (!visible) {
+            removeControlWindow()
+            return
+        }
+        ensureControlWindow()
+        panelView?.visibility = if (!style.locked && panelExpanded) View.VISIBLE else View.GONE
+        lockDotView?.visibility = if (style.locked) View.VISIBLE else View.GONE
+        positionControlWindow()
+    }
+
+    private fun ensureControlWindow() {
+        if (controlRoot != null) return
+        val root = FrameLayout(this)
+        val panel = createControlPanel().apply { visibility = View.GONE }
+        val dot = createLockDot().apply { visibility = View.GONE }
+        root.addView(
+            panel,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        root.addView(
+            dot,
+            FrameLayout.LayoutParams(dp(40), dp(40))
+        )
+        root.setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+                collapsePanel()
+                true
+            } else {
+                false
+            }
+        }
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = dp(120)
+            gravity = Gravity.TOP or Gravity.START
         }
+        controlRoot = root
+        controlParams = params
+        panelView = panel
+        lockDotView = dot
+        runCatching { windowManager.addView(root, params) }
+    }
 
-        container.setOnTouchListener(DragTouchListener(params))
-        overlayView = container
-        windowManager.addView(container, params)
-        updatePlaybackButton()
-        updateTranslationButton()
+    private fun removeControlWindow() {
+        val root = controlRoot ?: return
+        runCatching { windowManager.removeView(root) }
+        controlRoot = null
+        controlParams = null
+        panelView = null
+        lockDotView = null
+        playPauseButton = null
+        translationButton = null
+        translationStateView = null
+    }
+
+    private fun positionControlWindow() {
+        val root = controlRoot ?: return
+        val params = controlParams ?: return
+        val lyric = lyricParams ?: return
+        val measureSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        root.measure(measureSpec, measureSpec)
+        val controlWidth = root.measuredWidth
+        val controlHeight = root.measuredHeight
+        if (controlWidth <= 0 || controlHeight <= 0) return
+
+        val area = screenArea()
+        var y = lyric.y + lyric.height + dp(8)
+        if (y + controlHeight > area.bottom - dp(4)) {
+            // 下方放不下就翻到歌词上方
+            y = lyric.y - controlHeight - dp(8)
+        }
+        params.width = controlWidth
+        params.height = controlHeight
+        params.x = clampX(lyric.x + lyric.width / 2 - controlWidth / 2, controlWidth)
+        params.y = clampY(y, controlHeight)
+        runCatching { windowManager.updateViewLayout(root, params) }
     }
 
     private fun createControlPanel(): LinearLayout {
@@ -503,14 +859,14 @@ class DesktopLyricService : Service() {
 
         val translationLabel = TextView(this).apply {
             text = "翻译"
-            setTextColor(primaryTextColor)
+            setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             typeface = Typeface.DEFAULT_BOLD
             setPadding(dp(6), 0, 0, 0)
         }
 
         translationStateView = TextView(this).apply {
-            setTextColor(secondaryTextColor)
+            setTextColor(adjustAlpha(Color.WHITE, 0.82f))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
             setPadding(dp(4), 0, 0, 0)
         }
@@ -518,6 +874,20 @@ class DesktopLyricService : Service() {
         translationToggle.addView(translationButton)
         translationToggle.addView(translationLabel)
         translationToggle.addView(translationStateView)
+
+        val lockButton = LockIconView(this).apply {
+            tintColor = Color.WHITE
+            drawDot = false
+            contentDescription = "锁定桌面歌词"
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(adjustAlpha(Color.WHITE, 0.08f))
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(30), dp(30)).apply {
+                marginStart = dp(8)
+            }
+            setOnClickListener { setLocked(true) }
+        }
 
         panel.addView(previousButton)
         panel.addView(playPauseButton)
@@ -530,8 +900,17 @@ class DesktopLyricService : Service() {
             }
         )
         panel.addView(translationToggle)
+        panel.addView(lockButton)
 
         return panel
+    }
+
+    private fun createLockDot(): LockIconView = LockIconView(this).apply {
+        tintColor = Color.WHITE
+        drawDot = true
+        dotRadiusPx = dp(8).toFloat()
+        contentDescription = "解锁桌面歌词"
+        setOnClickListener { setLocked(false) }
     }
 
     private fun createActionButton(
@@ -541,23 +920,21 @@ class DesktopLyricService : Service() {
         paddingDp: Int,
         marginDp: Int = 0,
         onClick: () -> Unit
-    ): ImageButton {
-        return ImageButton(this).apply {
-            setImageResource(iconRes)
-            contentDescription = description
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(buttonBackgroundColor)
-            }
-            setColorFilter(buttonTintColor)
-            setPadding(dp(paddingDp), dp(paddingDp), dp(paddingDp), dp(paddingDp))
-            layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp)).apply {
-                marginStart = dp(marginDp)
-                marginEnd = dp(marginDp)
-            }
-            setOnClickListener { onClick() }
+    ): ImageButton = ImageButton(this).apply {
+        setImageResource(iconRes)
+        contentDescription = description
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(buttonBackgroundColor)
         }
+        setColorFilter(buttonTintColor)
+        setPadding(dp(paddingDp), dp(paddingDp), dp(paddingDp), dp(paddingDp))
+        layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp)).apply {
+            marginStart = dp(marginDp)
+            marginEnd = dp(marginDp)
+        }
+        setOnClickListener { onClick() }
     }
 
     private fun updatePlaybackButton() {
@@ -568,45 +945,77 @@ class DesktopLyricService : Service() {
         playPauseButton?.setColorFilter(buttonTintColor)
     }
 
-    private fun updateTranslationButton() {
+    private fun updateTranslationState() {
         translationButton?.setImageResource(
-            if (translationEnabled) R.drawable.ic_lyrics_on else R.drawable.ic_lyrics
+            if (style.translationEnabled) R.drawable.ic_lyrics_on else R.drawable.ic_lyrics
         )
-        translationButton?.setColorFilter(if (translationEnabled) Color.WHITE else secondaryTextColor)
-        translationStateView?.text = if (translationEnabled) "开" else "关"
+        translationButton?.setColorFilter(
+            if (style.translationEnabled) Color.WHITE else adjustAlpha(Color.WHITE, 0.82f)
+        )
+        translationStateView?.text = if (style.translationEnabled) "开" else "关"
+    }
+
+    private fun togglePanel() {
+        panelExpanded = !panelExpanded
+        updateControlVisibility()
+    }
+
+    private fun collapsePanel() {
+        if (!panelExpanded) return
+        panelExpanded = false
+        updateControlVisibility()
     }
 
     private fun toggleTranslation() {
+        val target = !style.translationEnabled
+        style = style.copy(translationEnabled = target)
+        updateTranslationState()
         serviceScope.launch {
             applicationContext.dataStore.edit {
-                it[lyricTranslationEnabledKey] = !translationEnabled
+                it[lyricTranslationEnabledKey] = target
             }
         }
     }
 
-    private fun setExpanded(expanded: Boolean) {
-        if (panelExpanded == expanded) return
-        panelExpanded = expanded
-        lyricContainerView?.background = if (expanded) createLyricBackground() else null
-        controlPanelView?.visibility = if (expanded) View.VISIBLE else View.GONE
-    }
-
-    private fun createLyricBackground(): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(22).toFloat()
-            setColor(lyricBackgroundColor)
-            setStroke(dp(1), outlineColor)
+    private fun setLocked(locked: Boolean) {
+        style = style.copy(locked = locked)
+        if (locked) panelExpanded = false
+        applyLockState()
+        updateControlVisibility()
+        serviceScope.launch {
+            applicationContext.dataStore.edit {
+                it[desktopLyricLockedKey] = locked
+            }
         }
     }
 
-    private fun createControlBackground(): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(18).toFloat()
-            setColor(controlBackgroundColor)
-            setStroke(dp(1), outlineColor)
-        }
+    // ------------------------------------------------------------ 清理
+
+    private fun removeWindows() {
+        runCatching { lyricRoot?.let { windowManager.removeView(it) } }
+        removeControlWindow()
+        lyricRoot = null
+        lyricParams = null
+        currentLineView = null
+        secondaryLineView = null
+        currentLineText = null
+        secondaryLineText = null
+        panelExpanded = false
+    }
+
+    // ------------------------------------------------------------ 工具
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun sp(value: Float): Float = TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_SP,
+        value,
+        resources.displayMetrics
+    )
+
+    private fun adjustAlpha(color: Int, alpha: Float): Int {
+        val alphaValue = (Color.alpha(color) * alpha).toInt().coerceIn(0, 255)
+        return Color.argb(alphaValue, Color.red(color), Color.green(color), Color.blue(color))
     }
 
     private fun findTranslationText(
@@ -619,34 +1028,6 @@ class DesktopLyricService : Service() {
             ?.takeIf { abs(it.time - time) <= 800 && it.text.isNotBlank() }
             ?.text
             .orEmpty()
-    }
-
-    private fun removeOverlayView() {
-        overlayView?.let {
-            runCatching { windowManager.removeView(it) }
-        }
-        overlayView = null
-        rootView = null
-        lyricContainerView = null
-        controlPanelView = null
-        currentLineView = null
-        secondaryLineView = null
-        currentLineText = null
-        secondaryLineText = null
-        playPauseButton = null
-        translationButton = null
-        translationStateView = null
-    }
-
-    private fun dp(value: Int): Int =
-        (value * resources.displayMetrics.density).toInt()
-
-    private fun maxContentWidth(): Int =
-        (resources.displayMetrics.widthPixels * 0.8f).toInt()
-
-    private fun adjustAlpha(color: Int, alpha: Float): Int {
-        val alphaValue = (Color.alpha(color) * alpha).toInt().coerceIn(0, 255)
-        return Color.argb(alphaValue, Color.red(color), Color.green(color), Color.blue(color))
     }
 
     private inner class DragTouchListener(
@@ -676,15 +1057,19 @@ class DesktopLyricService : Service() {
                     if (!moved && (abs(deltaX) > touchSlop || abs(deltaY) > touchSlop)) {
                         moved = true
                     }
-                    layoutParams.x = startX + deltaX.toInt()
-                    layoutParams.y = startY + deltaY.toInt()
+                    // 拖动中实时夹紧，不让任何一边拖出屏幕。
+                    layoutParams.x = clampX(startX + deltaX.toInt(), layoutParams.width)
+                    layoutParams.y = clampY(startY + deltaY.toInt(), layoutParams.height)
                     windowManager.updateViewLayout(v, layoutParams)
+                    positionControlWindow()
                     return true
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    if (!moved) {
-                        setExpanded(!panelExpanded)
+                    if (moved) {
+                        persistPosition()
+                    } else {
+                        togglePanel()
                     }
                     return true
                 }
@@ -726,5 +1111,72 @@ class DesktopLyricService : Service() {
             setTextColor(fillColor)
             super.onDraw(canvas)
         }
+    }
+
+    /**
+     * 锁图标：锁定态是带底色的小锁点（视觉 16dp，外面留 40dp 触摸热区），
+     * 展开面板里是纯图标按钮。全部自绘，不依赖图标资源。
+     */
+    private class LockIconView(context: Context) : View(context) {
+        var tintColor: Int = Color.WHITE
+        var drawDot: Boolean = false
+        var dotRadiusPx: Float = 0f
+
+        private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val dotStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = resources.displayMetrics.density
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val centerX = width / 2f
+            val centerY = height / 2f
+            val density = resources.displayMetrics.density
+
+            if (drawDot) {
+                dotPaint.color = Color.argb(115, 32, 32, 36)
+                canvas.drawCircle(centerX, centerY, dotRadiusPx, dotPaint)
+                dotStrokePaint.color = Color.argb(80, 255, 255, 255)
+                canvas.drawCircle(centerX, centerY, dotRadiusPx, dotStrokePaint)
+            }
+
+            val glyph = if (drawDot) dotRadiusPx * 1.25f else min(width, height) * 0.62f
+            val bodyWidth = glyph * 0.82f
+            val bodyHeight = glyph * 0.58f
+            val left = centerX - bodyWidth / 2f
+            val top = centerY - bodyHeight * 0.02f
+
+            fillPaint.color = tintColor
+            canvas.drawRoundRect(
+                RectF(left, top, left + bodyWidth, top + bodyHeight),
+                bodyWidth * 0.22f,
+                bodyWidth * 0.22f,
+                fillPaint
+            )
+
+            strokePaint.color = tintColor
+            strokePaint.strokeWidth = density * 1.5f
+            val shackleRadius = bodyWidth * 0.30f
+            val shackleRect = RectF(
+                centerX - shackleRadius,
+                top - shackleRadius * 1.9f,
+                centerX + shackleRadius,
+                top + shackleRadius * 0.4f
+            )
+            canvas.drawArc(shackleRect, 180f, 180f, false, strokePaint)
+
+            fillPaint.color = if (drawDot) Color.argb(210, 32, 32, 36) else Color.argb(190, 0, 0, 0)
+            canvas.drawCircle(centerX, top + bodyHeight * 0.42f, bodyWidth * 0.11f, fillPaint)
+        }
+    }
+
+    companion object {
+        /** 设置页「重置位置」用：让运行中的 Service 回到默认位置并写回比例。 */
+        const val ACTION_RESET_POSITION = "com.jussicodes.music.action.DESKTOP_LYRIC_RESET_POSITION"
     }
 }

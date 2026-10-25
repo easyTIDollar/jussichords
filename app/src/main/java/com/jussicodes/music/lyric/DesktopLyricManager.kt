@@ -7,8 +7,12 @@ import android.os.Build
 import android.provider.Settings
 import androidx.datastore.preferences.core.edit
 import com.jussicodes.music.constants.desktopLyricEnabledKey
+import com.jussicodes.music.constants.desktopLyricXFractionKey
+import com.jussicodes.music.constants.desktopLyricYFractionKey
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.get
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 
 object DesktopLyricManager {
 
@@ -56,6 +60,28 @@ object DesktopLyricManager {
             startService(appContext)
         } else {
             stopService(appContext)
+        }
+    }
+
+    /**
+     * 回到默认位置：Service 在跑就让它自己重算并回写比例（能同时刷新悬浮窗），
+     * 没跑就直接把比例写回默认值，下次显示时生效。
+     */
+    fun resetPosition(context: Context) {
+        val appContext = context.applicationContext
+        val running = canDrawOverlays(appContext) && appContext.dataStore.get(desktopLyricEnabledKey, false)
+        if (running) {
+            appContext.startService(
+                Intent(appContext, DesktopLyricService::class.java)
+                    .setAction(DesktopLyricService.ACTION_RESET_POSITION)
+            )
+            return
+        }
+        runBlocking(Dispatchers.IO) {
+            appContext.dataStore.edit { prefs ->
+                prefs[desktopLyricXFractionKey] = DesktopLyricDefaultXFraction
+                prefs[desktopLyricYFractionKey] = DesktopLyricDefaultYFraction
+            }
         }
     }
 
