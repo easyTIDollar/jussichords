@@ -250,7 +250,8 @@ class PlaybackService : MediaSessionService() {
         val builder = ImmutableList.builder<CommandButton>()
             .add(if (liked) favoriteButtonOn else favoriteButton)
         if (desktopLyricEnabled) {
-            builder.add(if (desktopLyricLocked) desktopLyricUnlockButton else desktopLyricLockButton)
+            // 图标表示当前状态：已锁定显示「锁」，未锁定显示「开锁」，点一下切换。
+            builder.add(if (desktopLyricLocked) desktopLyricLockButton else desktopLyricUnlockButton)
         } else {
             builder.add(desktopLyricButton)
         }

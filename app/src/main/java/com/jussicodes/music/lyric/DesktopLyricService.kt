@@ -721,22 +721,13 @@ class DesktopLyricService : Service() {
     private fun ensureControlWindow() {
         if (controlRoot != null) return
         val panel = createControlPanel()
-        panel.setOnTouchListener { _, event ->
-            if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
-                collapsePanel()
-                true
-            } else {
-                false
-            }
-        }
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -929,7 +920,11 @@ class DesktopLyricService : Service() {
     }
 
     private fun togglePanel() {
-        panelExpanded = !panelExpanded
+        if (panelExpanded) {
+            collapsePanel()
+            return
+        }
+        panelExpanded = true
         applyBackground()
         updateControlVisibility()
     }

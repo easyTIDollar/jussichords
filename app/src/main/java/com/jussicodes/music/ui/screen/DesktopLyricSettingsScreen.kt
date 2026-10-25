@@ -1,6 +1,8 @@
 package com.jussicodes.music.ui.screen
 
+import android.app.WallpaperManager
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.ComposeShader
@@ -9,9 +11,14 @@ import android.graphics.PorterDuff
 import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.graphics.SweepGradient
+import android.graphics.Typeface
+import android.text.TextPaint
+import android.text.TextUtils
+import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -66,8 +73,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -96,10 +105,13 @@ import com.jussicodes.music.utils.parseLrc
 import com.jussicodes.music.utils.parseYrc
 import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.viewModel.LyricViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -120,6 +132,7 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
     var fontSize by rememberPreference(desktopLyricFontSizeKey, DesktopLyricDefaultFontSizeSp)
     var textColor by rememberPreference(desktopLyricTextColorKey, AndroidColor.WHITE)
     var strokeScale by rememberPreference(desktopLyricStrokeScaleKey, DesktopLyricDefaultStrokeScale)
+    var strokeColor by rememberPreference(desktopLyricStrokeColorKey, AndroidColor.BLACK)
     var locked by rememberPreference(desktopLyricLockedKey, false)
 
     var overlayGranted by remember { mutableStateOf(DesktopLyricManager.canDrawOverlays(context)) }
@@ -222,7 +235,9 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                     ) {
                         PreviewCard(
                             fontSize = fontSizeDraft,
+                            strokeScale = strokeDraft,
                             textColor = textColor,
+                            strokeColor = strokeColor,
                             currentLine = previewCurrent,
                             nextLine = previewNext
                         )
@@ -256,7 +271,9 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
             } else {
                 PreviewCard(
                     fontSize = fontSizeDraft,
+                    strokeScale = strokeDraft,
                     textColor = textColor,
+                    strokeColor = strokeColor,
                     currentLine = previewCurrent,
                     nextLine = previewNext
                 )
@@ -312,36 +329,159 @@ private val strokePresetColors = listOf(
 @Composable
 private fun PreviewCard(
     fontSize: Float,
+    strokeScale: Float,
     textColor: Int,
+    strokeColor: Int,
     currentLine: String,
     nextLine: String
 ) {
+    val context = LocalContext.current
+    var wallpaper by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(Unit) {
+        wallpaper = withContext(Dispatchers.IO) {
+            loadWallpaperImage(context)?.asImageBitmap()
+        }
+    }
+    val background = wallpaper
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(Color(0xFF101014))
-            .padding(vertical = 20.dp, horizontal = 12.dp),
+            .height(132.dp)
+            .clip(RoundedCornerShape(22.dp)),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = currentLine,
-                color = Color(textColor),
-                fontSize = fontSize.sp,
-                fontWeight = FontWeight.Bold,
-                lineHeight = (fontSize * 1.15f).sp,
-                maxLines = 2
+        if (background != null) {
+            Image(
+                bitmap = background,
+                contentDescription = null,
+                modifier = Modifier.matchParentSize(),
+                contentScale = ContentScale.Crop
             )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = nextLine,
-                color = Color(textColor).copy(alpha = 0.8f),
-                fontSize = (fontSize * 0.66f).sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1
+        } else {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .background(Color(0xFF101014))
             )
         }
+        // 用真实绘制（与悬浮窗同一套描边算法）来做预览，字号/描边/颜色所见即所得。
+        AndroidView(
+            factory = { ctx -> LyricPreviewView(ctx) },
+            update = { view ->
+                view.strokeScale = strokeScale
+                view.applyStyle(fontSize, textColor, strokeColor, currentLine, nextLine)
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(132.dp)
+        )
+    }
+}
+
+/** 桌面壁纸缩到 1080px 内当预览背景；取不到就用深色底板。 */
+private fun loadWallpaperImage(context: Context): Bitmap? = runCatching {
+    val drawable = WallpaperManager.getInstance(context).drawable ?: return@runCatching null
+    val rawWidth = drawable.intrinsicWidth.coerceAtLeast(1)
+    val rawHeight = drawable.intrinsicHeight.coerceAtLeast(1)
+    val scale = min(1f, 1080f / max(rawWidth, rawHeight).toFloat())
+    val width = (rawWidth * scale).toInt().coerceAtLeast(1)
+    val height = (rawHeight * scale).toInt().coerceAtLeast(1)
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    drawable.setBounds(0, 0, width, height)
+    drawable.draw(Canvas(bitmap))
+    bitmap
+}.getOrNull()
+
+/** 预览用歌词：主行 + 副行，描边宽度和悬浮窗一致（字号 × 0.17 × 倍数）。 */
+private class LyricPreviewView(context: Context) : View(context) {
+    private var primaryText = ""
+    private var secondaryText = ""
+    private var fontSizeSp = 18f
+    private var fillColor = AndroidColor.WHITE
+    private var strokeColor = AndroidColor.BLACK
+    var strokeScale = 1f
+
+    private val density = resources.displayMetrics.density
+    private val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        typeface = Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+    }
+
+    fun applyStyle(fontSize: Float, text: Int, stroke: Int, current: String, next: String) {
+        fontSizeSp = fontSize
+        fillColor = text
+        strokeColor = stroke
+        primaryText = current
+        secondaryText = next
+        invalidate()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        if (width <= 0 || height <= 0) return
+        val primarySize = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_SP,
+            fontSizeSp,
+            resources.displayMetrics
+        )
+        val secondarySize = primarySize * 0.66f
+        val maxTextWidth = (width - 24f * density).coerceAtLeast(1f)
+
+        paint.textSize = primarySize
+        val primaryMetrics = paint.fontMetrics
+        val primaryHeight = primaryMetrics.descent - primaryMetrics.ascent
+        paint.textSize = secondarySize
+        val secondaryMetrics = paint.fontMetrics
+        val secondaryHeight = secondaryMetrics.descent - secondaryMetrics.ascent
+        val gap = 6f * density
+        val top = (height - (primaryHeight + gap + secondaryHeight)) / 2f
+        val secondaryColor = AndroidColor.argb(
+            204,
+            AndroidColor.red(fillColor),
+            AndroidColor.green(fillColor),
+            AndroidColor.blue(fillColor)
+        )
+
+        paint.textSize = primarySize
+        drawStroked(
+            canvas = canvas,
+            text = ellipsize(primaryText, maxTextWidth),
+            baseline = top - primaryMetrics.ascent,
+            sizePx = primarySize,
+            color = fillColor
+        )
+        paint.textSize = secondarySize
+        drawStroked(
+            canvas = canvas,
+            text = ellipsize(secondaryText, maxTextWidth),
+            baseline = top + primaryHeight + gap - secondaryMetrics.ascent,
+            sizePx = secondarySize,
+            color = secondaryColor
+        )
+    }
+
+    private fun ellipsize(text: String, maxWidth: Float): CharSequence {
+        if (text.isEmpty()) return text
+        return TextUtils.ellipsize(text, paint, maxWidth, TextUtils.TruncateAt.END)
+    }
+
+    private fun drawStroked(
+        canvas: Canvas,
+        text: CharSequence,
+        baseline: Float,
+        sizePx: Float,
+        color: Int
+    ) {
+        if (text.isEmpty()) return
+        val strokeWidth = sizePx * 0.17f * strokeScale
+        if (strokeWidth > 0.05f) {
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = strokeWidth
+            paint.color = strokeColor
+            canvas.drawText(text, 0, text.length, width / 2f, baseline, paint)
+        }
+        paint.style = Paint.Style.FILL
+        paint.color = color
+        canvas.drawText(text, 0, text.length, width / 2f, baseline, paint)
     }
 }
 
