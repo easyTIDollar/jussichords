@@ -111,33 +111,42 @@ object ExplorePreloader {
      * calls and a fresh fetch for the same account within [REFRESH_DEDUPE_MS]
      * is skipped unless [force] is set.
      *
-     * While the cookie is not applied yet (guest) no network fetch happens:
-     * a guest fetch would return un-personalized data that could overwrite
-     * the real account's cache.
+     * 未登录（guest）也放行：NCM 的 /recommend/songs 与 /personalized 对游客返回
+     * 公开兜底内容（每日推荐 = 热门榜 30 首），所以游客也能看探索页。游客结果
+     * 只写内存不落盘 —— 冷启动时 cookie 还没从 DataStore 回流，那一段 guest 是
+     * 瞬态，晚到的游客结果不能覆盖已登录账号的缓存/内容。
      */
     suspend fun warmUp(context: Context, force: Boolean = false) {
         mutex.withLock {
             loadCache()
             val key = userKey()
-            if (key == GUEST_KEY) return@withLock
+            val isGuest = key == GUEST_KEY
+            // 已经拿到过账号数据时，晚到的游客（瞬态）请求直接丢弃，避免热门兜底
+            // 内容盖掉个性化内容。
+            if (isGuest && lastFetchedKey != null && lastFetchedKey != GUEST_KEY) {
+                return@withLock
+            }
             if (
                 !force && key == lastFetchedKey &&
                 System.currentTimeMillis() - lastFetchedAt < REFRESH_DEDUPE_MS
             ) {
                 return@withLock
             }
-            AccountApi.favoriteSongIds().getOrNull()?.ids?.let { songIds ->
-                FavoriteSongIdsUtil.updateSongIds(context, songIds)
+            // 红心 id 只有登录态拿得到；游客跳过，省一次必然失败的请求。
+            if (!isGuest) {
+                AccountApi.favoriteSongIds().getOrNull()?.ids?.let { songIds ->
+                    FavoriteSongIdsUtil.updateSongIds(context, songIds)
+                }
             }
             val songs = RecommendApi.recommendSongs()
             val playlist = RecommendApi.recommendPlaylist()
             if (songs.isSuccess) {
                 _recommendSongs.value = songs
-                persist(key, keySongs, json.encodeToString(songs.getOrThrow()))
+                if (!isGuest) persist(key, keySongs, json.encodeToString(songs.getOrThrow()))
             }
             if (playlist.isSuccess) {
                 _recommendPlaylist.value = playlist
-                persist(key, keyPlaylist, json.encodeToString(playlist.getOrThrow()))
+                if (!isGuest) persist(key, keyPlaylist, json.encodeToString(playlist.getOrThrow()))
             }
             // 两块推荐都拉不到 => 大概率是已配置的 API 服务器失效/填错，
             // 弹一次节流的 toast 引导用户去设置更换后端（不刷屏）。

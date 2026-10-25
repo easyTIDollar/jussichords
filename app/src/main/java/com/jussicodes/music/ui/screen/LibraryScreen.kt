@@ -67,6 +67,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -254,6 +255,14 @@ fun LibraryScreen(
                             text = stringResource(R.string.click_to_login),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface
+                        )
+                        // 说明：点进去是内嵌 WebView 的网易云登录页，登录成功后自动抓取
+                        // MUSIC_U 等 cookie 落盘（也可在登录页右上角手贴 cookie）。
+                        Text(
+                            text = "点击跳转webview登录获取cookie",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
