@@ -24,6 +24,7 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
@@ -184,10 +185,14 @@ fun ResponsiveDialogWindow(
             val panelWidth = landscapePanelWidth(maxWidth)
             val panelMaxHeight = (maxHeight - 32.dp).coerceAtLeast(160.dp)
 
+            // clip 成和内层 Card 同一套圆角：只给滚动容器 heightIn 的话，内容滚出
+            // 边界时被按矩形裁掉，卡片上下就变成一条直边（用户说的「被裁切成直边」）。
+            // 裁切形状跟 Card 的 extraLarge 对齐后，滚到中途上下仍是圆角。
             Box(
                 modifier = Modifier
                     .width(panelWidth)
                     .heightIn(max = panelMaxHeight)
+                    .clip(MaterialTheme.shapes.extraLarge)
                     .verticalScroll(rememberScrollState()),
                 contentAlignment = Alignment.TopCenter,
             ) {

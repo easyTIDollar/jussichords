@@ -107,7 +107,6 @@ import com.jussicodes.music.constants.homeBgOpacityKey
 import com.jussicodes.music.constants.homeBgScaleKey
 import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.constants.unblockSourceKey
-import com.jussicodes.music.constants.updateLastCheckAtKey
 import com.jussicodes.music.constants.updateLastErrorKey
 import com.jussicodes.music.lyric.DesktopLyricManager
 import com.jussicodes.music.ui.components.ScaledDialogContent
@@ -224,8 +223,7 @@ fun SettingsScreen(navController: NavHostController) {
         "当前正在使用 $inUseLabel"
     }
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
-    // 检查更新的可见状态：上次检查时间 + 上次失败原因（失败不再静默）。
-    var updateLastCheckAt by rememberPreference(updateLastCheckAtKey, 0L)
+    // 检查更新的可见状态：只留失败原因（失败不再静默）。
     var updateLastError by rememberPreference(updateLastErrorKey, "")
     // DPI 模拟（调试）：1.0=关闭。覆盖 density 让 dp 视口变成别的屏幕的尺寸。
     var densityScale by rememberPreference(densityScaleKey, 1f)
@@ -752,19 +750,7 @@ fun SettingsScreen(navController: NavHostController) {
             ),
             SettingItemData(
                 title = if (updating) "正在检查" else "检查更新",
-                subtitle = buildString {
-                    append("v${BuildConfig.VERSION_NAME}")
-                    if (updateLastCheckAt > 0L) {
-                        append(" · 上次检查 ")
-                        append(
-                            android.text.format.DateUtils.getRelativeTimeSpanString(
-                                updateLastCheckAt,
-                                System.currentTimeMillis(),
-                                android.text.format.DateUtils.MINUTE_IN_MILLIS
-                            )
-                        )
-                    }
-                },
+                subtitle = "v${BuildConfig.VERSION_NAME}",
                 // 上次检查失败的原因直接挂在这一行：之前失败是完全静默的，
                 // 用户只会看到「没有更新提示」，不知道是被限流还是网络问题。
                 warning = updateLastError.takeIf { it.isNotBlank() },
