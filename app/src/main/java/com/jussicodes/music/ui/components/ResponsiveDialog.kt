@@ -51,7 +51,7 @@ import androidx.compose.ui.window.DialogProperties
  * 同源），不用宽度分级 —— 手机横屏宽度也是 ~900dp，按宽度会被误判成平板。
  */
 @Composable
-private fun isLandscapeOrientation(): Boolean =
+internal fun isLandscapeOrientation(): Boolean =
     LocalContext.current.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
 /** 横屏面板宽度：可用宽的 62%，夹在 360..640dp。 */

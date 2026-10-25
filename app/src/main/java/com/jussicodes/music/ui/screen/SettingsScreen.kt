@@ -149,6 +149,7 @@ import com.jussicodes.music.utils.UpdateInfo
 import com.jussicodes.music.utils.UpdateSourceStatus
 import com.jussicodes.music.utils.apiServers
 import com.jussicodes.music.utils.downloadSources
+import com.jussicodes.music.utils.normalizedSourceId
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.api.account.AccountApi
@@ -1088,7 +1089,7 @@ fun SettingsScreen(navController: NavHostController) {
 
     if (showGithubSourceDialog) {
         GitHubDownloadSourceDialog(
-            currentSourceId = githubDownloadSource,
+            currentSourceId = normalizedSourceId(githubDownloadSource),
             statuses = githubSourceStatuses,
             testing = testingGithubSources,
             onDismiss = { showGithubSourceDialog = false },
@@ -1126,7 +1127,7 @@ fun SettingsScreen(navController: NavHostController) {
             isDownloading = downloadingUpdate,
             downloadProgress = if (downloadingUpdate) updateDownloadProgress else null,
             progressText = updateDownloadText,
-            selectedSourceId = githubDownloadSource,
+            selectedSourceId = normalizedSourceId(githubDownloadSource),
             sourceStatuses = githubSourceStatuses,
             isMeasuringSources = isMeasuringUpdateSources,
             onMeasureSources = {
@@ -1160,7 +1161,7 @@ fun SettingsScreen(navController: NavHostController) {
                 UpdateDownloadService.start(
                     context.applicationContext,
                     updateInfo,
-                    githubDownloadSource
+                    normalizedSourceId(githubDownloadSource)
                 )
             },
             onCancelDownload = {

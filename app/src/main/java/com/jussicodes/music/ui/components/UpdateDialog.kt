@@ -1,8 +1,10 @@
 package com.jussicodes.music.ui.components
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -18,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.utils.UpdateSourceStatus
 import com.jussicodes.music.utils.UpdateInfo
@@ -40,6 +43,15 @@ private const val NotesMaxHeightRatio = 0.32f
 private const val NotesMaxHeightMinDp = 96f
 private const val NotesMaxHeightMaxDp = 240f
 
+/**
+ * 横屏：屏幕高度只有 ~411dp，竖屏那套 0.32 的比例算出来只有 131dp，
+ * 说明区会被压成一条缝。横屏改成按 0.45 算并单独设区间，配合下面
+ * 「说明在左栏、源和进度在右栏」的分栏，说明能拿到更多纵向空间。
+ */
+private const val NotesMaxHeightRatioLandscape = 0.45f
+private const val NotesMaxHeightLandscapeMinDp = 72f
+private const val NotesMaxHeightLandscapeMaxDp = 200f
+
 @Composable
 fun UpdateDialog(
     updateInfo: UpdateInfo,
@@ -57,6 +69,9 @@ fun UpdateDialog(
     onCancelDownload: () -> Unit = {},
 ) {
     val notes = updateInfo.body.trim()
+    // 与 ResponsiveAlertDialog 的分支条件同源：只有它切到横屏自绘面板时，
+    // 这里才用左右分栏（竖屏仍是原来的单列 + AlertDialog）。
+    val isLandscape = isLandscapeOrientation()
 
     ScaledDialogContent {
     // 说明区高度上限：按屏幕高度比例算，并夹在合理区间内。
@@ -69,9 +84,15 @@ fun UpdateDialog(
     val screenHeightDp = LocalConfiguration.current.screenHeightDp
     // 注意用 coerceAtLeast/coerceAtMost 而不是 coerceIn：后者在值越界时直接抛异常，
     // 屏幕一高（比例算出来 > 上限）就会让弹窗崩掉。
-    val realDpBudget = (screenHeightDp * NotesMaxHeightRatio)
-        .coerceAtLeast(NotesMaxHeightMinDp)
-        .coerceAtMost(NotesMaxHeightMaxDp)
+    val realDpBudget = if (isLandscape) {
+        (screenHeightDp * NotesMaxHeightRatioLandscape)
+            .coerceAtLeast(NotesMaxHeightLandscapeMinDp)
+            .coerceAtMost(NotesMaxHeightLandscapeMaxDp)
+    } else {
+        (screenHeightDp * NotesMaxHeightRatio)
+            .coerceAtLeast(NotesMaxHeightMinDp)
+            .coerceAtMost(NotesMaxHeightMaxDp)
+    }
     val notesMaxHeight = (realDpBudget / scale).dp
 
     ResponsiveAlertDialog(
@@ -80,101 +101,53 @@ fun UpdateDialog(
         },
         title = { Text(text = "发现新版本 ${updateInfo.versionName}") },
         text = {
-            Column {
-                Text(
-                    text = buildString {
-                        appendLine(updateInfo.releaseName)
-                        if (updateInfo.apkSize > 0L) {
-                            appendLine("安装包大小: ${formatFileSize(updateInfo.apkSize)}")
-                        }
-                    }.trim()
-                )
-                if (notes.isNotEmpty()) {
-                    // 更新说明：高度封顶 + 内部可上下滑动，长说明不会把弹窗撑爆。
-                    // padding 放在滚动容器之外，否则它会跟着内容一起滚走。
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp)
-                            .heightIn(max = notesMaxHeight)
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        Text(text = notes)
-                    }
-                }
-                Text(
-                    text = "下载源",
-                    modifier = Modifier.padding(top = 12.dp)
-                )
-                downloadSources.forEach { source ->
-                    val status = sourceStatuses.firstOrNull { it.source.id == source.id }
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        RadioButton(
-                            selected = source.id == selectedSourceId,
-                            onClick = { if (!isDownloading) onSourceSelected(source.id) },
-                            enabled = !isDownloading
-                        )
-                        Row(
-                            modifier = Modifier.padding(top = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = buildString {
-                                    append(source.name)
-                                    status?.let {
-                                        append(" · ")
-                                        append(if (it.available) "${it.latencyMs ?: 0} ms" else it.message)
-                                    }
-                                }
-                            )
-                            // 测速进行中：源名后面挂一个小转圈。
-                            // 不写「测速中…」文字（弹窗里堆字很土），转圈跟文字一样大，
-                            // 视觉上就是「这个名字的延迟还在测」的意思。
-                            if (isMeasuringSources) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier
-                                        .padding(start = 6.dp)
-                                        .size(16.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            }
-                        }
-                    }
-                }
+            if (isLandscape) {
+                // 横屏：左栏说明（可滚），右栏下载源 + 下载进度。
+                // 分栏的意义不只是省高度 —— 下载中右栏的进度条和百分比一直盯着用户，
+                // 不会因为更新说明长而被滚出可视区；左栏说明再长也只在自己栏内滚。
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
-                    TextButton(
-                        onClick = { if (!isMeasuringSources) onMeasureSources() },
-                        enabled = !isDownloading && !isMeasuringSources
-                    ) {
-                        Text("Ping")
-                    }
+                    UpdateInfoAndNotes(
+                        updateInfo = updateInfo,
+                        notes = notes,
+                        notesMaxHeight = notesMaxHeight,
+                        modifier = Modifier.weight(1f),
+                    )
+                    UpdateSourcesAndProgress(
+                        selectedSourceId = selectedSourceId,
+                        sourceStatuses = sourceStatuses,
+                        isMeasuringSources = isMeasuringSources,
+                        onMeasureSources = onMeasureSources,
+                        onSourceSelected = onSourceSelected,
+                        isDownloading = isDownloading,
+                        downloadProgress = downloadProgress,
+                        progressText = progressText,
+                        sourcesLabelTopPadding = 0.dp,
+                        compact = true,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
-                if (isDownloading) {
-                    if (downloadProgress != null) {
-                        LinearProgressIndicator(
-                            progress = { (downloadProgress ?: 0f).coerceIn(0f, 1f) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 16.dp)
-                        )
-                    } else {
-                        LinearProgressIndicator(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 16.dp)
-                        )
-                    }
-                    progressText?.let {
-                        Text(
-                            text = it,
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
-                    }
+            } else {
+                Column {
+                    UpdateInfoAndNotes(
+                        updateInfo = updateInfo,
+                        notes = notes,
+                        notesMaxHeight = notesMaxHeight,
+                    )
+                    UpdateSourcesAndProgress(
+                        selectedSourceId = selectedSourceId,
+                        sourceStatuses = sourceStatuses,
+                        isMeasuringSources = isMeasuringSources,
+                        onMeasureSources = onMeasureSources,
+                        onSourceSelected = onSourceSelected,
+                        isDownloading = isDownloading,
+                        downloadProgress = downloadProgress,
+                        progressText = progressText,
+                        sourcesLabelTopPadding = 12.dp,
+                        compact = false,
+                    )
                 }
             }
         },
@@ -205,6 +178,155 @@ fun UpdateDialog(
             }
         }
     )
+    }
+}
+
+/** 版本标题行 + 更新说明（说明区高度封顶，自身可滚动）。 */
+@Composable
+private fun UpdateInfoAndNotes(
+    updateInfo: UpdateInfo,
+    notes: String,
+    notesMaxHeight: Dp,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = buildString {
+                appendLine(updateInfo.releaseName)
+                if (updateInfo.apkSize > 0L) {
+                    appendLine("安装包大小: ${formatFileSize(updateInfo.apkSize)}")
+                }
+            }.trim()
+        )
+        if (notes.isNotEmpty()) {
+            // 更新说明：高度封顶 + 内部可上下滑动，长说明不会把弹窗撑爆。
+            // padding 放在滚动容器之外，否则它会跟着内容一起滚走。
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .heightIn(max = notesMaxHeight)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(text = notes)
+            }
+        }
+    }
+}
+
+/**
+ * 下载源单选列表 + Ping 按钮 + 下载进度。
+ *
+ * [sourcesLabelTopPadding] 让这个块既能接在竖屏的说明区后面（12dp 间距），
+ * 也能在横屏右栏顶部从 0 开始（栏顶对齐标题）。
+ * [compact] = 横屏：Ping 挪到「下载源」标题行右侧、源行间距收紧，
+ * 把纵向省下来的 ~70dp 留给下载进度和百分比 —— 横屏只有 411dp 高，
+ * 竖屏那套「Ping 独占一行」会把进度条挤到滚动区之外。
+ */
+@Composable
+private fun UpdateSourcesAndProgress(
+    selectedSourceId: String,
+    sourceStatuses: List<UpdateSourceStatus>,
+    isMeasuringSources: Boolean,
+    onMeasureSources: () -> Unit,
+    onSourceSelected: (String) -> Unit,
+    isDownloading: Boolean,
+    downloadProgress: Float?,
+    progressText: String?,
+    sourcesLabelTopPadding: Dp,
+    compact: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = sourcesLabelTopPadding),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = "下载源")
+            if (compact) {
+                Spacer(Modifier.weight(1f))
+                TextButton(
+                    onClick = { if (!isMeasuringSources) onMeasureSources() },
+                    enabled = !isDownloading && !isMeasuringSources
+                ) {
+                    Text("Ping")
+                }
+            }
+        }
+        downloadSources.forEach { source ->
+            val status = sourceStatuses.firstOrNull { it.source.id == source.id }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                RadioButton(
+                    selected = source.id == selectedSourceId,
+                    onClick = { if (!isDownloading) onSourceSelected(source.id) },
+                    enabled = !isDownloading
+                )
+                Row(
+                    modifier = Modifier.padding(top = if (compact) 0.dp else 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = buildString {
+                            append(source.name)
+                            status?.let {
+                                append(" · ")
+                                append(if (it.available) "${it.latencyMs ?: 0} ms" else it.message)
+                            }
+                        }
+                    )
+                    // 测速进行中：还没测出结果的那条源，名字后面挂一个小转圈。
+                    // 不写「测速中…」文字（弹窗里堆字很土），转圈跟文字一样大，
+                    // 视觉上就是「这个名字的延迟还在测」的意思。
+                    if (isMeasuringSources && status == null) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(start = 6.dp)
+                                .size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                    }
+                }
+            }
+        }
+        if (!compact) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    onClick = { if (!isMeasuringSources) onMeasureSources() },
+                    enabled = !isDownloading && !isMeasuringSources
+                ) {
+                    Text("Ping")
+                }
+            }
+        }
+        if (isDownloading) {
+            if (downloadProgress != null) {
+                LinearProgressIndicator(
+                    progress = { (downloadProgress ?: 0f).coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp)
+                )
+            } else {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp)
+                )
+            }
+            progressText?.let {
+                Text(
+                    text = it,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        }
     }
 }
 

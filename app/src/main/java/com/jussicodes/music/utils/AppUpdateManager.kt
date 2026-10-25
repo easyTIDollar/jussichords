@@ -46,7 +46,10 @@ const val GITHUB_RELEASES_LATEST_PAGE =
 
 /**
  * 更新源。用户可在「设置 · 检查更新」与开屏更新弹窗里自由选择，下载时首选所选源、
- * 失败自动回落到其余源。gh-proxy 为主源（国内直连 GitHub release），GitHub 直连兜底。
+ * 失败自动回落到其余源。
+ *
+ * 现在只有 gh-proxy 节点池（官方 5 节点里选 3 条：v4 优选 / 主站 / AxisNow 三网），
+ * 不再保留 GitHub 直连兜底 —— 国内直连 release 基本拉不动，留着只是多一次超时往返。
  *
  * 各源各自声明：如何拉 release 列表（fetchReleasesText）、如何把「GitHub 规范下载链接」
  * 换算成自己可直连的 URL（toDownloadUrl）、以及 Ping 探测（probeRequest）。
@@ -54,7 +57,7 @@ const val GITHUB_RELEASES_LATEST_PAGE =
 sealed class UpdateSource {
     abstract val id: String
     abstract val name: String
-    /** 给选择器 UI 展示的一行小字提示（如「直连」「gh-proxy.com」）。 */
+    /** 给选择器 UI 展示的一行小字提示（如「v4 优选」「gh-proxy.org」）。 */
     abstract val detail: String
 
     /** 阻塞拉取 release 列表 JSON（按 created 倒序）；失败抛 IOException/HttpStatusException。 */
@@ -100,14 +103,34 @@ class GitHubUpdateSource(
             .build()
 }
 
-/** 全局下载源列表：gh-proxy 为主源，GitHub 直连兜底。 */
+/**
+ * 全局下载源列表：gh-proxy 节点池，按顺序回落。
+ *
+ * - `gh-proxy-v4`：官方转换器里标 recommended 的优选节点（仅 IPv4），默认源。
+ * - `gh-proxy-main`：主站加速（Cloudflare），v4 挂掉时的第一条兜底。
+ * - `gh-proxy-axisnow`：AxisNow 三网优选（仅 IPv4），线路不同源，前两条同时抽风时还能走。
+ *
+ * 官方另外两条没有收进来：`v6.gh-proxy.org` 只有 AAAA 记录（无 IPv6 的网络上必然失败一次），
+ * `cdn.gh-proxy.org` 是 Fastly 节点，国内实测最慢。
+ */
 val downloadSources = listOf(
-    GitHubUpdateSource("gh-proxy", "gh-proxy.com", "gh-proxy.com", "https://gh-proxy.com/"),
-    GitHubUpdateSource("direct", "GitHub 直连", "直连", ""),
+    GitHubUpdateSource("gh-proxy-v4", "gh-proxy 优选", "v4.gh-proxy.org · 官方推荐", "https://v4.gh-proxy.org/"),
+    GitHubUpdateSource("gh-proxy-main", "gh-proxy 主站", "gh-proxy.org", "https://gh-proxy.org/"),
+    GitHubUpdateSource("gh-proxy-axisnow", "gh-proxy 三网", "axisnow.gh-proxy.org", "https://axisnow.gh-proxy.org/"),
 )
 
 fun sourceById(sourceId: String?): UpdateSource? =
     downloadSources.firstOrNull { it.id == sourceId }
+
+/**
+ * 把偏好里持久化的源 id 归一化。
+ *
+ * 源清单换过（旧的 `direct` / 旧的 `gh-proxy.com` 默认项都已删除），老用户偏好里可能存着
+ * 已经不存在的 id：直接拿去比较会让单选按钮一个都不选中，所以读出来先过一遍这里，
+ * 落到默认源（列表第一个）。
+ */
+fun normalizedSourceId(sourceId: String?): String =
+    sourceById(sourceId)?.id ?: downloadSources.first().id
 
 /** 首选源在前、其余按固定序排后（用于下载回退）；preferred 为 null 时返回固定序。 */
 fun orderedSources(preferredSourceId: String?): List<UpdateSource> {

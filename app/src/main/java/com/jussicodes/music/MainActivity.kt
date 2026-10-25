@@ -50,6 +50,7 @@ import com.jussicodes.music.utils.UpdateDownloadStateStore
 import com.jussicodes.music.utils.UpdateInfo
 import com.jussicodes.music.utils.UpdateSourceStatus
 import com.jussicodes.music.utils.downloadSources
+import com.jussicodes.music.utils.normalizedSourceId
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.utils.FileProvider
@@ -279,7 +280,7 @@ class MainActivity : ComponentActivity() {
                             isDownloading = isDownloadingUpdate,
                             downloadProgress = if (isDownloadingUpdate) downloadProgress else null,
                             progressText = downloadProgressText,
-                            selectedSourceId = githubDownloadSource,
+                            selectedSourceId = normalizedSourceId(githubDownloadSource),
                             sourceStatuses = updateSourceStatuses,
                             isMeasuringSources = isMeasuringUpdateSources,
                             onMeasureSources = {
@@ -313,7 +314,7 @@ class MainActivity : ComponentActivity() {
                                 UpdateDownloadService.start(
                                     applicationContext,
                                     updateInfo,
-                                    githubDownloadSource
+                                    normalizedSourceId(githubDownloadSource)
                                 )
                             },
                             onCancelDownload = {
