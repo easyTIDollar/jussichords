@@ -569,31 +569,41 @@ fun SettingsScreen(navController: NavHostController) {
 
     val uiGroup = SettingGroupData(
         name = "界面",
-        items = listOf(
-            SettingItemData(
-                title = appearanceTitle,
-                subtitle = appearanceWithScale,
-                imageVector = Palette,
-                onClick = { showThemeColorSourceDialog = true }
-            ),
-            SettingItemData(
-                title = "屏幕方向",
-                subtitle = ScreenOrientationLock.fromKey(orientationLockKeyValue).label,
-                imageVector = Icons.Outlined.ScreenRotation,
-                onClick = { showOrientationDialog = true }
-            ),
-            SettingItemData(
-                title = "DPI 模拟",
-                subtitle = if (densityScale == 1f) {
-                    "关闭 · 视口 ${currentContentWidthDp()}×${currentContentHeightDp()}dp"
-                } else {
-                    "$densityScaleLabel · 视口 ${currentContentWidthDp()}×${currentContentHeightDp()}dp"
-                },
-                imageVector = Icons.Outlined.DensityMedium,
-                onClick = { showDensityScaleDialog = true }
-            ),
-            SettingItemData(
-                title = "桌面歌词",
+        items = buildList {
+            add(
+                SettingItemData(
+                    title = appearanceTitle,
+                    subtitle = appearanceWithScale,
+                    imageVector = Palette,
+                    onClick = { showThemeColorSourceDialog = true }
+                )
+            )
+            // 调试项：屏幕方向锁定与 DPI 模拟仅在 canary 调试通道提供，正式版自动隐藏
+            if (BuildConfig.BUILD_TYPE == "canary") {
+                add(
+                    SettingItemData(
+                        title = "屏幕方向",
+                        subtitle = ScreenOrientationLock.fromKey(orientationLockKeyValue).label,
+                        imageVector = Icons.Outlined.ScreenRotation,
+                        onClick = { showOrientationDialog = true }
+                    )
+                )
+                add(
+                    SettingItemData(
+                        title = "DPI 模拟",
+                        subtitle = if (densityScale == 1f) {
+                            "关闭 · 视口 ${currentContentWidthDp()}×${currentContentHeightDp()}dp"
+                        } else {
+                            "$densityScaleLabel · 视口 ${currentContentWidthDp()}×${currentContentHeightDp()}dp"
+                        },
+                        imageVector = Icons.Outlined.DensityMedium,
+                        onClick = { showDensityScaleDialog = true }
+                    )
+                )
+            }
+            add(
+                SettingItemData(
+                    title = "桌面歌词",
                 subtitle = (if (lyricOn) {
                     "已开启 · ${desktopLyricFontSize.toInt()}sp" +
                         if (desktopLyricLocked) " · 已锁定" else ""

@@ -103,9 +103,15 @@ class MainActivity : ComponentActivity() {
             var uiScale by rememberPreference(uiScaleKey, 1f)
             var liveUiScale by remember { mutableFloatStateOf(uiScale) }
             // DPI 模拟（调试用）：覆盖 density 让 dp 视口变成别的屏幕的尺寸。
-            // 1.0 = 关闭。配合下面的方向锁定，可模拟低密度大屏 / 横屏。
-            var densityScale by rememberPreference(densityScaleKey, 1f)
-            var orientationLock by rememberPreference(orientationLockKey, "unlocked")
+            // 仅在 canary 构建启用；正式版固定为 1f（完全不影响基线密度）。
+            var densityScale by rememberPreference(
+                densityScaleKey,
+                if (BuildConfig.BUILD_TYPE == "canary") 1f else 1f
+            )
+            var orientationLock by rememberPreference(
+                orientationLockKey,
+                "unlocked"
+            )
             var githubDownloadSource by rememberPreference(
                 githubDownloadSourceKey,
                 downloadSources.first().id
@@ -225,8 +231,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
             val baseDensity = LocalDensity.current
-            // DPI 模拟 × 界面缩放，两者叠乘。densityScale=1 时与旧行为完全一致。
-            val densityScaleSafe = densityScale.coerceIn(0.4f, 1.0f)
+            // DPI 模拟 × 界面缩放，两者叠乘。非 canary 构建强制为 1f。
+            val densityScaleSafe = if (BuildConfig.BUILD_TYPE == "canary") {
+                densityScale.coerceIn(0.4f, 1.0f)
+            } else {
+                1.0f
+            }
             val scaledDensity = remember(baseDensity, liveUiScale, densityScaleSafe) {
                 val scale = liveUiScale.coerceIn(0.7f, 1.1f)
                 Density(
@@ -234,9 +244,12 @@ class MainActivity : ComponentActivity() {
                     fontScale = baseDensity.fontScale * scale
                 )
             }
-            // 屏幕方向锁定：走 Activity 的 requestedOrientation，是**真转屏**
-            // （系统重建 configuration），不是 UI 层假装。设置里改即时生效。
-            val orientation = ScreenOrientationLock.fromKey(orientationLock)
+            // 屏幕方向锁定：仅在 canary 生效，正式版始终 UNSPECIFIED 跟随系统
+            val orientation = if (BuildConfig.BUILD_TYPE == "canary") {
+                ScreenOrientationLock.fromKey(orientationLock)
+            } else {
+                ScreenOrientationLock.Unlocked
+            }
             LaunchedEffect(orientation) {
                 requestedOrientation = when (orientation) {
                     ScreenOrientationLock.Unlocked ->
