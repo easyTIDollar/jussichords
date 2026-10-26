@@ -1,0 +1,15 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 翻译（文+A）：Lucide "languages" 线性图标，ISC License，path 原样转写。
+         只有描边、没有填充，配合 updateTranslationState 的实心/空心按钮背景表示开关。 -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M5,8 L11,14 M4,14 L10,8 L12,5 M2,5 L14,5 M7,2 L8,2 M22,22 L17,12 L12,22 M14,18 L20,18" />
+</vector>

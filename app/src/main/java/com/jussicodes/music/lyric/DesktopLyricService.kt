@@ -86,7 +86,6 @@ class DesktopLyricService : Service() {
     private var panelView: LinearLayout? = null
     private var playPauseButton: ImageButton? = null
     private var translationButton: ImageButton? = null
-    private var translationStateView: TextView? = null
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
@@ -113,6 +112,8 @@ class DesktopLyricService : Service() {
     private val controlBackgroundColor = Color.parseColor("#E62B2B2F")
     private val outlineColor = adjustAlpha(Color.WHITE, 0.1f)
     private val buttonTintColor = Color.parseColor("#F2FFFFFF")
+    /** 翻译开启（实心按钮）时图标的挖空色，贴近控制条底色。 */
+    private val translationActiveGlyphColor = Color.parseColor("#2A2A2E")
     private val buttonBackgroundColor = adjustAlpha(Color.WHITE, 0.08f)
 
     private val playerListener = object : Player.Listener {
@@ -749,7 +750,6 @@ class DesktopLyricService : Service() {
         panelView = null
         playPauseButton = null
         translationButton = null
-        translationStateView = null
     }
 
     private fun positionControlWindow() {
@@ -819,40 +819,18 @@ class DesktopLyricService : Service() {
             setBackgroundColor(adjustAlpha(Color.WHITE, 0.14f))
         }
 
-        val translationToggle = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(4), dp(8), dp(4))
-            setOnClickListener { toggleTranslation() }
-        }
-
-        translationButton = createActionButton(
-            iconRes = R.drawable.ic_lyrics,
+        // 翻译开关：只有一个图标按钮，不带任何文字说明；
+        // 开启/关闭只用「实心 / 空心」区分（实心 = 白色实底 + 深色图标，空心 = 淡底 + 白色线图标）。
+        val translateButton = createActionButton(
+            iconRes = R.drawable.ic_lyric_translate,
             description = "歌词翻译",
-            sizeDp = 28,
-            paddingDp = 5,
-            marginDp = 0
-        ) {}
-        translationButton?.isClickable = false
-        translationButton?.isFocusable = false
-
-        val translationLabel = TextView(this).apply {
-            text = "翻译"
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            typeface = Typeface.DEFAULT_BOLD
-            setPadding(dp(6), 0, 0, 0)
+            sizeDp = 30,
+            paddingDp = 6,
+            marginDp = 8
+        ) {
+            toggleTranslation()
         }
-
-        translationStateView = TextView(this).apply {
-            setTextColor(adjustAlpha(Color.WHITE, 0.82f))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
-            setPadding(dp(4), 0, 0, 0)
-        }
-
-        translationToggle.addView(translationButton)
-        translationToggle.addView(translationLabel)
-        translationToggle.addView(translationStateView)
+        translationButton = translateButton
 
         val lockButton = createActionButton(
             iconRes = R.drawable.ic_lyric_lock,
@@ -888,7 +866,7 @@ class DesktopLyricService : Service() {
                 marginEnd = dp(6)
             }
         )
-        panel.addView(translationToggle)
+        panel.addView(translateButton)
         panel.addView(lockButton)
         panel.addView(closeButton)
 
@@ -928,13 +906,14 @@ class DesktopLyricService : Service() {
     }
 
     private fun updateTranslationState() {
-        translationButton?.setImageResource(
-            if (style.translationEnabled) R.drawable.ic_lyrics_on else R.drawable.ic_lyrics
-        )
-        translationButton?.setColorFilter(
-            if (style.translationEnabled) Color.WHITE else adjustAlpha(Color.WHITE, 0.82f)
-        )
-        translationStateView?.text = if (style.translationEnabled) "开" else "关"
+        val enabled = style.translationEnabled
+        val button = translationButton ?: return
+        button.setColorFilter(if (enabled) translationActiveGlyphColor else buttonTintColor)
+        button.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(if (enabled) Color.WHITE else buttonBackgroundColor)
+        }
+        button.contentDescription = if (enabled) "歌词翻译：开" else "歌词翻译：关"
     }
 
     private fun togglePanel() {
