@@ -1,4 +1,5 @@
 <div align="center">
+  <img src="docs/images/logo.png" width="96" alt="jussichords" />
   <h1>jussichords</h1>
 
 简洁、轻量的第三方网易云音乐 Android 客户端。
