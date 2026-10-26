@@ -86,8 +86,8 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         // LX 脚本音源：脚本列表（DataStore）+ 沙盒引擎在进程级单例，ncmapi 侧只留桥。
         com.jussicodes.music.lx.LxPluginStore.attach(this)
         com.jussicodes.music.lx.LxPluginManager.init(this)
-        com.rcmiku.ncmapi.api.LxSourceBridge.resolver = { songId, songLevel ->
-            com.jussicodes.music.lx.LxPluginManager.resolveUrl(songId, songLevel)
+        com.rcmiku.ncmapi.api.LxSourceBridge.resolver = { songId, songLevel, skipUrls ->
+            com.jussicodes.music.lx.LxPluginManager.resolveUrl(songId, songLevel, skipUrls)
         }
         applicationScope.launch { com.jussicodes.music.lx.LxPluginManager.warmUp() }
         // Fill the explore flows from disk cache immediately, so the explore

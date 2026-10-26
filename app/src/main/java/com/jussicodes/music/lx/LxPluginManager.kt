@@ -1,6 +1,7 @@
 package com.jussicodes.music.lx
 
 import android.content.Context
+import com.rcmiku.ncmapi.api.player.PlayUrlSkip
 import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.utils.json
@@ -206,7 +207,11 @@ object LxPluginManager {
      * 每个失败分支都要留日志：上层拿到 null 会静默回落官方直连（非会员即 30 秒试听），
      * 没有日志就无从判断是「歌曲元信息取不到」「插件没命中」还是「插件返回试听链」。
      */
-    suspend fun resolveUrl(songId: String, songLevel: String): String? {
+    suspend fun resolveUrl(
+        songId: String,
+        songLevel: String,
+        skipUrls: Set<String> = emptySet()
+    ): String? {
         val startedAt = System.currentTimeMillis()
         val enabled = LxPluginStore.snapshot().filter { it.isEnabled }
         if (enabled.isEmpty()) {
@@ -229,8 +234,14 @@ object LxPluginManager {
                 url.isNullOrBlank() ->
                     android.util.Log.w(TAG, "plugin '${item.name}' miss songId=$songId quality=$quality cost=${cost}ms")
                 // 脚本降级到官方试听链时不能当命中，继续下一个插件。
-                url != null && url.contains("musicrep-ts", ignoreCase = true) ->
+                url.contains("musicrep-ts", ignoreCase = true) ->
                     android.util.Log.w(TAG, "plugin '${item.name}' returned trial clip, try next songId=$songId")
+                // 播放器侧时长校验判定这条链不是这首歌的完整音频：跳过它，换下一个脚本。
+                PlayUrlSkip.blocks(skipUrls, url) ->
+                    android.util.Log.w(
+                        TAG,
+                        "plugin '${item.name}' url rejected by duration check, try next songId=$songId"
+                    )
                 else -> {
                     android.util.Log.i(TAG, "plugin '${item.name}' hit songId=$songId quality=$quality cost=${cost}ms")
                     return url

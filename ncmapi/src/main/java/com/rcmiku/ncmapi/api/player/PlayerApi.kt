@@ -31,10 +31,18 @@ import kotlinx.serialization.json.jsonPrimitive
 
 object PlayerApi {
 
+    /**
+     * 解析可播放直链。
+     *
+     * @param skipUrls 上次交给播放器但被判定「不是这首歌的完整音频」的直链（播放器侧时长校验失败后写入，
+     *   见 app 的 `ResolveGuard`）。客户端音源命中的 url 落在这个集合里就当作未命中，继续试下一个插件 /
+     *   下一个直连源，这样「换源重试」才真的会换到别的东西，而不是把同一根坏链再刷一遍。
+     */
     suspend fun songPlayUrlV1(
         songId: String,
         songLevel: SongLevel = SongLevel.STANDARD,
-        source: String? = null
+        source: String? = null,
+        skipUrls: Set<String> = emptySet()
     ): Result<SongUrlResponse> {
         val parsed = parseSongId(songId)
         val realId = parsed.first
@@ -55,19 +63,25 @@ object PlayerApi {
             // 试听链（musicrep-ts）不能当命中：脚本降级到官方源时会给 30 秒片段，
             // 直接返回会让播放器「解析成功」然后播一半就断。
             val clientUrl = when (selected) {
-                AudioSources.LX -> LxSourceBridge.resolver?.invoke(realId, songLevel.value)
-                else -> tryDirectSourceUrl(realId)
+                AudioSources.LX -> LxSourceBridge.resolver?.invoke(realId, songLevel.value, skipUrls)
+                else -> tryDirectSourceUrl(realId, skipUrls)
             }?.takeIf { it.isNotBlank() && !it.contains("musicrep-ts", ignoreCase = true) }
+                ?.takeUnless { PlayUrlSkip.blocks(skipUrls, it) }
             if (!clientUrl.isNullOrBlank()) {
                 Log.d("PlayerApi", "Client source ($selected) resolved songId=$realId")
                 return Result.success(SongUrlResponse(data = listOf(
                     SongUrl(id = realId.toLong(), url = clientUrl, br = 320000)
                 )))
             }
-            Log.w("PlayerApi", "Client source ($selected) missed songId=$realId, fall back to official url")
+            Log.w("PlayerApi", "Client source ($selected) missed songId=$realId skipped=${skipUrls.size}, fall back to official url")
         } else {
             val unblockResult = tryUnblockUrl(realId, source)
-            if (unblockResult.hasPlayableUrl()) return unblockResult
+            // 上次被判定为错源的 url 不再用（否则重试等于原地打转），交给官方兜底。
+            val blocked = PlayUrlSkip.blocks(
+                skipUrls,
+                unblockResult.getOrNull()?.data?.firstOrNull()?.url
+            )
+            if (unblockResult.hasPlayableUrl() && !blocked) return unblockResult
         }
 
         // 最后兜底：官方直连。客户端音源开启时 VIP 歌在此回 30 秒试听占位（账号有会员则完整 url）；
@@ -82,16 +96,19 @@ object PlayerApi {
      * 直连音源：用户指定单源就只试它；「自动选择」按 [LocalSources.DIRECT_KEYS] 顺序轮询
      * 六条，命中即返回（照 Melodia 六源）。
      */
-    private fun tryDirectSourceUrl(songId: String): String? {
+    private fun tryDirectSourceUrl(songId: String, skipUrls: Set<String> = emptySet()): String? {
         val chosen = LocalSources.fromKey(DirectSourceSettings.SOURCE)?.value
             ?: LocalSources.AUTO
         val chain = if (chosen == LocalSources.AUTO) LocalSources.DIRECT_KEYS else listOf(chosen)
         for (m in chain) {
             val url = LocalSourceFetcher.fetch(m, songId)
-            if (url != null) {
-                Log.d("PlayerApi", "Local source '$m' hit for songId=$songId")
-                return url
+            if (url == null) continue
+            if (PlayUrlSkip.blocks(skipUrls, url)) {
+                Log.d("PlayerApi", "Local source '$m' skipped (rejected by duration check) songId=$songId")
+                continue
             }
+            Log.d("PlayerApi", "Local source '$m' hit for songId=$songId")
+            return url
         }
         return null
     }
