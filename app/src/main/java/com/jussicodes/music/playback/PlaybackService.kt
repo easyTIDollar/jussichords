@@ -277,8 +277,8 @@ class PlaybackService : MediaSessionService() {
     /** 重新 prepare 时回退一点，避免卡在同一个读位置反复失败。 */
     private val rewindOnRetryMs = 2_000L
 
-    /** 解析播放地址（一次网络请求）的超时。 */
-    private val resolveUrlTimeoutMs = 15_000L
+    /** 解析播放地址（一次网络请求 + 可能的试听重解析）的超时。 */
+    private val resolveUrlTimeoutMs = 20_000L
 
     private val recoveryListener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {

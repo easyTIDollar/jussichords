@@ -31,6 +31,8 @@ sealed interface ImportResult {
  */
 object LxPluginManager {
 
+    private const val TAG = "LxPlugin"
+
     @Volatile
     private var appContext: Context? = null
 
@@ -200,17 +202,46 @@ object LxPluginManager {
     /**
      * 解析 NCM songId 的直链。按脚本列表顺序逐个试，全部未命中返回 null。
      * @param songLevel NCM 音质档位 value（standard/…/jymaster）
+     *
+     * 每个失败分支都要留日志：上层拿到 null 会静默回落官方直连（非会员即 30 秒试听），
+     * 没有日志就无从判断是「歌曲元信息取不到」「插件没命中」还是「插件返回试听链」。
      */
     suspend fun resolveUrl(songId: String, songLevel: String): String? {
+        val startedAt = System.currentTimeMillis()
         val enabled = LxPluginStore.snapshot().filter { it.isEnabled }
-        if (enabled.isEmpty()) return null
-        val song = fetchSong(songId) ?: return null
+        if (enabled.isEmpty()) {
+            android.util.Log.w(TAG, "no enabled plugin, skip lx songId=$songId")
+            return null
+        }
+        // 元信息取不到就不试解析；网络抖动导致的单次失败很常见，重试一次再放弃。
+        val song = fetchSong(songId) ?: fetchSong(songId)
+        if (song == null) {
+            android.util.Log.w(TAG, "song detail unavailable after 2 attempts, skip lx songId=$songId")
+            return null
+        }
         val musicInfo = buildMusicInfo(songId, song)
         val quality = mapQuality(songLevel)
         for (item in enabled) {
+            val t0 = System.currentTimeMillis()
             val url = engine?.resolveUrl(item.id, musicInfo, quality)
-            if (!url.isNullOrBlank()) return url
+            val cost = System.currentTimeMillis() - t0
+            when {
+                url.isNullOrBlank() ->
+                    android.util.Log.w(TAG, "plugin '${item.name}' miss songId=$songId quality=$quality cost=${cost}ms")
+                // 脚本降级到官方试听链时不能当命中，继续下一个插件。
+                url != null && url.contains("musicrep-ts", ignoreCase = true) ->
+                    android.util.Log.w(TAG, "plugin '${item.name}' returned trial clip, try next songId=$songId")
+                else -> {
+                    android.util.Log.i(TAG, "plugin '${item.name}' hit songId=$songId quality=$quality cost=${cost}ms")
+                    return url
+                }
+            }
         }
+        android.util.Log.w(
+            TAG,
+            "all plugins missed songId=$songId quality=$quality plugins=${enabled.size} " +
+                "total=${System.currentTimeMillis() - startedAt}ms"
+        )
         return null
     }
 

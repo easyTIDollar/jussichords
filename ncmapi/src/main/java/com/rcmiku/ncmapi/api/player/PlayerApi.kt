@@ -52,16 +52,19 @@ object PlayerApi {
         val selected = AudioSourceSettings.SELECTED
         val clientSideSelected = selected == AudioSources.LX || selected == AudioSources.DIRECT
         if (clientSideSelected) {
+            // 试听链（musicrep-ts）不能当命中：脚本降级到官方源时会给 30 秒片段，
+            // 直接返回会让播放器「解析成功」然后播一半就断。
             val clientUrl = when (selected) {
                 AudioSources.LX -> LxSourceBridge.resolver?.invoke(realId, songLevel.value)
                 else -> tryDirectSourceUrl(realId)
-            }
+            }?.takeIf { it.isNotBlank() && !it.contains("musicrep-ts", ignoreCase = true) }
             if (!clientUrl.isNullOrBlank()) {
                 Log.d("PlayerApi", "Client source ($selected) resolved songId=$realId")
                 return Result.success(SongUrlResponse(data = listOf(
                     SongUrl(id = realId.toLong(), url = clientUrl, br = 320000)
                 )))
             }
+            Log.w("PlayerApi", "Client source ($selected) missed songId=$realId, fall back to official url")
         } else {
             val unblockResult = tryUnblockUrl(realId, source)
             if (unblockResult.hasPlayableUrl()) return unblockResult

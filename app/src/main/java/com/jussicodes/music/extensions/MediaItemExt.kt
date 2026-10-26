@@ -13,7 +13,9 @@ import com.jussicodes.music.utils.toCoverImageUrl
 import com.rcmiku.ncmapi.model.CloudSong
 import com.rcmiku.ncmapi.model.Radio
 import com.rcmiku.ncmapi.model.Song
+import com.rcmiku.ncmapi.model.SongUrl
 import com.rcmiku.ncmapi.utils.json
+import kotlinx.coroutines.delay
 
 private fun Song.encodeUri(): String {
     val base = id.toString()
@@ -136,11 +138,24 @@ fun List<Radio>.toRadioMediaItemList(
     }
 
 /**
+ * 试听片段判定。只有两个可靠判据：
+ * - `musicrep-ts`：NCM 试听片段的 CDN 标识；
+ * - `time in 1..60000`：NCM 试听占位固定回 30040ms。
+ * `freeTrial*` 字段对可播歌曲也常回非 null 的空对象，不能当判据（见 PlayerApi.isPlayableFullUrl 注释）。
+ */
+private fun SongUrl.isTrialClip(): Boolean =
+    url?.contains("musicrep-ts", ignoreCase = true) == true || time in 1L..60_000L
+
+/**
  * Resolve a MediaItem URI (a raw `id?fee=&pl=` string) to a playable URL.
  *
  * There is no per-song source override: the app-wide local/unblock source
  * settings (AudioSourceSettings / UNBLOCK_SOURCE) decide the channel, so we
  * always resolve with a null per-song source.
+ *
+ * 拿到试听片段（LX/直连偶发未命中时 PlayerApi 会回落官方直连，非会员拿到的是 30 秒
+ * 试听链）不能直接交给播放器——那会表现为「听着听着只能试听」。这里先短退避重解析一次
+ * （沙盒已热、脚本有 URL 缓存，第二次通常就命中），两次都只有试听才接受，避免彻底没声。
  */
 suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel): Uri? {
     if (uri.scheme == "http" || uri.scheme == "https") {
@@ -151,7 +166,24 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel): Uri? {
     val query = uri.query
     val songId = if (query != null) "$path?$query" else path
 
-    return PlayerApi.songPlayUrlV1(songId, songLevel = songLevel)
-        .getOrNull()?.data?.firstOrNull()?.url?.toUri()
+    val first = PlayerApi.songPlayUrlV1(songId, songLevel).getOrNull()?.data?.firstOrNull()
+    val firstUrl = first?.url?.takeIf { it.isNotBlank() }
+    if (firstUrl != null && first?.isTrialClip() != true) return firstUrl.toUri()
+
+    android.util.Log.d(
+        "PlayerApi",
+        "play url blank/trial, retry resolve songId=$songId firstUrl=${firstUrl != null} trial=${first?.isTrialClip()}"
+    )
+    delay(400)
+    val second = PlayerApi.songPlayUrlV1(songId, songLevel).getOrNull()?.data?.firstOrNull()
+    val secondUrl = second?.url?.takeIf { it.isNotBlank() }
+
+    return when {
+        secondUrl != null && second?.isTrialClip() != true -> secondUrl.toUri()
+        // 两次都只拿到试听：先给试听，别让用户彻底听不到。
+        firstUrl != null -> firstUrl.toUri()
+        secondUrl != null -> secondUrl.toUri()
+        else -> null
+    }
 }
 

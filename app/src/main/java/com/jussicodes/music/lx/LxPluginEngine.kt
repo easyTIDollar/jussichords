@@ -2,6 +2,7 @@ package com.jussicodes.music.lx
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.SystemClock
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -43,7 +44,14 @@ class LxPluginEngine(private val context: Context) {
         val webView: WebView,
         val supportedSources: List<String>,
         val pending: ConcurrentHashMap<Int, CompletableDeferred<String?>> = ConcurrentHashMap()
-    )
+    ) {
+        /** 最近一次解析的错误原因，用于判定沙盒是否结构性坏掉（脚本根本没跑起来）。 */
+        @Volatile
+        var lastError: String? = null
+    }
+
+    // 结构性坏掉的插件在冷却期内不再重建沙盒，避免每首歌都白等一次页面加载。
+    private val failedAt = ConcurrentHashMap<String, Long>()
 
     // 沙盒出网用的独立客户端：不能带 NCM cookie / 加密 / 代理 base url（同 LocalSourceFetcher 原则）。
     private val httpClient = OkHttpClient.Builder()
@@ -78,29 +86,72 @@ class LxPluginEngine(private val context: Context) {
      * @param musicInfoJson 已是 LX 标准的 musicInfo JSON。
      */
     suspend fun resolveUrl(pluginId: String, musicInfoJson: String, quality: String): String? {
+        if (isCoolingDown(pluginId)) {
+            android.util.Log.w(LOG_TAG, "[$pluginId] 沙盒冷却中（脚本未就绪），跳过本次解析")
+            return null
+        }
         val sandbox = active[pluginId] ?: run {
-            val item = itemProvider(pluginId) ?: return null
+            val item = itemProvider(pluginId) ?: run {
+                android.util.Log.w(LOG_TAG, "[$pluginId] 取不到脚本正文，跳过")
+                return null
+            }
             val created = createSandbox(pluginId, item, CompletableDeferred()) ?: return null
             active[pluginId] = created
             created
         }
 
+        val t0 = SystemClock.elapsedRealtime()
         val callId = nextCallId.incrementAndGet()
         val deferred = CompletableDeferred<String?>()
         sandbox.pending[callId] = deferred
+        sandbox.lastError = null
         withContext(Dispatchers.Main) {
             val js = "window.__lx_resolve_music_url($callId, 'wy', " +
                 org.json.JSONObject.quote(musicInfoJson) + ", " +
                 org.json.JSONObject.quote(quality) + ")"
             sandbox.webView.evaluateJavascript(js, null)
         }
-        return try {
+        val url = try {
             withTimeoutOrNull(RESOLVE_TIMEOUT_MS) { deferred.await() }
         } catch (e: Exception) {
             null
         } finally {
             sandbox.pending.remove(callId)
         }
+
+        val cost = SystemClock.elapsedRealtime() - t0
+        if (url.isNullOrBlank()) {
+            android.util.Log.w(
+                LOG_TAG,
+                "[$pluginId] 未命中 cost=${cost}ms error=${sandbox.lastError ?: "无响应/超时"}"
+            )
+            // 脚本首行要求 window.lx 已存在；页面没就绪就注入会让脚本直接抛错，
+            // 沙盒从此永久「未注册 request 处理器」。这种沙盒必须丢掉，等下次重建。
+            if (sandbox.lastError?.contains(HANDLER_MISSING) == true) {
+                dropSandbox(sandbox, cooldown = true)
+            }
+        } else {
+            android.util.Log.d(LOG_TAG, "[$pluginId] 命中 cost=${cost}ms")
+        }
+        return url
+    }
+
+    private fun isCoolingDown(pluginId: String): Boolean {
+        val at = failedAt[pluginId] ?: return false
+        if (SystemClock.elapsedRealtime() - at < ACTIVATE_FAILURE_COOLDOWN_MS) return true
+        failedAt.remove(pluginId)
+        return false
+    }
+
+    /** 丢掉一个沙盒；结构性坏掉的顺带记冷却，避免每首歌都重建一次。 */
+    private fun dropSandbox(sandbox: Sandbox, cooldown: Boolean) {
+        if (!active.remove(sandbox.pluginId, sandbox)) return
+        if (cooldown) failedAt[sandbox.pluginId] = SystemClock.elapsedRealtime()
+        android.util.Log.w(
+            LOG_TAG,
+            "[${sandbox.pluginId}] 沙盒已丢弃 cooldown=$cooldown reason=${sandbox.lastError}"
+        )
+        scope.launch(Dispatchers.Main) { destroySandbox(sandbox) }
     }
 
     /** 预建沙盒（只建不解析），避免首播时多等一次脚本初始化。 */
@@ -111,12 +162,14 @@ class LxPluginEngine(private val context: Context) {
     }
 
     fun deactivate(pluginId: String) {
+        failedAt.remove(pluginId)
         active.remove(pluginId)?.let { s ->
             scope.launch(Dispatchers.Main) { destroySandbox(s) }
         }
     }
 
     fun reset() {
+        failedAt.clear()
         val all = active.values.toList()
         active.clear()
         scope.launch(Dispatchers.Main) { all.forEach { destroySandbox(it) } }
@@ -139,7 +192,11 @@ class LxPluginEngine(private val context: Context) {
                 handleHttpRequest(pluginId, id, url, method, headersJson, body)
             },
             onInited = { sources -> inited.complete(sources) },
-            onResolved = { callId, url, _ ->
+            onResolved = { callId, url, error ->
+                if (!error.isNullOrBlank()) {
+                    sandbox.lastError = error
+                    android.util.Log.w(LOG_TAG, "[$pluginId] 解析返回错误: $error")
+                }
                 sandbox.pending[callId]?.complete(url?.takeIf { it.isNotBlank() })
             },
             onTimer = { id -> scope.launch { fireTimer(pluginId, id) } }
@@ -163,7 +220,13 @@ class LxPluginEngine(private val context: Context) {
             addJavascriptInterface(bridge, "LxHostBridge")
         }
         wv.loadDataWithBaseURL("https://jussichords.local", LxShim.html(), "text/html", "UTF-8", null)
-        withTimeoutOrNull(4000L) { ready.await() }
+        if (withTimeoutOrNull(PAGE_READY_TIMEOUT_MS) { ready.await() } == null) {
+            // 页面没就绪就注入脚本，脚本首行 `if (!globalThis.lx) throw` 会直接抛错，
+            // 沙盒从此变成「永远未注册 request 处理器」的僵尸：每次解析秒失败并回落 30 秒试听。
+            android.util.Log.w(LOG_TAG, "[$pluginId] 沙盒页面未就绪，放弃本次创建")
+            destroySandbox(Sandbox(pluginId, wv, item.sources))
+            return@withContext null
+        }
 
         // 注入脚本元信息后执行脚本本体
         wv.evaluateJavascript(
@@ -288,7 +351,15 @@ class LxPluginEngine(private val context: Context) {
     }
 
     companion object {
+        private const val LOG_TAG = "LxPlugin"
         const val INIT_TIMEOUT_MS = 8000L
         const val RESOLVE_TIMEOUT_MS = 12000L
+        const val PAGE_READY_TIMEOUT_MS = 4000L
+
+        /** 脚本未跑起来（页面未就绪就注入）时 shim 回的错误关键字。 */
+        private const val HANDLER_MISSING = "未注册"
+
+        /** 结构性坏掉的插件冷却时长，避免每首歌都重建一次沙盒。 */
+        private const val ACTIVATE_FAILURE_COOLDOWN_MS = 5 * 60 * 1000L
     }
 }
