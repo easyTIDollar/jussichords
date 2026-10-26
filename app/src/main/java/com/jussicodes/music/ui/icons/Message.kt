@@ -2,13 +2,11 @@ package com.jussicodes.music.ui.icons
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
-/** 消息中心：两个重叠的对话气泡（Lucide messages-square 官方 path 原样转写）。 */
+/** 消息中心：前后两个分离的对话气泡（右上气泡尾部朝下，左下气泡尾部朝下）。 */
 val Message: ImageVector
     get() {
         if (_Message != null) {
@@ -18,36 +16,38 @@ val Message: ImageVector
             name = "Message",
             defaultWidth = 24.dp,
             defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f
+            viewportWidth = 960f,
+            viewportHeight = 960f
         ).apply {
-            path(
-                stroke = SolidColor(Color(0xFF000000)),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round
-            ) {
-                moveTo(16f, 10f)
-                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, 14f, 12f)
-                horizontalLineTo(6.828f)
-                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = false, 5.414f, 12.586f)
-                lineTo(3.212f, 14.788f)
-                arcTo(0.71f, 0.71f, 0f, isMoreThanHalf = false, isPositiveArc = true, 2f, 14.286f)
-                verticalLineTo(4f)
-                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, 4f, 2f)
-                horizontalLineTo(14f)
-                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, 16f, 4f)
+            path(fill = SolidColor(Color(0xFF5F6368))) {
+                // back bubble: rounded rect x 384-880, y 80-416, r 64, tail down from bottom edge
+                moveTo(448f, 80f)
+                horizontalLineTo(816f)
+                quadToRelative(64f, 0f, 64f, 64f)
+                verticalLineTo(352f)
+                quadToRelative(0f, 64f, -64f, 64f)
+                horizontalLineTo(768f)
+                lineTo(704f, 512f)
+                lineTo(640f, 416f)
+                horizontalLineTo(448f)
+                quadToRelative(-64f, 0f, -64f, -64f)
+                verticalLineTo(144f)
+                quadToRelative(0f, -64f, 64f, -64f)
                 close()
-
-                moveTo(20f, 9f)
-                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, 22f, 11f)
-                verticalLineTo(21.286f)
-                arcTo(0.71f, 0.71f, 0f, isMoreThanHalf = false, isPositiveArc = true, 20.788f, 21.788f)
-                lineTo(18.586f, 19.586f)
-                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = false, 17.172f, 19f)
-                horizontalLineTo(10f)
-                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, 8f, 17f)
-                verticalLineTo(16f)
+                // front bubble: rounded rect x 80-576, y 448-784, r 64, tail down from bottom edge
+                moveTo(144f, 448f)
+                horizontalLineTo(512f)
+                quadToRelative(64f, 0f, 64f, 64f)
+                verticalLineTo(720f)
+                quadToRelative(0f, 64f, -64f, 64f)
+                horizontalLineTo(336f)
+                lineTo(272f, 880f)
+                lineTo(208f, 784f)
+                horizontalLineTo(144f)
+                quadToRelative(-64f, 0f, -64f, -64f)
+                verticalLineTo(512f)
+                quadToRelative(0f, -64f, 64f, -64f)
+                close()
             }
         }.build()
 

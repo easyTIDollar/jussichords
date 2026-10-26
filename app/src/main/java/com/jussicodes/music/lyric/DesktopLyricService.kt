@@ -173,7 +173,7 @@ class DesktopLyricService : Service() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // 旋转/分屏/折叠屏：可用区域变了，按比例重新落位，避免跑到屏幕外。
+        // 旋转/分屏/折叠屏：可用区域变了，按比例重新落位（位置比例本身允许落在屏幕外）。
         contentWidthPx = measureContentWidth()
         relayout()
         positionControlWindow()
@@ -475,8 +475,9 @@ class DesktopLyricService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = clampX(xFromFraction(width), width)
-            y = clampY(yFromFraction(height), height)
+            // 不做屏幕内夹紧：歌词窗允许拖到屏幕边缘以外。
+            x = xFromFraction(width)
+            y = yFromFraction(height)
         }
 
         lyricRoot = root
@@ -556,10 +557,14 @@ class DesktopLyricService : Service() {
         val width = computeLyricWidth()
         val height = computeLyricHeight()
         if (params.width == width && params.height == height) return
+        // 以窗口中心为锚点。整窗宽度是按「本首歌最长行」算的，换歌会变宽/变窄；
+        // 只保住左上角的话，窗口内部居中的文字会整体左移右移（用户说的「切歌左移错位」）。
+        val centerX = params.x + params.width / 2
+        val centerY = params.y + params.height / 2
         params.width = width
         params.height = height
-        params.x = clampX(params.x, width)
-        params.y = clampY(params.y, height)
+        params.x = centerX - width / 2
+        params.y = centerY - height / 2
         runCatching { windowManager.updateViewLayout(root, params) }
         positionControlWindow()
     }
@@ -601,13 +606,15 @@ class DesktopLyricService : Service() {
     private fun xFromFraction(width: Int): Int {
         val area = screenArea()
         val free = (area.right - area.left - width).coerceAtLeast(0)
-        return area.left + (free * xFraction.coerceIn(0f, 1f)).toInt()
+        // 允许 < 0 / > 1：拖到屏幕外时比例照样记录，下次按同一位恢复。
+        return area.left + (free * xFraction).toInt()
     }
 
     private fun yFromFraction(height: Int): Int {
         val area = screenArea()
         val free = (area.bottom - area.top - height).coerceAtLeast(0)
-        return area.top + (free * yFraction.coerceIn(0f, 1f)).toInt()
+        // 允许 < 0 / > 1：拖到屏幕外时比例照样记录，下次按同一位恢复。
+        return area.top + (free * yFraction).toInt()
     }
 
     private fun persistPosition() {
@@ -615,12 +622,8 @@ class DesktopLyricService : Service() {
         val area = screenArea()
         val freeX = (area.right - area.left - params.width).coerceAtLeast(0)
         val freeY = (area.bottom - area.top - params.height).coerceAtLeast(0)
-        xFraction = if (freeX <= 0) 0f else {
-            ((params.x - area.left).toFloat() / freeX).coerceIn(0f, 1f)
-        }
-        yFraction = if (freeY <= 0) 0f else {
-            ((params.y - area.top).toFloat() / freeY).coerceIn(0f, 1f)
-        }
+        xFraction = if (freeX <= 0) 0f else (params.x - area.left).toFloat() / freeX
+        yFraction = if (freeY <= 0) 0f else (params.y - area.top).toFloat() / freeY
         serviceScope.launch {
             applicationContext.dataStore.edit { prefs ->
                 prefs[desktopLyricXFractionKey] = xFraction
@@ -633,8 +636,8 @@ class DesktopLyricService : Service() {
         xFraction = DesktopLyricDefaultXFraction
         yFraction = DesktopLyricDefaultYFraction
         val params = lyricParams ?: return
-        params.x = clampX(xFromFraction(params.width), params.width)
-        params.y = clampY(yFromFraction(params.height), params.height)
+        params.x = xFromFraction(params.width)
+        params.y = yFromFraction(params.height)
         lyricRoot?.let { root ->
             runCatching { windowManager.updateViewLayout(root, params) }
         }
@@ -1049,9 +1052,9 @@ class DesktopLyricService : Service() {
                             updateControlVisibility()
                         }
                     }
-                    // 拖动中实时夹紧，不让任何一边拖出屏幕。
-                    layoutParams.x = clampX(startX + deltaX.toInt(), layoutParams.width)
-                    layoutParams.y = clampY(startY + deltaY.toInt(), layoutParams.height)
+                    // 不做边界夹紧：歌词窗可以拖到屏幕边缘以外。
+                    layoutParams.x = startX + deltaX.toInt()
+                    layoutParams.y = startY + deltaY.toInt()
                     windowManager.updateViewLayout(v, layoutParams)
                     positionControlWindow()
                     return true

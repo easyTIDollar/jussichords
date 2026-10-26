@@ -2,13 +2,10 @@ package com.jussicodes.music.ui.icons
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
-/** 播放历史：带回溯箭头的时钟（Lucide history 官方 path 原样转写）。 */
 val History: ImageVector
     get() {
         if (_History != null) {
@@ -18,27 +15,47 @@ val History: ImageVector
             name = "History",
             defaultWidth = 24.dp,
             defaultHeight = 24.dp,
-            viewportWidth = 24f,
-            viewportHeight = 24f
+            viewportWidth = 960f,
+            viewportHeight = 960f
         ).apply {
-            path(
-                stroke = SolidColor(Color(0xFF000000)),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round
-            ) {
-                moveTo(3f, 12f)
-                arcTo(9f, 9f, 0f, isMoreThanHalf = true, isPositiveArc = false, 12f, 3f)
-                arcTo(9.75f, 9.75f, 0f, isMoreThanHalf = false, isPositiveArc = false, 5.26f, 5.74f)
-                lineTo(3f, 8f)
-
-                moveTo(3f, 3f)
-                verticalLineTo(8f)
-                horizontalLineTo(8f)
-
-                moveTo(12f, 7f)
-                verticalLineTo(12f)
-                lineTo(16f, 14f)
+            path(fill = SolidColor(Color(0xFF000000))) {
+                moveTo(480f, 840f)
+                quadToRelative(-138f, 0f, -240.5f, -91.5f)
+                reflectiveQuadTo(122f, 520f)
+                horizontalLineToRelative(82f)
+                quadToRelative(14f, 104f, 92.5f, 172f)
+                reflectiveQuadTo(480f, 760f)
+                quadToRelative(117f, 0f, 198.5f, -81.5f)
+                reflectiveQuadTo(760f, 480f)
+                quadToRelative(0f, -117f, -81.5f, -198.5f)
+                reflectiveQuadTo(480f, 200f)
+                quadToRelative(-69f, 0f, -129f, 32f)
+                reflectiveQuadToRelative(-101f, 88f)
+                horizontalLineToRelative(110f)
+                verticalLineToRelative(80f)
+                lineTo(120f, 400f)
+                verticalLineToRelative(-240f)
+                horizontalLineToRelative(80f)
+                verticalLineToRelative(94f)
+                quadToRelative(51f, -64f, 124.5f, -99f)
+                reflectiveQuadTo(480f, 120f)
+                quadToRelative(75f, 0f, 140.5f, 28.5f)
+                reflectiveQuadToRelative(114f, 77f)
+                quadToRelative(48.5f, 48.5f, 77f, 114f)
+                reflectiveQuadTo(840f, 480f)
+                quadToRelative(0f, 75f, -28.5f, 140.5f)
+                reflectiveQuadToRelative(-77f, 114f)
+                quadToRelative(-48.5f, 48.5f, -114f, 77f)
+                reflectiveQuadTo(480f, 840f)
+                close()
+                moveTo(592f, 648f)
+                lineTo(440f, 496f)
+                verticalLineToRelative(-216f)
+                horizontalLineToRelative(80f)
+                verticalLineToRelative(184f)
+                lineToRelative(128f, 128f)
+                lineToRelative(-56f, 56f)
+                close()
             }
         }.build()
 
