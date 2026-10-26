@@ -15,8 +15,25 @@
 ## 截图预览
 
 <div align="center">
-  <img src="docs/screenshots/library.jpg" width="30%" alt="我的" />
-  <img src="docs/screenshots/explore.jpg" width="30%" alt="探索" />
+  <img src="docs/screenshots/explore.jpg" width="19%" alt="探索" />
+  <img src="docs/screenshots/library.jpg" width="19%" alt="我的" />
+  <img src="docs/screenshots/player.jpg" width="19%" alt="播放器" />
+  <img src="docs/screenshots/lyrics.jpg" width="19%" alt="歌词" />
+  <img src="docs/screenshots/personal_fm.jpg" width="19%" alt="私人 FM" />
+</div>
+
+<div align="center">
+  <img src="docs/screenshots/ranking.jpg" width="19%" alt="听歌排行" />
+  <img src="docs/screenshots/history.jpg" width="19%" alt="最近播放" />
+  <img src="docs/screenshots/messages.jpg" width="19%" alt="消息中心" />
+  <img src="docs/screenshots/comment.jpg" width="19%" alt="歌曲评论" />
+  <img src="docs/screenshots/player_sheet.jpg" width="19%" alt="播控面板" />
+</div>
+
+<div align="center">
+  <img src="docs/screenshots/desktop_lyrics_settings.jpg" width="19%" alt="桌面歌词设置" />
+  <img src="docs/screenshots/settings.jpg" width="19%" alt="设置" />
+  <img src="docs/screenshots/lx_scripts.jpg" width="19%" alt="LX 音源" />
 </div>
 
 ---
@@ -66,52 +83,16 @@ ncmapi/src/main/java/com/rcmiku/ncmapi/
 ## 核心特性
 
 - **现代沉浸界面**：采用 Jetpack Compose 与 Material 3 构建，支持深色沉浸主题、轻毛玻璃背景与常驻底部 Mini-Player
-  <div align="center">
-    <img src="docs/screenshots/player.jpg" width="22%" alt="播放器" />
-    <img src="docs/screenshots/player_sheet.jpg" width="22%" alt="播控面板" />
-  </div>
-
 - **简约且清晰的双tab主页**：
   - **我的**：账号信息、喜欢歌单、自建与收藏歌单
   - **探索**：每日推荐横滑卡片、推荐歌单画廊
-
 - **私人 FM**：支持自由切换默认、AI DJ、熟悉、探索、运动场景、专注场景与夜晚情绪
-  <div align="center">
-    <img src="docs/screenshots/personal_fm.jpg" width="22%" alt="私人 FM" />
-  </div>
-
 - **听歌排行**：支持周榜与全部时间听歌排行（精确统计播放频次），以及歌曲、歌单、专辑三维度的播放历史
-  <div align="center">
-    <img src="docs/screenshots/ranking.jpg" width="22%" alt="听歌排行" />
-    <img src="docs/screenshots/history.jpg" width="22%" alt="最近播放" />
-  </div>
-
 - **歌词页面**：提供「歌词翻译」与「逐字歌词」独立开关
-  <div align="center">
-    <img src="docs/screenshots/lyrics.jpg" width="22%" alt="歌词" />
-  </div>
-
 - **桌面歌词**：退出 App 常驻显示，悬浮播控胶囊、触摸穿透锁定、字号与描边粗细调节，以及多色调色板与实时壁纸预览
-  <div align="center">
-    <img src="docs/screenshots/desktop_lyrics.jpg" width="28%" alt="桌面歌词" />
-    <img src="docs/screenshots/desktop_lyrics_settings.jpg" width="28%" alt="桌面歌词设置" />
-  </div>
-
 - **消息中心**：聚合聊天与系统通知，支持按普通用户、音乐人入驻账号、官方通知分类屏蔽
-  <div align="center">
-    <img src="docs/screenshots/messages.jpg" width="22%" alt="消息中心" />
-  </div>
-
 - **歌曲评论区**：可选择 推荐/最新/热度 排序, 楼中楼、回复、IP 属地展示与点赞
-  <div align="center">
-    <img src="docs/screenshots/comment.jpg" width="22%" alt="歌曲评论" />
-  </div>
-
-- **缓存管理**：支持设置缓存上限阈值（如 512MB），超额自动清理并实时显示当前占用；支持落雪脚本音源在线订阅与配置
-  <div align="center">
-    <img src="docs/screenshots/settings.jpg" width="22%" alt="设置" />
-    <img src="docs/screenshots/lx_scripts.jpg" width="22%" alt="LX 音源" />
-  </div>
+- **缓存管理**：支持设置缓存上限阈值（如 512MB），超额自动清理并实时显示当前占用
 
 ---
 
