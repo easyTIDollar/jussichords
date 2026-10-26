@@ -15,25 +15,24 @@
 ## 截图预览
 
 <div align="center">
-  <img src="docs/screenshots/explore.jpg" width="19%" alt="探索" />
-  <img src="docs/screenshots/library.jpg" width="19%" alt="我的" />
-  <img src="docs/screenshots/player.jpg" width="19%" alt="播放器" />
-  <img src="docs/screenshots/lyrics.jpg" width="19%" alt="歌词" />
-  <img src="docs/screenshots/personal_fm.jpg" width="19%" alt="私人 FM" />
+  <img src="docs/screenshots/explore.jpg" width="23.5%" alt="探索" />
+  <img src="docs/screenshots/library.jpg" width="23.5%" alt="我的" />
+  <img src="docs/screenshots/player.jpg" width="23.5%" alt="播放器" />
+  <img src="docs/screenshots/lyrics.jpg" width="23.5%" alt="歌词" />
 </div>
 
 <div align="center">
-  <img src="docs/screenshots/ranking.jpg" width="19%" alt="听歌排行" />
-  <img src="docs/screenshots/history.jpg" width="19%" alt="最近播放" />
-  <img src="docs/screenshots/messages.jpg" width="19%" alt="消息中心" />
-  <img src="docs/screenshots/comment.jpg" width="19%" alt="歌曲评论" />
-  <img src="docs/screenshots/player_sheet.jpg" width="19%" alt="播控面板" />
+  <img src="docs/screenshots/personal_fm.jpg" width="23.5%" alt="私人 FM" />
+  <img src="docs/screenshots/ranking.jpg" width="23.5%" alt="听歌排行" />
+  <img src="docs/screenshots/history.jpg" width="23.5%" alt="最近播放" />
+  <img src="docs/screenshots/messages.jpg" width="23.5%" alt="消息中心" />
 </div>
 
 <div align="center">
-  <img src="docs/screenshots/desktop_lyrics_settings.jpg" width="19%" alt="桌面歌词设置" />
-  <img src="docs/screenshots/settings.jpg" width="19%" alt="设置" />
-  <img src="docs/screenshots/lx_scripts.jpg" width="19%" alt="LX 音源" />
+  <img src="docs/screenshots/comment.jpg" width="23.5%" alt="歌曲评论" />
+  <img src="docs/screenshots/player_sheet.jpg" width="23.5%" alt="播控面板" />
+  <img src="docs/screenshots/settings.jpg" width="23.5%" alt="设置" />
+  <img src="docs/screenshots/lx_scripts.jpg" width="23.5%" alt="LX 音源" />
 </div>
 
 ---
