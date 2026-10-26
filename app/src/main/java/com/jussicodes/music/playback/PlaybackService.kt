@@ -421,10 +421,10 @@ class PlaybackService : MediaSessionService() {
                 // 于是这次会跳到下一个脚本/下一个直连源，而不是同一根坏链。
                 // 序列与「换源重播」一致（pause → seek 0 → prepare → play）。
                 verifiedUrl = null
-                p.pause()
-                p.seekTo(0)
-                p.prepare()
-                p.play()
+                p0.pause()
+                p0.seekTo(0)
+                p0.prepare()
+                p0.play()
             }
         }
     }

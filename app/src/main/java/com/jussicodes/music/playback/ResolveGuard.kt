@@ -64,7 +64,10 @@ object ResolveGuard {
     }
 
     /** 本次解析要跳过的直链（之前被判定为错源的那些）。 */
-    fun skipUrls(key: String): Set<String> = synchronized(stateOf(key)) { it.skipUrls.toSet() }
+    fun skipUrls(key: String): Set<String> {
+        val state = stateOf(key)
+        return synchronized(state) { state.skipUrls.toSet() }
+    }
 
     /** 记录这次真正交给了播放器的直链，供后续校验失败时拉黑。 */
     fun recordResolved(key: String, url: String) {
