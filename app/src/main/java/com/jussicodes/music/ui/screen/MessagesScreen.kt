@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,11 +25,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Restore
+import androidx.compose.material.icons.outlined.SelectAll
+import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,6 +70,8 @@ import com.jussicodes.music.constants.ListThumbnailSize
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.ThumbnailCornerRadius
 import com.jussicodes.music.data.MsgSessionCache
+import com.jussicodes.music.ui.components.JussiDropdownMenu
+import com.jussicodes.music.ui.components.JussiMenuItem
 import com.jussicodes.music.ui.components.OnlineDot
 import com.jussicodes.music.ui.components.StateTag
 import com.jussicodes.music.ui.navigation.PrivateChatNav
@@ -74,6 +80,9 @@ import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.MessagesScreenViewModel
 import com.jussicodes.music.ui.icons.DragHandle
 import com.jussicodes.music.ui.icons.Funnel
+import com.jussicodes.music.ui.icons.History
+import com.jussicodes.music.ui.icons.MusicNote
+import com.jussicodes.music.ui.icons.Star
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import kotlinx.coroutines.delay
@@ -410,14 +419,16 @@ private fun SessionsFilterMenu(
                 tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
             )
         }
-        DropdownMenu(
+        JussiDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false }
         ) {
             // 首行"显示全部类型"：勾选 = 取消筛选；点击不关菜单（点外才关）
-            DropdownMenuItem(
-                text = { Text("显示全部类型") },
-                leadingIcon = {
+            JussiMenuItem(
+                text = "显示全部类型",
+                icon = Icons.Outlined.SelectAll,
+                selected = allChecked,
+                trailing = {
                     Checkbox(
                         checked = allChecked,
                         onCheckedChange = { if (!allChecked) onSet(null) }
@@ -428,9 +439,11 @@ private fun SessionsFilterMenu(
             counts.entries.sortedBy { it.key }.forEach { (type, count) ->
                 val label = USER_TYPE_LABELS[type] ?: "类型$type"
                 val checked = allChecked || (activeTypes?.contains(type) ?: false)
-                DropdownMenuItem(
-                    text = { Text("$label（$count）") },
-                    leadingIcon = {
+                JussiMenuItem(
+                    text = "$label（$count）",
+                    icon = userTypeIcon(type),
+                    selected = checked,
+                    trailing = {
                         Checkbox(checked = checked, onCheckedChange = { })
                     },
                     onClick = {
@@ -443,6 +456,15 @@ private fun SessionsFilterMenu(
             }
         }
     }
+}
+
+/** userType → 菜单图标（与 USER_TYPE_LABELS 同一套已知码）。 */
+private fun userTypeIcon(type: Int): ImageVector = when (type) {
+    2 -> MusicNote
+    4 -> Icons.Outlined.Mic
+    10 -> Icons.Outlined.Verified
+    207 -> Star
+    else -> Icons.Outlined.Person
 }
 
 /** userType → 展示名（NCM 未公开完整枚举，已知码给友好名，未知码兜底"类型N"）。 */
@@ -468,19 +490,21 @@ private fun SessionsTopMenu(
         IconButton(onClick = { expanded = true }) {
             Icon(Icons.Outlined.MoreVert, contentDescription = null)
         }
-        DropdownMenu(
+        JussiDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false }
         ) {
             if (manualOrderActive) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.msg_menu_reset_order)) },
+                JussiMenuItem(
+                    text = stringResource(R.string.msg_menu_reset_order),
+                    icon = History,
                     onClick = { onResetOrder(); expanded = false }
                 )
             }
             if (hasDeleted) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.msg_menu_restore_deleted)) },
+                JussiMenuItem(
+                    text = stringResource(R.string.msg_menu_restore_deleted),
+                    icon = Icons.Outlined.Restore,
                     onClick = { onRestoreAllDeleted(); expanded = false }
                 )
             }

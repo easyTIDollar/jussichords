@@ -27,8 +27,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.outlined.Subtitles
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -217,13 +217,15 @@ fun Lyric(
                             contentDescription = "歌词设置"
                         )
                     }
-                    DropdownMenu(
+                    JussiDropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false }
                     ) {
-                        DropdownMenuItem(
-                            text = { Text(if (hasTranslation) "歌词翻译" else "歌词翻译（暂无）") },
-                            trailingIcon = {
+                        JussiMenuItem(
+                            text = if (hasTranslation) "歌词翻译" else "歌词翻译（暂无）",
+                            icon = Icons.Outlined.Translate,
+                            selected = showTranslation,
+                            trailing = {
                                 Switch(
                                     checked = showTranslation,
                                     onCheckedChange = { showTranslation = it }
@@ -231,9 +233,11 @@ fun Lyric(
                             },
                             onClick = { showTranslation = !showTranslation }
                         )
-                        DropdownMenuItem(
-                            text = { Text(if (hasWordLyric) "逐字歌词" else "逐字歌词（暂无）") },
-                            trailingIcon = {
+                        JussiMenuItem(
+                            text = if (hasWordLyric) "逐字歌词" else "逐字歌词（暂无）",
+                            icon = Icons.Outlined.Subtitles,
+                            selected = showWordLyric,
+                            trailing = {
                                 Switch(
                                     checked = showWordLyric,
                                     onCheckedChange = { showWordLyric = it }

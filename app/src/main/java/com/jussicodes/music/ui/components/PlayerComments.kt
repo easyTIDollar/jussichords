@@ -26,11 +26,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.LocalFireDepartment
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DividerDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -352,13 +354,19 @@ fun PlayerComments(
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
-                            DropdownMenu(
+                            JussiDropdownMenu(
                                 expanded = sortMenuExpanded,
                                 onDismissRequest = { sortMenuExpanded = false }
                             ) {
                                 commentSortOptions.forEach { option ->
-                                    DropdownMenuItem(
-                                        text = { Text(option.title) },
+                                    JussiMenuItem(
+                                        text = option.title,
+                                        icon = when (option.type) {
+                                            2 -> Icons.Outlined.LocalFireDepartment
+                                            3 -> Icons.Outlined.Schedule
+                                            else -> Icons.Outlined.ThumbUp
+                                        },
+                                        selected = selectedSort.type == option.type,
                                         onClick = {
                                             selectedSort = option
                                             sortMenuExpanded = false

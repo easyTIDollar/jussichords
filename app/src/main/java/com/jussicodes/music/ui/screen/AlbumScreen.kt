@@ -25,10 +25,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -81,6 +80,8 @@ import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
+import com.jussicodes.music.ui.components.JussiDropdownMenu
+import com.jussicodes.music.ui.components.JussiMenuItem
 import com.jussicodes.music.ui.components.PlayerComments
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.SongListItem
@@ -91,6 +92,8 @@ import com.jussicodes.music.ui.components.rememberFilteredSongs
 import com.jussicodes.music.ui.icons.LibraryAdd
 import com.jussicodes.music.ui.icons.LibraryAddCheck
 import com.jussicodes.music.ui.icons.ModeComment
+import com.jussicodes.music.ui.icons.PushPin
+import com.jussicodes.music.ui.icons.PushPinFill
 import com.jussicodes.music.ui.icons.Search
 import com.jussicodes.music.ui.navigation.ArtistNav
 import com.jussicodes.music.ui.navigation.UserNav
@@ -571,16 +574,18 @@ fun AlbumOverflowMenu(
     onTogglePin: () -> Unit,
     onShare: () -> Unit,
 ) {
-    DropdownMenu(
+    JussiDropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss
     ) {
-        DropdownMenuItem(
-            text = { Text(if (isPinned) "取消固定" else "固定专辑") },
+        JussiMenuItem(
+            text = if (isPinned) "取消固定" else "固定专辑",
+            icon = if (isPinned) PushPinFill else PushPin,
             onClick = onTogglePin
         )
-        DropdownMenuItem(
-            text = { Text("分享") },
+        JussiMenuItem(
+            text = "分享",
+            icon = Icons.Outlined.Share,
             onClick = onShare
         )
     }

@@ -22,8 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,12 +65,15 @@ import com.jussicodes.music.ui.components.AlbumListItem
 import com.jussicodes.music.ui.components.ArtistListItem
 import com.jussicodes.music.ui.components.PlaylistListItem
 import com.jussicodes.music.ui.components.SongListItem
+import com.jussicodes.music.ui.components.JussiDropdownMenu
+import com.jussicodes.music.ui.components.JussiMenuItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
 import com.jussicodes.music.ui.components.SwipableTabPager
 import com.jussicodes.music.ui.components.VoiceListItem
 import com.jussicodes.music.ui.icons.ArrowInsert
 import com.jussicodes.music.ui.icons.FilterList
 import com.jussicodes.music.ui.icons.History
+import com.jussicodes.music.ui.icons.Leaderboard
 import com.jussicodes.music.ui.icons.Remove
 import com.jussicodes.music.ui.icons.Search
 import com.jussicodes.music.ui.navigation.AlbumNav
@@ -288,18 +289,13 @@ fun SearchScreen(
                                     )
                                 }
 
-                                DropdownMenu(
+                                JussiDropdownMenu(
                                     expanded = topListMenuExpanded,
                                     onDismissRequest = { topListMenuExpanded = false }
                                 ) {
-                                    DropdownMenuItem(
-                                        text = { Text(text = "关闭排行榜") },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Remove,
-                                                contentDescription = null
-                                            )
-                                        },
+                                    JussiMenuItem(
+                                        text = "关闭排行榜",
+                                        icon = Remove,
                                         onClick = {
                                             topListEnabled = false
                                             topListMenuExpanded = false
@@ -310,15 +306,11 @@ fun SearchScreen(
                                             defaultTopLists.map { it.id }.toSet()
                                         }
                                         val checked = playlist.id in selectedIds
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    text = playlist.name,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            },
-                                            leadingIcon = {
+                                        JussiMenuItem(
+                                            text = playlist.name,
+                                            icon = Leaderboard,
+                                            selected = checked,
+                                            trailing = {
                                                 Checkbox(
                                                     checked = checked,
                                                     onCheckedChange = null

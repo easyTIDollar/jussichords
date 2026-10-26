@@ -33,12 +33,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -93,6 +93,9 @@ import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
+import com.jussicodes.music.ui.components.JussiDropdownMenu
+import com.jussicodes.music.ui.components.JussiMenuDivider
+import com.jussicodes.music.ui.components.JussiMenuItem
 import com.jussicodes.music.ui.components.PlayerComments
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.PlaylistThumbnailImage
@@ -104,6 +107,7 @@ import com.jussicodes.music.ui.components.ShareSheet
 import com.jussicodes.music.ui.icons.LibraryAdd
 import com.jussicodes.music.ui.icons.LibraryAddCheck
 import com.jussicodes.music.ui.icons.ModeComment
+import com.jussicodes.music.ui.icons.Pencil
 import com.jussicodes.music.ui.icons.Search
 import com.jussicodes.music.constants.isLandscapePhone
 import com.jussicodes.music.constants.userIdKye
@@ -903,22 +907,26 @@ private fun PlaylistOverflowMenu(
     onUploadCover: () -> Unit,
     onShare: () -> Unit,
 ) {
-    DropdownMenu(
+    JussiDropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss
     ) {
         if (isOwnPlaylist) {
-            DropdownMenuItem(
-                text = { Text("编辑信息") },
+            JussiMenuItem(
+                text = "编辑信息",
+                icon = Pencil,
                 onClick = onEditInfo
             )
-            DropdownMenuItem(
-                text = { Text("上传封面") },
+            JussiMenuItem(
+                text = "上传封面",
+                icon = Icons.Outlined.AddPhotoAlternate,
                 onClick = onUploadCover
             )
+            JussiMenuDivider()
         }
-        DropdownMenuItem(
-            text = { Text("分享歌单") },
+        JussiMenuItem(
+            text = "分享歌单",
+            icon = Icons.Outlined.Share,
             onClick = onShare
         )
     }

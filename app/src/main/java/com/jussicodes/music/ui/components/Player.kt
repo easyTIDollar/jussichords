@@ -26,8 +26,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -89,6 +87,7 @@ import com.jussicodes.music.ui.navigation.RecordNav
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.screen.PERSONAL_FM_SOURCE
 import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
+import com.jussicodes.music.ui.screen.personalFmModeIcons
 import com.jussicodes.music.ui.screen.personalFmModeOptions
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.setPlaylist
@@ -386,21 +385,17 @@ fun Player(
                                 }
                             }
                         )
-                        DropdownMenu(
+                        val fmModeIcons =
+                            if (playerLabelOptions.isEmpty()) personalFmModeIcons else emptyList()
+                        JussiDropdownMenu(
                             expanded = playerLabelMenuExpanded,
                             onDismissRequest = { playerLabelMenuExpanded = false }
                         ) {
                             fmLabelOptions.forEachIndexed { index, option ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            if (index == fmSelectedOption) {
-                                                "$option · 当前"
-                                            } else {
-                                                option
-                                            }
-                                        )
-                                    },
+                                JussiMenuItem(
+                                    text = if (index == fmSelectedOption) "$option · 当前" else option,
+                                    icon = fmModeIcons.getOrNull(index),
+                                    selected = index == fmSelectedOption,
                                     onClick = {
                                         playerLabelMenuExpanded = false
                                         onFmOptionPicked(index)

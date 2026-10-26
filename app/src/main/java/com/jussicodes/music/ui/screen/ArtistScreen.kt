@@ -23,11 +23,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.LocalFireDepartment
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -69,6 +69,8 @@ import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.components.AlbumListItem
 import com.jussicodes.music.ui.components.ArtistListItem
 import com.jussicodes.music.ui.components.LargeImageDialog
+import com.jussicodes.music.ui.components.JussiDropdownMenu
+import com.jussicodes.music.ui.components.JussiMenuItem
 import com.jussicodes.music.ui.components.NavigationTitle
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
@@ -368,7 +370,7 @@ fun ArtistScreen(
                                             )
                                         }
                                     )
-                                    DropdownMenu(
+                                    JussiDropdownMenu(
                                         expanded = sortMenuExpanded,
                                         onDismissRequest = { sortMenuExpanded = false }
                                     ) {
@@ -376,9 +378,15 @@ fun ArtistScreen(
                                             "time" to stringResource(R.string.artist_sort_time)
                                         ).forEach { (order, label) ->
                                             val checked = sortOrder == order
-                                            DropdownMenuItem(
-                                                text = { Text(label) },
-                                                leadingIcon = {
+                                            JussiMenuItem(
+                                                text = label,
+                                                icon = if (order == "hot") {
+                                                    Icons.Outlined.LocalFireDepartment
+                                                } else {
+                                                    Icons.Outlined.Schedule
+                                                },
+                                                selected = checked,
+                                                trailing = {
                                                     Checkbox(checked = checked, onCheckedChange = null)
                                                 },
                                                 onClick = {

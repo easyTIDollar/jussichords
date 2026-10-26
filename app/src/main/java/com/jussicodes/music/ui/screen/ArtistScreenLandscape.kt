@@ -22,14 +22,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.LocalFireDepartment
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,6 +55,8 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.components.MasterDetailLandscape
+import com.jussicodes.music.ui.components.JussiDropdownMenu
+import com.jussicodes.music.ui.components.JussiMenuItem
 import com.jussicodes.music.ui.components.NavigationTitle
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SwipableTabPager
@@ -383,7 +385,7 @@ private fun ArtistLandscapeSongsPage(
                         onClick = { sortMenuExpanded = true },
                         label = { Text(stringResource(R.string.artist_sort)) }
                     )
-                    DropdownMenu(
+                    JussiDropdownMenu(
                         expanded = sortMenuExpanded,
                         onDismissRequest = { sortMenuExpanded = false }
                     ) {
@@ -391,10 +393,17 @@ private fun ArtistLandscapeSongsPage(
                             "hot" to stringResource(R.string.artist_sort_hot),
                             "time" to stringResource(R.string.artist_sort_time)
                         ).forEach { (order, label) ->
-                            DropdownMenuItem(
-                                text = { Text(label) },
-                                leadingIcon = {
-                                    Checkbox(checked = sortOrder == order, onCheckedChange = null)
+                            val checked = sortOrder == order
+                            JussiMenuItem(
+                                text = label,
+                                icon = if (order == "hot") {
+                                    Icons.Outlined.LocalFireDepartment
+                                } else {
+                                    Icons.Outlined.Schedule
+                                },
+                                selected = checked,
+                                trailing = {
+                                    Checkbox(checked = checked, onCheckedChange = null)
                                 },
                                 onClick = {
                                     onSortOrderChange(order)

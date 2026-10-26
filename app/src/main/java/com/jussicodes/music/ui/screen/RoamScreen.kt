@@ -28,9 +28,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.CenterFocusStrong
+import androidx.compose.material.icons.outlined.DirectionsRun
 import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.outlined.Nightlight
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -55,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
@@ -78,15 +81,19 @@ import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.setPlaylist
+import com.jussicodes.music.ui.components.JussiDropdownMenu
+import com.jussicodes.music.ui.components.JussiMenuItem
 import com.jussicodes.music.ui.components.Lyric
 import com.jussicodes.music.ui.components.PlayerComments
 import com.jussicodes.music.ui.components.PlayerControlButtons
 import com.jussicodes.music.ui.components.PlayerProgressSlider
 import com.jussicodes.music.ui.components.PlayerQueue
 import com.jussicodes.music.ui.components.Player as FullPlayer
+import com.jussicodes.music.ui.icons.ExploreCompass
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.FavoriteFill
 import com.jussicodes.music.ui.icons.PersonalRadio
+import com.jussicodes.music.ui.icons.Radio
 import com.jussicodes.music.utils.FavoriteSongAction
 import com.jussicodes.music.utils.makeTimeString
 import com.rcmiku.ncmapi.api.recommend.RecommendApi
@@ -122,6 +129,17 @@ internal val personalFmModeOptions = listOf(
     PersonalFmModeOption("运动场景", "SCENE_RCMD", "EXERCISE"),
     PersonalFmModeOption("专注场景", "SCENE_RCMD", "FOCUS"),
     PersonalFmModeOption("夜晚情绪", "SCENE_RCMD", "NIGHT_EMO")
+)
+
+/** 与 [personalFmModeOptions] 一一对应的模式图标，供私人 FM / 播放页模式菜单共用。 */
+internal val personalFmModeIcons: List<ImageVector> = listOf(
+    Radio,
+    Icons.Outlined.AutoAwesome,
+    Favorite,
+    ExploreCompass,
+    Icons.Outlined.DirectionsRun,
+    Icons.Outlined.CenterFocusStrong,
+    Icons.Outlined.Nightlight,
 )
 
 internal object PersonalFmQueueLoader {
@@ -540,21 +558,19 @@ private fun RoamPlayerContent(
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.clickable { modeMenuExpanded = true }
                     )
-                    DropdownMenu(
+                    JussiDropdownMenu(
                         expanded = modeMenuExpanded,
                         onDismissRequest = { modeMenuExpanded = false }
                     ) {
                         personalFmModeOptions.forEachIndexed { index, option ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = if (index == selectedModeIndex) {
-                                            "私人 FM · ${option.title} · 当前"
-                                        } else {
-                                            "私人 FM · ${option.title}"
-                                        }
-                                    )
+                            JussiMenuItem(
+                                text = if (index == selectedModeIndex) {
+                                    "私人 FM · ${option.title} · 当前"
+                                } else {
+                                    "私人 FM · ${option.title}"
                                 },
+                                icon = personalFmModeIcons.getOrNull(index),
+                                selected = index == selectedModeIndex,
                                 onClick = {
                                     modeMenuExpanded = false
                                     onModeSelected(index)
