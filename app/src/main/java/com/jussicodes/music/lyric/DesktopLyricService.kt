@@ -567,6 +567,7 @@ class DesktopLyricService : Service() {
         params.x = centerX - width / 2
         params.y = centerY - height / 2
         runCatching { windowManager.updateViewLayout(root, params) }
+        persistPosition()
         positionControlWindow()
     }
 
@@ -606,25 +607,26 @@ class DesktopLyricService : Service() {
 
     private fun xFromFraction(width: Int): Int {
         val area = screenArea()
-        val free = (area.right - area.left - width).coerceAtLeast(0)
-        // 允许 < 0 / > 1：拖到屏幕外时比例照样记录，下次按同一位恢复。
-        return area.left + (free * xFraction).toInt()
+        val areaWidth = area.right - area.left
+        // 中心锚点：fraction 记录的是中心在屏幕可用宽度里的比例，还原后减半宽得到左边缘。
+        return (area.left + areaWidth * xFraction - width / 2f).toInt()
     }
 
     private fun yFromFraction(height: Int): Int {
         val area = screenArea()
-        val free = (area.bottom - area.top - height).coerceAtLeast(0)
-        // 允许 < 0 / > 1：拖到屏幕外时比例照样记录，下次按同一位恢复。
-        return area.top + (free * yFraction).toInt()
+        val areaHeight = area.bottom - area.top
+        // 中心锚点：fraction 记录的是中心在屏幕可用高度里的比例，还原后减半高得到顶边缘。
+        return (area.top + areaHeight * yFraction - height / 2f).toInt()
     }
 
     private fun persistPosition() {
         val params = lyricParams ?: return
         val area = screenArea()
-        val freeX = (area.right - area.left - params.width).coerceAtLeast(0)
-        val freeY = (area.bottom - area.top - params.height).coerceAtLeast(0)
-        xFraction = if (freeX <= 0) 0f else (params.x - area.left).toFloat() / freeX
-        yFraction = if (freeY <= 0) 0f else (params.y - area.top).toFloat() / freeY
+        val areaWidth = area.right - area.left
+        val areaHeight = area.bottom - area.top
+        // 中心锚点：记录窗口中心在屏幕可用区域里的比例，宽度变化时中心不漂移。
+        xFraction = if (areaWidth <= 0) 0.5f else (params.x + params.width / 2f - area.left) / areaWidth
+        yFraction = if (areaHeight <= 0) 0.5f else (params.y + params.height / 2f - area.top) / areaHeight
         serviceScope.launch {
             applicationContext.dataStore.edit { prefs ->
                 prefs[desktopLyricXFractionKey] = xFraction
