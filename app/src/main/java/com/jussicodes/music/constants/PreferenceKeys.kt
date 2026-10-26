@@ -63,11 +63,6 @@ val updateLastErrorKey = stringPreferencesKey("updateLastError")
 /** 上次检查到的更新信息（UpdateInfo 的 JSON）。用于免网络的即时弹窗 + 后台检查命中后复用。 */
 val updateCacheJsonKey = stringPreferencesKey("updateCacheJson")
 val uiScaleKey = floatPreferencesKey("uiScale")
-/**
- * DPI 模拟倍数（调试用）。1.0=关闭。覆盖 LocalDensity.density，dp 视口随之变化，
- * 可用来在手机上预览别的密度/尺寸下的布局。配合 orientationLockKey 可模拟横屏大屏。
- */
-val densityScaleKey = floatPreferencesKey("densityScale")
 // 主页背景图（"我的"/"探索"页）：base64 存图，缩放/透明度/模糊度各一个键。
 val homeBgImageKey = stringPreferencesKey("homeBgImage")
 val homeBgScaleKey = floatPreferencesKey("homeBgScale")

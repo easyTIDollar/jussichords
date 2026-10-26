@@ -29,10 +29,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.DensityMedium
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.ScreenRotation
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -95,12 +93,6 @@ import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
-import com.jussicodes.music.constants.currentContentHeightDp
-import com.jussicodes.music.constants.currentContentWidthDp
-import com.jussicodes.music.constants.densityScaleKey
-import com.jussicodes.music.constants.densityScaleOptions
-import com.jussicodes.music.constants.orientationLockKey
-import com.jussicodes.music.constants.ScreenOrientationLock
 import com.jussicodes.music.constants.homeBgBlurKey
 import com.jussicodes.music.constants.homeBgImageKey
 import com.jussicodes.music.constants.homeBgOffsetXKey
@@ -231,14 +223,6 @@ fun SettingsScreen(navController: NavHostController) {
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     // 检查更新的可见状态：只留失败原因（失败不再静默）。
     var updateLastError by rememberPreference(updateLastErrorKey, "")
-    // DPI 模拟（调试）：1.0=关闭。覆盖 density 让 dp 视口变成别的屏幕的尺寸。
-    var densityScale by rememberPreference(densityScaleKey, 1f)
-    var orientationLockKeyValue by rememberPreference(orientationLockKey, "unlocked")
-    var showDensityScaleDialog by remember { mutableStateOf(false) }
-    var showOrientationDialog by remember { mutableStateOf(false) }
-    val densityScaleLabel = densityScaleOptions.firstOrNull { it == densityScale }
-        ?.let { if (it == 1f) "关闭" else "×$it" }
-        ?: "×$densityScale"
     var playerGestureTutorialVersion by rememberPreference(
         playerGestureTutorialVersionKey,
         0
@@ -569,41 +553,15 @@ fun SettingsScreen(navController: NavHostController) {
 
     val uiGroup = SettingGroupData(
         name = "界面",
-        items = buildList {
-            add(
-                SettingItemData(
-                    title = appearanceTitle,
-                    subtitle = appearanceWithScale,
-                    imageVector = Palette,
-                    onClick = { showThemeColorSourceDialog = true }
-                )
-            )
-            // 调试项：屏幕方向锁定与 DPI 模拟仅在 canary 调试通道提供，正式版自动隐藏
-            if (BuildConfig.BUILD_TYPE == "canary") {
-                add(
-                    SettingItemData(
-                        title = "屏幕方向",
-                        subtitle = ScreenOrientationLock.fromKey(orientationLockKeyValue).label,
-                        imageVector = Icons.Outlined.ScreenRotation,
-                        onClick = { showOrientationDialog = true }
-                    )
-                )
-                add(
-                    SettingItemData(
-                        title = "DPI 模拟",
-                        subtitle = if (densityScale == 1f) {
-                            "关闭 · 视口 ${currentContentWidthDp()}×${currentContentHeightDp()}dp"
-                        } else {
-                            "$densityScaleLabel · 视口 ${currentContentWidthDp()}×${currentContentHeightDp()}dp"
-                        },
-                        imageVector = Icons.Outlined.DensityMedium,
-                        onClick = { showDensityScaleDialog = true }
-                    )
-                )
-            }
-            add(
-                SettingItemData(
-                    title = "桌面歌词",
+        items = listOf(
+            SettingItemData(
+                title = appearanceTitle,
+                subtitle = appearanceWithScale,
+                imageVector = Palette,
+                onClick = { showThemeColorSourceDialog = true }
+            ),
+            SettingItemData(
+                title = "桌面歌词",
                 subtitle = (if (lyricOn) {
                     "已开启 · ${desktopLyricFontSize.toInt()}sp" +
                         if (desktopLyricLocked) " · 已锁定" else ""
@@ -864,93 +822,6 @@ fun SettingsScreen(navController: NavHostController) {
         }
     }
 
-    if (showOrientationDialog) {
-        ResponsiveAlertDialog(
-            onDismissRequest = { showOrientationDialog = false },
-            title = { Text("屏幕方向") },
-            text = {
-                Column {
-                    Text(
-                        "锁定方向是真实转屏（系统重建配置），不是界面假装翻转。" +
-                            "配合「DPI 模拟」可在竖屏手机上模拟横屏大屏布局。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    ScreenOrientationLock.entries.forEach { option ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    orientationLockKeyValue = option.key
-                                    showOrientationDialog = false
-                                }
-                                .padding(vertical = 12.dp)
-                        ) {
-                            RadioButton(
-                                selected = orientationLockKeyValue == option.key,
-                                onClick = {
-                                    orientationLockKeyValue = option.key
-                                    showOrientationDialog = false
-                                }
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(option.label)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showOrientationDialog = false }) { Text("取消") }
-            }
-        )
-    }
-
-    if (showDensityScaleDialog) {
-        ResponsiveAlertDialog(
-            onDismissRequest = { showDensityScaleDialog = false },
-            title = { Text("DPI 模拟") },
-            text = {
-                Column {
-                    Text(
-                        "按倍数缩小密度，让同样像素装下更多 dp —— 布局会真的按目标屏幕尺寸" +
-                            "排一遍（不是整体缩小）。往小调可在手机上预览低密度大屏 / 横屏形态。" +
-                            "仅用于调试，正式使用请选「关闭」。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    densityScaleOptions.forEach { option ->
-                        val label = if (option == 1f) "关闭（×1）" else "×$option"
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    densityScale = option
-                                    showDensityScaleDialog = false
-                                }
-                                .padding(vertical = 12.dp)
-                        ) {
-                            RadioButton(
-                                selected = densityScale == option,
-                                onClick = {
-                                    densityScale = option
-                                    showDensityScaleDialog = false
-                                }
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(label)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showDensityScaleDialog = false }) { Text("取消") }
-            }
-        )
-    }
 
     if (showQualityDialog) {
         SongQualityDialog(

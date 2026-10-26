@@ -2,11 +2,9 @@ package com.jussicodes.music.constants
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.datastore.preferences.core.stringPreferencesKey
 
 /**
  * 全局唯一的窗口宽度分级来源。所有响应式判断都读这里，不要在别处另写阈值。
@@ -60,50 +58,15 @@ enum class WindowHeightClass {
     val isTall: Boolean get() = this == Tall
 }
 
-/**
- * DPI 模拟档位：覆盖 `LocalDensity.density` 的**倍数**。
- *
- * 为什么模拟 DPI 而不是模拟 dp 视口：dp 视口 = 物理像素 / density，改 density
- * 就等价于模拟「另一种屏幕」，且所有 `dp` 常量、`aspectRatio`、`fillMaxWidth`
- * 全链路都跟着变 —— 布局真的按目标屏幕走一遍，而不是被整体缩小糊弄过去。
- *
- * 1.0 = 不模拟。往小调（如 0.67）→ 同样像素装下更多 dp → 视口变宽变矮，
- * 用来在手机上预览「更低密度设备」的样子。
- */
-val LocalDensityScaleFactor = staticCompositionLocalOf { 1f }
-
-/** 设置页 DPI 模拟候选项（density 倍数）。1.0 = 不模拟。 */
-val densityScaleOptions: List<Float> = listOf(1f, 0.9f, 0.8f, 0.75f, 0.67f, 0.5f)
-
-/** 屏幕方向锁定档位。 */
-enum class ScreenOrientationLock(val key: String, val label: String) {
-    Unlocked("unlocked", "跟随系统"),
-    Portrait("portrait", "锁定竖屏"),
-    Landscape("landscape", "锁定横屏");
-
-    companion object {
-        fun fromKey(key: String): ScreenOrientationLock =
-            entries.firstOrNull { it.key == key } ?: Unlocked
-    }
-}
-
-val orientationLockKey = stringPreferencesKey("orientationLock")
-
-/** 当前内容宽度（dp），受 DPI 模拟影响。 */
+/** 当前内容宽度（dp）。 */
 @Composable
 @ReadOnlyComposable
-fun currentContentWidthDp(): Int {
-    val scale = LocalDensityScaleFactor.current
-    return (LocalConfiguration.current.screenWidthDp / scale.coerceAtLeast(0.1f)).toInt()
-}
+fun currentContentWidthDp(): Int = LocalConfiguration.current.screenWidthDp
 
-/** 当前内容高度（dp），受 DPI 模拟影响。 */
+/** 当前内容高度（dp）。 */
 @Composable
 @ReadOnlyComposable
-fun currentContentHeightDp(): Int {
-    val scale = LocalDensityScaleFactor.current
-    return (LocalConfiguration.current.screenHeightDp / scale.coerceAtLeast(0.1f)).toInt()
-}
+fun currentContentHeightDp(): Int = LocalConfiguration.current.screenHeightDp
 
 /**
  * 手机横屏（矮屏）的判定：内容高度不足 480dp。

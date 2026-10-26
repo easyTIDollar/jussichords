@@ -1,6 +1,5 @@
 package com.jussicodes.music
 
-import android.content.pm.ActivityInfo
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -22,10 +21,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
-import com.jussicodes.music.constants.LocalDensityScaleFactor
-import com.jussicodes.music.constants.ScreenOrientationLock
-import com.jussicodes.music.constants.densityScaleKey
-import com.jussicodes.music.constants.orientationLockKey
 import com.jussicodes.music.constants.uiScaleKey
 import com.jussicodes.music.data.MsgSessionCache
 import android.Manifest
@@ -102,16 +97,6 @@ class MainActivity : ComponentActivity() {
             var isMeasuringUpdateSources by remember { mutableStateOf(false) }
             var uiScale by rememberPreference(uiScaleKey, 1f)
             var liveUiScale by remember { mutableFloatStateOf(uiScale) }
-            // DPI 模拟（调试用）：覆盖 density 让 dp 视口变成别的屏幕的尺寸。
-            // 仅在 canary 构建启用；正式版固定为 1f（完全不影响基线密度）。
-            var densityScale by rememberPreference(
-                densityScaleKey,
-                if (BuildConfig.BUILD_TYPE == "canary") 1f else 1f
-            )
-            var orientationLock by rememberPreference(
-                orientationLockKey,
-                "unlocked"
-            )
             var githubDownloadSource by rememberPreference(
                 githubDownloadSourceKey,
                 downloadSources.first().id
@@ -231,40 +216,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
             val baseDensity = LocalDensity.current
-            // DPI 模拟 × 界面缩放，两者叠乘。非 canary 构建强制为 1f。
-            val densityScaleSafe = if (BuildConfig.BUILD_TYPE == "canary") {
-                densityScale.coerceIn(0.4f, 1.0f)
-            } else {
-                1.0f
-            }
-            val scaledDensity = remember(baseDensity, liveUiScale, densityScaleSafe) {
+            val scaledDensity = remember(baseDensity, liveUiScale) {
                 val scale = liveUiScale.coerceIn(0.7f, 1.1f)
                 Density(
-                    density = baseDensity.density * scale * densityScaleSafe,
+                    density = baseDensity.density * scale,
                     fontScale = baseDensity.fontScale * scale
                 )
-            }
-            // 屏幕方向锁定：仅在 canary 生效，正式版始终 UNSPECIFIED 跟随系统
-            val orientation = if (BuildConfig.BUILD_TYPE == "canary") {
-                ScreenOrientationLock.fromKey(orientationLock)
-            } else {
-                ScreenOrientationLock.Unlocked
-            }
-            LaunchedEffect(orientation) {
-                requestedOrientation = when (orientation) {
-                    ScreenOrientationLock.Unlocked ->
-                        ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                    ScreenOrientationLock.Portrait ->
-                        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                    ScreenOrientationLock.Landscape ->
-                        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                }
             }
             CompositionLocalProvider(LocalDensity provides scaledDensity) {
                 JetMeloTheme(artwork = playerState?.mediaMetadata?.artworkUri) {
                     CompositionLocalProvider(
-                        // DPI 模拟因子：响应式分级函数读它来算 dp 视口。
-                        LocalDensityScaleFactor provides densityScaleSafe,
                         LocalPlayerController provides playerController,
                         LocalPlayerState provides playerState,
                         LocalUiScaleController provides UiScaleController(
@@ -284,8 +245,6 @@ class MainActivity : ComponentActivity() {
                         // 横屏沉浸式：横屏一律隐藏状态栏（全局），竖屏恢复。
                         // 放在 composition 顶层，任何页面转到横屏都生效。
                         LandscapeStatusBarImmersive()
-                        // DPI 模拟：覆盖 LocalDensity.density，dp 视口随之变化，
-                        // 所有布局按「目标屏幕」真实走一遍（不是整体缩小）。
                         MainScreen()
                     pendingUpdateInfo?.let { updateInfo ->
                         UpdateDialog(
