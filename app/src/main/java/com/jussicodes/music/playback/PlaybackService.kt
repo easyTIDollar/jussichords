@@ -127,9 +127,14 @@ class PlaybackService : MediaSessionService() {
                 Player.STATE_ENDED -> playbackHistorySession
                     .finish(SystemClock.elapsedRealtime(), "playend")
                     ?.let { reportDuration(it) }
-                Player.STATE_IDLE -> playbackHistorySession
-                    .finish(SystemClock.elapsedRealtime())
-                    ?.let { reportDuration(it) }
+                Player.STATE_IDLE ->
+                    // 换源重放会主动 stop()（打回 IDLE）再 prepare，这一次 IDLE 不是「播完/中断」，
+                    // 不结算也不上报，否则每首被换源的歌都会多出一条假的中断续播记录。
+                    if (!retryingSource) {
+                        playbackHistorySession
+                            .finish(SystemClock.elapsedRealtime())
+                            ?.let { reportDuration(it) }
+                    }
             }
         }
 
@@ -282,6 +287,12 @@ class PlaybackService : MediaSessionService() {
 
     private val recoveryListener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
+            // 音源本身坏了（404 / HTML 页 / 不是音频）：同一条链重试没意义 → 换源。
+            // 这条要先判，不能被下面的网络错误分支拦走。
+            if (isBadSourceError(error)) {
+                onBadSourceError()
+                return
+            }
             if (!isRetryableNetworkError(error)) return
             val player = mediaSession?.player ?: return
             val item = player.currentMediaItem ?: return
@@ -328,6 +339,42 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * 音源坏了（非网络原因）：拉黑这条直链，换下一个源重放；
+     * 已经没有更好的源了，就按「自动跳过错误歌曲」设置处理，别再退避重试同一条链。
+     */
+    private fun onBadSourceError() {
+        val player = mediaSession?.player ?: return
+        val item = player.currentMediaItem ?: return
+        val songId = item.mediaId.takeIf { it.isNotBlank() } ?: return
+        val observation = ResolveGuard.observe(songId) ?: run {
+            // 没有解析记录（本地文件等）：交回原有错误处理。
+            giveUpOnNetworkError()
+            return
+        }
+        verifiedUrl = null
+        if (observation.trial || observation.alreadyRejected ||
+            !ResolveGuard.rejectAndShouldRetry(observation)
+        ) {
+            android.util.Log.w(
+                TAG,
+                "bad source with no more candidates songId=$songId retry=${observation.retries}"
+            )
+            if (ResolveGuard.shouldWarn(observation)) {
+                Toast.makeText(this, "这首暂无可用的完整音源", Toast.LENGTH_LONG).show()
+            }
+            if (dataStore.get(autoSkipNextOnErrorKey, false) && player.hasNextMediaItem()) {
+                player.stop()
+                player.seekToNext()
+                player.prepare()
+                player.play()
+            }
+            return
+        }
+        android.util.Log.w(TAG, "bad source, switching source songId=$songId url=${observation.url.take(100)}")
+        retryWithNextSource(songId)
+    }
+
     /** 重试耗尽：停在当前曲提示；若用户开了「自动跳过错误歌曲」才跳下一首。 */
     private fun giveUpOnNetworkError() {
         val player = mediaSession?.player ?: return
@@ -348,6 +395,15 @@ class PlaybackService : MediaSessionService() {
     /** 当前曲目已经校验过时长的直链，避免同一根链反复触发校验。 */
     private var verifiedUrl: String? = null
 
+    /**
+     * 正在「拉黑坏源并重放」的过程中。
+     *
+     * 重放必须走 stop()（见 [retryWithNextSource]），而 stop() 会让播放状态回到 IDLE，
+     * 播放历史上报会把这次打断当成一次「播完/中断」结算并上报。这个标志让上报层跳过它。
+     */
+    @Volatile
+    private var retryingSource = false
+
     /** 时长校验允许的误差：至少 5s，长歌按 2% 放宽。 */
     private fun durationToleranceMs(expectedMs: Long): Long =
         maxOf(5_000L, expectedMs / 50)
@@ -355,11 +411,13 @@ class PlaybackService : MediaSessionService() {
     /**
      * 时长校验：解析出来的直链未必是这首歌的完整音频。
      *
-     * 典型坏源：试听片段（30s）、别的歌、被截断/拼接的文件。它们都能「解析成功」并正常开始播放，
+     * 典型坏源：别的歌、被截断/拼接的文件、时长被裁过的转码。它们都能「解析成功」并正常开始播放，
      * 用户看到的现象是「放一半没声 / 放到下一首之前就断了」，只能手动切歌再切回来。
      * 所以这里等真实音频就绪后核对 ExoPlayer 读到的时长与歌曲元数据时长，超出容差就把这条链
-     * 拉黑（[ResolveGuard]）并重新解析一次——重试会跳过坏链、升级到下一个脚本/直连源。
-     * 解析次数有上限（[ResolveGuard.MAX_VERIFY_RETRIES]），真无源的歌最终接受现状，绝不无限重试。
+     * 拉黑（[ResolveGuard]）并换源重放——重试会跳过坏链、升级到下一个脚本/直连源。
+     *
+     * 试听片段（30s 占位）不在这里重试：能走到「拿到试听」说明所有脚本/直连源都已试过，
+     * 再解析一遍结果只会一样，反而把每首无源歌的加载时间翻几倍。
      */
     private val durationVerifyListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -376,36 +434,39 @@ class PlaybackService : MediaSessionService() {
             verifiedUrl = observation.url
 
             scope.launch {
+                val p = mediaSession?.player ?: return@launch
                 // 时长要读「稳定后」的值：边下边播的 MP3（VBR / 无 Xing 头）一开始给的是按码率估算的
-                // 近似值，播了几秒才收敛到真实长度；拿 STATE_READY 那一瞬间的值去比会误判。
-                // 做法：先等一小会儿读一次，播够几秒再读，两次差异明显就再等一次，用最后那个值判定。
-                val p0 = mediaSession?.player ?: return@launch
+                // 近似值，播了几秒才收敛；拿 STATE_READY 那一瞬间的值去比会误判成坏源。
                 delay(300)
-                if (p0.currentMediaItem?.mediaId != songId) return@launch
-                var reading = p0.duration
-                // 播到 ~4s 再读（仍在上报/缓冲阶段就再多等，最多 ~9s）
+                if (p.currentMediaItem?.mediaId != songId) return@launch
+                val early = p.duration
+                // 等到「播了几秒」或「时长有值」，上限 9s；两个条件都要计入上限，
+                // 否则 duration 一直为 0 时会退化成死循环（主线程上就是 ANR）。
                 var waited = 0L
-                while (waited < 9_000L && (p0.currentPosition < 4_000L || p0.duration <= 0)) {
+                while (waited < MEDIA_STATE_SETTLE_MS) {
+                    if (p.currentMediaItem?.mediaId != songId) return@launch
+                    if (p.duration > 0 && p.currentPosition >= DURATION_SAMPLE_AFTER_MS) break
                     delay(500)
                     waited += 500
-                    if (p0.currentMediaItem?.mediaId != songId) return@launch
                 }
-                if (reading > 0 && p0.duration > 0 && kotlin.math.abs(p0.duration - reading) > 500) {
-                    // 估算还在变：再给 2.5s 收敛
+                if (early > 0 && p.duration > 0 && kotlin.math.abs(p.duration - early) > 500) {
+                    // 估算还在收敛：再给 2.5s
                     repeat(5) { delay(500) }
                 }
-                reading = p0.duration
-                val actualMs = reading
+                val actualMs = p.duration
                 if (actualMs == androidx.media3.common.C.TIME_UNSET || actualMs <= 0) return@launch
+                if (p.currentMediaItem?.mediaId != songId) return@launch
                 val diff = kotlin.math.abs(actualMs - expectedMs)
                 if (diff <= durationToleranceMs(expectedMs)) return@launch
 
                 android.util.Log.w(
                     TAG,
                     "duration mismatch songId=$songId expected=${expectedMs}ms actual=${actualMs}ms " +
-                        "diff=${diff}ms retry=${observation.retries} " +
+                        "diff=${diff}ms retry=${observation.retries} trial=${observation.trial} " +
                         "url=${observation.url.take(100)}"
                 )
+                // 试听片段：所有源都试过了，重试没有意义，保持「能听 30 秒」的现状。
+                if (observation.trial) return@launch
                 // 这次交出去的直链本身就在拉黑集合里（候选已试穿）→ 别再重放，直接接受并提示一次。
                 if (observation.alreadyRejected || !ResolveGuard.rejectAndShouldRetry(observation)) {
                     if (ResolveGuard.shouldWarn(observation)) {
@@ -417,14 +478,37 @@ class PlaybackService : MediaSessionService() {
                     }
                     return@launch
                 }
-                // 重放当前曲目：ResolvingDataSource 会带着拉黑集合重新解析，
-                // 于是这次会跳到下一个脚本/下一个直连源，而不是同一根坏链。
-                // 序列与「换源重播」一致（pause → seek 0 → prepare → play）。
-                verifiedUrl = null
-                p0.pause()
-                p0.seekTo(0)
-                p0.prepare()
-                p0.play()
+                retryWithNextSource(songId)
+            }
+        }
+    }
+
+    /**
+     * 换源重放当前曲目。
+     *
+     * **必须 stop() 而不是 prepare()**：ExoPlayerImpl.prepare() 在非 IDLE 状态下直接 return
+     * （1.4.1 源码：`if (playbackInfo.playbackState != Player.STATE_IDLE) return;`），
+     * 所以 READY 状态下 pause → seekTo(0) → prepare() 什么都不会发生，ResolvingDataSource
+     * 不会重新解析 —— 那样「换源重试」只是把同一根坏链再放一遍。
+     * stop() 会把播放器打回 IDLE 并释放 MediaSourceList，随后的 prepare() 才会重新创建
+     * MediaSource、重新走一遍 uri 解析（带上拉黑集合）。
+     */
+    private fun retryWithNextSource(songId: String) {
+        val player = mediaSession?.player ?: return
+        if (player.currentMediaItem?.mediaId != songId) return
+        retryingSource = true
+        verifiedUrl = null
+        scope.launch {
+            try {
+                player.stop()
+                player.seekTo(0)
+                player.prepare()
+                player.play()
+            } finally {
+                // prepare() 是异步的；给内部播发线程一点时间再过掉「正在重放」标志，
+                // 让 stop() 引起的 IDLE 事件不会结算播放历史上报。
+                delay(1_500)
+                retryingSource = false
             }
         }
     }
@@ -464,9 +548,14 @@ class PlaybackService : MediaSessionService() {
         reloadJob = scope.launch {
             PlaybackReloadBus.requests.collect {
                 val player = mediaSession?.player ?: return@collect
-                if (player.currentMediaItem == null) return@collect
-                // 重播同一 MediaItem：pause → seek 0 → prepare，走一遍新的 ResolvingDataSource
-                player.pause()
+                val item = player.currentMediaItem ?: return@collect
+                // 用户主动换了音源：清掉这首歌上一轮（旧音源）的拉黑集合与重试计数，
+                // 否则新音源会被旧源的坏链记录连坐跳过。
+                item.mediaId.takeIf { it.isNotBlank() }?.let(ResolveGuard::forgetSong)
+                verifiedUrl = null
+                // 必须 stop() → prepare()：prepare() 在非 IDLE 状态直接 return，
+                // pause + seekTo(0) + prepare() 不会重新解析，等于没换源。
+                player.stop()
                 player.seekTo(0)
                 player.prepare()
                 player.play()
@@ -822,5 +911,11 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         private const val TAG = "PlaybackService"
+
+        /** 时长校验：等播放器时长读数稳定的上限（毫秒）。 */
+        private const val MEDIA_STATE_SETTLE_MS = 9_000L
+
+        /** 时长校验：至少播到这么久再采样，避开 VBR 粗估。 */
+        private const val DURATION_SAMPLE_AFTER_MS = 4_000L
     }
 }

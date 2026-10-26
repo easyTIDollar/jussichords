@@ -187,15 +187,15 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel): Uri? {
         PlayerApi.songPlayUrlV1(songId, songLevel, skipUrls = skipUrls)
             .getOrNull()?.data?.firstOrNull()
 
-    fun accept(url: String?): Uri? {
+    fun accept(url: String?, trial: Boolean): Uri? {
         if (url == null) return null
-        ResolveGuard.recordResolved(songId, url)
+        ResolveGuard.recordResolved(songId, url, trial)
         return url.toUri()
     }
 
     val first = resolveOnce()
     val firstUrl = first?.url?.takeIf { it.isNotBlank() }
-    if (firstUrl != null && first?.isTrialClip() != true) return accept(firstUrl)
+    if (firstUrl != null && first?.isTrialClip() != true) return accept(firstUrl, trial = false)
 
     android.util.Log.d(
         "PlayerApi",
@@ -206,11 +206,11 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel): Uri? {
     val secondUrl = second?.url?.takeIf { it.isNotBlank() }
 
     return when {
-        secondUrl != null && second?.isTrialClip() != true -> accept(secondUrl)
+        secondUrl != null && second?.isTrialClip() != true -> accept(secondUrl, trial = false)
         // 两次都只拿到试听：先给试听，别让用户彻底听不到。
-        // 真·会员歌的完整链会在时长校验那一层再拉黑重试；这里不能无限重试。
-        firstUrl != null -> accept(firstUrl)
-        secondUrl != null -> accept(secondUrl)
+        // 已经把所有脚本/直连源都试过了，播放器侧不必再为「试听」重试（见 durationVerifyListener）。
+        firstUrl != null -> accept(firstUrl, trial = first?.isTrialClip() == true)
+        secondUrl != null -> accept(secondUrl, trial = second?.isTrialClip() == true)
         else -> {
             android.util.Log.w("PlayerApi", "play url unavailable songId=$songId")
             null

@@ -338,6 +338,9 @@ internal class PlayerStateImpl(
             // 网络类错误由 PlaybackService 的恢复逻辑处理（退避重试 / 网络恢复续播），
             // 这里再跳下一首会和它打架。
             if (isRetryableNetworkError(error)) return
+            // 音源坏（404/HTML/非音频）也归 PlaybackService：它会先拉黑这条链、换源重试，
+            // 只有当所有源都试穿后才按「自动跳过错误歌曲」处理，UI 侧抢先跳歌会打断换源。
+            if (isBadSourceError(error)) return
             if (context.dataStore.get(autoSkipNextOnErrorKey, false) &&
                 player.hasNextMediaItem()
             ) {

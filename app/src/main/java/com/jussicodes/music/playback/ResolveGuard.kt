@@ -32,6 +32,8 @@ object ResolveGuard {
         var lastUrl: String? = null
         /** 最近这次交出去的直链本身就在拉黑集合里（说明已经没有更好的候选了）。 */
         var lastUrlAlreadyRejected = false
+        /** 最近这次交出去的是试听片段。 */
+        var lastWasTrial = false
         var warned = false
         var touchedAt = 0L
     }
@@ -42,6 +44,8 @@ object ResolveGuard {
         val url: String,
         val alreadyRejected: Boolean,
         val retries: Int,
+        /** 这次交出去的是 NCM 试听片段（30s 占位）。 */
+        val trial: Boolean,
     )
 
     @Volatile
@@ -70,10 +74,11 @@ object ResolveGuard {
     }
 
     /** 记录这次真正交给了播放器的直链，供后续校验失败时拉黑。 */
-    fun recordResolved(key: String, url: String) {
+    fun recordResolved(key: String, url: String, trial: Boolean = false) {
         val state = stateOf(key)
         synchronized(state) {
             state.lastUrl = url
+            state.lastWasTrial = trial
             state.lastUrlAlreadyRejected = PlayUrlSkip.blocks(state.skipUrls, url)
         }
     }
@@ -90,7 +95,13 @@ object ResolveGuard {
             .maxByOrNull { it.touchedAt }
             ?.let { state ->
                 val url = state.lastUrl ?: return null
-                Observation(state.key, url, state.lastUrlAlreadyRejected, state.retries)
+                Observation(
+                    key = state.key,
+                    url = url,
+                    alreadyRejected = state.lastUrlAlreadyRejected,
+                    retries = state.retries,
+                    trial = state.lastWasTrial,
+                )
             }
     }
 
@@ -128,6 +139,16 @@ object ResolveGuard {
         synchronized(state) {
             state.retries = 0
             state.warned = false
+        }
+    }
+
+    /**
+     * 彻底忘掉一首歌的校验状态（含已拉黑的直链）。
+     * 用户主动换音源时调用：换了源就应该按新源重新开始，不该继承上一轮的拉黑集合。
+     */
+    fun forgetSong(songId: String) {
+        synchronized(states) {
+            states.keys.removeAll { it == songId || it.startsWith("$songId?") }
         }
     }
 }
