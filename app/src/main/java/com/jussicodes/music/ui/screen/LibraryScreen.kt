@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,7 +39,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -896,79 +896,43 @@ private fun LibraryUserCard(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    FilledTonalIconButton(
-                        onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onMessagesClick()
-                        }
-                    ) {
-                        androidx.compose.material3.Icon(
-                            imageVector = Message,
-                            contentDescription = stringResource(R.string.messages)
-                        )
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                QuickAction(
+                    icon = Message,
+                    label = "消息",
+                    contentDescription = stringResource(R.string.messages),
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onMessagesClick()
                     }
-                    Text(text = "消息", style = MaterialTheme.typography.labelSmall)
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    FilledTonalIconButton(
-                        onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onRecordClick()
-                        }
-                    ) {
-                        androidx.compose.material3.Icon(
-                            imageVector = Leaderboard,
-                            contentDescription = stringResource(R.string.record)
-                        )
+                )
+                QuickAction(
+                    icon = Leaderboard,
+                    label = "排行",
+                    contentDescription = stringResource(R.string.record),
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onRecordClick()
                     }
-                    Text(text = "排行", style = MaterialTheme.typography.labelSmall)
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    FilledTonalIconButton(
-                        onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onRecentPlayClick()
-                        }
-                    ) {
-                        androidx.compose.material3.Icon(
-                            imageVector = History,
-                            contentDescription = stringResource(R.string.recent_play)
-                        )
+                )
+                QuickAction(
+                    icon = History,
+                    label = "历史",
+                    contentDescription = stringResource(R.string.recent_play),
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onRecentPlayClick()
                     }
-                    Text(text = "历史", style = MaterialTheme.typography.labelSmall)
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    FilledTonalIconButton(
-                        onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onRoamClick()
-                        }
-                    ) {
-                        androidx.compose.material3.Icon(
-                            imageVector = PersonalRadio,
-                            contentDescription = stringResource(R.string.roam)
-                        )
+                )
+                QuickAction(
+                    icon = PersonalRadio,
+                    label = "电台",
+                    contentDescription = stringResource(R.string.roam),
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onRoamClick()
                     }
-                    Text(text = "电台", style = MaterialTheme.typography.labelSmall)
-                }
+                )
             }
         }
     }
@@ -1219,3 +1183,36 @@ private fun RowCardContent(
     }
 }
 
+/**
+ * 首页快捷入口（消息/排行/历史/电台）：图标 + 文字，无底色圆。
+ * 整列（含文字）都是点击区，按下只在 clip 范围内显示 ripple，不绘制背景。
+ */
+@Composable
+private fun RowScope.QuickAction(
+    icon: ImageVector,
+    label: String,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        androidx.compose.material3.Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(26.dp)
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
