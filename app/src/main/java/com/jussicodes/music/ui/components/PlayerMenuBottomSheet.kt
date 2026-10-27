@@ -62,6 +62,7 @@ import com.jussicodes.music.playback.PlaybackReloadBus
 import com.jussicodes.music.playback.audio.AudioEffectMode
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.jussicodes.music.ui.icons.MusicNote
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.outlined.Dns
 import com.jussicodes.music.ui.icons.GraphicEq
 import com.jussicodes.music.ui.icons.Headphones
