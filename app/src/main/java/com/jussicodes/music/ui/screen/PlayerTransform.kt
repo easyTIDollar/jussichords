@@ -9,7 +9,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,11 +29,9 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
 import com.jussicodes.music.animation.AlbumArtBoundsTransform
-import com.jussicodes.music.animation.MiniArtworkPlaceHolder
 import com.jussicodes.music.animation.MotionDuration
 import com.jussicodes.music.animation.MotionEasing
 import com.jussicodes.music.animation.PanelBoundsPlaceHolder
-import com.jussicodes.music.animation.PlayerPanelTransition
 import com.jussicodes.music.animation.MotionSpec
 import com.jussicodes.music.animation.SharedArtwork
 import com.jussicodes.music.ui.components.Lyric
@@ -124,7 +121,6 @@ fun PlayerTransform(
                     fadeIn(
                         animationSpec = tween(
                             durationMillis = MotionDuration.PanelFadeIn,
-                            delayMillis = MotionDuration.PanelFadeOut,
                             easing = MotionEasing.decelerate
                         )
                     ).togetherWith(
@@ -133,12 +129,7 @@ fun PlayerTransform(
                                 durationMillis = MotionDuration.PanelFadeOut,
                                 easing = MotionEasing.accelerate
                             )
-                        ) + slideOutVertically(
-                            animationSpec = tween(
-                                durationMillis = MotionDuration.SharedArtworkBounds,
-                                easing = MotionEasing.accelerate
-                            )
-                        ) { fullHeight -> (fullHeight * 0.06f).toInt() }
+                        )
                     )
                 } else {
                     fadeIn(
@@ -164,20 +155,7 @@ fun PlayerTransform(
                             placeHolderSize = PanelBoundsPlaceHolder,
                             boundsTransform = AlbumArtBoundsTransform,
                         ),
-                        modifier = Modifier.sharedBounds(
-                            sharedContentState = rememberSharedContentState(
-                                key = PlayerPanelTransition.CONTAINER_KEY
-                            ),
-                            animatedVisibilityScope = this,
-                            placeHolderSize = PanelBoundsPlaceHolder,
-                            boundsTransform = AlbumArtBoundsTransform,
-                            enter = fadeIn(
-                                MotionSpec.panelFadeIn<Float>(delayMillis = MotionDuration.ScreenExit)
-                            ),
-                            exit = fadeOut(
-                                MotionSpec.panelFadeOut<Float>()
-                            )
-                        ),
+                        modifier = Modifier,
                         onBackPressed = {
                             show = MINI_PLAYER
                             onBackPressed()
@@ -204,20 +182,7 @@ fun PlayerTransform(
                             placeHolderSize = PanelBoundsPlaceHolder,
                             boundsTransform = AlbumArtBoundsTransform,
                         ),
-                        modifier = Modifier.sharedBounds(
-                            sharedContentState = rememberSharedContentState(
-                                key = PlayerPanelTransition.CONTAINER_KEY
-                            ),
-                            animatedVisibilityScope = this,
-                            placeHolderSize = PanelBoundsPlaceHolder,
-                            boundsTransform = AlbumArtBoundsTransform,
-                            enter = fadeIn(
-                                MotionSpec.panelFadeIn<Float>(delayMillis = MotionDuration.ScreenExit)
-                            ),
-                            exit = fadeOut(
-                                MotionSpec.panelFadeOut<Float>()
-                            )
-                        ),
+                        modifier = Modifier,
                         onBackPressed = { show = FULL_PLAYER },
                     )
                 }
@@ -252,23 +217,10 @@ fun PlayerTransform(
                                 key = SharedArtwork.ofMetadata(mediaMetadata)
                             ),
                             animatedVisibilityScope = this,
-                            placeHolderSize = MiniArtworkPlaceHolder,
+                            placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
                             boundsTransform = AlbumArtBoundsTransform,
                         ),
-                        modifier = Modifier.sharedBounds(
-                            sharedContentState = rememberSharedContentState(
-                                key = PlayerPanelTransition.CONTAINER_KEY
-                            ),
-                            animatedVisibilityScope = this,
-                            placeHolderSize = SharedTransitionScope.PlaceHolderSize.contentSize,
-                            boundsTransform = AlbumArtBoundsTransform,
-                            enter = fadeIn(
-                                MotionSpec.panelFadeIn<Float>(delayMillis = MotionDuration.PanelFadeIn)
-                            ),
-                            exit = fadeOut(
-                                MotionSpec.panelFadeOut<Float>()
-                            )
-                        ),
+                        modifier = Modifier,
                     )
                 }
             }

@@ -104,11 +104,11 @@ fun MiniPlayer(
     val miniPlayerCorner = 16.dp
     val miniPlayerShape = RoundedCornerShape(topStart = miniPlayerCorner, topEnd = miniPlayerCorner)
     val openProgress = (-animatedPlayerDragOffsetY / swipePreviewLimitPx).coerceIn(0f, 1f)
-    val extraBackdropHeight = (-animatedPlayerDragOffsetY * 0.16f).coerceIn(0f, with(density) { 14.dp.toPx() })
+    val extraBackdropHeight = (-animatedPlayerDragOffsetY * 0.22f).coerceIn(0f, with(density) { 18.dp.toPx() })
     val backdropHeight = MiniPlayerHeight + with(density) { extraBackdropHeight.toDp() }
-    val artworkLiftPx = animatedPlayerDragOffsetY * 0.45f
-    val artworkScale = 1f + openProgress * 0.08f
-    val controlsAlpha = (1f - openProgress * 1.5f).coerceIn(0f, 1f)
+    val artworkLiftPx = animatedPlayerDragOffsetY * 0.72f
+    val artworkScale = 1f + openProgress * 0.28f
+    val controlsAlpha = (1f - openProgress * 1.6f).coerceIn(0f, 1f)
     val horizontalProgress = (abs(animatedPlayerDragOffsetX) / horizontalPreviewLimitPx).coerceIn(0f, 1f)
     val previewProgress = ((horizontalProgress - 0.42f) / 0.58f).coerceIn(0f, 1f)
     val player = playerState?.player
@@ -348,7 +348,7 @@ fun MiniMediaInfo(
                 scaleX = artworkScale
                 scaleY = artworkScale
                 if (artworkOffsetY < -2f) {
-                    shadowElevation = (abs(artworkOffsetY) * 0.35f).coerceIn(0f, with(density) { 10.dp.toPx() })
+                    shadowElevation = (abs(artworkOffsetY) * 0.45f).coerceIn(0f, with(density) { 14.dp.toPx() })
                     shape = RoundedCornerShape(artworkCorner)
                     clip = false
                 }
