@@ -41,11 +41,10 @@ object MotionDuration {
     /**
      * 共享封面 bounds 变形时长（列表封面 → 详情封面、mini 封面 → 全屏封面共用）。
      *
-     * 当前保持旧值 600 以维持行为不变。已知的失步问题：页面淡入 [ScreenEnter] 是 400ms，
-     * 而封面变形要 600ms，用户会看到"内容已到位、封面还在飞"。
-     * 校准到 ~450ms 属于步骤 4（实机验收）的工作，不在纯重构阶段动。
+     * 从 600ms 收紧至 380ms，与 M3 Emphasized 曲线和 400ms 页面节奏对齐，
+     * 解决内容到位而封面形变拖沓失步的割裂感。
      */
-    const val SharedArtworkBounds: Int = 600
+    const val SharedArtworkBounds: Int = 380
 
     /** 底栏 / NavigationRail 选中态（缩放 + 透明度）过渡。 */
     const val NavSelection: Int = 200

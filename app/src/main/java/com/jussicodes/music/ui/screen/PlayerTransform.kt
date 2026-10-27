@@ -4,8 +4,12 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.material3.MaterialTheme
@@ -16,12 +20,17 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
 import com.jussicodes.music.animation.AlbumArtBoundsTransform
 import com.jussicodes.music.animation.MiniArtworkPlaceHolder
 import com.jussicodes.music.animation.MotionDuration
+import com.jussicodes.music.animation.MotionEasing
 import com.jussicodes.music.animation.PanelBoundsPlaceHolder
 import com.jussicodes.music.animation.PlayerPanelTransition
 import com.jussicodes.music.animation.MotionSpec
@@ -47,6 +56,7 @@ fun PlayerTransform(
     onPositionUpdate: (Long) -> Unit,
     navController: NavHostController,
     expandSignal: Long = 0L,
+    miniBottomPadding: Dp = 0.dp,
 ) {
 
     var show by remember {
@@ -64,20 +74,78 @@ fun PlayerTransform(
         }
     }
 
-    SharedTransitionLayout(
-        modifier = if (show == MINI_PLAYER) {
-            Modifier
+    val containerBgColor by animateColorAsState(
+        targetValue = if (show == MINI_PLAYER) {
+            Color.Transparent
         } else {
-            Modifier.background(MaterialTheme.colorScheme.surfaceContainer)
-        }
+            MaterialTheme.colorScheme.surfaceContainer
+        },
+        animationSpec = tween(
+            durationMillis = MotionDuration.SharedArtworkBounds,
+            easing = MotionEasing.decelerate
+        ),
+        label = "PlayerContainerBgColor"
+    )
+
+    SharedTransitionLayout(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(containerBgColor)
     ) {
-        AnimatedContent(targetState = show, transitionSpec = {
-            fadeIn(
-                MotionSpec.panelFadeIn<Float>(delayMillis = MotionDuration.ScreenExit)
-            ) togetherWith fadeOut(
-                MotionSpec.panelFadeOut<Float>()
-            )
-        }) {
+        AnimatedContent(
+            targetState = show,
+            contentAlignment = Alignment.BottomCenter,
+            transitionSpec = {
+                if (initialState == MINI_PLAYER && targetState == FULL_PLAYER) {
+                    (fadeIn(
+                        animationSpec = tween(
+                            durationMillis = MotionDuration.PanelFadeIn,
+                            delayMillis = 60,
+                            easing = MotionEasing.decelerate
+                        )
+                    ) + slideInVertically(
+                        animationSpec = tween(
+                            durationMillis = MotionDuration.SharedArtworkBounds,
+                            easing = MotionEasing.emphasizedPath
+                        )
+                    ) { fullHeight -> (fullHeight * 0.06f).toInt() }
+                    ).togetherWith(
+                        fadeOut(
+                            animationSpec = tween(
+                                durationMillis = MotionDuration.PanelFadeOut,
+                                easing = MotionEasing.accelerate
+                            )
+                        )
+                    )
+                } else if (initialState == FULL_PLAYER && targetState == MINI_PLAYER) {
+                    fadeIn(
+                        animationSpec = tween(
+                            durationMillis = MotionDuration.PanelFadeIn,
+                            delayMillis = MotionDuration.PanelFadeOut,
+                            easing = MotionEasing.decelerate
+                        )
+                    ).togetherWith(
+                        fadeOut(
+                            animationSpec = tween(
+                                durationMillis = MotionDuration.PanelFadeOut,
+                                easing = MotionEasing.accelerate
+                            )
+                        ) + slideOutVertically(
+                            animationSpec = tween(
+                                durationMillis = MotionDuration.SharedArtworkBounds,
+                                easing = MotionEasing.accelerate
+                            )
+                        ) { fullHeight -> (fullHeight * 0.06f).toInt() }
+                    )
+                } else {
+                    fadeIn(
+                        MotionSpec.panelFadeIn<Float>(delayMillis = MotionDuration.ScreenExit)
+                    ) togetherWith fadeOut(
+                        MotionSpec.panelFadeOut<Float>()
+                    )
+                }
+            }
+        ) {
             when (it) {
                 FULL_PLAYER -> {
                     Player(
@@ -184,7 +252,9 @@ fun PlayerTransform(
                             placeHolderSize = MiniArtworkPlaceHolder,
                             boundsTransform = AlbumArtBoundsTransform,
                         ),
-                        modifier = Modifier.sharedBounds(
+                        modifier = Modifier
+                            .padding(bottom = miniBottomPadding)
+                            .sharedBounds(
                             sharedContentState = rememberSharedContentState(
                                 key = PlayerPanelTransition.CONTAINER_KEY
                             ),

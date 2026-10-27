@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.basicMarquee
@@ -30,8 +31,10 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -42,6 +45,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -72,16 +76,29 @@ fun MiniPlayer(
     val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
     val density = LocalDensity.current
-    val swipeOpenThresholdPx = with(density) { 48.dp.toPx() }
+    val swipeOpenThresholdPx = with(density) { 32.dp.toPx() }
+    val swipeVelocityThresholdPx = with(density) { 360.dp.toPx() }
     val swipePreviewLimitPx = with(density) { 96.dp.toPx() }
     val horizontalSwipeThresholdPx = with(density) { 120.dp.toPx() }
     val horizontalPreviewLimitPx = with(density) { 220.dp.toPx() }
     val dragDirectionSlopPx = with(density) { 12.dp.toPx() }
     var playerDragOffsetY by remember { mutableFloatStateOf(0f) }
     var playerDragOffsetX by remember { mutableFloatStateOf(0f) }
+    var isTransitioningToFull by remember { mutableStateOf(false) }
+
+    LaunchedEffect(mediaMetadata) {
+        isTransitioningToFull = false
+        playerDragOffsetY = 0f
+    }
+
+    LaunchedEffect(Unit) {
+        isTransitioningToFull = false
+        playerDragOffsetY = 0f
+    }
+
     val animatedPlayerDragOffsetY by animateFloatAsState(
         targetValue = playerDragOffsetY,
-        animationSpec = MotionSpring.dragOffset,
+        animationSpec = if (isTransitioningToFull) snap() else MotionSpring.dragOffset,
         label = "MiniPlayerDragOffset"
     )
     val animatedPlayerDragOffsetX by animateFloatAsState(
@@ -133,6 +150,7 @@ fun MiniPlayer(
                 }
                 .pointerInput(
                     swipeOpenThresholdPx,
+                    swipeVelocityThresholdPx,
                     swipePreviewLimitPx,
                     horizontalSwipeThresholdPx,
                     horizontalPreviewLimitPx,
@@ -143,12 +161,15 @@ fun MiniPlayer(
                         var totalDragX = 0f
                         var totalDragY = 0f
                         var isHorizontalDrag: Boolean? = null
+                        val velocityTracker = VelocityTracker()
+                        velocityTracker.addPosition(down.uptimeMillis, down.position)
 
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!change.pressed) break
 
+                            velocityTracker.addPosition(change.uptimeMillis, change.position)
                             val positionChange = change.positionChange()
                             totalDragX += positionChange.x
                             totalDragY += positionChange.y
@@ -171,7 +192,10 @@ fun MiniPlayer(
                                 false -> {
                                     if (positionChange.y < 0f || playerDragOffsetY < 0f) {
                                         change.consume()
-                                        playerDragOffsetY = (playerDragOffsetY + positionChange.y).coerceIn(
+                                        // 渐进式阻尼：越向上拉阻力越大，手感柔韧不撞墙
+                                        val pullRatio = (-playerDragOffsetY / swipePreviewLimitPx).coerceIn(0f, 1f)
+                                        val resistance = 1f - pullRatio * 0.45f
+                                        playerDragOffsetY = (playerDragOffsetY + positionChange.y * resistance).coerceIn(
                                             -swipePreviewLimitPx,
                                             0f
                                         )
@@ -182,6 +206,7 @@ fun MiniPlayer(
                             }
                         }
 
+                        val velocity = velocityTracker.calculateVelocity()
                         if (isHorizontalDrag == true) {
                             when {
                                 playerDragOffsetX <= -horizontalSwipeThresholdPx -> {
@@ -201,8 +226,10 @@ fun MiniPlayer(
                             }
                             playerDragOffsetX = 0f
                         } else if (isHorizontalDrag == false) {
-                            if (-playerDragOffsetY >= swipeOpenThresholdPx) {
-                                playerDragOffsetY = 0f
+                            val isFlingUp = velocity.y <= -swipeVelocityThresholdPx
+                            val isDragUp = -playerDragOffsetY >= swipeOpenThresholdPx
+                            if (isFlingUp || isDragUp) {
+                                isTransitioningToFull = true
                                 onClick()
                             } else {
                                 playerDragOffsetY = 0f

@@ -280,7 +280,7 @@ fun Player(
     Surface(
         modifier = modifier
             .fillMaxSize(),
-        color = Color.Transparent,
+        color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
         // 横屏（矮屏，高度 < 480dp）走**独立的** PlayerLandscape 布局 —— 不是把竖排
