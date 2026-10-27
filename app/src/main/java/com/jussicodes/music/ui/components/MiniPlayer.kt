@@ -68,14 +68,15 @@ fun MiniPlayer(
     modifier: Modifier = Modifier,
     imageModifier: Modifier = Modifier,
     onClick: () -> Unit = {},
+    bottomExtendDp: Dp = 0.dp,
     onDragProgressChange: (Float) -> Unit = {},
 ) {
     val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
     val density = LocalDensity.current
-    val swipeOpenThresholdPx = with(density) { 32.dp.toPx() }
+    val swipeOpenThresholdPx = with(density) { 40.dp.toPx() }
     val swipeVelocityThresholdPx = with(density) { 360.dp.toPx() }
-    val swipePreviewLimitPx = with(density) { 96.dp.toPx() }
+    val swipePreviewLimitPx = with(density) { 140.dp.toPx() }
     val horizontalSwipeThresholdPx = with(density) { 120.dp.toPx() }
     val horizontalPreviewLimitPx = with(density) { 220.dp.toPx() }
     val dragDirectionSlopPx = with(density) { 12.dp.toPx() }
@@ -110,7 +111,7 @@ fun MiniPlayer(
         onDragProgressChange(openProgress)
     }
     val extraBackdropHeight = (-animatedPlayerDragOffsetY * 0.22f).coerceIn(0f, with(density) { 18.dp.toPx() })
-    val backdropHeight = MiniPlayerHeight + with(density) { extraBackdropHeight.toDp() }
+    val backdropHeight = MiniPlayerHeight + with(density) { extraBackdropHeight.toDp() } + bottomExtendDp
     val artworkLiftPx = animatedPlayerDragOffsetY * 0.72f
     val artworkScale = 1f + openProgress * 0.28f
     val controlsAlpha = (1f - openProgress * 1.6f).coerceIn(0f, 1f)
@@ -246,86 +247,93 @@ fun MiniPlayer(
             ) {
                 ArtworkGlassBackdrop(artwork = mediaMetadata.artworkUri)
             }
-            previewMediaMetadata?.let {
-                MiniMediaInfo(
-                    mediaMetadata = it,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 6.dp)
-                        .graphicsLayer {
-                            alpha = previewProgress
-                            translationX = if (animatedPlayerDragOffsetX < 0f) {
-                                horizontalPreviewLimitPx + animatedPlayerDragOffsetX
-                            } else {
-                                -horizontalPreviewLimitPx + animatedPlayerDragOffsetX
-                            }
-                        },
-                    artworkCorner = miniPlayerCorner
-                )
-            }
-            LinearProgressIndicator(
-                progress = { (position.toFloat() / duration).coerceIn(0f, 1f) },
+            Box(
                 modifier = Modifier
+                    .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .height(3.dp)
-                    .align(Alignment.BottomCenter)
-                    .graphicsLayer {
-                        alpha = (1f - openProgress * 2f).coerceIn(0f, 1f)
-                    },
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(end = 6.dp),
+                    .height(MiniPlayerHeight)
             ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .graphicsLayer {
-                            translationX = animatedPlayerDragOffsetX
-                            alpha = 1f - previewProgress
-                        }
-                ) {
+                previewMediaMetadata?.let {
                     MiniMediaInfo(
-                        mediaMetadata = mediaMetadata,
-                        modifier = Modifier.padding(horizontal = 6.dp),
-                        imageModifier = imageModifier,
-                        artworkCorner = miniPlayerCorner,
-                        artworkOffsetY = artworkLiftPx,
-                        artworkScale = artworkScale,
-                        contentAlpha = controlsAlpha,
+                        mediaMetadata = it,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 6.dp)
+                            .graphicsLayer {
+                                alpha = previewProgress
+                                translationX = if (animatedPlayerDragOffsetX < 0f) {
+                                    horizontalPreviewLimitPx + animatedPlayerDragOffsetX
+                                } else {
+                                    -horizontalPreviewLimitPx + animatedPlayerDragOffsetX
+                                }
+                            },
+                        artworkCorner = miniPlayerCorner
                     )
                 }
-
+                LinearProgressIndicator(
+                    progress = { (position.toFloat() / duration).coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .align(Alignment.BottomCenter)
+                        .graphicsLayer {
+                            alpha = (1f - openProgress * 2f).coerceIn(0f, 1f)
+                        },
+                )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.graphicsLayer {
-                        alpha = controlsAlpha
-                    }
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(end = 6.dp),
                 ) {
-                    IconButton(
-                        enabled = true,
-                        onClick = {
-                            if (playerState?.isPlaying == true)
-                                mediaController?.pause()
-                            else
-                                mediaController?.play()
-                        }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .graphicsLayer {
+                                translationX = animatedPlayerDragOffsetX
+                                alpha = 1f - previewProgress
+                            }
                     ) {
-                        Icon(
-                            imageVector = if (playerState?.isPlaying == true) PauseFill else Icons.Filled.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(24.dp)
+                        MiniMediaInfo(
+                            mediaMetadata = mediaMetadata,
+                            modifier = Modifier.padding(horizontal = 6.dp),
+                            imageModifier = imageModifier,
+                            artworkCorner = miniPlayerCorner,
+                            artworkOffsetY = artworkLiftPx,
+                            artworkScale = artworkScale,
+                            contentAlpha = controlsAlpha,
                         )
                     }
-                    IconButton(
-                        enabled = true,
-                        onClick = {
-                            mediaController?.seekToNext()
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.graphicsLayer {
+                            alpha = controlsAlpha
                         }
                     ) {
-                        Icon(imageVector = SkipNextFill, contentDescription = null, modifier = Modifier.size(24.dp))
+                        IconButton(
+                            enabled = true,
+                            onClick = {
+                                if (playerState?.isPlaying == true)
+                                    mediaController?.pause()
+                                else
+                                    mediaController?.play()
+                            }
+                        ) {
+                            Icon(
+                                imageVector = if (playerState?.isPlaying == true) PauseFill else Icons.Filled.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        IconButton(
+                            enabled = true,
+                            onClick = {
+                                mediaController?.seekToNext()
+                            }
+                        ) {
+                            Icon(imageVector = SkipNextFill, contentDescription = null, modifier = Modifier.size(24.dp))
+                        }
                     }
                 }
             }
