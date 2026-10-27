@@ -595,24 +595,36 @@ class PlaybackService : MediaSessionService() {
                         sampleRate = format.sampleRate
                         channels = format.channelCount
                         val isFlac = mimeType.contains("flac", ignoreCase = true)
-                        val isHighRes = isFlac && (sampleRate >= 48000 || format.pcmEncoding == androidx.media3.common.C.ENCODING_PCM_24BIT || format.pcmEncoding == androidx.media3.common.C.ENCODING_PCM_32BIT)
+                        val bitDepth = when (format.pcmEncoding) {
+                            androidx.media3.common.C.ENCODING_PCM_24BIT -> 24
+                            androidx.media3.common.C.ENCODING_PCM_32BIT -> 32
+                            else -> 16
+                        }
+                        val isHighRes = isFlac && (sampleRate >= 48000 || bitDepth >= 24)
                         formatSummary = when {
-                            isHighRes -> "Hi-Res 高解析无损 [24bit/${sampleRate}Hz]"
-                            isFlac -> "无损 [16bit/${sampleRate}Hz]"
+                            isHighRes -> "Hi-Res 高解析无损 [${bitDepth}bit/${sampleRate}Hz]"
+                            isFlac -> "无损 [${bitDepth}bit/${sampleRate}Hz]"
                             bitrateKbps >= 250 -> "极高 [${bitrateKbps}kbps]"
                             bitrateKbps in 150..249 -> "较高 [${bitrateKbps}kbps]"
                             bitrateKbps > 0 -> "标准 [${bitrateKbps}kbps]"
                             else -> mimeType
                         }
+                        val bitrateText = if (format.bitrate > 0) {
+                            "${bitrateKbps}kbps"
+                        } else if (isFlac && sampleRate > 0 && channels > 0) {
+                            val uncompressedKbps = (sampleRate.toLong() * bitDepth * channels) / 1000
+                            "VBR (动态无损, 未压缩基准 ~${uncompressedKbps}kbps)"
+                        } else {
+                            "VBR (动态码率)"
+                        }
+                        android.util.Log.i(
+                            "JussiAudio",
+                            "🎵 [音质生效] 歌曲: $title - $artist (id: $mediaId) | 实际解码: $formatSummary (MIME: $mimeType, 采样率: ${sampleRate}Hz, 声道: $channels, 码率: $bitrateText)"
+                        )
                         break
                     }
                 }
             }
-
-            android.util.Log.i(
-                "JussiAudio",
-                "🎵 [音质生效] 歌曲: $title - $artist (id: $mediaId) | 实际解码: $formatSummary (MIME: $mimeType, 采样率: ${sampleRate}Hz, 声道: $channels, 码率: ${bitrateKbps}kbps)"
-            )
         }
     }
 
