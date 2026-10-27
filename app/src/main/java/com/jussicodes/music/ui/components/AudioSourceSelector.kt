@@ -24,12 +24,13 @@ data class AudioSourceOption(
     val value: String,
     val label: String,
     val description: String = "",
+    val maxQuality: String = "",
 )
 
 // 单一来源：ncmapi 模块的 AudioSources（LX音源 / 直连音源 / API代理服务器解灰），
 // PlayerApi 按 AudioSourceSettings.SELECTED 走对应分支，两者不漂移。
 val audioSourceOptions: List<AudioSourceOption> =
-    AudioSources.OPTIONS.map { AudioSourceOption(it.value, it.label, it.description) }
+    AudioSources.OPTIONS.map { AudioSourceOption(it.value, it.label, it.description, it.maxQuality) }
 
 /**
  * 音源选择器：三张小卡片横排，点选即生效（无弹窗）。
@@ -70,15 +71,24 @@ fun AudioSourceSelector(
                     style = MaterialTheme.typography.titleSmall,
                     color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
                     else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2
+                    maxLines = 1
                 )
+                if (option.maxQuality.isNotBlank()) {
+                    Text(
+                        text = option.maxQuality,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (selected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.tertiary,
+                        maxLines = 1
+                    )
+                }
                 if (option.description.isNotBlank()) {
                     Text(
                         text = option.description,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 3
+                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        maxLines = 2
                     )
                 }
             }

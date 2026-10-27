@@ -8,7 +8,12 @@ package com.rcmiku.ncmapi.api
  */
 object LocalSources {
 
-    data class Option(val value: String, val label: String, val description: String = "")
+    data class Option(
+        val value: String,
+        val label: String,
+        val description: String = "",
+        val maxQuality: String = ""
+    )
 
     /** 「直连音源」档位的默认源（第一个选项）。 */
     const val DEFAULT = "byfuns"
@@ -24,13 +29,13 @@ object LocalSources {
 
     /** 直连源选择器（UI 选择器与 PlayerApi 共用这一份，避免两处漂移）。 */
     val OPTIONS: List<Option> = listOf(
-        Option(AUTO, "自动选择", "按内置顺序逐个尝试，命中即用"),
-        Option("byfuns", "Byfuns", "网易云高品质/无损直连解析"),
-        Option("ddyr", "Ddyr", "网易云高品质直连解析"),
-        Option("gdmusic", "Gdmusic", "GD 音乐台直连解析"),
-        Option("oi", "Oi", "OiAPI 网易云直链解析"),
-        Option("qijieya", "Qijieya", "七街 Meting 网易云解析"),
-        Option("msls", "Msls", "聚合直连解析"),
+        Option(AUTO, "自动选择", "按内置顺序逐个尝试，命中即用", "最高 Hi-Res / 无损"),
+        Option("byfuns", "Byfuns", "第三方高品质直连解析", "最高 Hi-Res / 无损"),
+        Option("ddyr", "Ddyr", "第三方高品质直连解析", "最高 Hi-Res / 无损"),
+        Option("gdmusic", "Gdmusic", "GD 音乐台直链解析", "最高 无损 (FLAC)"),
+        Option("oi", "Oi", "OiAPI 网易云直链解析", "最高 极高 (320k)"),
+        Option("qijieya", "Qijieya", "七街 Meting 直连解析", "最高 极高 (320k)"),
+        Option("msls", "Msls", "聚合直连解析", "最高 极高 (320k)"),
     )
 
     fun fromKey(key: String): Option? = OPTIONS.find { it.value.equals(key, ignoreCase = true) }
