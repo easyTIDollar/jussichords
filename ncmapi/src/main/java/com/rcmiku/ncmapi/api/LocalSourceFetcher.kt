@@ -1,5 +1,6 @@
 package com.rcmiku.ncmapi.api
 
+import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.utils.json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -29,14 +30,25 @@ object LocalSourceFetcher {
         .followRedirects(false)
         .build()
 
-    fun fetch(moduleKey: String, songId: String): String? {
+    fun fetch(moduleKey: String, songId: String, songLevel: SongLevel = SongLevel.STANDARD): String? {
+        val qualityLx = when (songLevel) {
+            SongLevel.STANDARD, SongLevel.HIGHER -> "128k"
+            SongLevel.EXHIGH -> "320k"
+            SongLevel.LOSSLESS -> "flac"
+            else -> "flac24bit"
+        }
+        val brStr = when (songLevel) {
+            SongLevel.STANDARD, SongLevel.HIGHER -> "128"
+            SongLevel.EXHIGH -> "320"
+            else -> "999"
+        }
         val url = when (moduleKey) {
-            "byfuns" -> "https://api.byfuns.top/1/?id=$songId&level=lossless"
-            "ddyr" -> "https://yy.zddyr.top/lx/api/?source=netease&songmid=$songId&quality=hires"
-            "gdmusic" -> "https://music-api.gdstudio.xyz/api.php?types=url&source=netease&id=$songId&br=999"
-            "oi" -> "https://oiapi.net/api/Music_163?id=$songId"
-            "qijieya" -> "https://api.qijieya.cn/meting/?type=url&id=$songId"
-            "msls" -> "https://api.msls1441.com/?type=url&id=$songId"
+            "byfuns" -> "https://api.byfuns.top/1/?id=$songId&level=${songLevel.value}"
+            "ddyr" -> "https://yy.zddyr.top/lx/api/?source=netease&songmid=$songId&quality=$qualityLx"
+            "gdmusic" -> "https://music-api.gdstudio.xyz/api.php?types=url&source=netease&id=$songId&br=$brStr"
+            "oi" -> "https://oiapi.net/api/Music_163?id=$songId&level=${songLevel.value}"
+            "qijieya" -> "https://api.qijieya.cn/meting/?type=url&id=$songId&br=$brStr"
+            "msls" -> "https://api.msls1441.com/?type=url&id=$songId&br=$brStr"
             else -> return null
         }
         val raw = httpGet(url) ?: return null

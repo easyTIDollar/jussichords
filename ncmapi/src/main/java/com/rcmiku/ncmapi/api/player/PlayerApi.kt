@@ -50,12 +50,12 @@ object PlayerApi {
 
         // 只有 fee==1（VIP/黑胶）需要第三方解灰。fee=0（免费）、fee=8（普通）等其它值
         // 官方直连即可播放，完全不碰 API 服务器。
-        // 用户确认：fee=1 是要解灰的 VIP，fee=8 是直接能听的普通歌。
-        if (fee != 1) {
+        // 若开启了 AudioSourceSettings.RESOLVE_ALL，则所有歌曲均走第三方音源解析，未命中再兜底官方。
+        if (fee != 1 && !AudioSourceSettings.RESOLVE_ALL) {
             return apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
         }
 
-        // VIP（fee==1）：三选一音源（LX 脚本 / 内置直连 / 代理解灰），互斥不串联。
+        // VIP（fee==1）或全量解析模式：三选一音源（LX 脚本 / 内置直连 / 代理解灰），互斥不串联。
         // 客户端侧（LX / 内置直连）开启时不再走 API 解灰链；只有代理模式才用服务器解灰。
         val selected = AudioSourceSettings.SELECTED
         val clientSideSelected = selected == AudioSources.LX || selected == AudioSources.DIRECT
@@ -64,7 +64,7 @@ object PlayerApi {
             // 直接返回会让播放器「解析成功」然后播一半就断。
             val clientUrl = when (selected) {
                 AudioSources.LX -> LxSourceBridge.resolver?.invoke(realId, songLevel.value, skipUrls)
-                else -> tryDirectSourceUrl(realId, skipUrls)
+                else -> tryDirectSourceUrl(realId, songLevel, skipUrls)
             }?.takeIf { it.isNotBlank() && !it.contains("musicrep-ts", ignoreCase = true) }
                 ?.takeUnless { PlayUrlSkip.blocks(skipUrls, it) }
             if (!clientUrl.isNullOrBlank()) {
@@ -75,7 +75,7 @@ object PlayerApi {
             }
             Log.w("PlayerApi", "Client source ($selected) missed songId=$realId skipped=${skipUrls.size}, fall back to official url")
         } else {
-            val unblockResult = tryUnblockUrl(realId, source)
+            val unblockResult = tryUnblockUrl(realId, source, songLevel)
             // 上次被判定为错源的 url 不再用（否则重试等于原地打转），交给官方兜底。
             val blocked = PlayUrlSkip.blocks(
                 skipUrls,
@@ -96,12 +96,16 @@ object PlayerApi {
      * 直连音源：用户指定单源就只试它；「自动选择」按 [LocalSources.DIRECT_KEYS] 顺序轮询
      * 六条，命中即返回（照 Melodia 六源）。
      */
-    private fun tryDirectSourceUrl(songId: String, skipUrls: Set<String> = emptySet()): String? {
+    private fun tryDirectSourceUrl(
+        songId: String,
+        songLevel: SongLevel = SongLevel.STANDARD,
+        skipUrls: Set<String> = emptySet()
+    ): String? {
         val chosen = LocalSources.fromKey(DirectSourceSettings.SOURCE)?.value
             ?: LocalSources.AUTO
         val chain = if (chosen == LocalSources.AUTO) LocalSources.DIRECT_KEYS else listOf(chosen)
         for (m in chain) {
-            val url = LocalSourceFetcher.fetch(m, songId)
+            val url = LocalSourceFetcher.fetch(m, songId, songLevel)
             if (url == null) continue
             if (PlayUrlSkip.blocks(skipUrls, url)) {
                 Log.d("PlayerApi", "Local source '$m' skipped (rejected by duration check) songId=$songId")
@@ -139,16 +143,20 @@ object PlayerApi {
         return Triple(id, fee, pl)
     }
 
-    private suspend fun tryUnblockUrl(songId: String, sourceOverride: String?): Result<SongUrlResponse> {
+    private suspend fun tryUnblockUrl(
+        songId: String,
+        sourceOverride: String?,
+        songLevel: SongLevel = SongLevel.STANDARD
+    ): Result<SongUrlResponse> {
         // Per-song override wins; otherwise fall back to the global setting.
         // "AUTO" (or null) means "let the server pick".
         val primary = sourceOverride?.takeIf { it.isNotBlank() && it != "AUTO" }
             ?: UNBLOCK_SOURCE.takeIf { it != "AUTO" }
 
         if (primary == null) {
-            val matchResult = requestUnblockUrl("$API_BASE_URL/song/url/match", songId, source = null)
+            val matchResult = requestUnblockUrl("$API_BASE_URL/song/url/match", songId, source = null, songLevel = songLevel)
             if (matchResult.isSuccess) return matchResult
-            return requestUnblockUrl("$API_BASE_URL/match", songId, source = null)
+            return requestUnblockUrl("$API_BASE_URL/match", songId, source = null, songLevel = songLevel)
         }
 
         // Explicit source: try it first, then the remaining known sources in
@@ -157,12 +165,12 @@ object PlayerApi {
             KNOWN_UNBLOCK_SOURCES.filter { it != primary }
         var last = Result.failure<SongUrlResponse>(Exception("No unblock URL found for any source"))
         for (src in chain) {
-            val matchResult = requestUnblockUrl("$API_BASE_URL/song/url/match", songId, source = src)
+            val matchResult = requestUnblockUrl("$API_BASE_URL/song/url/match", songId, source = src, songLevel = songLevel)
             if (matchResult.isSuccess) {
                 Log.d("PlayerApi", "Unblock fallback settled on source=$src for songId=$songId")
                 return matchResult
             }
-            val legacyResult = requestUnblockUrl("$API_BASE_URL/match", songId, source = src)
+            val legacyResult = requestUnblockUrl("$API_BASE_URL/match", songId, source = src, songLevel = songLevel)
             if (legacyResult.isSuccess) {
                 Log.d("PlayerApi", "Unblock fallback settled on source=$src (legacy) for songId=$songId")
                 return legacyResult
@@ -185,7 +193,12 @@ object PlayerApi {
         var SOURCE: String = LocalSources.AUTO
     }
 
-    private suspend fun requestUnblockUrl(url: String, songId: String, source: String?): Result<SongUrlResponse> {
+    private suspend fun requestUnblockUrl(
+        url: String,
+        songId: String,
+        source: String?,
+        songLevel: SongLevel = SongLevel.STANDARD
+    ): Result<SongUrlResponse> {
         return try {
             val response = apiClient.request(url) {
                 method = HttpMethod.Get
@@ -193,6 +206,13 @@ object PlayerApi {
                 if (!source.isNullOrEmpty()) {
                     parameter("source", source)
                 }
+                parameter("level", songLevel.value)
+                val br = when (songLevel) {
+                    SongLevel.STANDARD, SongLevel.HIGHER -> 128000
+                    SongLevel.EXHIGH -> 320000
+                    else -> 999000
+                }
+                parameter("br", br)
                 CookieProvider.cookie.takeIf { it.isNotEmpty() }?.let {
                     header("Cookie", it)
                 }

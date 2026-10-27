@@ -38,4 +38,7 @@ object AudioSources {
 object AudioSourceSettings {
     /** 当前选择的音源（AudioSources 三选一之一）。 */
     var SELECTED: String = AudioSources.DEFAULT
+
+    /** 是否对所有歌曲都走音源解析（开启时非 VIP 歌也走第三方音源，默认 false）。 */
+    var RESOLVE_ALL: Boolean = false
 }

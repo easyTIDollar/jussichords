@@ -555,8 +555,11 @@ class PlaybackService : MediaSessionService() {
                 verifiedUrl = null
                 // 必须 stop() → prepare()：prepare() 在非 IDLE 状态直接 return，
                 // pause + seekTo(0) + prepare() 不会重新解析，等于没换源。
+                val pos = player.currentPosition
                 player.stop()
-                player.seekTo(0)
+                if (pos > 0) {
+                    player.seekTo(pos)
+                }
                 player.prepare()
                 player.play()
             }

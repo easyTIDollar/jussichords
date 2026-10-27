@@ -55,6 +55,8 @@ val localSourceKey = stringPreferencesKey("localSource")
 val audioSourceKey = stringPreferencesKey("audioSource")
 // 直连音源档位下的六源单选（AUTO 或具体 key）
 val directSourceKey = stringPreferencesKey("directSource")
+/** 是否对全部歌曲走音源解析（开启时非 VIP 歌也走第三方音源，默认 false）。 */
+val resolveAllSongsKey = booleanPreferencesKey("resolveAllSongs")
 val ignoredUpdateVersionKey = stringPreferencesKey("ignoredUpdateVersion")
 /** 上次成功/失败检查更新的时间戳（毫秒）。用于自动检查节流，避免每次启动都打 GitHub API。 */
 val updateLastCheckAtKey = longPreferencesKey("updateLastCheckAt")

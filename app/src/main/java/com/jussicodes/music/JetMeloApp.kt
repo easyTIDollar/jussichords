@@ -20,6 +20,7 @@ import com.jussicodes.music.constants.cacheAutoCleanThresholdKey
 import com.jussicodes.music.constants.directSourceKey
 import com.jussicodes.music.constants.localSourceKey
 import com.jussicodes.music.constants.ncmCookieKey
+import com.jussicodes.music.constants.resolveAllSongsKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.data.ExplorePreloader
 import com.jussicodes.music.data.MsgSessionCache
@@ -56,12 +57,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
-/** 音源相关设置的四元组（一起 collect，任一变化都重新同步到 ncmapi 全局变量）。 */
+/** 音源相关设置的五元组（一起 collect，任一变化都重新同步到 ncmapi 全局变量）。 */
 private data class AudioSync(
     val apiUrl: String?,
     val unblockSource: String?,
     val audioSource: String?,
-    val directSource: String?
+    val directSource: String?,
+    val resolveAllSongs: Boolean?
 )
 
 @HiltAndroidApp
@@ -168,11 +170,12 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                         prefs[apiBaseUrlKey],
                         prefs[unblockSourceKey],
                         prefs[audioSourceKey],
-                        prefs[directSourceKey]
+                        prefs[directSourceKey],
+                        prefs[resolveAllSongsKey]
                     )
                 }
                 .distinctUntilChanged()
-                .collect { (apiUrl, unblockSource, audioSource, directSource) ->
+                .collect { (apiUrl, unblockSource, audioSource, directSource, resolveAllSongs) ->
                     // 无条件同步：用户选「不使用自建服务器」时 apiUrl 为空，内存变量也要清空，
                     // 否则残留旧代理地址继续走。空是 API_BASE_URL 的既有默认态（直连兜底）。
                     API_BASE_URL = apiUrl.orEmpty()
@@ -182,6 +185,7 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                     val selected =
                         AudioSources.fromKey(audioSource.orEmpty())?.value ?: AudioSources.DEFAULT
                     AudioSourceSettings.SELECTED = selected
+                    AudioSourceSettings.RESOLVE_ALL = resolveAllSongs ?: false
                     val direct = LocalSources.fromKey(directSource.orEmpty())?.value
                         ?: LocalSources.AUTO
                     PlayerApi.DirectSourceSettings.SOURCE = direct

@@ -72,6 +72,9 @@ import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.constants.isLandscapePhone
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.constants.MediaSessionConstants
+import com.jussicodes.music.constants.audioQualityKey
+import com.jussicodes.music.utils.rememberEnumPreference
+import com.rcmiku.ncmapi.api.player.SongLevel
 import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.Artist
 import com.jussicodes.music.ui.icons.ChevronDown
@@ -154,6 +157,8 @@ fun Player(
     var openArtistSheet by rememberSaveable { mutableStateOf(false) }
     var openPlayerBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openComments by rememberSaveable { mutableStateOf(false) }
+    var audioQuality by rememberEnumPreference(audioQualityKey, defaultValue = SongLevel.STANDARD)
+    var showQualityDialog by rememberSaveable { mutableStateOf(false) }
     var playerLabelMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var gestureTutorialVersion by rememberPreference(
         playerGestureTutorialVersionKey,
@@ -514,6 +519,16 @@ fun Player(
                                         }
                                 )
                             }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(top = 4.dp)
+                            ) {
+                                AudioQualityBadge(
+                                    tracks = playerState?.tracks,
+                                    preferredLevel = audioQuality,
+                                    onClick = { showQualityDialog = true }
+                                )
+                            }
                         }
                         // 一起听房间标识：两个成员头像交叠、两侧各一只 AirPods 轮廓作陪衬。
                         // 只在进房时占位；点击复用底部菜单栈（PlayerMenuBottomSheet 内已挂
@@ -759,6 +774,20 @@ fun Player(
                 imageUrl = url,
                 onDismiss = { coverPreviewUrl = null },
                 showSaveAction = true
+            )
+        }
+
+        if (showQualityDialog) {
+            SongQualityDialog(
+                currentLevel = audioQuality,
+                onDismiss = { showQualityDialog = false },
+                onQualitySelected = { selectedLevel ->
+                    audioQuality = selectedLevel
+                    scope.launch {
+                        kotlinx.coroutines.delay(100)
+                        com.jussicodes.music.playback.PlaybackReloadBus.requestReload()
+                    }
+                }
             )
         }
 

@@ -90,6 +90,7 @@ import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.audioSourceKey
 import com.jussicodes.music.constants.directSourceKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
+import com.jussicodes.music.constants.resolveAllSongsKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
@@ -186,6 +187,7 @@ fun SettingsScreen(navController: NavHostController) {
     var audioSource by rememberPreference(audioSourceKey, AudioSources.DEFAULT)
     // 「直连音源」档位下的六源单选（音源设置里的子设置）。
     var directSource by rememberPreference(directSourceKey, LocalSources.AUTO)
+    var resolveAllSongs by rememberPreference(resolveAllSongsKey, false)
     LaunchedEffect(directSource) {
         PlayerApi.DirectSourceSettings.SOURCE = directSource
     }
@@ -660,6 +662,27 @@ fun SettingsScreen(navController: NavHostController) {
         },
         items = listOf(
             SettingItemData(
+                title = "全部歌曲走音源解析",
+                subtitle = if (resolveAllSongs) "非 VIP 歌曲也优先通过音源解析高音质，未命中兜底官方" else "默认仅 VIP/无版权歌曲走音源解析",
+                imageVector = Icons.Outlined.AutoAwesome,
+                trailingContent = {
+                    Switch(
+                        checked = resolveAllSongs,
+                        onCheckedChange = { on ->
+                            resolveAllSongs = on
+                            com.rcmiku.ncmapi.api.AudioSourceSettings.RESOLVE_ALL = on
+                            reloadCurrentSong()
+                        }
+                    )
+                    Spacer(Modifier.width(12.dp))
+                },
+                onClick = {
+                    resolveAllSongs = !resolveAllSongs
+                    com.rcmiku.ncmapi.api.AudioSourceSettings.RESOLVE_ALL = resolveAllSongs
+                    reloadCurrentSong()
+                }
+            ),
+            SettingItemData(
                 title = "LX 脚本管理",
                 subtitle = lxScriptSummary,
                 imageVector = Script,
@@ -827,7 +850,13 @@ fun SettingsScreen(navController: NavHostController) {
         SongQualityDialog(
             currentLevel = audioQuality,
             onDismiss = { showQualityDialog = false },
-            onQualitySelected = { audioQuality = it }
+            onQualitySelected = { selectedLevel ->
+                audioQuality = selectedLevel
+                coroutineScope.launch {
+                    kotlinx.coroutines.delay(100)
+                    com.jussicodes.music.playback.PlaybackReloadBus.requestReload()
+                }
+            }
         )
     }
 
