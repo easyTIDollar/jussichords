@@ -8,10 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -24,6 +22,15 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.R
 import com.rcmiku.ncmapi.api.player.SongLevel
+
+/** 常用播放音质档位：过滤后四项（沉浸声/环绕声/杜比/超清母带），仅保留标准五档。 */
+private val DISPLAY_QUALITY_LEVELS = listOf(
+    SongLevel.STANDARD,
+    SongLevel.HIGHER,
+    SongLevel.EXHIGH,
+    SongLevel.LOSSLESS,
+    SongLevel.HIRES,
+)
 
 @Composable
 fun SongQualityDialog(
@@ -42,7 +49,6 @@ fun SongQualityDialog(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .verticalScroll(rememberScrollState())
                             .padding(horizontal = 20.dp, vertical = 16.dp)
                     ) {
                         Text(
@@ -50,7 +56,7 @@ fun SongQualityDialog(
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                         )
-                        val pairs = SongLevel.entries.chunked(2)
+                        val pairs = DISPLAY_QUALITY_LEVELS.chunked(2)
                         pairs.forEach { rowLevels ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -77,15 +83,14 @@ fun SongQualityDialog(
                     Column(
                         modifier = Modifier
                             .selectableGroup()
-                            .verticalScroll(rememberScrollState())
-                            .padding(vertical = 20.dp)
+                            .padding(vertical = 18.dp)
                     ) {
                         Text(
                             text = "选择播放音质",
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)
                         )
-                        SongLevel.entries.forEach { level ->
+                        DISPLAY_QUALITY_LEVELS.forEach { level ->
                             QualityOptionRow(
                                 level = level,
                                 selected = (level == currentLevel),
@@ -134,10 +139,7 @@ private fun QualityOptionRow(
                 SongLevel.EXHIGH -> stringResource(R.string.exhigh)
                 SongLevel.LOSSLESS -> stringResource(R.string.lossless)
                 SongLevel.HIRES -> stringResource(R.string.hi_res)
-                SongLevel.JYEFFECT -> stringResource(R.string.jyeffect)
-                SongLevel.SKY -> stringResource(R.string.sky)
-                SongLevel.DOLBY -> stringResource(R.string.dolby)
-                SongLevel.JYMASTER -> stringResource(R.string.jymaster)
+                else -> level.value
             },
             style = MaterialTheme.typography.bodyLarge,
             maxLines = 1

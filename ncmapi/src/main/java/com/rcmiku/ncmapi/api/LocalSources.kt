@@ -29,10 +29,10 @@ object LocalSources {
 
     /** 直连源选择器（UI 选择器与 PlayerApi 共用这一份，避免两处漂移）。 */
     val OPTIONS: List<Option> = listOf(
-        Option(AUTO, "自动选择", "按内置顺序逐个尝试，命中即用", "最高 Hi-Res / 无损"),
-        Option("byfuns", "Byfuns", "第三方高品质直连解析", "最高 Hi-Res / 无损"),
-        Option("ddyr", "Ddyr", "第三方高品质直连解析", "最高 Hi-Res / 无损"),
-        Option("gdmusic", "Gdmusic", "GD 音乐台直链解析", "最高 无损 (FLAC)"),
+        Option(AUTO, "自动选择", "按内置顺序逐个尝试，命中即用", "最高 Hi-Res"),
+        Option("byfuns", "Byfuns", "第三方高品质直连解析", "最高 Hi-Res"),
+        Option("ddyr", "Ddyr", "第三方高品质直连解析", "最高 Hi-Res"),
+        Option("gdmusic", "Gdmusic", "GD 音乐台直链解析", "最高 无损"),
         Option("oi", "Oi", "OiAPI 网易云直链解析", "最高 极高 (320k)"),
         Option("qijieya", "Qijieya", "七街 Meting 直连解析", "最高 极高 (320k)"),
         Option("msls", "Msls", "聚合直连解析", "最高 极高 (320k)"),

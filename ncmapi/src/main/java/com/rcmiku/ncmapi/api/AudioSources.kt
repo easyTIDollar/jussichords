@@ -31,8 +31,8 @@ object AudioSources {
     )
 
     val OPTIONS = listOf(
-        Option(LX, "LX音源", "运行 JS 脚本解析", "最高 Hi-Res (24bit)"),
-        Option(DIRECT, "直连音源", "请求内置解析接口", "最高 Hi-Res / 无损"),
+        Option(LX, "LX音源", "运行 JS 脚本解析", "最高 Hi-Res"),
+        Option(DIRECT, "直连音源", "请求内置解析接口", "最高 Hi-Res"),
         Option(PROXY, "API代理服务器", "由自建服务器代解", "最高 无损 / 极高"),
     )
 

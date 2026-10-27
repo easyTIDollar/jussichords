@@ -53,7 +53,6 @@ fun LocalSourceDialog(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .verticalScroll(rememberScrollState())
                             .padding(horizontal = 20.dp, vertical = 16.dp)
                     ) {
                         Text(
@@ -88,7 +87,6 @@ fun LocalSourceDialog(
                     Column(
                         modifier = Modifier
                             .selectableGroup()
-                            .verticalScroll(rememberScrollState())
                             .padding(vertical = 20.dp)
                     ) {
                         Text(
