@@ -58,7 +58,6 @@ fun PlayerTransform(
     onPositionUpdate: (Long) -> Unit,
     navController: NavHostController,
     expandSignal: Long = 0L,
-    miniBottomPadding: Dp = 0.dp,
 ) {
 
     var show by remember {
@@ -90,9 +89,11 @@ fun PlayerTransform(
     )
 
     SharedTransitionLayout(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(containerBgColor)
+        modifier = if (show == MINI_PLAYER) {
+            Modifier
+        } else {
+            Modifier.background(containerBgColor)
+        }
     ) {
         AnimatedContent(
             targetState = show,
@@ -254,9 +255,7 @@ fun PlayerTransform(
                             placeHolderSize = MiniArtworkPlaceHolder,
                             boundsTransform = AlbumArtBoundsTransform,
                         ),
-                        modifier = Modifier
-                            .padding(bottom = miniBottomPadding)
-                            .sharedBounds(
+                        modifier = Modifier.sharedBounds(
                             sharedContentState = rememberSharedContentState(
                                 key = PlayerPanelTransition.CONTAINER_KEY
                             ),
