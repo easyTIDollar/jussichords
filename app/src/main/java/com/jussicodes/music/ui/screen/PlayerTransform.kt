@@ -1,50 +1,54 @@
 package com.jussicodes.music.ui.screen
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
-import com.jussicodes.music.animation.AlbumArtBoundsTransform
-import com.jussicodes.music.animation.MotionDuration
-import com.jussicodes.music.animation.MotionEasing
-import com.jussicodes.music.animation.PanelBoundsPlaceHolder
-import com.jussicodes.music.animation.MotionSpec
-import com.jussicodes.music.animation.SharedArtwork
+import com.jussicodes.music.constants.MiniPlayerHeight
+import com.jussicodes.music.ui.components.ArtworkBackdropStyle
+import com.jussicodes.music.ui.components.ArtworkGlassBackdrop
 import com.jussicodes.music.ui.components.Lyric
 import com.jussicodes.music.ui.components.MiniPlayer
 import com.jussicodes.music.ui.components.Player
 import com.jussicodes.music.ui.components.PlayerQueue
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 const val FULL_PLAYER = 0
 const val PLAY_QUEUE = 1
 const val MINI_PLAYER = 2
 const val LYRIC_VIEW = 3
 
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun PlayerTransform(
     onClick: () -> Unit = {},
@@ -55,177 +59,212 @@ fun PlayerTransform(
     onPositionUpdate: (Long) -> Unit,
     navController: NavHostController,
     expandSignal: Long = 0L,
-    bottomExtendDp: Dp = 0.dp,
+    bottomPadding: Dp = 0.dp,
     onDragProgressChange: (Float) -> Unit = {},
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
 
-    var show by remember {
-        mutableIntStateOf(MINI_PLAYER)
-    }
+    var isExpanded by remember { mutableStateOf(false) }
+    var fullPlayerSubView by remember { mutableIntStateOf(FULL_PLAYER) }
 
-    // 外部信号（如私信一起听进房成功）请求展开全屏播放界面。
-    // 只在 expandSignal 相对「已展开过的 token」真实递增时展开，避免进程重建时
-    // rememberSaveable 恢复的旧 token（>0）误触展开（PlayerExpandBus 是内存单例，重建后归 0）。
-    var lastExpanded by remember { mutableStateOf(expandSignal) }
-    LaunchedEffect(expandSignal) {
-        if (expandSignal > lastExpanded) {
-            lastExpanded = expandSignal
-            show = FULL_PLAYER
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val screenHeightPx = constraints.maxHeight.toFloat()
+        val collapsedTargetY = (screenHeightPx - with(density) { (bottomPadding + MiniPlayerHeight).toPx() }).coerceAtLeast(0f)
+
+        val sheetTranslationY = remember { Animatable(collapsedTargetY) }
+
+        // 当底栏尺寸或屏幕旋转等导致 collapsedTargetY 变化时，如果在收起态则同步调整位移
+        LaunchedEffect(collapsedTargetY, isExpanded) {
+            if (!isExpanded) {
+                sheetTranslationY.snapTo(collapsedTargetY)
+            }
         }
-    }
 
-    val containerBgColor by animateColorAsState(
-        targetValue = if (show == MINI_PLAYER) {
-            Color.Transparent
-        } else {
-            MaterialTheme.colorScheme.surfaceContainer
-        },
-        animationSpec = tween(
-            durationMillis = MotionDuration.SharedArtworkBounds,
-            easing = MotionEasing.decelerate
-        ),
-        label = "PlayerContainerBgColor"
-    )
-
-    SharedTransitionLayout(
-        modifier = if (show == MINI_PLAYER) {
-            Modifier
-        } else {
-            Modifier.background(containerBgColor)
+        // 外部信号（如私信一起听进房成功）请求展开全屏播放界面
+        var lastExpanded by remember { mutableStateOf(expandSignal) }
+        LaunchedEffect(expandSignal) {
+            if (expandSignal > lastExpanded) {
+                lastExpanded = expandSignal
+                isExpanded = true
+                coroutineScope.launch {
+                    sheetTranslationY.animateTo(
+                        0f,
+                        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                    )
+                }
+                onClick()
+            }
         }
-    ) {
-        AnimatedContent(
-            targetState = show,
-            contentAlignment = Alignment.BottomCenter,
-            transitionSpec = {
-                if (initialState == MINI_PLAYER && targetState == FULL_PLAYER) {
-                    (fadeIn(
-                        animationSpec = tween(
-                            durationMillis = MotionDuration.PanelFadeIn,
-                            delayMillis = 60,
-                            easing = MotionEasing.decelerate
-                        )
-                    ) + slideInVertically(
-                        animationSpec = tween(
-                            durationMillis = MotionDuration.SharedArtworkBounds,
-                            easing = MotionEasing.emphasizedPath
-                        )
-                    ) { fullHeight -> (fullHeight * 0.06f).toInt() }
-                    ).togetherWith(
-                        fadeOut(
-                            animationSpec = tween(
-                                durationMillis = MotionDuration.PanelFadeOut,
-                                easing = MotionEasing.accelerate
-                            )
-                        )
+
+        val progress = if (collapsedTargetY > 0f) {
+            ((collapsedTargetY - sheetTranslationY.value) / collapsedTargetY).coerceIn(0f, 1f)
+        } else {
+            if (isExpanded) 1f else 0f
+        }
+
+        SideEffect {
+            onDragProgressChange(progress)
+        }
+
+        // 拦截系统返回键：展开时优先收起面板
+        BackHandler(enabled = isExpanded) {
+            if (fullPlayerSubView != FULL_PLAYER) {
+                fullPlayerSubView = FULL_PLAYER
+            } else {
+                isExpanded = false
+                coroutineScope.launch {
+                    sheetTranslationY.animateTo(
+                        collapsedTargetY,
+                        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
                     )
-                } else if (initialState == FULL_PLAYER && targetState == MINI_PLAYER) {
-                    fadeIn(
-                        animationSpec = tween(
-                            durationMillis = MotionDuration.PanelFadeIn,
-                            easing = MotionEasing.decelerate
-                        )
-                    ).togetherWith(
-                        fadeOut(
-                            animationSpec = tween(
-                                durationMillis = MotionDuration.PanelFadeOut,
-                                easing = MotionEasing.accelerate
-                            )
-                        )
-                    )
-                } else {
-                    fadeIn(
-                        MotionSpec.panelFadeIn<Float>(delayMillis = MotionDuration.ScreenExit)
-                    ) togetherWith fadeOut(
-                        MotionSpec.panelFadeOut<Float>()
-                    )
+                    onBackPressed()
                 }
             }
+        }
+
+        fun onDrag(deltaY: Float) {
+            coroutineScope.launch {
+                val current = sheetTranslationY.value
+                val target = (current + deltaY).coerceIn(0f, collapsedTargetY)
+                sheetTranslationY.snapTo(target)
+            }
+        }
+
+        fun onDragEnd(velocityY: Float) {
+            coroutineScope.launch {
+                val currentP = if (collapsedTargetY > 0f) {
+                    ((collapsedTargetY - sheetTranslationY.value) / collapsedTargetY).coerceIn(0f, 1f)
+                } else 0f
+
+                val shouldExpand = if (isExpanded) {
+                    velocityY < 350f && currentP > 0.70f
+                } else {
+                    velocityY < -350f || currentP > 0.25f
+                }
+
+                if (shouldExpand) {
+                    isExpanded = true
+                    sheetTranslationY.animateTo(
+                        0f,
+                        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                    )
+                    onClick()
+                } else {
+                    isExpanded = false
+                    sheetTranslationY.animateTo(
+                        collapsedTargetY,
+                        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                    )
+                    onBackPressed()
+                }
+            }
+        }
+
+        val cornerRadius = lerp(16.dp, 0.dp, progress)
+
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .offset { IntOffset(0, sheetTranslationY.value.roundToInt()) },
+            shape = RoundedCornerShape(topStart = cornerRadius, topEnd = cornerRadius),
+            color = MaterialTheme.colorScheme.surfaceContainer
         ) {
-            when (it) {
-                FULL_PLAYER -> {
-                    Player(
-                        navController = navController,
-                        mediaMetadata = mediaMetadata,
-                        duration = duration,
-                        position = position,
-                        imageModifier = Modifier.sharedElement(
-                            state = rememberSharedContentState(
-                                key = SharedArtwork.ofMetadata(mediaMetadata)
-                            ),
-                            animatedVisibilityScope = this,
-                            placeHolderSize = PanelBoundsPlaceHolder,
-                            boundsTransform = AlbumArtBoundsTransform,
-                        ),
-                        modifier = Modifier,
-                        onBackPressed = {
-                            show = MINI_PLAYER
-                            onBackPressed()
-                        }, onClick = {
-                            show = LYRIC_VIEW
-                        },
-                        onContainerClick = {
-                            show = PLAY_QUEUE
-                        },
-                        onPositionUpdate = { position ->
-                            onPositionUpdate(position)
+            Box(modifier = Modifier.fillMaxSize()) {
+                // 磨砂玻璃底板：随展开全量填满底端，从根源消除底边断层镂空
+                ArtworkGlassBackdrop(
+                    artwork = mediaMetadata.artworkUri,
+                    style = if (progress > 0.5f) ArtworkBackdropStyle.FullScreen else ArtworkBackdropStyle.Compact,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // 小播放器层（MiniPlayer 顶栏，高度 64dp）
+                if (progress < 0.99f) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .height(MiniPlayerHeight)
+                            .graphicsLayer {
+                                alpha = (1f - progress * 2.5f).coerceIn(0f, 1f)
+                            }
+                    ) {
+                        MiniPlayer(
+                            mediaMetadata = mediaMetadata,
+                            position = position,
+                            duration = duration,
+                            onClick = {
+                                coroutineScope.launch {
+                                    isExpanded = true
+                                    sheetTranslationY.animateTo(
+                                        0f,
+                                        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                                    )
+                                    onClick()
+                                }
+                            },
+                            onVerticalDrag = { deltaY -> onDrag(deltaY) },
+                            onVerticalDragEnd = { velocityY -> onDragEnd(velocityY) },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+
+                // 全屏播放器层（Player, Lyric, Queue）
+                if (progress > 0.01f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = ((progress - 0.20f) / 0.80f).coerceIn(0f, 1f)
+                            }
+                            .pointerInput(isExpanded) {
+                                if (isExpanded) {
+                                    detectVerticalDragGestures(
+                                        onVerticalDrag = { change, dragAmount ->
+                                            if (dragAmount > 0f || sheetTranslationY.value > 0f) {
+                                                change.consume()
+                                                onDrag(dragAmount)
+                                            }
+                                        },
+                                        onDragEnd = {
+                                            onDragEnd(0f)
+                                        }
+                                    )
+                                }
+                            }
+                    ) {
+                        when (fullPlayerSubView) {
+                            FULL_PLAYER -> Player(
+                                navController = navController,
+                                mediaMetadata = mediaMetadata,
+                                duration = duration,
+                                position = position,
+                                onBackPressed = {
+                                    coroutineScope.launch {
+                                        isExpanded = false
+                                        sheetTranslationY.animateTo(
+                                            collapsedTargetY,
+                                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                                        )
+                                        onBackPressed()
+                                    }
+                                },
+                                onClick = { fullPlayerSubView = LYRIC_VIEW },
+                                onContainerClick = { fullPlayerSubView = PLAY_QUEUE },
+                                onPositionUpdate = onPositionUpdate
+                            )
+                            PLAY_QUEUE -> PlayerQueue(
+                                mediaMetadata = mediaMetadata,
+                                onBackPressed = { fullPlayerSubView = FULL_PLAYER }
+                            )
+                            LYRIC_VIEW -> Lyric(
+                                position = position,
+                                mediaMetadata = mediaMetadata,
+                                onBackPressed = { fullPlayerSubView = FULL_PLAYER }
+                            )
                         }
-                    )
-                }
-
-                PLAY_QUEUE -> {
-                    PlayerQueue(
-                        mediaMetadata = mediaMetadata,
-                        imageModifier = Modifier.sharedElement(
-                            state = rememberSharedContentState(
-                                key = SharedArtwork.ofMetadata(mediaMetadata)
-                            ),
-                            animatedVisibilityScope = this,
-                            placeHolderSize = PanelBoundsPlaceHolder,
-                            boundsTransform = AlbumArtBoundsTransform,
-                        ),
-                        modifier = Modifier,
-                        onBackPressed = { show = FULL_PLAYER },
-                    )
-                }
-
-                LYRIC_VIEW -> {
-                    Lyric(
-                        position = position,
-                        mediaMetadata = mediaMetadata,
-                        imageModifier = Modifier.sharedElement(
-                            state = rememberSharedContentState(
-                                key = SharedArtwork.ofMetadata(mediaMetadata)
-                            ),
-                            animatedVisibilityScope = this,
-                            placeHolderSize = PanelBoundsPlaceHolder,
-                            boundsTransform = AlbumArtBoundsTransform,
-                        ),
-                        onBackPressed = { show = FULL_PLAYER },
-                    )
-                }
-
-                else -> {
-                    MiniPlayer(
-                        mediaMetadata = mediaMetadata,
-                        duration = duration,
-                        position = position,
-                        onClick = {
-                            show = FULL_PLAYER
-                            onClick()
-                        },
-                        imageModifier = Modifier.sharedElement(
-                            state = rememberSharedContentState(
-                                key = SharedArtwork.ofMetadata(mediaMetadata)
-                            ),
-                            animatedVisibilityScope = this,
-                            placeHolderSize = SharedTransitionScope.PlaceHolderSize.animatedSize,
-                            boundsTransform = AlbumArtBoundsTransform,
-                        ),
-                        modifier = Modifier,
-                        bottomExtendDp = bottomExtendDp,
-                        onDragProgressChange = onDragProgressChange,
-                    )
+                    }
                 }
             }
         }

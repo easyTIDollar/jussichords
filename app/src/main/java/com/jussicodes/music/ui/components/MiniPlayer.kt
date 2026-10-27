@@ -70,6 +70,8 @@ fun MiniPlayer(
     onClick: () -> Unit = {},
     bottomExtendDp: Dp = 0.dp,
     onDragProgressChange: (Float) -> Unit = {},
+    onVerticalDrag: ((Float) -> Unit)? = null,
+    onVerticalDragEnd: ((Float) -> Unit)? = null,
 ) {
     val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
@@ -184,7 +186,10 @@ fun MiniPlayer(
                                 }
 
                                 false -> {
-                                    if (positionChange.y < 0f || playerDragOffsetY < 0f) {
+                                    if (onVerticalDrag != null) {
+                                        change.consume()
+                                        onVerticalDrag(positionChange.y)
+                                    } else if (positionChange.y < 0f || playerDragOffsetY < 0f) {
                                         change.consume()
                                         // 渐进式阻尼：越向上拉阻力越大，手感柔韧不撞墙
                                         val pullRatio = (-playerDragOffsetY / swipePreviewLimitPx).coerceIn(0f, 1f)
@@ -220,13 +225,17 @@ fun MiniPlayer(
                             }
                             playerDragOffsetX = 0f
                         } else if (isHorizontalDrag == false) {
-                            val isFlingUp = velocity.y <= -swipeVelocityThresholdPx
-                            val isDragUp = -playerDragOffsetY >= swipeOpenThresholdPx
-                            if (isFlingUp || isDragUp) {
-                                isTransitioningToFull = true
-                                onClick()
+                            if (onVerticalDragEnd != null) {
+                                onVerticalDragEnd(velocity.y)
                             } else {
-                                playerDragOffsetY = 0f
+                                val isFlingUp = velocity.y <= -swipeVelocityThresholdPx
+                                val isDragUp = -playerDragOffsetY >= swipeOpenThresholdPx
+                                if (isFlingUp || isDragUp) {
+                                    isTransitioningToFull = true
+                                    onClick()
+                                } else {
+                                    playerDragOffsetY = 0f
+                                }
                             }
                         } else {
                             playerDragOffsetY = 0f

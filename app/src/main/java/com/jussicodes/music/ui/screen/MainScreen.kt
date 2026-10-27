@@ -318,7 +318,7 @@ fun MainScreen() {
                             .graphicsLayer {
                                 val maxPressDownPx = navBarFullHeight.toPx()
                                 translationY = miniPlayerDragProgress * maxPressDownPx
-                                alpha = (1f - miniPlayerDragProgress * 0.35f).coerceIn(0f, 1f)
+                                alpha = (1f - miniPlayerDragProgress * 1.5f).coerceIn(0f, 1f)
                             }
                             .height(BottomNavigationHeight),
                         containerColor = MaterialTheme.colorScheme.surface,
@@ -466,30 +466,24 @@ fun MainScreen() {
                     .zIndex(1f)
                     .fillMaxSize()
             ) {
-                val navBarFullHeight = BottomNavigationHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                val navBarPressDownDp = navBarFullHeight * miniPlayerDragProgress
-                val effectiveBottomPadding = (miniBottomPadding - navBarPressDownDp).coerceAtLeast(0.dp)
-                Box(
-                    modifier = Modifier
-                        .defaultMinSize(minHeight = MiniPlayerHeight + navBarPressDownDp)
-                        .windowInsetsPadding(WindowInsets(bottom = effectiveBottomPadding)),
-                ) {
-                    if (showMiniPlayerChrome) playerState?.mediaMetadata?.let {
-                        PlayerTransform(
-                            mediaMetadata = it,
-                            position = position,
-                            duration = duration,
-                            bottomExtendDp = navBarPressDownDp,
-                            onBackPressed = { showPlayer = false },
-                            onClick = { showPlayer = true },
-                            onPositionUpdate = { updatePosition ->
-                                position = updatePosition
-                            },
-                            navController = navController,
-                            expandSignal = PlayerExpandBus.token.collectAsState().value,
-                            onDragProgressChange = { miniPlayerDragProgress = it }
-                        )
-                    }
+                if (showMiniPlayerChrome) playerState?.mediaMetadata?.let {
+                    PlayerTransform(
+                        mediaMetadata = it,
+                        position = position,
+                        duration = duration,
+                        bottomPadding = miniBottomPadding,
+                        onBackPressed = { showPlayer = false },
+                        onClick = { showPlayer = true },
+                        onPositionUpdate = { updatePosition ->
+                            position = updatePosition
+                        },
+                        navController = navController,
+                        expandSignal = PlayerExpandBus.token.collectAsState().value,
+                        onDragProgressChange = { progress ->
+                            miniPlayerDragProgress = progress
+                            showPlayer = progress >= 0.99f
+                        }
+                    )
                 }
             }
 
