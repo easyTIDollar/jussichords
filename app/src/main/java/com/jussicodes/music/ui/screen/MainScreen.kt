@@ -317,6 +317,7 @@ fun MainScreen() {
                     val navBarFullHeight = BottomNavigationHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     NavigationBar(
                         modifier = Modifier
+                            .zIndex(2f)
                             .graphicsLayer {
                                 val maxPressDownPx = navBarFullHeight.toPx()
                                 translationY = miniPlayerDragProgress * maxPressDownPx

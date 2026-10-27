@@ -194,17 +194,12 @@ fun PlayerTransform(
         }
 
         val cornerRadius = lerp(16.dp, 0.dp, progress)
-
-        // 精准底边缘跟随：小播放器下边缘下移速度严格与底栏下移速度 1:1 同步，绝不压入底栏重叠；
-        // 展开至底栏完全出屏幕后，下边缘自动平滑延展至屏幕底端 + 48dp 冗余，绝不留空缝
-        val navBarPressDownPx = progress * navBarFullHeightPx
-        val expectedBottomY = (screenHeightPx - bottomPaddingPx + navBarPressDownPx).coerceAtMost(screenHeightPx + bottomOvershootPx)
-        val currentCardHeightPx = (expectedBottomY - sheetTranslationY.value).coerceAtLeast(miniPlayerHeightPx)
+        val bottomOvershootPx = with(density) { 64.dp.toPx() }
 
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(with(density) { currentCardHeightPx.toDp() })
+                .height(with(density) { (screenHeightPx + bottomOvershootPx).toDp() })
                 .offset { IntOffset(0, sheetTranslationY.value.roundToInt()) },
             shape = RoundedCornerShape(topStart = cornerRadius, topEnd = cornerRadius),
             color = MaterialTheme.colorScheme.surfaceContainer
