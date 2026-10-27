@@ -55,6 +55,7 @@ fun PlayerTransform(
     onPositionUpdate: (Long) -> Unit,
     navController: NavHostController,
     expandSignal: Long = 0L,
+    onDragProgressChange: (Float) -> Unit = {},
 ) {
 
     var show by remember {
@@ -221,6 +222,7 @@ fun PlayerTransform(
                             boundsTransform = AlbumArtBoundsTransform,
                         ),
                         modifier = Modifier,
+                        onDragProgressChange = onDragProgressChange,
                     )
                 }
             }

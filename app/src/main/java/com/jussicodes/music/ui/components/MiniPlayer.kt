@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -67,6 +68,7 @@ fun MiniPlayer(
     modifier: Modifier = Modifier,
     imageModifier: Modifier = Modifier,
     onClick: () -> Unit = {},
+    onDragProgressChange: (Float) -> Unit = {},
 ) {
     val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
@@ -104,6 +106,9 @@ fun MiniPlayer(
     val miniPlayerCorner = 16.dp
     val miniPlayerShape = RoundedCornerShape(topStart = miniPlayerCorner, topEnd = miniPlayerCorner)
     val openProgress = (-animatedPlayerDragOffsetY / swipePreviewLimitPx).coerceIn(0f, 1f)
+    SideEffect {
+        onDragProgressChange(openProgress)
+    }
     val extraBackdropHeight = (-animatedPlayerDragOffsetY * 0.22f).coerceIn(0f, with(density) { 18.dp.toPx() })
     val backdropHeight = MiniPlayerHeight + with(density) { extraBackdropHeight.toDp() }
     val artworkLiftPx = animatedPlayerDragOffsetY * 0.72f

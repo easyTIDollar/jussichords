@@ -129,6 +129,7 @@ fun MainScreen() {
     val currentMediaId = playerState?.currentMediaItem?.mediaId
     var currentPlayMediaId by rememberPreference(currentPlayMediaIdKey, 0)
     var showPlayer by remember { mutableStateOf(false) }
+    var miniPlayerDragProgress by remember { mutableFloatStateOf(0f) }
     var homePage by rememberSaveable { mutableIntStateOf(0) }
     var homePageScroll by remember { mutableFloatStateOf(homePage.toFloat()) }
     val homePagerState = rememberPagerState(initialPage = homePage) { tabs.size }
@@ -312,7 +313,13 @@ fun MainScreen() {
                     // 底栏底色跟随主题 surface（壁纸动态取色时一起变），不再用 M3 默认的
                     // surfaceContainerHigh（它不随动态壁纸色）。
                     NavigationBar(
-                        modifier = Modifier.height(BottomNavigationHeight),
+                        modifier = Modifier
+                            .graphicsLayer {
+                                val maxPressDownPx = 24.dp.toPx()
+                                translationY = miniPlayerDragProgress * maxPressDownPx
+                                alpha = (1f - miniPlayerDragProgress * 0.45f).coerceIn(0f, 1f)
+                            }
+                            .height(BottomNavigationHeight),
                         containerColor = MaterialTheme.colorScheme.surface,
                         contentColor = MaterialTheme.colorScheme.onSurface,
                     ) {
@@ -474,7 +481,8 @@ fun MainScreen() {
                                 position = updatePosition
                             },
                             navController = navController,
-                            expandSignal = PlayerExpandBus.token.collectAsState().value
+                            expandSignal = PlayerExpandBus.token.collectAsState().value,
+                            onDragProgressChange = { miniPlayerDragProgress = it }
                         )
                     }
                 }
