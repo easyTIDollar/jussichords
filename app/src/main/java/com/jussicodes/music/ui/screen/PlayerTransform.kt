@@ -87,7 +87,6 @@ fun PlayerTransform(
         val bottomPaddingPx = with(density) { bottomPadding.toPx() }
         val collapsedTargetY = (screenHeightPx - bottomPaddingPx - miniPlayerHeightPx).coerceAtLeast(0f)
         val navBarFullHeightPx = with(density) { (BottomNavigationHeight + bottomPadding).toPx() }
-        val bottomOvershootPx = with(density) { 48.dp.toPx() }
 
         val sheetTranslationY = remember { Animatable(collapsedTargetY) }
 
