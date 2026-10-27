@@ -664,7 +664,7 @@ fun SettingsScreen(navController: NavHostController) {
             SettingItemData(
                 title = "全部歌曲走音源解析",
                 subtitle = if (resolveAllSongs) "非 VIP 歌曲也优先通过音源解析高音质，未命中兜底官方" else "默认仅 VIP/无版权歌曲走音源解析",
-                imageVector = Icons.Outlined.AutoAwesome,
+                imageVector = MusicNote,
                 trailingContent = {
                     Switch(
                         checked = resolveAllSongs,
