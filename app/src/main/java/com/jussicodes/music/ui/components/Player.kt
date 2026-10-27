@@ -333,8 +333,7 @@ fun Player(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .then(coverGestures.dismissGraphics()),
+                    .navigationBarsPadding(),
                 verticalArrangement = if (screenHeight.dp < 700.dp) Arrangement.spacedBy(8.dp) else Arrangement.spacedBy(
                     24.dp
                 )
@@ -416,11 +415,6 @@ fun Player(
                     .then(coverGestures.coverGraphics())
                     .clip(MaterialTheme.shapes.small)
                     .then(coverGestures.coverSwipeGestures())
-                    .then(
-                        coverGestures.coverDismissGestures(
-                            enabled = !openAlbumSheet && !openArtistSheet && !openPlayerBottomSheet
-                        )
-                    )
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onTap = { onClick() },

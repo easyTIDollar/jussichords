@@ -72,6 +72,7 @@ fun MiniPlayer(
     onDragProgressChange: (Float) -> Unit = {},
     onVerticalDrag: ((Float) -> Unit)? = null,
     onVerticalDragEnd: ((Float) -> Unit)? = null,
+    dragProgress: Float = 0f,
 ) {
     val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
@@ -286,7 +287,8 @@ fun MiniPlayer(
                         .height(3.dp)
                         .align(Alignment.BottomCenter)
                         .graphicsLayer {
-                            alpha = (1f - openProgress * 2f).coerceIn(0f, 1f)
+                            val combinedProgress = maxOf(openProgress, dragProgress)
+                            alpha = if (combinedProgress > 0.01f) 0f else 1f
                         },
                 )
                 Row(

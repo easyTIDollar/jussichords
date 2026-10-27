@@ -45,6 +45,7 @@ import com.jussicodes.music.animation.MotionDuration
 import com.jussicodes.music.animation.MotionSpec
 import com.jussicodes.music.animation.PanelBoundsPlaceHolder
 import com.jussicodes.music.animation.SharedArtwork
+import com.jussicodes.music.constants.BottomNavigationHeight
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.components.ArtworkBackdropStyle
 import com.jussicodes.music.ui.components.ArtworkGlassBackdrop
@@ -85,6 +86,8 @@ fun PlayerTransform(
         val miniPlayerHeightPx = with(density) { MiniPlayerHeight.toPx() }
         val bottomPaddingPx = with(density) { bottomPadding.toPx() }
         val collapsedTargetY = (screenHeightPx - bottomPaddingPx - miniPlayerHeightPx).coerceAtLeast(0f)
+        val navBarFullHeightPx = with(density) { (BottomNavigationHeight + bottomPadding).toPx() }
+        val bottomOvershootPx = with(density) { 48.dp.toPx() }
 
         val sheetTranslationY = remember { Animatable(collapsedTargetY) }
 
@@ -121,7 +124,7 @@ fun PlayerTransform(
             onDragProgressChange(progress)
         }
 
-        // 拦截系统返回键：展开时优先收起面板
+        // 拦截系统返回键：展开时优先优雅滑下收起面板
         BackHandler(enabled = isExpanded) {
             if (fullPlayerSubView != FULL_PLAYER) {
                 fullPlayerSubView = FULL_PLAYER
@@ -130,7 +133,7 @@ fun PlayerTransform(
                 coroutineScope.launch {
                     sheetTranslationY.animateTo(
                         collapsedTargetY,
-                        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                        spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
                     )
                     onBackPressed()
                 }
@@ -147,44 +150,56 @@ fun PlayerTransform(
 
         fun onDragEnd(velocityY: Float) {
             coroutineScope.launch {
-                val currentP = if (collapsedTargetY > 0f) {
-                    ((collapsedTargetY - sheetTranslationY.value) / collapsedTargetY).coerceIn(0f, 1f)
-                } else 0f
-
-                val shouldExpand = if (isExpanded) {
-                    velocityY < 350f && currentP > 0.70f
+                if (isExpanded) {
+                    // 全屏状态下向下滑动退出：阈值 15px 或向下的速度
+                    val dragDistanceDown = sheetTranslationY.value
+                    val isDragDown = dragDistanceDown >= 15f
+                    val isFlingDown = velocityY >= 150f
+                    if (isDragDown || isFlingDown) {
+                        isExpanded = false
+                        sheetTranslationY.animateTo(
+                            collapsedTargetY,
+                            spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
+                        )
+                        onBackPressed()
+                    } else {
+                        // 未达阈值平滑回弹全屏
+                        sheetTranslationY.animateTo(
+                            0f,
+                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                        )
+                    }
                 } else {
-                    velocityY < -350f || currentP > 0.25f
-                }
-
-                if (shouldExpand) {
-                    isExpanded = true
-                    sheetTranslationY.animateTo(
-                        0f,
-                        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
-                    )
-                    onClick()
-                } else {
-                    isExpanded = false
-                    sheetTranslationY.animateTo(
-                        collapsedTargetY,
-                        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
-                    )
-                    onBackPressed()
+                    // 收起状态下向上滑动展开：阈值 10px 或向上的速度
+                    val dragDistanceUp = collapsedTargetY - sheetTranslationY.value
+                    val isDragUp = dragDistanceUp >= 10f
+                    val isFlingUp = velocityY <= -150f
+                    if (isDragUp || isFlingUp) {
+                        isExpanded = true
+                        sheetTranslationY.animateTo(
+                            0f,
+                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                        )
+                        onClick()
+                    } else {
+                        // 未达阈值平滑回弹收起
+                        sheetTranslationY.animateTo(
+                            collapsedTargetY,
+                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                        )
+                        onBackPressed()
+                    }
                 }
             }
         }
 
         val cornerRadius = lerp(16.dp, 0.dp, progress)
 
-        // 动态高度拉伸：收起时仅有 64dp（底边与底栏顶边完全贴齐，绝不延伸到底栏区域遮挡底栏）；
-        // 随手势上滑逐渐扩展到全屏高度 + 48dp 底部安全冗余（彻底消除弹簧上冲反弹导致的底部露光缝隙）
-        val bottomOvershootPx = with(density) { 48.dp.toPx() }
-        val currentCardHeightPx = androidx.compose.ui.util.lerp(
-            miniPlayerHeightPx,
-            screenHeightPx + bottomOvershootPx,
-            progress
-        )
+        // 精准底边缘跟随：小播放器下边缘下移速度严格与底栏下移速度 1:1 同步，绝不压入底栏重叠；
+        // 展开至底栏完全出屏幕后，下边缘自动平滑延展至屏幕底端 + 48dp 冗余，绝不留空缝
+        val navBarPressDownPx = progress * navBarFullHeightPx
+        val expectedBottomY = (screenHeightPx - bottomPaddingPx + navBarPressDownPx).coerceAtMost(screenHeightPx + bottomOvershootPx)
+        val currentCardHeightPx = (expectedBottomY - sheetTranslationY.value).coerceAtLeast(miniPlayerHeightPx)
 
         Surface(
             modifier = Modifier
@@ -229,12 +244,13 @@ fun PlayerTransform(
                             },
                             onVerticalDrag = { deltaY -> onDrag(deltaY) },
                             onVerticalDragEnd = { velocityY -> onDragEnd(velocityY) },
+                            dragProgress = progress,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
                 }
 
-                // 全屏播放器层（恢复原有的 SharedTransitionLayout + AnimatedContent 动画体系）
+                // 全屏播放器层（全屏任意区域下拉手势 + 优雅退出动效）
                 if (progress > 0.01f) {
                     Box(
                         modifier = Modifier
@@ -289,7 +305,7 @@ fun PlayerTransform(
                                                 isExpanded = false
                                                 sheetTranslationY.animateTo(
                                                     collapsedTargetY,
-                                                    spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                                                    spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
                                                 )
                                                 onBackPressed()
                                             }
