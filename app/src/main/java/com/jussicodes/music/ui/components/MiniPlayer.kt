@@ -1,11 +1,7 @@
 package com.jussicodes.music.ui.components
 
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -59,7 +55,6 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MiniPlayerHeight
-import com.jussicodes.music.ui.icons.ChevronDown
 import com.jussicodes.music.ui.icons.PauseFill
 import com.jussicodes.music.ui.icons.SkipNextFill
 import kotlin.math.abs
@@ -106,18 +101,14 @@ fun MiniPlayer(
         animationSpec = MotionSpring.dragOffset,
         label = "MiniPlayerHorizontalDragOffset"
     )
-    val arrowBreath by rememberInfiniteTransition(label = "MiniPlayerOpenHint").animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "MiniPlayerOpenHintBreath"
-    )
     val miniPlayerCorner = 16.dp
     val miniPlayerShape = RoundedCornerShape(topStart = miniPlayerCorner, topEnd = miniPlayerCorner)
     val openProgress = (-animatedPlayerDragOffsetY / swipePreviewLimitPx).coerceIn(0f, 1f)
+    val extraBackdropHeight = (-animatedPlayerDragOffsetY * 0.16f).coerceIn(0f, with(density) { 14.dp.toPx() })
+    val backdropHeight = MiniPlayerHeight + with(density) { extraBackdropHeight.toDp() }
+    val artworkLiftPx = animatedPlayerDragOffsetY * 0.45f
+    val artworkScale = 1f + openProgress * 0.08f
+    val controlsAlpha = (1f - openProgress * 1.5f).coerceIn(0f, 1f)
     val horizontalProgress = (abs(animatedPlayerDragOffsetX) / horizontalPreviewLimitPx).coerceIn(0f, 1f)
     val previewProgress = ((horizontalProgress - 0.42f) / 0.58f).coerceIn(0f, 1f)
     val player = playerState?.player
@@ -145,9 +136,6 @@ fun MiniPlayer(
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .graphicsLayer {
-                    translationY = animatedPlayerDragOffsetY * 0.65f
-                }
                 .pointerInput(
                     swipeOpenThresholdPx,
                     swipeVelocityThresholdPx,
@@ -240,32 +228,19 @@ fun MiniPlayer(
                         }
                     }
                 }
-                .height(MiniPlayerHeight)
+                .height(backdropHeight)
         ) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .height(MiniPlayerHeight)
+                    .height(backdropHeight)
                     .clip(miniPlayerShape)
                     .clickable { onClick() }
                     .clipToBounds()
             ) {
                 ArtworkGlassBackdrop(artwork = mediaMetadata.artworkUri)
             }
-            Icon(
-                imageVector = ChevronDown,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .graphicsLayer {
-                        alpha = openProgress * (0.45f + arrowBreath * 0.55f)
-                        translationY = -animatedPlayerDragOffsetY * 0.65f - 6f - arrowBreath * 8f
-                        rotationZ = 180f
-                    }
-                    .size(28.dp)
-            )
             previewMediaMetadata?.let {
                 MiniMediaInfo(
                     mediaMetadata = it,
@@ -288,7 +263,10 @@ fun MiniPlayer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(3.dp)
-                    .align(Alignment.BottomCenter),
+                    .align(Alignment.BottomCenter)
+                    .graphicsLayer {
+                        alpha = (1f - openProgress * 2f).coerceIn(0f, 1f)
+                    },
             )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -308,32 +286,42 @@ fun MiniPlayer(
                         mediaMetadata = mediaMetadata,
                         modifier = Modifier.padding(horizontal = 6.dp),
                         imageModifier = imageModifier,
-                        artworkCorner = miniPlayerCorner
+                        artworkCorner = miniPlayerCorner,
+                        artworkOffsetY = artworkLiftPx,
+                        artworkScale = artworkScale,
+                        contentAlpha = controlsAlpha,
                     )
                 }
 
-                IconButton(
-                    enabled = true,
-                    onClick = {
-                        if (playerState?.isPlaying == true)
-                            mediaController?.pause()
-                        else
-                            mediaController?.play()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.graphicsLayer {
+                        alpha = controlsAlpha
                     }
                 ) {
-                    Icon(
-                        imageVector = if (playerState?.isPlaying == true) PauseFill else Icons.Filled.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-                IconButton(
-                    enabled = true,
-                    onClick = {
-                        mediaController?.seekToNext()
+                    IconButton(
+                        enabled = true,
+                        onClick = {
+                            if (playerState?.isPlaying == true)
+                                mediaController?.pause()
+                            else
+                                mediaController?.play()
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (playerState?.isPlaying == true) PauseFill else Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
-                ) {
-                    Icon(imageVector = SkipNextFill, contentDescription = null, modifier = Modifier.size(24.dp))
+                    IconButton(
+                        enabled = true,
+                        onClick = {
+                            mediaController?.seekToNext()
+                        }
+                    ) {
+                        Icon(imageVector = SkipNextFill, contentDescription = null, modifier = Modifier.size(24.dp))
+                    }
                 }
             }
         }
@@ -345,13 +333,27 @@ fun MiniMediaInfo(
     modifier: Modifier = Modifier,
     imageModifier: Modifier = Modifier,
     artworkCorner: Dp = 16.dp,
+    artworkOffsetY: Float = 0f,
+    artworkScale: Float = 1f,
+    contentAlpha: Float = 1f,
 ) {
-
+    val density = LocalDensity.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
     ) {
-        Box(modifier = Modifier) {
+        Box(
+            modifier = Modifier.graphicsLayer {
+                translationY = artworkOffsetY
+                scaleX = artworkScale
+                scaleY = artworkScale
+                if (artworkOffsetY < -2f) {
+                    shadowElevation = (abs(artworkOffsetY) * 0.35f).coerceIn(0f, with(density) { 10.dp.toPx() })
+                    shape = RoundedCornerShape(artworkCorner)
+                    clip = false
+                }
+            }
+        ) {
             AsyncImage(
                 model = mediaMetadata.artworkUri,
                 contentDescription = null,
@@ -366,6 +368,9 @@ fun MiniMediaInfo(
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = 6.dp)
+                .graphicsLayer {
+                    alpha = contentAlpha
+                }
         ) {
             mediaMetadata.title?.let {
                 Text(
