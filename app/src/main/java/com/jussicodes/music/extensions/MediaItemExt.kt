@@ -189,10 +189,6 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel): Uri? {
 
     fun accept(url: String?, trial: Boolean): Uri? {
         if (url == null) return null
-        android.util.Log.i(
-            "JussiAudio",
-            "🔗 [直链解析命中] songId=$songId, 期望音质=${songLevel.value}, 试听片段=$trial, 链接=${url.take(120)}..."
-        )
         ResolveGuard.recordResolved(songId, url, trial)
         return url.toUri()
     }

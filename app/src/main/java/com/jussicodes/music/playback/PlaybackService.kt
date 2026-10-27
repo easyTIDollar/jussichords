@@ -556,74 +556,12 @@ class PlaybackService : MediaSessionService() {
                 // 必须 stop() → prepare()：prepare() 在非 IDLE 状态直接 return，
                 // pause + seekTo(0) + prepare() 不会重新解析，等于没换源。
                 val pos = player.currentPosition
-                android.util.Log.i(
-                    "JussiAudio",
-                    "🔄 [音质/音源切换] 收到重载请求，保留播放进度 ${pos}ms，正在原地重新解析续播: ${item.mediaMetadata.title}"
-                )
                 player.stop()
                 if (pos > 0) {
                     player.seekTo(pos)
                 }
                 player.prepare()
                 player.play()
-            }
-        }
-    }
-
-    /** 音质检测与切换测试日志监听器：直观打印歌曲信息、真实物理解码格式、码率与偏好。 */
-    private val audioQualityLogListener = object : Player.Listener {
-        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
-            val player = mediaSession?.player ?: return
-            val item = player.currentMediaItem ?: return
-            val title = item.mediaMetadata.title ?: "未知歌曲"
-            val artist = item.mediaMetadata.artist ?: "未知歌手"
-            val mediaId = item.mediaId
-
-            var formatSummary = "未知格式"
-            var mimeType = "未知"
-            var bitrateKbps = -1
-            var sampleRate = -1
-            var channels = -1
-
-            for (group in tracks.groups) {
-                if (group.type != androidx.media3.common.C.TRACK_TYPE_AUDIO) continue
-                for (i in 0 until group.length) {
-                    if (group.isTrackSelected(i)) {
-                        val format = group.getTrackFormat(i)
-                        mimeType = format.sampleMimeType ?: "未知"
-                        bitrateKbps = if (format.bitrate > 0) format.bitrate / 1000 else -1
-                        sampleRate = format.sampleRate
-                        channels = format.channelCount
-                        val isFlac = mimeType.contains("flac", ignoreCase = true)
-                        val bitDepth = when (format.pcmEncoding) {
-                            androidx.media3.common.C.ENCODING_PCM_24BIT -> 24
-                            androidx.media3.common.C.ENCODING_PCM_32BIT -> 32
-                            else -> 16
-                        }
-                        val isHighRes = isFlac && (sampleRate >= 48000 || bitDepth >= 24)
-                        formatSummary = when {
-                            isHighRes -> "Hi-Res 高解析无损 [${bitDepth}bit/${sampleRate}Hz]"
-                            isFlac -> "无损 [${bitDepth}bit/${sampleRate}Hz]"
-                            bitrateKbps >= 250 -> "极高 [${bitrateKbps}kbps]"
-                            bitrateKbps in 150..249 -> "较高 [${bitrateKbps}kbps]"
-                            bitrateKbps > 0 -> "标准 [${bitrateKbps}kbps]"
-                            else -> mimeType
-                        }
-                        val bitrateText = if (format.bitrate > 0) {
-                            "${bitrateKbps}kbps"
-                        } else if (isFlac && sampleRate > 0 && channels > 0) {
-                            val uncompressedKbps = (sampleRate.toLong() * bitDepth * channels) / 1000
-                            "VBR (动态无损, 未压缩基准 ~${uncompressedKbps}kbps)"
-                        } else {
-                            "VBR (动态码率)"
-                        }
-                        android.util.Log.i(
-                            "JussiAudio",
-                            "🎵 [音质生效] 歌曲: $title - $artist (id: $mediaId) | 实际解码: $formatSummary (MIME: $mimeType, 采样率: ${sampleRate}Hz, 声道: $channels, 码率: $bitrateText)"
-                        )
-                        break
-                    }
-                }
             }
         }
     }
@@ -756,7 +694,6 @@ class PlaybackService : MediaSessionService() {
         player.addListener(recoveryListener)
         // 音源时长校验：解析出的直链与歌曲元数据时长不符 → 拉黑该链并换源重试
         player.addListener(durationVerifyListener)
-        player.addListener(audioQualityLogListener)
         observeNetworkRecovery()
         observeSourceReloads()
         // 一起听会话：挂到全局播放器上，冷启动恢复/创建房间时接管同步。
