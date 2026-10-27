@@ -194,11 +194,19 @@ fun PlayerTransform(
 
         val cornerRadius = lerp(16.dp, 0.dp, progress)
         val bottomOvershootPx = with(density) { 64.dp.toPx() }
+        // 收起态时卡片底端严格对齐底栏顶端（高精准 64dp），绝不上浮遮挡底栏；
+        // 手势上滑展开时迅速向下延展至屏幕底端视口外部，避免界面中段产生横切边缘线
+        val bottomY = lerp(
+            screenHeightPx - bottomPaddingPx,
+            screenHeightPx + bottomOvershootPx,
+            (progress * 2f).coerceIn(0f, 1f)
+        )
+        val currentCardHeightPx = (bottomY - sheetTranslationY.value).coerceAtLeast(miniPlayerHeightPx)
 
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(with(density) { (screenHeightPx + bottomOvershootPx).toDp() })
+                .height(with(density) { currentCardHeightPx.toDp() })
                 .offset { IntOffset(0, sheetTranslationY.value.roundToInt()) },
             shape = RoundedCornerShape(topStart = cornerRadius, topEnd = cornerRadius),
             color = MaterialTheme.colorScheme.surfaceContainer

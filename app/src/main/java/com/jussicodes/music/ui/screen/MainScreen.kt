@@ -317,7 +317,6 @@ fun MainScreen() {
                     val navBarFullHeight = BottomNavigationHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     NavigationBar(
                         modifier = Modifier
-                            .zIndex(2f)
                             .graphicsLayer {
                                 val maxPressDownPx = navBarFullHeight.toPx()
                                 translationY = miniPlayerDragProgress * maxPressDownPx
@@ -519,7 +518,9 @@ fun MainScreen() {
 
             Box(
                 contentAlignment = Alignment.BottomCenter,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .zIndex(1f)
+                    .fillMaxSize()
             ) {
                 if (showMiniPlayerChrome) playerState?.mediaMetadata?.let {
                     PlayerTransform(
