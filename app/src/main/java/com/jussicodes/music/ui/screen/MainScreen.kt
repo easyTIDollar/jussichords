@@ -410,7 +410,6 @@ fun MainScreen() {
                         }
                     }
                 }
-            }
         },
         content = { padding ->
             // 小播放器贴底间距（首页=底栏上方，二级页=贴系统导航栏），
