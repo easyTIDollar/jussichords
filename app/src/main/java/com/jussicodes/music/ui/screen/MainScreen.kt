@@ -59,6 +59,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -460,36 +462,18 @@ fun MainScreen() {
                 }
             }
 
-            Box(
-                contentAlignment = Alignment.BottomCenter,
-                modifier = Modifier
-                    .zIndex(1f)
-                    .fillMaxSize()
-            ) {
-                if (showMiniPlayerChrome) playerState?.mediaMetadata?.let {
-                    PlayerTransform(
-                        mediaMetadata = it,
-                        position = position,
-                        duration = duration,
-                        bottomPadding = miniBottomPadding,
-                        onBackPressed = { showPlayer = false },
-                        onClick = { showPlayer = true },
-                        onPositionUpdate = { updatePosition ->
-                            position = updatePosition
-                        },
-                        navController = navController,
-                        expandSignal = PlayerExpandBus.token.collectAsState().value,
-                        onDragProgressChange = { progress ->
-                            miniPlayerDragProgress = progress
-                            showPlayer = progress >= 0.99f
-                        }
-                    )
-                }
-            }
-
             // Expanded（大屏）左侧竖排导航栏；Compact/Medium 保持底部横条。
             // 两者只在这里分叉：rail 占左侧固定宽度，内容区限宽居中（AdaptiveContent）。
-            Row(Modifier.fillMaxSize()) {
+            val bgBlurRadius = (miniPlayerDragProgress * 18f).dp
+            Row(
+                Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (miniPlayerDragProgress > 0.01f) {
+                            Modifier.blur(bgBlurRadius)
+                        } else Modifier
+                    )
+            ) {
                 if (useNavigationRail && showNavigationBar) {
                     AdaptiveNavigationRail(
                         currentRoute = currentDestination?.route,
@@ -518,6 +502,41 @@ fun MainScreen() {
                         homePagerState = homePagerState,
                         onHomePageChange = { homePage = it },
                         onHomePageScroll = { homePageScroll = it }
+                    )
+                }
+            }
+
+            // 向上滑动播放器时的由浅入深暗色遮罩与景深层次
+            val scrimAlpha = (miniPlayerDragProgress * 0.45f).coerceIn(0f, 0.45f)
+            if (scrimAlpha > 0.001f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = scrimAlpha))
+                )
+            }
+
+            Box(
+                contentAlignment = Alignment.BottomCenter,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                if (showMiniPlayerChrome) playerState?.mediaMetadata?.let {
+                    PlayerTransform(
+                        mediaMetadata = it,
+                        position = position,
+                        duration = duration,
+                        bottomPadding = miniBottomPadding,
+                        onBackPressed = { showPlayer = false },
+                        onClick = { showPlayer = true },
+                        onPositionUpdate = { updatePosition ->
+                            position = updatePosition
+                        },
+                        navController = navController,
+                        expandSignal = PlayerExpandBus.token.collectAsState().value,
+                        onDragProgressChange = { progress ->
+                            miniPlayerDragProgress = progress
+                            showPlayer = progress >= 0.99f
+                        }
                     )
                 }
             }

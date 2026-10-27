@@ -1,9 +1,15 @@
 package com.jussicodes.music.ui.screen
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -34,6 +40,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
+import com.jussicodes.music.animation.AlbumArtBoundsTransform
+import com.jussicodes.music.animation.MotionDuration
+import com.jussicodes.music.animation.MotionSpec
+import com.jussicodes.music.animation.PanelBoundsPlaceHolder
+import com.jussicodes.music.animation.SharedArtwork
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.components.ArtworkBackdropStyle
 import com.jussicodes.music.ui.components.ArtworkGlassBackdrop
@@ -49,6 +60,7 @@ const val PLAY_QUEUE = 1
 const val MINI_PLAYER = 2
 const val LYRIC_VIEW = 3
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun PlayerTransform(
     onClick: () -> Unit = {},
@@ -70,7 +82,9 @@ fun PlayerTransform(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val screenHeightPx = constraints.maxHeight.toFloat()
-        val collapsedTargetY = (screenHeightPx - with(density) { (bottomPadding + MiniPlayerHeight).toPx() }).coerceAtLeast(0f)
+        val miniPlayerHeightPx = with(density) { MiniPlayerHeight.toPx() }
+        val bottomPaddingPx = with(density) { bottomPadding.toPx() }
+        val collapsedTargetY = (screenHeightPx - bottomPaddingPx - miniPlayerHeightPx).coerceAtLeast(0f)
 
         val sheetTranslationY = remember { Animatable(collapsedTargetY) }
 
@@ -163,15 +177,25 @@ fun PlayerTransform(
 
         val cornerRadius = lerp(16.dp, 0.dp, progress)
 
+        // 动态高度拉伸：收起时仅有 64dp（底边与底栏顶边完全贴齐，绝不延伸到底栏区域遮挡底栏）；
+        // 随手势上滑逐渐扩展到全屏高度 + 48dp 底部安全冗余（彻底消除弹簧上冲反弹导致的底部露光缝隙）
+        val bottomOvershootPx = with(density) { 48.dp.toPx() }
+        val currentCardHeightPx = androidx.compose.ui.util.lerp(
+            miniPlayerHeightPx,
+            screenHeightPx + bottomOvershootPx,
+            progress
+        )
+
         Surface(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .height(with(density) { currentCardHeightPx.toDp() })
                 .offset { IntOffset(0, sheetTranslationY.value.roundToInt()) },
             shape = RoundedCornerShape(topStart = cornerRadius, topEnd = cornerRadius),
             color = MaterialTheme.colorScheme.surfaceContainer
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                // 磨砂玻璃底板：随展开全量填满底端，从根源消除底边断层镂空
+                // 磨砂玻璃底板
                 ArtworkGlassBackdrop(
                     artwork = mediaMetadata.artworkUri,
                     style = if (progress > 0.5f) ArtworkBackdropStyle.FullScreen else ArtworkBackdropStyle.Compact,
@@ -210,11 +234,12 @@ fun PlayerTransform(
                     }
                 }
 
-                // 全屏播放器层（Player, Lyric, Queue）
+                // 全屏播放器层（恢复原有的 SharedTransitionLayout + AnimatedContent 动画体系）
                 if (progress > 0.01f) {
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
+                            .height(with(density) { screenHeightPx.toDp() })
                             .graphicsLayer {
                                 alpha = ((progress - 0.20f) / 0.80f).coerceIn(0f, 1f)
                             }
@@ -234,35 +259,74 @@ fun PlayerTransform(
                                 }
                             }
                     ) {
-                        when (fullPlayerSubView) {
-                            FULL_PLAYER -> Player(
-                                navController = navController,
-                                mediaMetadata = mediaMetadata,
-                                duration = duration,
-                                position = position,
-                                onBackPressed = {
-                                    coroutineScope.launch {
-                                        isExpanded = false
-                                        sheetTranslationY.animateTo(
-                                            collapsedTargetY,
-                                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
-                                        )
-                                        onBackPressed()
-                                    }
-                                },
-                                onClick = { fullPlayerSubView = LYRIC_VIEW },
-                                onContainerClick = { fullPlayerSubView = PLAY_QUEUE },
-                                onPositionUpdate = onPositionUpdate
-                            )
-                            PLAY_QUEUE -> PlayerQueue(
-                                mediaMetadata = mediaMetadata,
-                                onBackPressed = { fullPlayerSubView = FULL_PLAYER }
-                            )
-                            LYRIC_VIEW -> Lyric(
-                                position = position,
-                                mediaMetadata = mediaMetadata,
-                                onBackPressed = { fullPlayerSubView = FULL_PLAYER }
-                            )
+                        SharedTransitionLayout {
+                            AnimatedContent(
+                                targetState = fullPlayerSubView,
+                                transitionSpec = {
+                                    fadeIn(
+                                        MotionSpec.panelFadeIn<Float>(delayMillis = MotionDuration.ScreenExit)
+                                    ) togetherWith fadeOut(
+                                        MotionSpec.panelFadeOut<Float>()
+                                    )
+                                }
+                            ) { subView ->
+                                when (subView) {
+                                    FULL_PLAYER -> Player(
+                                        navController = navController,
+                                        mediaMetadata = mediaMetadata,
+                                        duration = duration,
+                                        position = position,
+                                        imageModifier = Modifier.sharedElement(
+                                            state = rememberSharedContentState(
+                                                key = SharedArtwork.ofMetadata(mediaMetadata)
+                                            ),
+                                            animatedVisibilityScope = this,
+                                            placeHolderSize = PanelBoundsPlaceHolder,
+                                            boundsTransform = AlbumArtBoundsTransform,
+                                        ),
+                                        onBackPressed = {
+                                            coroutineScope.launch {
+                                                isExpanded = false
+                                                sheetTranslationY.animateTo(
+                                                    collapsedTargetY,
+                                                    spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                                                )
+                                                onBackPressed()
+                                            }
+                                        },
+                                        onClick = { fullPlayerSubView = LYRIC_VIEW },
+                                        onContainerClick = { fullPlayerSubView = PLAY_QUEUE },
+                                        onPositionUpdate = onPositionUpdate
+                                    )
+
+                                    PLAY_QUEUE -> PlayerQueue(
+                                        mediaMetadata = mediaMetadata,
+                                        imageModifier = Modifier.sharedElement(
+                                            state = rememberSharedContentState(
+                                                key = SharedArtwork.ofMetadata(mediaMetadata)
+                                            ),
+                                            animatedVisibilityScope = this,
+                                            placeHolderSize = PanelBoundsPlaceHolder,
+                                            boundsTransform = AlbumArtBoundsTransform,
+                                        ),
+                                        onBackPressed = { fullPlayerSubView = FULL_PLAYER }
+                                    )
+
+                                    LYRIC_VIEW -> Lyric(
+                                        position = position,
+                                        mediaMetadata = mediaMetadata,
+                                        imageModifier = Modifier.sharedElement(
+                                            state = rememberSharedContentState(
+                                                key = SharedArtwork.ofMetadata(mediaMetadata)
+                                            ),
+                                            animatedVisibilityScope = this,
+                                            placeHolderSize = PanelBoundsPlaceHolder,
+                                            boundsTransform = AlbumArtBoundsTransform,
+                                        ),
+                                        onBackPressed = { fullPlayerSubView = FULL_PLAYER }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
