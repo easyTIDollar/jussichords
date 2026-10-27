@@ -6,8 +6,10 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -304,11 +306,16 @@ fun MainScreen() {
         bottomBar = {
             // Compact 用底栏；Medium/Expanded 改左侧竖排导航栏（见 content 里的 Row），
             // 底栏此时不占位，否则大屏上会多出一条空横条。
-            if (!useNavigationRail && showNavigationBar) {
-                // 底栏底色跟随主题 surface（壁纸动态取色时一起变），不再用 M3 默认的
-                // surfaceContainerHigh（它不随动态壁纸色）。
-                val navBarFullHeight = BottomNavigationHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                NavigationBar(
+            if (!useNavigationRail) Column {
+                AnimatedVisibility(
+                    showNavigationBar,
+                    enter = expandVertically(),
+                    exit = shrinkVertically()
+                ) {
+                    // 底栏底色跟随主题 surface（壁纸动态取色时一起变），不再用 M3 默认的
+                    // surfaceContainerHigh（它不随动态壁纸色）。
+                    val navBarFullHeight = BottomNavigationHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    NavigationBar(
                         modifier = Modifier
                             .zIndex(2f)
                             .graphicsLayer {
@@ -410,15 +417,26 @@ fun MainScreen() {
                         }
                     }
                 }
+            }
         },
         content = { padding ->
-            // 小播放器贴底间距（首页=底栏上方，二级页=贴系统导航栏），
-            // 与页面路由同步直接就位，不套延迟动画，避免返回主页时出现底栏和小播放器向上爬升的两段感。
-            val miniBottomPadding = when {
+            // 小播放器贴底间距（与 main 一致的位置逻辑：首页=底栏上方，二级页=贴系统导航栏，
+            // 不加额外高度避免和底栏顶开缝），套 200ms 缓入缓出：进出设置页时下滑/回位平滑。
+            val targetMiniBottomPadding = when {
                 showPlayer -> 0.dp
                 navBarTakesBottomSpace -> padding.calculateBottomPadding()
                 else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             }
+            // 内容区跟小播放器用同一个贴底间距（无整体垫高）：首页列表的底部避让
+            // 由各列表自己在末尾加空白块实现（如专辑墙），这里不再全局 +64dp。
+            val miniBottomPadding by animateDpAsState(
+                targetValue = targetMiniBottomPadding,
+                animationSpec = tween(
+                    durationMillis = MotionDuration.LayoutShift,
+                    easing = FastOutSlowInEasing
+                ),
+                label = "MiniPlayerBottomPadding"
+            )
 
             // 主页背景（"我的"/"探索"底层）：全屏渲染，高度与路由/bottomPadding 完全解耦——
             // 进二级页不再随内容区高度突变重裁切。
