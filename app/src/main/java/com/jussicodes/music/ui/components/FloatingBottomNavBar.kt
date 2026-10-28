@@ -36,7 +36,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -113,10 +115,31 @@ fun FloatingBottomNavBar(
         }
     }
 
-    // 最外层容器：背景完全透明，边距与小播放器完全对齐
+    val settingsAlpha = if (isHomeRoute) {
+        (homePageScroll - 1f).coerceIn(0f, 1f)
+    } else 1f
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val outlineVariantColor = MaterialTheme.colorScheme.outlineVariant
+
+    // 最外层容器：主页/探索保持完全透明穿透，进入设置页平滑过渡为不透明实色底衬
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .then(
+                if (settingsAlpha > 0.005f) {
+                    Modifier.drawBehind {
+                        drawRect(
+                            color = surfaceColor.copy(alpha = settingsAlpha)
+                        )
+                        drawLine(
+                            color = outlineVariantColor.copy(alpha = 0.20f * settingsAlpha),
+                            start = Offset(0f, 0f),
+                            end = Offset(size.width, 0f),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                    }
+                } else Modifier
+            )
             .padding(
                 start = FloatingBottomNavHorizontalPadding,
                 end = FloatingBottomNavHorizontalPadding,
@@ -141,7 +164,13 @@ fun FloatingBottomNavBar(
                     ambientColor = Color.Black.copy(alpha = 0.12f)
                 )
                 .clip(pillShape)
-                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .background(
+                    if (settingsAlpha > 0.5f) {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainer
+                    }
+                )
                 .border(
                     width = 1.dp,
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
