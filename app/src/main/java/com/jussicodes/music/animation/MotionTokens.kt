@@ -25,8 +25,8 @@ object MotionDuration {
     /** 二级页推入 / 返回时的页面淡入。 */
     const val ScreenEnter: Int = 400
 
-    /** 二级页退出 / 页面淡出。刻意比 [ScreenEnter] 短，避免"退场比入场还慢"的拖沓感。 */
-    const val ScreenExit: Int = 100
+    /** 二级页退出 / 页面淡出。保持适度紧凑，兼顾平滑过渡。 */
+    const val ScreenExit: Int = 200
 
     /**
      * 播放面板状态切换（Mini ↔ Full ↔ Queue ↔ Lyric）的淡入时长。
@@ -104,10 +104,10 @@ object MotionSpring {
         stiffness = 480f
     )
 
-    /** 播放器面板展开弹簧：响应迅速，中等阻尼无明显过冲。 */
+    /** 播放器面板展开弹簧：舒缓优雅，从容升起，无急促窜动感。 */
     val sheetExpand = spring<Float>(
-        dampingRatio = 0.85f,
-        stiffness = Spring.StiffnessMediumLow
+        dampingRatio = 0.86f,
+        stiffness = Spring.StiffnessLow
     )
 
     /** 播放器面板收起/下滑退出弹簧：柔和低刚度，舒展丝滑不突兀，回落自然。 */

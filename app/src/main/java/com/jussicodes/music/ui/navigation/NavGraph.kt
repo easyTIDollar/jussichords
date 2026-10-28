@@ -6,6 +6,8 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -23,6 +25,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import com.jussicodes.music.animation.MotionSpec
@@ -80,7 +83,8 @@ fun NavGraph(
                 if (targetState.destination.route in homeRoutes) {
                     EnterTransition.None
                 } else {
-                    fadeIn(animationSpec = MotionSpec.screenEnter())
+                    fadeIn(animationSpec = MotionSpec.screenEnter()) +
+                        slideInVertically(animationSpec = MotionSpec.screenEnter()) { (it * 0.06f).roundToInt() }
                 }
             },
             exitTransition = {
@@ -105,7 +109,8 @@ fun NavGraph(
                 if (initialState.destination.route in homeRoutes) {
                     ExitTransition.None
                 } else {
-                    fadeOut(animationSpec = MotionSpec.screenExit())
+                    fadeOut(animationSpec = MotionSpec.screenExit()) +
+                        slideOutVertically(animationSpec = MotionSpec.screenExit()) { (it * 0.06f).roundToInt() }
                 }
             }
         ) {

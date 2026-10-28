@@ -192,17 +192,17 @@ fun PlayerTransform(
                     }
                 } else {
                     // 收起状态下向上滑动展开：
-                    // 1. 阈值提高至 72dp 或拉动比例达到 30%，避免误碰灵敏触发；
-                    // 2. 如果已推到顶部附近（接近 0 或比例 >= 85%），100% 顺畅吸附全屏，绝不回弹崩溃；
-                    // 3. 甩手速度提高至 -500f，避免轻微晃动被误判为甩动。
+                    // 1. 阈值调至 24dp 或比例 10%，轻松上滑即可触发展开；
+                    // 2. 快速上滑甩动速度降低至 -200f，支持随手快速轻扫打开；
+                    // 3. 接近顶部时（接近 0 或比例 >= 85%），顺畅吸附全屏。
                     val dragDistanceUp = collapsedTargetY - current
-                    val expandThresholdPx = with(density) { 72.dp.toPx() }
+                    val expandThresholdPx = with(density) { 24.dp.toPx() }
                     val currentProgress = if (collapsedTargetY > 0f) {
                         ((collapsedTargetY - current) / collapsedTargetY).coerceIn(0f, 1f)
                     } else 0f
                     val isNearTop = current <= with(density) { 48.dp.toPx() } || currentProgress >= 0.85f
-                    val isDragUp = dragDistanceUp >= expandThresholdPx || currentProgress >= 0.30f
-                    val isFlingUp = velocityY <= -500f
+                    val isDragUp = dragDistanceUp >= expandThresholdPx || currentProgress >= 0.10f
+                    val isFlingUp = velocityY <= -200f
                     if (isNearTop || isDragUp || isFlingUp) {
                         isExpanded = true
                         sheetTranslationY.animateTo(
