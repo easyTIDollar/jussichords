@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -289,29 +290,41 @@ fun ArtistScreen(
             }
         )
     } else {
-        // 竖屏：BoxWithConstraints 承载全屏，嵌套滚动驱动头部封面与信息行向上折叠
-        BoxWithConstraints(
+        // 竖屏：Column 承载全屏，头部折叠容器高度收缩，SwipableTabPager 占满剩余全部高度
+        val density = LocalDensity.current
+        val collapseHeightDp = if (headerHeightPx > 0f && topBarHeightPx > 0f) {
+            with(density) { (headerHeightPx + headerOffsetPx).coerceAtLeast(topBarHeightPx).toDp() }
+        } else null
+
+        val headerModifier = if (collapseHeightDp != null) {
+            Modifier
+                .fillMaxWidth()
+                .height(collapseHeightDp)
+                .clipToBounds()
+        } else {
+            Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .clipToBounds()
+        }
+
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
-                .clipToBounds()
                 .nestedScroll(nestedScrollConnection)
         ) {
-            val density = LocalDensity.current
-            val screenHeight = maxHeight
-            val maxCollapseDp = with(density) { maxCollapsePx.toDp() }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(screenHeight + maxCollapseDp)
-                    .offset { IntOffset(0, headerOffsetPx.roundToInt()) }
-            ) {
+            Box(modifier = headerModifier) {
                 // 折叠头部：歌手封面 hero + 信息行（随列表滑动向上折叠）
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .onSizeChanged { headerHeightPx = it.height.toFloat() }
+                        .offset { IntOffset(0, headerOffsetPx.roundToInt()) }
+                        .onSizeChanged {
+                            if (it.height > 0 && it.height.toFloat() != headerHeightPx) {
+                                headerHeightPx = it.height.toFloat()
+                            }
+                        }
                         .draggable(
                             orientation = Orientation.Vertical,
                             enabled = !searchActive,
@@ -393,18 +406,111 @@ fun ArtistScreen(
                     }
                 }
 
-                // 三个 tab 页左右滑动（可预览相邻页），各页独立懒列
-                SwipableTabPager(
-                    titles = listOf(
-                        stringResource(R.string.explore),
-                        stringResource(R.string.song),
-                        stringResource(R.string.album)
-                    ),
-                    pagerState = pagerState,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                ) { page ->
+                TopAppBar(
+                    modifier = Modifier.onSizeChanged {
+                        if (it.height > 0 && it.height.toFloat() != topBarHeightPx) {
+                            topBarHeightPx = it.height.toFloat()
+                        }
+                    },
+                    title = {
+                        if (searchActive) {
+                            TextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(searchFocusRequester),
+                                placeholder = { Text(stringResource(R.string.search)) },
+                                singleLine = true,
+                                trailingIcon = {
+                                    if (searchQuery.isNotEmpty()) {
+                                        IconButton(onClick = { searchQuery = "" }) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Close,
+                                                contentDescription = "清空"
+                                            )
+                                        }
+                                    }
+                                },
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent
+                                )
+                            )
+                        } else {
+                            Text("")
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = {
+                                if (searchActive) {
+                                    searchActive = false
+                                    searchQuery = ""
+                                    keyboardController?.hide()
+                                } else {
+                                    navController.navigateUp()
+                                }
+                            },
+                            colors = if (searchActive || collapseFraction > 0.6f) {
+                                IconButtonDefaults.iconButtonColors()
+                            } else {
+                                IconButtonDefaults.filledIconButtonColors()
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = null
+                            )
+                        }
+                    },
+                    actions = {
+                        if (!searchActive) {
+                            IconButton(
+                                onClick = {
+                                    searchActive = true
+                                    artistScreenViewModel.loadAllSongsIfNeeded()
+                                    scope.launch {
+                                        pagerState.animateScrollToPage(1)
+                                    }
+                                },
+                                colors = if (collapseFraction > 0.6f) {
+                                    IconButtonDefaults.iconButtonColors()
+                                } else {
+                                    IconButtonDefaults.filledIconButtonColors()
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Search,
+                                    contentDescription = stringResource(R.string.search)
+                                )
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = if (searchActive) {
+                            MaterialTheme.colorScheme.background
+                        } else {
+                            MaterialTheme.colorScheme.background.copy(alpha = collapseFraction)
+                        }
+                    )
+                )
+            }
+
+            // 三个 tab 页左右滑动（可预览相邻页），各页独立懒列
+            SwipableTabPager(
+                titles = listOf(
+                    stringResource(R.string.explore),
+                    stringResource(R.string.song),
+                    stringResource(R.string.album)
+                ),
+                pagerState = pagerState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) { page ->
                     when (page) {
                         0 -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                             item(key = "explore-info") {
@@ -685,96 +791,7 @@ fun ArtistScreen(
                     }
                 }
             }
-
-            TopAppBar(
-                modifier = Modifier.onSizeChanged { topBarHeightPx = it.height.toFloat() },
-                title = {
-                    if (searchActive) {
-                        TextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(searchFocusRequester),
-                            placeholder = { Text(stringResource(R.string.search)) },
-                            singleLine = true,
-                            trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { searchQuery = "" }) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Close,
-                                            contentDescription = "清空"
-                                        )
-                                    }
-                                }
-                            },
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent
-                            )
-                        )
-                    } else {
-                        Text("")
-                    }
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            if (searchActive) {
-                                searchActive = false
-                                searchQuery = ""
-                                keyboardController?.hide()
-                            } else {
-                                navController.navigateUp()
-                            }
-                        },
-                        colors = if (searchActive || collapseFraction > 0.6f) {
-                            IconButtonDefaults.iconButtonColors()
-                        } else {
-                            IconButtonDefaults.filledIconButtonColors()
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = null
-                        )
-                    }
-                },
-                actions = {
-                    if (!searchActive) {
-                        IconButton(
-                            onClick = {
-                                searchActive = true
-                                artistScreenViewModel.loadAllSongsIfNeeded()
-                                scope.launch {
-                                    pagerState.animateScrollToPage(1)
-                                }
-                            },
-                            colors = if (collapseFraction > 0.6f) {
-                                IconButtonDefaults.iconButtonColors()
-                            } else {
-                                IconButtonDefaults.filledIconButtonColors()
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Search,
-                                contentDescription = stringResource(R.string.search)
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = if (searchActive) {
-                        MaterialTheme.colorScheme.background
-                    } else {
-                        MaterialTheme.colorScheme.background.copy(alpha = collapseFraction)
-                    }
-                )
-            )
         }
-    }
 
     SongMenuBottomSheet(
         navController = navController,
