@@ -47,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -184,6 +185,18 @@ fun SearchScreen(
         SearchType.User to "用户"
     )
 
+    // 下拉框范围：-1 代表“所有”(默认)，0..5 代表具体分类
+    val searchScopeOptions = listOf(
+        -1 to "所有",
+        0 to stringResource(R.string.song),
+        1 to stringResource(R.string.playlists),
+        2 to stringResource(R.string.voice_list),
+        3 to stringResource(R.string.artist),
+        4 to stringResource(R.string.album),
+        5 to "用户"
+    )
+    var selectedScopeIndex by rememberSaveable { mutableIntStateOf(-1) }
+
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { tab.size })
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }.collectLatest { page ->
@@ -208,15 +221,17 @@ fun SearchScreen(
 
     val trimmedQuery = searchValue.trim()
 
-    // 建议词排序优化：
+    // 建议词排序优化与去重：
     // 1. 过滤掉与用户当前输入完全一致的词（因其已被置顶显示）
-    // 2. 精确匹配项置前，前缀匹配项次之，避免精准想要搜的东西排在最后
+    // 2. distinctBy 去重，彻底防止重复 keyword 引发 Compose LazyColumn 重复 key 闪退
+    // 3. 精确匹配项置前，前缀匹配项次之，解决精准想要搜的东西排在最后的问题
     val reorderedSuggests = remember(rawSuggests, trimmedQuery) {
         if (trimmedQuery.isEmpty()) {
             emptyList()
         } else {
             rawSuggests
                 .filterNot { it.keyword.equals(trimmedQuery, ignoreCase = true) }
+                .distinctBy { it.keyword.trim().lowercase() }
                 .sortedWith(
                     compareByDescending<SearchSuggestItem> {
                         it.keyword.equals(trimmedQuery, ignoreCase = true)
@@ -272,13 +287,16 @@ fun SearchScreen(
                 },
                 focusRequester = focusRequester,
                 isLandscape = isLandscape,
-                tabs = tab,
-                currentTypeIndex = pagerState.currentPage.coerceIn(0, tab.size - 1),
-                onTypeSelect = { index, type ->
-                    coroutineScope.launch {
-                        pagerState.scrollToPage(index)
+                scopeOptions = searchScopeOptions,
+                selectedScopeIndex = selectedScopeIndex,
+                onScopeSelect = { scopeIndex ->
+                    selectedScopeIndex = scopeIndex
+                    if (scopeIndex >= 0) {
+                        coroutineScope.launch {
+                            pagerState.scrollToPage(scopeIndex)
+                        }
+                        searchViewModel.updateSearchType(tab[scopeIndex].first)
                     }
-                    searchViewModel.updateSearchType(type)
                 }
             )
         }
@@ -290,7 +308,7 @@ fun SearchScreen(
                 .nestedScroll(nestedScrollConnection)
         ) {
             when {
-                // 展示联想建议列表（第1项固定置顶精确搜索，下方智能重排）
+                // 展示联想建议列表（第1项固定置顶精确搜索，下方智能重排去重，无重复 key）
                 showSuggests -> {
                     LazyColumn(
                         modifier = Modifier
@@ -298,15 +316,15 @@ fun SearchScreen(
                             .semantics { traversalIndex = 1f }
                     ) {
                         // 1. 固定置顶项：直接搜索当前输入的关键词
-                        item(key = "__direct_search__") {
+                        item {
                             DirectSearchSuggestItem(
                                 query = trimmedQuery,
                                 onClick = { executeSearch(trimmedQuery) }
                             )
                         }
 
-                        // 2. 联想词列表（优先排前缀/精确匹配项）
-                        items(reorderedSuggests, key = { it.keyword }) { item ->
+                        // 2. 联想词列表（优先排前缀/精确匹配项，不传易重复的 key 避免闪退）
+                        items(reorderedSuggests) { item ->
                             SuggestItem(
                                 history = false,
                                 query = item.keyword,
@@ -625,13 +643,13 @@ private fun SearchTopBar(
     onBack: () -> Unit,
     focusRequester: FocusRequester,
     isLandscape: Boolean,
-    tabs: List<Pair<SearchType, String>>,
-    currentTypeIndex: Int,
-    onTypeSelect: (Int, SearchType) -> Unit
+    scopeOptions: List<Pair<Int, String>>,
+    selectedScopeIndex: Int,
+    onScopeSelect: (Int) -> Unit
 ) {
     val barHeight = if (isLandscape) 48.dp else 56.dp
     var typeDropdownExpanded by remember { mutableStateOf(false) }
-    val currentTypeName = tabs.getOrNull(currentTypeIndex)?.second ?: "单曲"
+    val currentScopeName = scopeOptions.find { it.first == selectedScopeIndex }?.second ?: "所有"
 
     Row(
         modifier = Modifier
@@ -658,7 +676,7 @@ private fun SearchTopBar(
                 .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 搜索类型下拉选择入口
+            // 搜索类型下拉选择入口（默认“所有”）
             Box {
                 Row(
                     modifier = Modifier
@@ -668,7 +686,7 @@ private fun SearchTopBar(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = currentTypeName,
+                        text = currentScopeName,
                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1
@@ -676,7 +694,7 @@ private fun SearchTopBar(
                     Spacer(modifier = Modifier.width(2.dp))
                     Icon(
                         imageVector = ArrowDropDown,
-                        contentDescription = "选择搜索分类",
+                        contentDescription = "选择搜索范围",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(16.dp)
                     )
@@ -686,13 +704,13 @@ private fun SearchTopBar(
                     expanded = typeDropdownExpanded,
                     onDismissRequest = { typeDropdownExpanded = false }
                 ) {
-                    tabs.forEachIndexed { index, (type, name) ->
+                    scopeOptions.forEach { (index, name) ->
                         JussiMenuItem(
                             text = name,
-                            selected = index == currentTypeIndex,
+                            selected = index == selectedScopeIndex,
                             onClick = {
                                 typeDropdownExpanded = false
-                                onTypeSelect(index, type)
+                                onScopeSelect(index)
                             }
                         )
                     }
