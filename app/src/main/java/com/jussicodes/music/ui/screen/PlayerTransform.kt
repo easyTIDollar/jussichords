@@ -108,9 +108,9 @@ fun PlayerTransform(
 
         val sheetTranslationY = remember { Animatable(collapsedTargetY) }
 
-        // 当底栏尺寸或屏幕旋转等导致 collapsedTargetY 变化时，仅在静止处于收起态且当前无动画时同步调整位移
+        // 当底栏尺寸或屏幕旋转等导致 collapsedTargetY 变化时，收起态同步调整位移贴底
         LaunchedEffect(collapsedTargetY, isExpanded) {
-            if (!isExpanded && !sheetTranslationY.isRunning) {
+            if (!isExpanded) {
                 sheetTranslationY.snapTo(collapsedTargetY)
             }
         }
@@ -394,6 +394,14 @@ fun PlayerTransform(
                                         mediaMetadata = mediaMetadata,
                                         duration = duration,
                                         position = position,
+                                        backHandlerEnabled = false,
+                                        onAfterNavigate = {
+                                            isExpanded = false
+                                            coroutineScope.launch {
+                                                sheetTranslationY.snapTo(collapsedTargetY)
+                                            }
+                                            onBackPressed()
+                                        },
                                         imageModifier = Modifier.sharedElement(
                                             state = rememberSharedContentState(
                                                 key = SharedArtwork.ofMetadata(mediaMetadata)

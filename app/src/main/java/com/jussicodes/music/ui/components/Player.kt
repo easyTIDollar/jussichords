@@ -130,10 +130,13 @@ fun Player(
     onAfterNavigate: (() -> Unit)? = null,
     // FM 上下文：点歌名直接进专辑页（album id 有效时），其余路径保持先弹专辑层。
     fmDirectNav: Boolean = false,
+    backHandlerEnabled: Boolean = true,
 ) {
 
-    BackHandler {
-        onBackPressed()
+    if (backHandlerEnabled) {
+        BackHandler {
+            onBackPressed()
+        }
     }
 
     var sliderPosition by rememberSaveable {

@@ -278,12 +278,8 @@ fun RoamScreen(
             val isFlingDown = velocityY >= 400f
             if (isDragDown || isFlingDown) {
                 isDismissing = true
-                dismissOffsetY.animateTo(
-                    targetValue = screenHeightPx,
-                    animationSpec = MotionSpring.sheetCollapse,
-                    initialVelocity = velocityY
-                )
                 onBackPressed()
+                dismissOffsetY.snapTo(0f)
             } else {
                 dismissOffsetY.animateTo(
                     targetValue = 0f,
