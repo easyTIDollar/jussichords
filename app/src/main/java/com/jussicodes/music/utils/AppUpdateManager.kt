@@ -143,7 +143,7 @@ object CloudflareOptimizedDns : Dns {
  * - `direct`：GitHub 官方直连，原生兜底。
  */
 val downloadSources = listOf(
-    GitHubUpdateSource("gh-proxy-custom", "自建专线加速", "gh.jussichords.cc.cd · 边缘优选", "https://gh.jussichords.cc.cd/"),
+    GitHubUpdateSource("gh-proxy-custom", "gh.jussichords.cc.cd", "gh.jussichords.cc.cd", "https://gh.jussichords.cc.cd/"),
     GitHubUpdateSource("gh-proxy-axisnow", "gh-proxy 三网", "axisnow.gh-proxy.org", "https://axisnow.gh-proxy.org/"),
     GitHubUpdateSource("direct", "GitHub 直连", "直连", ""),
 )
