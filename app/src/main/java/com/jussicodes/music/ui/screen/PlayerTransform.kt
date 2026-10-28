@@ -193,13 +193,23 @@ fun PlayerTransform(
         }
 
         val cornerRadius = lerp(16.dp, 0.dp, progress)
-        // 联动效果：手势上滑展开时，底栏向下沉出屏幕（位移 = progress * bottomPaddingPx），
-        // 播放器卡片底端始终紧咬底栏上沿同步下沉，打造两组件齿轮咬合般的一体联动感。
-        // 随 progress 平滑增加 1dp 微重叠防亚像素渲染缝隙，展开至全屏时底端刚好稳稳覆盖至屏幕底端。
+        // 联动效果：手势上滑展开时，底栏在 1/3 程（progress 0f ~ 0.33f）完全向下沉出屏幕；
+        // 播放器卡片底端在 1/3 程内始终紧咬底栏上沿同步下沉，底栏退出后稳稳贴合屏幕底端。
+        val navBarExitProgress = (progress * 3f).coerceIn(0f, 1f)
         val startBottomY = screenHeightPx - bottomPaddingPx
-        val seamOverlapPx = with(density) { 1.dp.toPx() } * progress
-        val bottomY = startBottomY + progress * bottomPaddingPx + seamOverlapPx
+        val seamOverlapPx = with(density) { 1.dp.toPx() } * navBarExitProgress
+        val bottomY = startBottomY + navBarExitProgress * bottomPaddingPx + seamOverlapPx
         val currentCardHeightPx = (bottomY - sheetTranslationY.value).coerceAtLeast(miniPlayerHeightPx)
+
+        // 透明度曲线优化：
+        // 1. 小播放器：0f ~ 0.22f 内优雅淡出。前期微稳保持清晰，中期平滑加速隐去，避免拖泥带水残留重影。
+        val miniExitFraction = (progress / 0.22f).coerceIn(0f, 1f)
+        val miniPlayerAlpha = 1f - miniExitFraction * miniExitFraction
+
+        // 2. 全屏播放器：0.15f ~ 0.55f 快速饱满浮现（EaseOut 减速入场）。
+        // 刚过半屏（0.55f）即达到 100% 完整实色，后半程纯物理展开，彻底消除灰蒙蒙半透状态。
+        val fullEnterFraction = ((progress - 0.15f) / 0.40f).coerceIn(0f, 1f)
+        val fullPlayerAlpha = fullEnterFraction * (2f - fullEnterFraction)
 
         Surface(
             modifier = Modifier
@@ -225,7 +235,7 @@ fun PlayerTransform(
                             .fillMaxWidth()
                             .height(MiniPlayerHeight)
                             .graphicsLayer {
-                                alpha = (1f - progress * 2.5f).coerceIn(0f, 1f)
+                                alpha = miniPlayerAlpha
                             }
                     ) {
                         MiniPlayer(
@@ -257,7 +267,7 @@ fun PlayerTransform(
                             .fillMaxWidth()
                             .height(with(density) { screenHeightPx.toDp() })
                             .graphicsLayer {
-                                alpha = ((progress - 0.20f) / 0.80f).coerceIn(0f, 1f)
+                                alpha = fullPlayerAlpha
                             }
                             .pointerInput(isExpanded) {
                                 if (isExpanded) {

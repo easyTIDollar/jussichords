@@ -315,11 +315,12 @@ fun MainScreen() {
                     // 底栏底色跟随主题 surface（壁纸动态取色时一起变），不再用 M3 默认的
                     // surfaceContainerHigh（它不随动态壁纸色）。
                     val navBarFullHeight = BottomNavigationHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    val navBarExitProgress = (miniPlayerDragProgress * 3f).coerceIn(0f, 1f)
                     NavigationBar(
                         modifier = Modifier
                             .graphicsLayer {
                                 val maxPressDownPx = navBarFullHeight.toPx()
-                                translationY = miniPlayerDragProgress * maxPressDownPx
+                                translationY = navBarExitProgress * maxPressDownPx
                             }
                             .height(BottomNavigationHeight),
                         containerColor = MaterialTheme.colorScheme.surface,
