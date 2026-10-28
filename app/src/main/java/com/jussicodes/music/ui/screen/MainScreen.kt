@@ -583,6 +583,7 @@ fun MainScreen() {
                         position = position,
                         duration = duration,
                         bottomPadding = miniBottomPadding,
+                        floatingNavBarEnabled = floatingNavBarEnabled,
                         onBackPressed = { showPlayer = false },
                         onClick = { showPlayer = true },
                         onPositionUpdate = { updatePosition ->

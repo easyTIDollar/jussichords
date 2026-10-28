@@ -10,6 +10,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -50,6 +52,7 @@ import com.jussicodes.music.animation.MotionSpec
 import com.jussicodes.music.animation.PanelBoundsPlaceHolder
 import com.jussicodes.music.animation.SharedArtwork
 import com.jussicodes.music.constants.BottomNavigationHeight
+import com.jussicodes.music.constants.FloatingBottomNavHorizontalPadding
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.components.ArtworkBackdropStyle
 import com.jussicodes.music.ui.components.ArtworkGlassBackdrop
@@ -77,6 +80,7 @@ fun PlayerTransform(
     navController: NavHostController,
     expandSignal: Long = 0L,
     bottomPadding: Dp = 0.dp,
+    floatingNavBarEnabled: Boolean = false,
     onDragProgressChange: (Float) -> Unit = {},
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -197,7 +201,25 @@ fun PlayerTransform(
             }
         }
 
-        val cornerRadius = lerp(16.dp, 0.dp, progress)
+        // 悬浮胶囊底栏开启时：小播放器收起态为悬浮药丸卡片（全圆角 26dp、水平边距 14dp、6dp 阴影），与底栏共享圆角/材质/对齐逻辑；
+        // 手势上滑展开时：水平边距与底部圆角在前 40% 程内平滑收敛为 0，顶部圆角在 100% 程内渐变至 0，无缝舒展为全屏播放页。
+        // 经典模式下：保持经典贴边无左右边距与平底直角设计。
+        val targetHorizontalMargin = if (floatingNavBarEnabled) FloatingBottomNavHorizontalPadding else 0.dp
+        val horizontalMargin = lerp(targetHorizontalMargin, 0.dp, (progress * 2.5f).coerceIn(0f, 1f))
+
+        val initialTopRadius = if (floatingNavBarEnabled) 26.dp else 16.dp
+        val topCornerRadius = lerp(initialTopRadius, 0.dp, progress)
+
+        val initialBottomRadius = if (floatingNavBarEnabled) 26.dp else 0.dp
+        val bottomCornerRadius = lerp(initialBottomRadius, 0.dp, (progress * 2.5f).coerceIn(0f, 1f))
+
+        val cardShape = RoundedCornerShape(
+            topStart = topCornerRadius,
+            topEnd = topCornerRadius,
+            bottomStart = bottomCornerRadius,
+            bottomEnd = bottomCornerRadius
+        )
+
         // 联动效果：手势上滑展开时，底栏在 1/3 程（progress 0f ~ 0.33f）完全向下沉出屏幕；
         // 播放器卡片底端在 1/3 程内始终紧咬底栏上沿同步下沉，底栏退出后稳稳贴合屏幕底端。
         val navBarExitProgress = (progress * 3f).coerceIn(0f, 1f)
@@ -218,11 +240,21 @@ fun PlayerTransform(
 
         Surface(
             modifier = Modifier
+                .offset { IntOffset(0, sheetTranslationY.value.roundToInt()) }
+                .padding(horizontal = horizontalMargin)
                 .fillMaxWidth()
-                .height(with(density) { currentCardHeightPx.toDp() })
-                .offset { IntOffset(0, sheetTranslationY.value.roundToInt()) },
-            shape = RoundedCornerShape(topStart = cornerRadius, topEnd = cornerRadius),
-            color = MaterialTheme.colorScheme.surfaceContainer
+                .height(with(density) { currentCardHeightPx.toDp() }),
+            shape = cardShape,
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            shadowElevation = if (floatingNavBarEnabled) 6.dp else 0.dp,
+            border = if (floatingNavBarEnabled && progress < 0.99f) {
+                BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(
+                        alpha = (0.25f * (1f - progress)).coerceIn(0f, 0.25f)
+                    )
+                )
+            } else null
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 // 磨砂玻璃底板

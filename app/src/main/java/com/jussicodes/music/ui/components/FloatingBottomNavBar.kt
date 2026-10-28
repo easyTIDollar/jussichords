@@ -9,15 +9,18 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +47,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.constants.FloatingBottomNavBottomPadding
+import com.jussicodes.music.constants.FloatingBottomNavHorizontalPadding
 import com.jussicodes.music.constants.FloatingBottomNavTopPadding
 import com.jussicodes.music.constants.FloatingBottomNavigationHeight
 import kotlinx.coroutines.launch
@@ -52,10 +56,10 @@ import kotlin.math.roundToInt
 
 /**
  * 悬浮胶囊底栏：
- * 1. 紧凑精致药丸造型，居中悬浮；
- * 2. 纯图标纯净展示，去除文字，收窄 Tab 宽度；
- * 3. 内部滑块支持左右拖拽手势实时跟手，松手阻尼吸附，点击与切页带有弹性平滑滑动动画；
- * 4. 外部容器完全透明，不遮挡底层壁纸与内容。
+ * 1. 采用与小播放器统一的圆角体系与水平对齐边距（14dp），形成整齐协调的悬浮控制组；
+ * 2. 纯图标纯净展示，去除多余文本，支持横向拖拽与平滑弹性吸附；
+ * 3. 共享相同的表面处理材质（surfaceContainer 色调、微光边框与 6dp 阴影）；
+ * 4. 胶囊外部完全透明，背景壁纸与列表穿透显现。
  */
 @Composable
 fun FloatingBottomNavBar(
@@ -82,17 +86,9 @@ fun FloatingBottomNavBar(
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
 
-    // 单个 tab 宽度 66dp，滑块 58dp
-    val tabWidthDp = 66.dp
-    val tabHeightDp = FloatingBottomNavigationHeight // 50dp
-    val indicatorWidthDp = 58.dp
-    val indicatorHeightDp = 40.dp
-    val outerPaddingDp = 4.dp
-    val totalPillWidthDp = outerPaddingDp * 2 + tabWidthDp * count
-    val indicatorStartGapDp = outerPaddingDp + (tabWidthDp - indicatorWidthDp) / 2
-
-    val tabWidthPx = with(density) { tabWidthDp.toPx() }
-    val indicatorStartGapPx = with(density) { indicatorStartGapDp.toPx() }
+    val navBarHeightDp = FloatingBottomNavigationHeight // 50dp
+    val pillCornerRadiusDp = navBarHeightDp / 2 // 25dp 全圆角胶囊
+    val pillShape = RoundedCornerShape(pillCornerRadiusDp)
 
     // 页面 pager 滑动跟手
     LaunchedEffect(homePageScroll, isHomeRoute) {
@@ -114,10 +110,13 @@ fun FloatingBottomNavBar(
         }
     }
 
-    // 最外层容器：背景完全透明，负责底部避让定位与小播放器间隙
+    // 最外层容器：背景完全透明，边距与小播放器完全对齐
     Box(
         modifier = modifier
+            .fillMaxWidth()
             .padding(
+                start = FloatingBottomNavHorizontalPadding,
+                end = FloatingBottomNavHorizontalPadding,
                 top = FloatingBottomNavTopPadding,
                 bottom = FloatingBottomNavBottomPadding + bottomInset
             ),
@@ -127,152 +126,168 @@ fun FloatingBottomNavBar(
         var currentDragOffsetPx by remember { mutableFloatStateOf(0f) }
         var lastHapticSlot by remember { mutableIntStateOf(selectedIndex) }
 
-        // 胶囊药丸主体
-        Box(
+        // 胶囊药丸主体：与小播放器共享宽度、圆角体系、阴影与表面材质
+        BoxWithConstraints(
             modifier = Modifier
-                .width(totalPillWidthDp)
-                .height(tabHeightDp)
+                .fillMaxWidth()
+                .height(navBarHeightDp)
                 .shadow(
-                    elevation = 8.dp,
-                    shape = CircleShape,
+                    elevation = 6.dp,
+                    shape = pillShape,
                     spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                     ambientColor = Color.Black.copy(alpha = 0.12f)
                 )
-                .clip(CircleShape)
-                .background(
-                    MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f)
-                )
+                .clip(pillShape)
+                .background(MaterialTheme.colorScheme.surfaceContainer)
                 .border(
                     width = 1.dp,
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
-                    shape = CircleShape
+                    shape = pillShape
                 )
-                .pointerInput(count) {
-                    detectHorizontalDragGestures(
-                        onDragStart = {
-                            isDragging = true
-                            dragStartSlot = sliderPosition.value
-                            currentDragOffsetPx = 0f
-                            lastHapticSlot = sliderPosition.value.roundToInt().coerceIn(0, count - 1)
-                        },
-                        onHorizontalDrag = { change, dragAmount ->
-                            change.consume()
-                            currentDragOffsetPx += dragAmount
-                            val slotOffset = if (tabWidthPx > 0f) currentDragOffsetPx / tabWidthPx else 0f
-                            val rawSlot = dragStartSlot + slotOffset
-                            val maxIndex = (count - 1).toFloat()
-                            val clampedSlot = rawSlot.coerceIn(-0.25f, maxIndex + 0.25f)
-                            coroutineScope.launch {
-                                sliderPosition.snapTo(clampedSlot)
-                            }
-                            val currentSnapped = clampedSlot.roundToInt().coerceIn(0, count - 1)
-                            if (currentSnapped != lastHapticSlot) {
-                                lastHapticSlot = currentSnapped
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            }
-                        },
-                        onDragEnd = {
-                            isDragging = false
-                            val targetIndex = sliderPosition.value.roundToInt().coerceIn(0, count - 1)
-                            coroutineScope.launch {
-                                sliderPosition.animateTo(
-                                    targetIndex.toFloat(),
-                                    spring(
-                                        dampingRatio = 0.82f,
-                                        stiffness = Spring.StiffnessMediumLow
-                                    )
-                                )
-                            }
-                            if (targetIndex in tabs.indices) {
-                                onTabClick(tabs[targetIndex])
-                            }
-                        },
-                        onDragCancel = {
-                            isDragging = false
-                            coroutineScope.launch {
-                                sliderPosition.animateTo(
-                                    selectedIndex.toFloat(),
-                                    spring(
-                                        dampingRatio = 0.82f,
-                                        stiffness = Spring.StiffnessMediumLow
-                                    )
-                                )
-                            }
-                        }
-                    )
-                }
         ) {
-            // 滑动指示器胶囊
-            val currentSlot = sliderPosition.value
-            val currentIndicatorXPx = indicatorStartGapPx + (currentSlot * tabWidthPx)
+            val totalWidthDp = maxWidth
+            val innerPaddingDp = 4.dp
+            val availableWidthDp = (totalWidthDp - innerPaddingDp * 2).coerceAtLeast(0.dp)
+            val slotWidthDp = if (count > 0) availableWidthDp / count else 0.dp
+            val indicatorWidthDp = (slotWidthDp - 8.dp).coerceIn(48.dp, 136.dp)
+            val indicatorHeightDp = 40.dp
+            val indicatorCornerRadiusDp = indicatorHeightDp / 2
 
+            val slotWidthPx = with(density) { slotWidthDp.toPx() }
+            val innerPaddingPx = with(density) { innerPaddingDp.toPx() }
+            val indicatorWidthPx = with(density) { indicatorWidthDp.toPx() }
+
+            // 手势监听挂在整个胶囊条上
             Box(
                 modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .graphicsLayer {
-                        translationX = currentIndicatorXPx
-                    }
-                    .width(indicatorWidthDp)
-                    .height(indicatorHeightDp)
-                    .clip(RoundedCornerShape(indicatorHeightDp / 2))
-                    .background(
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-                    )
-            )
-
-            // 图标行
-            Row(
-                modifier = Modifier
-                    .padding(horizontal = outerPaddingDp)
-                    .height(tabHeightDp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                tabs.forEachIndexed { index, item ->
-                    val distance = abs(currentSlot - index).coerceIn(0f, 1f)
-                    val activeFraction = 1f - distance
-
-                    val iconTint = lerp(
-                        MaterialTheme.colorScheme.onSurfaceVariant,
-                        MaterialTheme.colorScheme.primary,
-                        activeFraction
-                    )
-                    val iconScale = 1.0f + 0.08f * activeFraction
-
-                    Box(
-                        modifier = Modifier
-                            .width(tabWidthDp)
-                            .height(tabHeightDp)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                if (selectedIndex != index) {
+                    .fillMaxSize()
+                    .pointerInput(count) {
+                        detectHorizontalDragGestures(
+                            onDragStart = {
+                                isDragging = true
+                                dragStartSlot = sliderPosition.value
+                                currentDragOffsetPx = 0f
+                                lastHapticSlot = sliderPosition.value.roundToInt().coerceIn(0, count - 1)
+                            },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                currentDragOffsetPx += dragAmount
+                                val slotOffset = if (slotWidthPx > 0f) currentDragOffsetPx / slotWidthPx else 0f
+                                val rawSlot = dragStartSlot + slotOffset
+                                val maxIndex = (count - 1).toFloat()
+                                val clampedSlot = rawSlot.coerceIn(-0.15f, maxIndex + 0.15f)
+                                coroutineScope.launch {
+                                    sliderPosition.snapTo(clampedSlot)
+                                }
+                                val currentSnapped = clampedSlot.roundToInt().coerceIn(0, count - 1)
+                                if (currentSnapped != lastHapticSlot) {
+                                    lastHapticSlot = currentSnapped
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 }
-                                onTabClick(item)
+                            },
+                            onDragEnd = {
+                                isDragging = false
+                                val targetIndex = sliderPosition.value.roundToInt().coerceIn(0, count - 1)
                                 coroutineScope.launch {
                                     sliderPosition.animateTo(
-                                        index.toFloat(),
+                                        targetIndex.toFloat(),
                                         spring(
                                             dampingRatio = 0.82f,
                                             stiffness = Spring.StiffnessMediumLow
                                         )
                                     )
                                 }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = item.icon,
-                            contentDescription = stringResource(id = item.titleRes),
-                            tint = iconTint,
-                            modifier = Modifier
-                                .size(24.dp)
-                                .graphicsLayer {
-                                    scaleX = iconScale
-                                    scaleY = iconScale
+                                if (targetIndex in tabs.indices) {
+                                    onTabClick(tabs[targetIndex])
                                 }
+                            },
+                            onDragCancel = {
+                                isDragging = false
+                                coroutineScope.launch {
+                                    sliderPosition.animateTo(
+                                        selectedIndex.toFloat(),
+                                        spring(
+                                            dampingRatio = 0.82f,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        )
+                                    )
+                                }
+                            }
                         )
+                    }
+            ) {
+                // 滑动指示器胶囊
+                val currentSlot = sliderPosition.value
+                val currentIndicatorXPx = innerPaddingPx + (currentSlot * slotWidthPx) + (slotWidthPx - indicatorWidthPx) / 2f
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .graphicsLayer {
+                            translationX = currentIndicatorXPx
+                        }
+                        .width(indicatorWidthDp)
+                        .height(indicatorHeightDp)
+                        .clip(RoundedCornerShape(indicatorCornerRadiusDp))
+                        .background(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                        )
+                )
+
+                // Tab 图标 Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = innerPaddingDp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    tabs.forEachIndexed { index, item ->
+                        val distance = abs(currentSlot - index).coerceIn(0f, 1f)
+                        val activeFraction = 1f - distance
+
+                        val iconTint = lerp(
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                            MaterialTheme.colorScheme.primary,
+                            activeFraction
+                        )
+                        val iconScale = 1.0f + 0.08f * activeFraction
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    if (selectedIndex != index) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    }
+                                    onTabClick(item)
+                                    coroutineScope.launch {
+                                        sliderPosition.animateTo(
+                                            index.toFloat(),
+                                            spring(
+                                                dampingRatio = 0.82f,
+                                                stiffness = Spring.StiffnessMediumLow
+                                            )
+                                        )
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = item.icon,
+                                contentDescription = stringResource(id = item.titleRes),
+                                tint = iconTint,
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .graphicsLayer {
+                                        scaleX = iconScale
+                                        scaleY = iconScale
+                                    }
+                            )
+                        }
                     }
                 }
             }
