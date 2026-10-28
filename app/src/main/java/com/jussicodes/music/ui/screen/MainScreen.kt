@@ -311,149 +311,111 @@ fun MainScreen() {
             SnackbarHost(hostState = snackbarHostState)
         },
         bottomBar = {
-            // Compact 用底栏；Medium/Expanded 改左侧竖排导航栏（见 content 里的 Row），
-            // 底栏此时不占位，否则大屏上会多出一条空横条。
-            if (!useNavigationRail) Column {
+            // Compact 用底栏；Medium/Expanded 改左侧竖排导航栏（见 content 里的 Row）。
+            // 悬浮胶囊底栏改在 content 顶层浮动挂载，让主页背景与列表直接延伸到底部手势栏，胶囊外完全透明；
+            // 经典底栏则保留挂载在 Scaffold.bottomBar 贴底槽位。
+            if (!floatingNavBarEnabled && !useNavigationRail) Column {
                 AnimatedVisibility(
                     showNavigationBar,
                     enter = expandVertically(),
                     exit = shrinkVertically()
                 ) {
-                    // 底栏底色跟随主题 surface（壁纸动态取色时一起变），不再用 M3 默认的
-                    // surfaceContainerHigh（它不随动态壁纸色）。
-                    val navBarFullHeight = if (floatingNavBarEnabled) {
-                        FloatingBottomNavigationHeight + FloatingBottomNavBottomPadding + FloatingBottomNavTopPadding + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                    } else {
-                        BottomNavigationHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                    }
+                    val navBarFullHeight = BottomNavigationHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     val navBarExitProgress = (miniPlayerDragProgress * 3f).coerceIn(0f, 1f)
-                    if (floatingNavBarEnabled) {
-                        FloatingBottomNavBar(
-                            modifier = Modifier.graphicsLayer {
+                    NavigationBar(
+                        modifier = Modifier
+                            .graphicsLayer {
                                 val maxPressDownPx = navBarFullHeight.toPx()
                                 translationY = navBarExitProgress * maxPressDownPx
-                            },
-                            isHomeRoute = isHomeRoute,
-                            homePage = homePage,
-                            homePageScroll = homePageScroll,
-                            isTabSelected = { item ->
-                                if (isHomeRoute) {
-                                    tabs.getOrNull(homePageScroll.roundToInt())?.route == item.route
-                                } else {
-                                    currentDestination?.hierarchy?.any { it.route == item.route } == true
-                                }
-                            },
-                            onTabClick = { item ->
-                                val targetPage = tabs.indexOfFirst { it.route == item.route }
-                                if (targetPage >= 0) {
-                                    if (isHomeRoute) {
-                                        MotionDefaults.animatePagerToPage(
-                                            pagerState = homePagerState,
-                                            page = targetPage,
-                                            scope = coroutineScope
-                                        )
-                                    } else {
-                                        navigateRootTab(item.route)
-                                    }
-                                }
                             }
-                        )
-                    } else {
-                        NavigationBar(
-                            modifier = Modifier
-                                .graphicsLayer {
-                                    val maxPressDownPx = navBarFullHeight.toPx()
-                                    translationY = navBarExitProgress * maxPressDownPx
-                                }
-                                .height(BottomNavigationHeight),
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            contentColor = MaterialTheme.colorScheme.onSurface,
-                        ) {
-                            BoxWithConstraints(Modifier.fillMaxSize()) {
-                                val itemWidth = maxWidth / tabs.size
-                                val indicatorWidth = 72.dp
-                                // 指示胶囊：首页由 pager 连续进度跟手直算，用 snap() 让它零延迟贴手指；
-                                // 非首页路由是离散跳转，用 tween 补一段，否则胶囊会瞬移过去。
-                                val rawIndicatorOffset =
-                                    itemWidth * if (isHomeRoute) homePageScroll else homePage.toFloat()
-                                val indicatorOffset by animateDpAsState(
-                                    targetValue = rawIndicatorOffset,
-                                    animationSpec = if (isHomeRoute) {
-                                        snap()
+                            .height(BottomNavigationHeight),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    ) {
+                        BoxWithConstraints(Modifier.fillMaxSize()) {
+                            val itemWidth = maxWidth / tabs.size
+                            val indicatorWidth = 72.dp
+                            // 指示胶囊：首页由 pager 连续进度跟手直算，用 snap() 让它零延迟贴手指；
+                            // 非首页路由是离散跳转，用 tween 补一段，否则胶囊会瞬移过去。
+                            val rawIndicatorOffset =
+                                itemWidth * if (isHomeRoute) homePageScroll else homePage.toFloat()
+                            val indicatorOffset by animateDpAsState(
+                                targetValue = rawIndicatorOffset,
+                                animationSpec = if (isHomeRoute) {
+                                    snap()
+                                } else {
+                                    MotionSpec.indicatorShift()
+                                },
+                                label = "TabIndicatorOffset"
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .offset(x = indicatorOffset + (itemWidth - indicatorWidth) / 2)
+                                    .width(indicatorWidth)
+                                    .height(40.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                            )
+
+                            Row(Modifier.fillMaxSize()) {
+                                tabs.forEach { item ->
+                                    val tabIndex = tabs.indexOf(item).coerceAtLeast(0)
+                                    val selected = if (isHomeRoute) {
+                                        tabs.getOrNull(homePageScroll.roundToInt())?.route == item.route
                                     } else {
-                                        MotionSpec.indicatorShift()
-                                    },
-                                    label = "TabIndicatorOffset"
-                                )
+                                        currentDestination?.hierarchy?.any { it.route == item.route } == true
+                                    }
+                                    // 选中态视觉：首页由 pager 连续进度跟手直算（不补间），
+                                    // 非首页路由切换时走 spring 过渡，避免图标瞬跳。
+                                    // 数值与 NavigationRail 共用 TabSelectionMotion。
+                                    val visuals = rememberTabSelectionVisuals(
+                                        isHomeRoute = isHomeRoute,
+                                        homePageScroll = homePageScroll,
+                                        index = tabIndex,
+                                        selected = selected
+                                    )
 
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.CenterStart)
-                                        .offset(x = indicatorOffset + (itemWidth - indicatorWidth) / 2)
-                                        .width(indicatorWidth)
-                                        .height(40.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.secondaryContainer)
-                                )
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxSize()
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) {
+                                                val targetPage = tabs.indexOfFirst { it.route == item.route }
+                                                if (targetPage < 0) return@clickable
 
-                                Row(Modifier.fillMaxSize()) {
-                                    tabs.forEach { item ->
-                                        val tabIndex = tabs.indexOf(item).coerceAtLeast(0)
-                                        val selected = if (isHomeRoute) {
-                                            tabs.getOrNull(homePageScroll.roundToInt())?.route == item.route
-                                        } else {
-                                            currentDestination?.hierarchy?.any { it.route == item.route } == true
-                                        }
-                                        // 选中态视觉：首页由 pager 连续进度跟手直算（不补间），
-                                        // 非首页路由切换时走 spring 过渡，避免图标瞬跳。
-                                        // 数值与 NavigationRail 共用 TabSelectionMotion。
-                                        val visuals = rememberTabSelectionVisuals(
-                                            isHomeRoute = isHomeRoute,
-                                            homePageScroll = homePageScroll,
-                                            index = tabIndex,
-                                            selected = selected
-                                        )
-
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .fillMaxSize()
-                                                .clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null
-                                                ) {
-                                                    val targetPage = tabs.indexOfFirst { it.route == item.route }
-                                                    if (targetPage < 0) return@clickable
-
-                                                    if (isHomeRoute) {
-                                                        MotionDefaults.animatePagerToPage(
-                                                            pagerState = homePagerState,
-                                                            page = targetPage,
-                                                            scope = coroutineScope
-                                                        )
-                                                    } else {
-                                                        navigateRootTab(item.route)
-                                                    }
-                                                },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = item.icon,
-                                                contentDescription = stringResource(id = item.titleRes),
-                                                tint = if (selected) {
-                                                    MaterialTheme.colorScheme.onSecondaryContainer
+                                                if (isHomeRoute) {
+                                                    MotionDefaults.animatePagerToPage(
+                                                        pagerState = homePagerState,
+                                                        page = targetPage,
+                                                        scope = coroutineScope
+                                                    )
                                                 } else {
-                                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                                },
-                                                modifier = Modifier
-                                                    .size(28.dp)
-                                                    .graphicsLayer {
-                                                        scaleX = visuals.iconScale
-                                                        scaleY = visuals.iconScale
-                                                        alpha = visuals.iconAlpha
-                                                    }
-                                            )
-                                        }
+                                                    navigateRootTab(item.route)
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = item.icon,
+                                            contentDescription = stringResource(id = item.titleRes),
+                                            tint = if (selected) {
+                                                MaterialTheme.colorScheme.onSecondaryContainer
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .graphicsLayer {
+                                                    scaleX = visuals.iconScale
+                                                    scaleY = visuals.iconScale
+                                                    alpha = visuals.iconAlpha
+                                                }
+                                        )
                                     }
                                 }
                             }
@@ -463,11 +425,12 @@ fun MainScreen() {
             }
         },
         content = { padding ->
+            val floatingNavBarFullHeight = FloatingBottomNavigationHeight + FloatingBottomNavBottomPadding + FloatingBottomNavTopPadding + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             // 小播放器贴底间距（与 main 一致的位置逻辑：首页=底栏上方，二级页=贴系统导航栏，
             // 不加额外高度避免和底栏顶开缝），套 200ms 缓入缓出：进出设置页时下滑/回位平滑。
             val targetMiniBottomPadding = when {
                 showPlayer -> 0.dp
-                navBarTakesBottomSpace -> padding.calculateBottomPadding()
+                navBarTakesBottomSpace -> if (floatingNavBarEnabled) floatingNavBarFullHeight else padding.calculateBottomPadding()
                 else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             }
             // 内容区跟小播放器用同一个贴底间距（无整体垫高）：首页列表的底部避让
@@ -558,6 +521,54 @@ fun MainScreen() {
                         .fillMaxSize()
                         .background(Color.Black.copy(alpha = scrimAlpha))
                 )
+            }
+
+            // 悬浮胶囊底栏：浮在内容层与背景图之上，胶囊周围完全透明穿透
+            if (floatingNavBarEnabled && !useNavigationRail) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(0.9f),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    val navBarExitProgress = (miniPlayerDragProgress * 3f).coerceIn(0f, 1f)
+                    AnimatedVisibility(
+                        visible = showNavigationBar,
+                        enter = fadeIn(MotionSpec.screenEnter()) + expandVertically(),
+                        exit = fadeOut(MotionSpec.screenExit()) + shrinkVertically()
+                    ) {
+                        FloatingBottomNavBar(
+                            modifier = Modifier.graphicsLayer {
+                                val maxPressDownPx = floatingNavBarFullHeight.toPx()
+                                translationY = navBarExitProgress * maxPressDownPx
+                            },
+                            isHomeRoute = isHomeRoute,
+                            homePage = homePage,
+                            homePageScroll = homePageScroll,
+                            isTabSelected = { item ->
+                                if (isHomeRoute) {
+                                    tabs.getOrNull(homePageScroll.roundToInt())?.route == item.route
+                                } else {
+                                    currentDestination?.hierarchy?.any { it.route == item.route } == true
+                                }
+                            },
+                            onTabClick = { item ->
+                                val targetPage = tabs.indexOfFirst { it.route == item.route }
+                                if (targetPage >= 0) {
+                                    if (isHomeRoute) {
+                                        MotionDefaults.animatePagerToPage(
+                                            pagerState = homePagerState,
+                                            page = targetPage,
+                                            scope = coroutineScope
+                                        )
+                                    } else {
+                                        navigateRootTab(item.route)
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
             }
 
             Box(

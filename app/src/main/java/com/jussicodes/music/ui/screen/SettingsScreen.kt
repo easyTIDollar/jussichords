@@ -568,7 +568,7 @@ fun SettingsScreen(navController: NavHostController) {
             SettingItemData(
                 title = "悬浮胶囊底栏",
                 subtitle = if (floatingNavBarEnabled) {
-                    "已开启 · Bettbox 悬浮药丸样式"
+                    "已开启 · 悬浮胶囊样式"
                 } else {
                     "已关闭 · 经典贴底通栏"
                 },
