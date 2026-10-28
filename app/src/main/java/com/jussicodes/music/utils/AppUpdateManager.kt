@@ -72,7 +72,7 @@ sealed class UpdateSource {
     abstract fun probeRequest(): Request
 }
 
-const val SPEED_TEST_SAMPLE_BYTES = 524288L // 512 KB 测速分片
+const val SPEED_TEST_SAMPLE_BYTES = 262144L // 256 KB 测速分片：兼顾准确率与极速响应，避免弱网超时
 
 class GitHubUpdateSource(
     override val id: String,
@@ -127,16 +127,18 @@ class GitHubUpdateSource(
 object CloudflareOptimizedDns : Dns {
     private const val TARGET_HOST = "gh.jussichords.cc.cd"
 
-    // 覆盖国内三网常用骨干段的优质 Anycast 候选池（电信、联通、移动互联精选）
+    // 覆盖国内三网常用骨干段的高质量 Anycast 候选池（含官方实测优质三网节点）
     val CANDIDATE_IPS = listOf(
-        "104.16.80.1",
+        "172.64.145.93",
+        "172.64.145.202",
+        "104.18.33.196",
+        "104.18.42.163",
+        "104.18.40.152",
+        "172.64.147.104",
+        "104.21.69.77",
+        "172.67.206.74",
         "104.19.18.1",
-        "104.16.160.1",
-        "172.67.180.1",
-        "104.17.200.1",
-        "162.159.192.1",
-        "104.18.2.1",
-        "104.16.20.1",
+        "104.16.80.1",
     )
 
     @Volatile
@@ -146,12 +148,13 @@ object CloudflareOptimizedDns : Dns {
     private const val CACHE_DURATION_MS = 20 * 60 * 1000L // 20 分钟缓存
 
     /** 对候选池进行并行轻量 Socket 探测，选出当前设备网络下 RTT 最优的 IP 列表 */
-    suspend fun refreshFastestIps(timeoutMs: Int = 600): List<InetAddress> = withContext(Dispatchers.IO) {
+    suspend fun refreshFastestIps(timeoutMs: Int = 500): List<InetAddress> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val cached = cachedOptimizedIps
         if (cached != null && now - lastSpeedTestTime < CACHE_DURATION_MS) {
             return@withContext cached
         }
+        val systemResolved = runCatching { Dns.SYSTEM.lookup(TARGET_HOST) }.getOrDefault(emptyList())
         supervisorScope {
             val jobs = CANDIDATE_IPS.map { ip ->
                 async {
@@ -176,11 +179,12 @@ object CloudflareOptimizedDns : Dns {
             }.ifEmpty {
                 CANDIDATE_IPS.mapNotNull { runCatching { InetAddress.getByName(it) }.getOrNull() }
             }
-            if (resolved.isNotEmpty()) {
-                cachedOptimizedIps = resolved
+            val combined = (resolved + systemResolved).distinct()
+            if (combined.isNotEmpty()) {
+                cachedOptimizedIps = combined
                 lastSpeedTestTime = now
             }
-            resolved
+            combined
         }
     }
 
@@ -188,8 +192,9 @@ object CloudflareOptimizedDns : Dns {
         if (hostname.equals(TARGET_HOST, ignoreCase = true)) {
             val cached = cachedOptimizedIps
             if (cached != null) return cached
-            return CANDIDATE_IPS.mapNotNull { runCatching { InetAddress.getByName(it) }.getOrNull() }
-                .ifEmpty { Dns.SYSTEM.lookup(hostname) }
+            val systemResolved = runCatching { Dns.SYSTEM.lookup(hostname) }.getOrDefault(emptyList())
+            val candidateResolved = CANDIDATE_IPS.mapNotNull { runCatching { InetAddress.getByName(it) }.getOrNull() }
+            return (candidateResolved + systemResolved).distinct()
         }
         return Dns.SYSTEM.lookup(hostname)
     }
@@ -241,7 +246,7 @@ object AppUpdateManager {
     private const val DOWNLOAD_READ_TIMEOUT_SECONDS = 120L
     private const val DOWNLOAD_CALL_TIMEOUT_SECONDS = 300L
     private const val DOWNLOAD_MAX_RETRIES = 2
-    private const val SOURCE_TEST_TIMEOUT_SECONDS = 3L
+    private const val SOURCE_TEST_TIMEOUT_SECONDS = 6L
     private const val API_CONNECT_TIMEOUT_SECONDS = 6L
     private const val API_READ_TIMEOUT_SECONDS = 10L
     private const val API_CALL_TIMEOUT_SECONDS = 15L
