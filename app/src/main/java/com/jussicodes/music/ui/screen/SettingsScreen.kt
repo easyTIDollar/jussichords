@@ -166,7 +166,10 @@ import com.jussicodes.music.ui.components.ResponsiveAlertDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(navController: NavHostController) {
+fun SettingsScreen(
+    navController: NavHostController,
+    onBackClick: (() -> Unit)? = null
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -819,7 +822,13 @@ fun SettingsScreen(navController: NavHostController) {
             TopAppBar(
                 title = { Text(stringResource(R.string.settings)) },
                 navigationIcon = {
-                    IconButton(onClick = { navController.navigateUp() }) {
+                    IconButton(onClick = {
+                        if (onBackClick != null) {
+                            onBackClick()
+                        } else {
+                            navController.navigateUp()
+                        }
+                    }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                             contentDescription = null

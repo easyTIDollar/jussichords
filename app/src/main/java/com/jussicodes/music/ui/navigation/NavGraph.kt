@@ -12,8 +12,9 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerState
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
@@ -23,6 +24,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import com.jussicodes.music.animation.MotionSpec
 import com.jussicodes.music.ui.screen.AlbumScreen
 import com.jussicodes.music.ui.screen.AlbumSublistScreen
@@ -54,7 +56,8 @@ fun NavGraph(
     bottomPadding: Dp,
     homePagerState: PagerState,
     onHomePageChange: (Int) -> Unit,
-    onHomePageScroll: (Float) -> Unit
+    onHomePageScroll: (Float) -> Unit,
+    floatingNavBarEnabled: Boolean = false
 ) {
     // The two home destinations (library/explore) render the same HorizontalPager;
     // switching between them is route bookkeeping only (driven by MainScreen's
@@ -208,6 +211,7 @@ private fun HomePager(
     onPageChange: (Int) -> Unit,
     onPageScroll: (Float) -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
     LaunchedEffect(pagerState.settledPage) {
         onPageChange(pagerState.settledPage)
         onPageScroll(pagerState.settledPage.toFloat())
@@ -237,6 +241,14 @@ private fun HomePager(
             when (page) {
                 0 -> LibraryScreen(navController = navController)
                 1 -> ExploreScreen(navController = navController)
+                2 -> SettingsScreen(
+                    navController = navController,
+                    onBackClick = {
+                        coroutineScope.launch {
+                            pagerState.animateScrollToPage(1)
+                        }
+                    }
+                )
             }
         }
     }

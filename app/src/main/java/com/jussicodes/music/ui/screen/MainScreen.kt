@@ -146,8 +146,13 @@ fun MainScreen() {
     var miniPlayerDragProgress by remember { mutableFloatStateOf(0f) }
     var homePage by rememberSaveable { mutableIntStateOf(0) }
     var homePageScroll by remember { mutableFloatStateOf(homePage.toFloat()) }
-    val homePagerState = rememberPagerState(initialPage = homePage) { tabs.size }
+    val homePagerState = rememberPagerState(initialPage = homePage) { activeNavTabs.size }
     val coroutineScope = rememberCoroutineScope()
+    BackHandler(enabled = isHomeRoute && homePagerState.currentPage > 0) {
+        coroutineScope.launch {
+            homePagerState.animateScrollToPage(homePagerState.currentPage - 1)
+        }
+    }
     // 壁纸层可见性：isHomeRoute 去抖版（主页两 tab 切换不闪，进设置/二级页淡出）
     var homeBackgroundVisible by remember { mutableStateOf(true) }
     LaunchedEffect(isHomeRoute) {
@@ -244,10 +249,21 @@ fun MainScreen() {
     var previousRoute by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(currentDestination?.route) {
         val route = currentDestination?.route
+        if (floatingNavBarEnabled && route == Screen.Settings.route) {
+            navController.popBackStack()
+            coroutineScope.launch {
+                MotionDefaults.animatePagerToPage(
+                    pagerState = homePagerState,
+                    page = 2,
+                    scope = coroutineScope
+                )
+            }
+            return@LaunchedEffect
+        }
         val cameFromNonTab = previousRoute != null &&
-            tabs.none { tab -> tab.route == previousRoute }
+            activeNavTabs.none { tab -> tab.route == previousRoute }
         previousRoute = route
-        val targetPage = tabs.indexOfFirst { it.route == route }.takeIf { it >= 0 }
+        val targetPage = activeNavTabs.indexOfFirst { it.route == route }.takeIf { it >= 0 }
         if (targetPage != null && cameFromNonTab) {
             homePage = targetPage
             homePageScroll = targetPage.toFloat()
@@ -511,7 +527,8 @@ fun MainScreen() {
                         bottomPadding = miniBottomPadding,
                         homePagerState = homePagerState,
                         onHomePageChange = { homePage = it },
-                        onHomePageScroll = { homePageScroll = it }
+                        onHomePageScroll = { homePageScroll = it },
+                        floatingNavBarEnabled = floatingNavBarEnabled
                     )
                 }
             }
@@ -550,27 +567,24 @@ fun MainScreen() {
                             homePage = homePage,
                             homePageScroll = homePageScroll,
                             isTabSelected = { item ->
-                                currentDestination?.hierarchy?.any { it.route == item.route } == true
+                                if (isHomeRoute) {
+                                    val targetIndex = activeNavTabs.indexOf(item)
+                                    targetIndex >= 0 && homePageScroll.roundToInt() == targetIndex
+                                } else {
+                                    currentDestination?.hierarchy?.any { it.route == item.route } == true
+                                }
                             },
                             onTabClick = { item ->
-                                if (item == BottomBarTab.Settings) {
-                                    if (currentDestination?.route != Screen.Settings.route) {
-                                        navController.navigate(Screen.Settings.route) {
-                                            launchSingleTop = true
-                                        }
-                                    }
-                                } else {
-                                    val targetPage = tabs.indexOfFirst { it.route == item.route }
-                                    if (targetPage >= 0) {
-                                        if (isHomeRoute) {
-                                            MotionDefaults.animatePagerToPage(
-                                                pagerState = homePagerState,
-                                                page = targetPage,
-                                                scope = coroutineScope
-                                            )
-                                        } else {
-                                            navigateRootTab(item.route)
-                                        }
+                                val targetPage = activeNavTabs.indexOfFirst { it.route == item.route }
+                                if (targetPage >= 0) {
+                                    if (isHomeRoute) {
+                                        MotionDefaults.animatePagerToPage(
+                                            pagerState = homePagerState,
+                                            page = targetPage,
+                                            scope = coroutineScope
+                                        )
+                                    } else {
+                                        navigateRootTab(item.route)
                                     }
                                 }
                             }
