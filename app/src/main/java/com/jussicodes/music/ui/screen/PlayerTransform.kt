@@ -108,9 +108,9 @@ fun PlayerTransform(
 
         val sheetTranslationY = remember { Animatable(collapsedTargetY) }
 
-        // 当底栏尺寸或屏幕旋转等导致 collapsedTargetY 变化时，收起态同步调整位移贴底
+        // 当底栏尺寸或屏幕旋转等导致 collapsedTargetY 变化时，仅在静止处于收起态且当前无动画时同步调整位移
         LaunchedEffect(collapsedTargetY, isExpanded) {
-            if (!isExpanded) {
+            if (!isExpanded && !sheetTranslationY.isRunning) {
                 sheetTranslationY.snapTo(collapsedTargetY)
             }
         }
@@ -146,12 +146,12 @@ fun PlayerTransform(
             if (fullPlayerSubView != FULL_PLAYER) {
                 fullPlayerSubView = FULL_PLAYER
             } else {
-                isExpanded = false
                 coroutineScope.launch {
                     sheetTranslationY.animateTo(
                         targetValue = collapsedTargetY,
                         animationSpec = MotionSpring.sheetCollapse
                     )
+                    isExpanded = false
                     onBackPressed()
                 }
             }
@@ -175,12 +175,12 @@ fun PlayerTransform(
                     val isDragDown = dragDistanceDown >= dismissThresholdPx
                     val isFlingDown = velocityY >= 400f
                     if (isDragDown || isFlingDown) {
-                        isExpanded = false
                         sheetTranslationY.animateTo(
                             targetValue = collapsedTargetY,
                             animationSpec = MotionSpring.sheetCollapse,
                             initialVelocity = velocityY
                         )
+                        isExpanded = false
                         onBackPressed()
                     } else {
                         // 未达阈值平滑回弹全屏
@@ -412,11 +412,11 @@ fun PlayerTransform(
                                         ),
                                         onBackPressed = {
                                             coroutineScope.launch {
-                                                isExpanded = false
                                                 sheetTranslationY.animateTo(
                                                     targetValue = collapsedTargetY,
                                                     animationSpec = MotionSpring.sheetCollapse
                                                 )
+                                                isExpanded = false
                                                 onBackPressed()
                                             }
                                         },
