@@ -17,12 +17,14 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 import kotlin.system.measureTimeMillis
@@ -104,19 +106,46 @@ class GitHubUpdateSource(
 }
 
 /**
- * 全局下载源列表：gh-proxy 节点池，按顺序回落。
+ * 针对自建 Worker 域名（gh.jussichords.cc.cd）的优选 IP 解析器。
+ * 绕过国内运营商受污染或拥堵的 LocalDNS，直接向国内三网互联质量最佳的 Cloudflare Anycast 优质节点建联。
+ * 其余域名完全走系统原生 DNS。
+ */
+object CloudflareOptimizedDns : Dns {
+    private const val TARGET_HOST = "gh.jussichords.cc.cd"
+
+    private val OPTIMIZED_IPS = listOf(
+        "104.16.80.1",
+        "104.19.18.1",
+        "104.16.160.1",
+        "172.67.180.1",
+        "104.17.200.1",
+        "162.159.192.1",
+    )
+
+    override fun lookup(hostname: String): List<InetAddress> {
+        if (hostname.equals(TARGET_HOST, ignoreCase = true)) {
+            val resolved = OPTIMIZED_IPS.mapNotNull { ip ->
+                runCatching { InetAddress.getByName(ip) }.getOrNull()
+            }
+            if (resolved.isNotEmpty()) {
+                return resolved
+            }
+        }
+        return Dns.SYSTEM.lookup(hostname)
+    }
+}
+
+/**
+ * 全局下载源列表：自建边缘优选源 + gh-proxy 三网源 + GitHub 直连兜底。
  *
- * - `gh-proxy-v4`：官方转换器里标 recommended 的优选节点（仅 IPv4），默认源。
- * - `gh-proxy-main`：主站加速（Cloudflare），v4 挂掉时的第一条兜底。
- * - `gh-proxy-axisnow`：AxisNow 三网优选（仅 IPv4），线路不同源，前两条同时抽风时还能走。
- *
- * 官方另外两条没有收进来：`v6.gh-proxy.org` 只有 AAAA 记录（无 IPv6 的网络上必然失败一次），
- * `cdn.gh-proxy.org` 是 Fastly 节点，国内实测最慢。
+ * - `gh-proxy-custom`：自建 Cloudflare Worker 专线（gh.jussichords.cc.cd），开启不可变边缘强缓存与优选 Anycast IP，默认主源。
+ * - `gh-proxy-axisnow`：AxisNow 三网优选（axisnow.gh-proxy.org），不同源备用加速。
+ * - `direct`：GitHub 官方直连，原生兜底。
  */
 val downloadSources = listOf(
-    GitHubUpdateSource("gh-proxy-v4", "gh-proxy 优选", "v4.gh-proxy.org · 官方推荐", "https://v4.gh-proxy.org/"),
-    GitHubUpdateSource("gh-proxy-main", "gh-proxy 主站", "gh-proxy.org", "https://gh-proxy.org/"),
+    GitHubUpdateSource("gh-proxy-custom", "自建专线加速", "gh.jussichords.cc.cd · 边缘优选", "https://gh.jussichords.cc.cd/"),
     GitHubUpdateSource("gh-proxy-axisnow", "gh-proxy 三网", "axisnow.gh-proxy.org", "https://axisnow.gh-proxy.org/"),
+    GitHubUpdateSource("direct", "GitHub 直连", "直连", ""),
 )
 
 fun sourceById(sourceId: String?): UpdateSource? =
@@ -168,6 +197,7 @@ object AppUpdateManager {
 
     private val downloadClient by lazy {
         OkHttpClient.Builder()
+            .dns(CloudflareOptimizedDns)
             .connectTimeout(DOWNLOAD_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(DOWNLOAD_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .callTimeout(DOWNLOAD_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -179,6 +209,7 @@ object AppUpdateManager {
 
     private val sourceTestClient by lazy {
         OkHttpClient.Builder()
+            .dns(CloudflareOptimizedDns)
             .connectTimeout(SOURCE_TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(SOURCE_TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .callTimeout(SOURCE_TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -202,6 +233,7 @@ object AppUpdateManager {
 
     private val apiClient by lazy {
         OkHttpClient.Builder()
+            .dns(CloudflareOptimizedDns)
             .connectTimeout(API_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(API_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .callTimeout(API_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
