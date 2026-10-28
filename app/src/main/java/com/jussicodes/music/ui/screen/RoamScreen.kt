@@ -581,14 +581,7 @@ private fun RoamPlayerContent(
             Column(
                 modifier = Modifier
                     .statusBarsPadding()
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        translationY = coverOffsetY
-                        val scale =
-                            1f - (coverOffsetY / dismissThresholdPx).coerceIn(0f, 1f) * 0.02f
-                        scaleX = scale
-                        scaleY = scale
-                    },
+                    .fillMaxSize(),
                 verticalArrangement = if (screenHeight.dp < 700.dp) {
                     Arrangement.spacedBy(8.dp)
                 } else {
