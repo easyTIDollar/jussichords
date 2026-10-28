@@ -93,12 +93,6 @@ fun PlayerTransform(
     var isExpanded by remember { mutableStateOf(false) }
     var fullPlayerSubView by remember { mutableIntStateOf(FULL_PLAYER) }
 
-    // 预热全屏播放器树，避免用户第一次手势上滑时突然触发初次组合与排版测量掉帧
-    var hasWarmedUpFullPlayer by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        hasWarmedUpFullPlayer = true
-    }
-
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val screenHeightPx = constraints.maxHeight.toFloat()
         val miniPlayerHeightPx = with(density) { MiniPlayerHeight.toPx() }
@@ -287,50 +281,13 @@ fun PlayerTransform(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // 小播放器层（MiniPlayer 顶栏，高度 64dp）
-                // 拖拽过程中（!isExpanded）保持节点存活，绝不在推到顶部瞬间被拔除导致手势中断
-                val showMiniPlayerContent = !isExpanded || progress < 0.999f
-                if (showMiniPlayerContent) {
-                    Box(
-                        modifier = Modifier
-                            .zIndex(if (progress < 0.5f) 1f else 0f)
-                            .align(Alignment.TopCenter)
-                            .fillMaxWidth()
-                            .height(MiniPlayerHeight)
-                            .graphicsLayer {
-                                alpha = miniPlayerAlpha
-                            }
-                    ) {
-                        MiniPlayer(
-                            mediaMetadata = mediaMetadata,
-                            position = position,
-                            duration = duration,
-                            isPillProgress = floatingNavBarEnabled,
-                            onClick = {
-                                coroutineScope.launch {
-                                    isExpanded = true
-                                    sheetTranslationY.animateTo(
-                                        targetValue = 0f,
-                                        animationSpec = MotionSpring.sheetExpand
-                                    )
-                                    onClick()
-                                }
-                            },
-                            onVerticalDrag = { deltaY -> onDrag(deltaY) },
-                            onVerticalDragEnd = { velocityY -> onDragEnd(velocityY) },
-                            dragProgress = progress,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                }
-
                 // 全屏播放器层（带 touchSlop 下拉手势，绝不误拦截左上角返回按钮等子组件点击）
-                // 启动后保持预热组合，彻底消除手势刚起步时的初次组合和测量掉帧
-                val shouldComposeFullPlayer = hasWarmedUpFullPlayer || isExpanded || progress > 0f
+                // 仅在展开态或手势拖拽中挂载，收起态彻底卸载，绝不遮挡小播放器手势
+                val shouldComposeFullPlayer = isExpanded || progress > 0.001f
                 if (shouldComposeFullPlayer) {
                     Box(
                         modifier = Modifier
-                            .zIndex(if (progress >= 0.5f) 1f else 0f)
+                            .zIndex(if (progress >= 0.5f) 2f else 0f)
                             .fillMaxWidth()
                             .height(with(density) { screenHeightPx.toDp() })
                             .graphicsLayer {
@@ -454,6 +411,43 @@ fun PlayerTransform(
                                 }
                             }
                         }
+                    }
+                }
+
+                // 小播放器层（MiniPlayer 顶栏，高度 64dp）
+                // 声明在全屏层之后并赋予高优先级 zIndex，保证收起态小播放器绝对独占手势，绝不被任何底层组件劫持
+                val showMiniPlayerContent = !isExpanded || progress < 0.999f
+                if (showMiniPlayerContent) {
+                    Box(
+                        modifier = Modifier
+                            .zIndex(if (progress < 0.5f) 2f else 0f)
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .height(MiniPlayerHeight)
+                            .graphicsLayer {
+                                alpha = miniPlayerAlpha
+                            }
+                    ) {
+                        MiniPlayer(
+                            mediaMetadata = mediaMetadata,
+                            position = position,
+                            duration = duration,
+                            isPillProgress = floatingNavBarEnabled,
+                            onClick = {
+                                coroutineScope.launch {
+                                    isExpanded = true
+                                    sheetTranslationY.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = MotionSpring.sheetExpand
+                                    )
+                                    onClick()
+                                }
+                            },
+                            onVerticalDrag = { deltaY -> onDrag(deltaY) },
+                            onVerticalDragEnd = { velocityY -> onDragEnd(velocityY) },
+                            dragProgress = progress,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
                 }
             }
