@@ -188,15 +188,15 @@ object CloudflareOptimizedDns : Dns {
 }
 
 /**
- * 全局下载源列表：自建边缘优选源 + gh-proxy 三网源 + GitHub 直连兜底。
+ * 全局下载源列表：gh-proxy 三网优选源 + 自建边缘 Worker 源 + GitHub 直连兜底。
  *
- * - `gh-proxy-custom`：自建 Cloudflare Worker 专线（gh.jussichords.cc.cd），开启不可变边缘强缓存与优选 Anycast IP，默认主源。
- * - `gh-proxy-axisnow`：AxisNow 三网优选（axisnow.gh-proxy.org），不同源备用加速。
+ * - `gh-proxy-axisnow`：AxisNow 三网优选（axisnow.gh-proxy.org），智能 DNS 分线解析，默认主源。
+ * - `gh-proxy-custom`：自建 Cloudflare Worker 专线（gh.jussichords.cc.cd），开启不可变边缘强缓存与动态 Anycast 优选 IP，备用与容灾。
  * - `direct`：GitHub 官方直连，原生兜底。
  */
 val downloadSources = listOf(
-    GitHubUpdateSource("gh-proxy-custom", "gh.jussichords.cc.cd", "gh.jussichords.cc.cd", "https://gh.jussichords.cc.cd/"),
     GitHubUpdateSource("gh-proxy-axisnow", "gh-proxy 三网", "axisnow.gh-proxy.org", "https://axisnow.gh-proxy.org/"),
+    GitHubUpdateSource("gh-proxy-custom", "gh.jussichords.cc.cd", "gh.jussichords.cc.cd", "https://gh.jussichords.cc.cd/"),
     GitHubUpdateSource("direct", "GitHub 直连", "直连", ""),
 )
 
