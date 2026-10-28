@@ -320,7 +320,6 @@ fun MainScreen() {
                             .graphicsLayer {
                                 val maxPressDownPx = navBarFullHeight.toPx()
                                 translationY = miniPlayerDragProgress * maxPressDownPx
-                                alpha = (1f - miniPlayerDragProgress * 1.5f).coerceIn(0f, 1f)
                             }
                             .height(BottomNavigationHeight),
                         containerColor = MaterialTheme.colorScheme.surface,
