@@ -197,7 +197,7 @@ fun PlayerTransform(
         // 播放器卡片底端始终紧咬底栏上沿同步下沉，打造两组件齿轮咬合般的一体联动感。
         // 随 progress 平滑增加 1dp 微重叠防亚像素渲染缝隙，展开至全屏时底端刚好稳稳覆盖至屏幕底端。
         val startBottomY = screenHeightPx - bottomPaddingPx
-        val seamOverlapPx = with(density) { (progress * 1.dp).toPx() }
+        val seamOverlapPx = with(density) { 1.dp.toPx() } * progress
         val bottomY = startBottomY + progress * bottomPaddingPx + seamOverlapPx
         val currentCardHeightPx = (bottomY - sheetTranslationY.value).coerceAtLeast(miniPlayerHeightPx)
 
