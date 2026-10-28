@@ -193,13 +193,12 @@ fun PlayerTransform(
         }
 
         val cornerRadius = lerp(16.dp, 0.dp, progress)
-        val bottomOvershootPx = with(density) { 64.dp.toPx() }
-        // 收起态时卡片底端严格对齐底栏顶端（高精准 64dp），绝不上浮遮挡底栏；
-        // 手势上滑展开时迅速向下延展至屏幕底端视口外部，避免界面中段产生横切边缘线
+        // 联动效果：手势上滑展开时，底栏向下沉出屏幕（位移 = progress * bottomPaddingPx），
+        // 播放器卡片底端始终紧咬底栏上沿同步下沉，打造两组件齿轮咬合般的一体联动感。
+        // 随 progress 平滑增加 1dp 微重叠防亚像素渲染缝隙，展开至全屏时底端刚好稳稳覆盖至屏幕底端。
         val startBottomY = screenHeightPx - bottomPaddingPx
-        val endBottomY = screenHeightPx + bottomOvershootPx
-        val bottomExtensionFraction = (progress * 2f).coerceIn(0f, 1f)
-        val bottomY = startBottomY + (endBottomY - startBottomY) * bottomExtensionFraction
+        val seamOverlapPx = with(density) { (progress * 1.dp).toPx() }
+        val bottomY = startBottomY + progress * bottomPaddingPx + seamOverlapPx
         val currentCardHeightPx = (bottomY - sheetTranslationY.value).coerceAtLeast(miniPlayerHeightPx)
 
         Surface(
