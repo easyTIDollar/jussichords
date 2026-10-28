@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -60,10 +61,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.animation.MotionSpring
@@ -251,9 +254,97 @@ fun RoamScreen(
         }
     }
 
-    SharedTransitionLayout(
-        modifier = Modifier.fillMaxSize()
+    val density = LocalDensity.current
+    val viewConfiguration = LocalViewConfiguration.current
+    val screenHeightPx = with(density) { screenHeight.dp.toPx() }
+    val dismissThresholdPx = with(density) { 80.dp.toPx() }
+    val dismissOffsetY = remember { Animatable(0f) }
+    var isDismissing by remember { mutableStateOf(false) }
+
+    fun onDismissDrag(deltaY: Float) {
+        if (isDismissing) return
+        scope.launch {
+            val current = dismissOffsetY.value
+            val target = (current + deltaY).coerceAtLeast(0f)
+            dismissOffsetY.snapTo(target)
+        }
+    }
+
+    fun onDismissDragEnd(velocityY: Float) {
+        if (isDismissing) return
+        scope.launch {
+            val current = dismissOffsetY.value
+            val isDragDown = current >= dismissThresholdPx
+            val isFlingDown = velocityY >= 400f
+            if (isDragDown || isFlingDown) {
+                isDismissing = true
+                dismissOffsetY.animateTo(
+                    targetValue = screenHeightPx,
+                    animationSpec = MotionSpring.sheetCollapse,
+                    initialVelocity = velocityY
+                )
+                onBackPressed()
+            } else {
+                dismissOffsetY.animateTo(
+                    targetValue = 0f,
+                    animationSpec = MotionSpring.sheetCollapse,
+                    initialVelocity = velocityY
+                )
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                translationY = dismissOffsetY.value
+                val dismissFraction = (dismissOffsetY.value / screenHeightPx).coerceIn(0f, 1f)
+                alpha = 1f - dismissFraction * 0.8f
+            }
+            .pointerInput(shownPanel, openComments, isDismissing) {
+                // 仅在主播放界面且没有打开评论浮层时，支持在屏幕任意位置向下滑动退出
+                if (shownPanel == ROAM_PLAYER && !openComments && !isDismissing) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val velocityTracker = VelocityTracker()
+                        velocityTracker.addPosition(down.uptimeMillis, down.position)
+                        var totalDragY = 0f
+                        var totalDragX = 0f
+                        var isDraggingDown = false
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+
+                            velocityTracker.addPosition(change.uptimeMillis, change.position)
+                            val positionChange = change.positionChange()
+                            totalDragX += positionChange.x
+                            totalDragY += positionChange.y
+
+                            // 明显的纵向向下拉拽且下移大于横移，避免误拦截封面横滑切歌或进度条滑动
+                            if (!isDraggingDown && totalDragY > viewConfiguration.touchSlop && totalDragY > kotlin.math.abs(totalDragX) * 1.2f) {
+                                isDraggingDown = true
+                            }
+
+                            if (isDraggingDown) {
+                                change.consume()
+                                onDismissDrag(positionChange.y)
+                            }
+                        }
+
+                        if (isDraggingDown) {
+                            val velocityY = velocityTracker.calculateVelocity().y
+                            onDismissDragEnd(velocityY)
+                        }
+                    }
+                }
+            }
     ) {
+        SharedTransitionLayout(
+            modifier = Modifier.fillMaxSize()
+        ) {
         AnimatedContent(
             targetState = if (metadata == null) ROAM_PLAYER else shownPanel,
             transitionSpec = {
@@ -429,6 +520,7 @@ fun RoamScreen(
         }
     }
 }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -461,19 +553,12 @@ private fun RoamPlayerContent(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     var coverOffsetX by remember { mutableFloatStateOf(0f) }
-    var coverOffsetY by remember { mutableFloatStateOf(0f) }
     var coverAnimationJob by remember { mutableStateOf<Job?>(null) }
-    var coverDismissAnimationJob by remember { mutableStateOf<Job?>(null) }
     val swipeThresholdPx = with(density) { 72.dp.toPx() }
     val coverDragLimitPx = swipeThresholdPx * 1.6f
-    val dismissThresholdPx = with(density) { 96.dp.toPx() }
-    val coverDismissLimitPx = dismissThresholdPx * 1.1f
     val dragDirectionSlopPx = with(density) { 3.dp.toPx() }
     val queueOpenThresholdPx = with(density) { 40.dp.toPx() }
-    val coverDragProgress = maxOf(
-        abs(coverOffsetX) / swipeThresholdPx,
-        coverOffsetY / dismissThresholdPx
-    ).coerceIn(0f, 1f)
+    val coverDragProgress = (abs(coverOffsetX) / swipeThresholdPx).coerceIn(0f, 1f)
 
     fun animateCoverOffsetTo(target: Float) {
         coverAnimationJob?.cancel()
@@ -484,19 +569,6 @@ private fun RoamPlayerContent(
                 animationSpec = MotionSpring.artworkHorizontal
             ) { value, _ ->
                 coverOffsetX = value
-            }
-        }
-    }
-
-    fun animateCoverDismissOffsetTo(target: Float) {
-        coverDismissAnimationJob?.cancel()
-        coverDismissAnimationJob = scope.launch {
-            animate(
-                initialValue = coverOffsetY,
-                targetValue = target,
-                animationSpec = MotionSpring.artworkDismiss
-            ) { value, _ ->
-                coverOffsetY = value
             }
         }
     }
@@ -617,61 +689,6 @@ private fun RoamPlayerContent(
                                 animateCoverOffsetTo(0f)
                             }
                         )
-                    }
-                    .pointerInput(dismissThresholdPx) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            coverDismissAnimationJob?.cancel()
-
-                            var totalDragX = 0f
-                            var totalDragY = 0f
-                            var isVerticalDrag: Boolean? = null
-                            var isDismissed = false
-
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                if (!change.pressed) break
-
-                                val positionChange = change.positionChange()
-                                totalDragX += positionChange.x
-                                totalDragY += positionChange.y
-
-                                if (isVerticalDrag == null &&
-                                    (abs(totalDragX) > dragDirectionSlopPx || abs(totalDragY) > dragDirectionSlopPx)
-                                ) {
-                                    isVerticalDrag = abs(totalDragY) > abs(totalDragX)
-                                }
-
-                                if (isVerticalDrag == false) {
-                                    break
-                                }
-
-                                if (isVerticalDrag == true && !modeMenuExpanded) {
-                                    coverOffsetY = (coverOffsetY + positionChange.y).coerceIn(
-                                        0f,
-                                        coverDismissLimitPx
-                                    )
-                                    if (coverOffsetY > 0f) {
-                                        change.consume()
-                                    }
-                                }
-                            }
-
-                            if (isVerticalDrag == true) {
-                                if (coverOffsetY >= dismissThresholdPx) {
-                                    coverOffsetY = 0f
-                                    isDismissed = true
-                                    onBackPressed()
-                                } else {
-                                    animateCoverDismissOffsetTo(0f)
-                                }
-                            }
-
-                            if (!isDismissed && isVerticalDrag != true && coverOffsetY > 0f) {
-                                animateCoverDismissOffsetTo(0f)
-                            }
-                        }
                     }
                     .pointerInput(metadata?.artworkUri) {
                         detectTapGestures {
