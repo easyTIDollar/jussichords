@@ -1,14 +1,20 @@
 package com.jussicodes.music.ui.screen
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +28,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material.icons.outlined.Schedule
@@ -36,23 +43,39 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -75,14 +98,17 @@ import com.jussicodes.music.ui.components.NavigationTitle
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
 import com.jussicodes.music.ui.components.SwipableTabPager
+import com.jussicodes.music.ui.components.rememberFilteredSongs
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.ArtistNav
 import com.jussicodes.music.ui.icons.ChevronDown
+import com.jussicodes.music.ui.icons.Search
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.formatPlayCount
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.ArtistScreenViewModel
 import com.rcmiku.ncmapi.model.Song
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -115,8 +141,73 @@ fun ArtistScreen(
     val hasMiniPlayer = (playerState?.player?.mediaItemCount ?: 0) != 0
 
     // 三个 tab（探索/歌曲/专辑）改成左右滑动：HorizontalPager + 跟手指示器 + 相邻页左右预览，
-    // 与“最近播放”页同一套 SwipableTabPager。头部（封面 + 信息行）固定在 tab 行上方。
+    // 与“最近播放”页同一套 SwipableTabPager。头部（封面 + 信息行）支持向上嵌套滚动折叠吸顶。
     val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
+    val scope = rememberCoroutineScope()
+    val searchFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    var searchActive by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+
+    val candidateSongs = allSongsForQueue ?: artistTopSongState?.songs.orEmpty()
+    val filteredSongs = rememberFilteredSongs(candidateSongs, searchQuery)
+
+    var headerHeightPx by remember { mutableFloatStateOf(0f) }
+    var topBarHeightPx by remember { mutableFloatStateOf(0f) }
+    var headerOffsetPx by remember { mutableFloatStateOf(0f) }
+    val maxCollapsePx = (headerHeightPx - topBarHeightPx).coerceAtLeast(0f)
+    val collapseFraction = if (maxCollapsePx > 0f) {
+        (-headerOffsetPx / maxCollapsePx).coerceIn(0f, 1f)
+    } else 0f
+
+    val nestedScrollConnection = remember(maxCollapsePx, searchActive) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (searchActive) return Offset.Zero
+                val delta = available.y
+                return if (delta < 0f && headerOffsetPx > -maxCollapsePx) {
+                    val newOffset = (headerOffsetPx + delta).coerceIn(-maxCollapsePx, 0f)
+                    val consumed = newOffset - headerOffsetPx
+                    headerOffsetPx = newOffset
+                    Offset(0f, consumed)
+                } else {
+                    Offset.Zero
+                }
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                if (searchActive) return Offset.Zero
+                val delta = available.y
+                return if (delta > 0f && headerOffsetPx < 0f) {
+                    val newOffset = (headerOffsetPx + delta).coerceIn(-maxCollapsePx, 0f)
+                    val consumed = newOffset - headerOffsetPx
+                    headerOffsetPx = newOffset
+                    Offset(0f, consumed)
+                } else {
+                    Offset.Zero
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(searchActive, maxCollapsePx) {
+        if (searchActive) {
+            headerOffsetPx = -maxCollapsePx
+            try {
+                searchFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+    }
+
+    BackHandler(enabled = searchActive) {
+        searchActive = false
+        searchQuery = ""
+        keyboardController?.hide()
+    }
 
     val heroUrl = artistHeadInfoState?.data?.artist?.cover
         ?: artistTopSongState?.songs?.firstOrNull()?.al?.picUrl
@@ -197,343 +288,491 @@ fun ArtistScreen(
             }
         )
     } else {
-        // 实色底：撤掉 NavHost 全局纯色后，主页背景层在 MainScreen 渲染，
-        // 本页根布局需自带不透明底，避免背景透出。
-        Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-            // 固定头部：歌手封面 hero（不随 tab 内容滚动）
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.BottomStart
-            ) {
-                AsyncImage(
-                    model = heroUrl.toCoverImageUrl(CoverImageSize.HERO),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .aspectRatio(4f / 3f)
-                        .clickable(enabled = heroUrl != null) {
-                            previewArtistImageUrl = heroUrl
-                        }
-                )
-                AsyncImage(
-                    model = avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .padding(12.dp)
-                        .size(84.dp)
-                        .clip(CircleShape)
-                        .clickable(enabled = avatarUrl != null) {
-                            previewArtistImageUrl = avatarUrl
-                        }
-                )
-            }
-            // 信息行：歌手名 / 粉丝数 / 收藏
-            Row(
+        // 竖屏：BoxWithConstraints 承载全屏，嵌套滚动驱动头部封面与信息行向上折叠
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .clipToBounds()
+                .nestedScroll(nestedScrollConnection)
+        ) {
+            val density = LocalDensity.current
+            val screenHeight = maxHeight
+            val maxCollapseDp = with(density) { maxCollapsePx.toDp() }
+
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(top = 4.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .height(screenHeight + maxCollapseDp)
+                    .offset { IntOffset(0, headerOffsetPx.roundToInt()) }
             ) {
+                // 折叠头部：歌手封面 hero + 信息行（随列表滑动向上折叠）
                 Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onSizeChanged { headerHeightPx = it.height.toFloat() }
+                        .draggable(
+                            orientation = Orientation.Vertical,
+                            enabled = !searchActive,
+                            state = rememberDraggableState { delta ->
+                                val newOffset = (headerOffsetPx + delta).coerceIn(-maxCollapsePx, 0f)
+                                headerOffsetPx = newOffset
+                            }
+                        )
                 ) {
-                    Text(
-                        text = artistHeadInfoState?.data?.artist?.name.orEmpty(),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    val stats = artistFollowStats
-                    if (stats != null) {
-                        val parts = mutableListOf("粉丝 ${formatPlayCount(stats.fansCnt.toDouble())}")
-                        if (isArtistSubscribed && stats.followDay.isNotBlank()) {
-                            parts.add(stats.followDay)
-                        }
-                        Text(
-                            text = parts.joinToString(" · "),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.BottomStart
+                    ) {
+                        AsyncImage(
+                            model = heroUrl.toCoverImageUrl(CoverImageSize.HERO),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .aspectRatio(4f / 3f)
+                                .clickable(enabled = heroUrl != null) {
+                                    previewArtistImageUrl = heroUrl
+                                }
+                        )
+                        AsyncImage(
+                            model = avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .padding(12.dp)
+                                .size(84.dp)
+                                .clip(CircleShape)
+                                .clickable(enabled = avatarUrl != null) {
+                                    previewArtistImageUrl = avatarUrl
+                                }
                         )
                     }
-                }
-                OutlinedButton(
-                    onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        artistScreenViewModel.toggleArtistSub()
-                    },
-                    enabled = !isArtistSubUpdating && artistHeadInfoState != null,
-                    modifier = Modifier.padding(start = 8.dp)
-                ) {
-                    Text(text = if (isArtistSubscribed) "取消收藏" else "收藏")
-                }
-            }
-
-            // 三个 tab 页左右滑动（可预览相邻页），各页独立懒列
-            SwipableTabPager(
-                titles = listOf(
-                    stringResource(R.string.explore),
-                    stringResource(R.string.song),
-                    stringResource(R.string.album)
-                ),
-                pagerState = pagerState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) { page ->
-                when (page) {
-                    0 -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        item(key = "explore-info") {
-                            NavigationTitle(
-                                title = stringResource(R.string.artist_info),
-                                modifier = Modifier.animateItem(placementSpec = null)
+                    // 信息行：歌手名 / 粉丝数 / 收藏
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = artistHeadInfoState?.data?.artist?.name.orEmpty(),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                            artistHeadInfoState?.data?.artist?.briefDesc?.trimIndent()?.let {
-                                Card(
-                                    modifier = Modifier
-                                        .animateItem(placementSpec = null)
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp)
-                                        .padding(bottom = 12.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainer
-                                    )
-                                ) {
-                                    Text(
-                                        text = if (it.isNotBlank()) it else stringResource(R.string.no_brief),
-                                        modifier = Modifier.padding(12.dp),
-                                        style = MaterialTheme.typography.bodyMedium
+                            val stats = artistFollowStats
+                            if (stats != null) {
+                                val parts = mutableListOf("粉丝 ${formatPlayCount(stats.fansCnt.toDouble())}")
+                                if (isArtistSubscribed && stats.followDay.isNotBlank()) {
+                                    parts.add(stats.followDay)
+                                }
+                                Text(
+                                    text = parts.joinToString(" · "),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                artistScreenViewModel.toggleArtistSub()
+                            },
+                            enabled = !isArtistSubUpdating && artistHeadInfoState != null,
+                            modifier = Modifier.padding(start = 8.dp)
+                        ) {
+                            Text(text = if (isArtistSubscribed) "取消收藏" else "收藏")
+                        }
+                    }
+                }
+
+                // 三个 tab 页左右滑动（可预览相邻页），各页独立懒列
+                SwipableTabPager(
+                    titles = listOf(
+                        stringResource(R.string.explore),
+                        stringResource(R.string.song),
+                        stringResource(R.string.album)
+                    ),
+                    pagerState = pagerState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) { page ->
+                    when (page) {
+                        0 -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            item(key = "explore-info") {
+                                NavigationTitle(
+                                    title = stringResource(R.string.artist_info),
+                                    modifier = Modifier.animateItem(placementSpec = null)
+                                )
+                                artistHeadInfoState?.data?.artist?.briefDesc?.trimIndent()?.let {
+                                    Card(
+                                        modifier = Modifier
+                                            .animateItem(placementSpec = null)
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp)
+                                            .padding(bottom = 12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceContainer
+                                        )
+                                    ) {
+                                        Text(
+                                            text = if (it.isNotBlank()) it else stringResource(R.string.no_brief),
+                                            modifier = Modifier.padding(12.dp),
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                }
+                            }
+                            if (simiArtists.isNotEmpty()) {
+                                item {
+                                    NavigationTitle(title = "相似歌手")
+                                }
+                                itemsIndexed(
+                                    items = simiArtists,
+                                    key = { _, artist -> "explore-artist-${artist.id}" }
+                                ) { _, artist ->
+                                    ArtistListItem(
+                                        artist = artist,
+                                        modifier = Modifier
+                                            .animateItem(placementSpec = null)
+                                            .clickable {
+                                                navController.navigate(ArtistNav(artistId = artist.id))
+                                            }
                                     )
                                 }
                             }
-                        }
-                        if (simiArtists.isNotEmpty()) {
+
                             item {
-                                NavigationTitle(title = "相似歌手")
-                            }
-                            itemsIndexed(
-                                items = simiArtists,
-                                key = { _, artist -> "explore-artist-${artist.id}" }
-                            ) { _, artist ->
-                                ArtistListItem(
-                                    artist = artist,
-                                    modifier = Modifier
-                                        .animateItem(placementSpec = null)
-                                        .clickable {
-                                            navController.navigate(ArtistNav(artistId = artist.id))
-                                        }
-                                )
+                                // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                                if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
                             }
                         }
 
-                        item {
-                            // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
-                            if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
-                        }
-                    }
-
-                    1 -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        item(key = "song-toolbar") {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp)
-                                    .padding(top = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                FilterChip(
-                                    selected = songMode == "top",
-                                    onClick = { artistScreenViewModel.setSongMode("top") },
-                                    label = { Text(stringResource(R.string.artist_song_top50)) }
-                                )
-                                FilterChip(
-                                    selected = songMode == "all",
-                                    onClick = { artistScreenViewModel.setSongMode("all") },
-                                    label = { Text(stringResource(R.string.artist_song_all)) }
-                                )
-                                Spacer(Modifier.weight(1f))
-                                Box {
-                                    FilterChip(
-                                        selected = sortMenuExpanded,
-                                        enabled = songMode == "all",
-                                        onClick = { sortMenuExpanded = true },
-                                        label = { Text(stringResource(R.string.artist_sort)) },
-                                        trailingIcon = {
-                                            Icon(
-                                                imageVector = ChevronDown,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp)
+                        1 -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            if (searchActive && searchQuery.isNotBlank()) {
+                                if (filteredSongs.isEmpty()) {
+                                    item {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(32.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "未找到相关歌曲",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
-                                    )
-                                    JussiDropdownMenu(
-                                        expanded = sortMenuExpanded,
-                                        onDismissRequest = { sortMenuExpanded = false }
+                                    }
+                                } else {
+                                    itemsIndexed(
+                                        items = filteredSongs,
+                                        key = { _, song -> "search-song-${song.id}" }
+                                    ) { index, song ->
+                                        SongListItem(
+                                            song = song,
+                                            isPlaying = isPlaying,
+                                            showLikedIcon = song.id in likedSongIds,
+                                            isActive = currentMediaId == song.id,
+                                            songIndex = index + 1,
+                                            modifier = Modifier
+                                                .animateItem(placementSpec = null)
+                                                .clickable {
+                                                    mediaController?.setPlaylist(
+                                                        filteredSongs,
+                                                        sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                                                        sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                                                        navId = artistHeadInfoState?.data?.artist?.id ?: 0L
+                                                    )
+                                                    mediaController?.playMediaAtId(song.id)
+                                                },
+                                            trailingContent = {
+                                                IconButton(onClick = {
+                                                    selectSong = song
+                                                    openBottomSheet = true
+                                                }) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.MoreVert,
+                                                        contentDescription = stringResource(R.string.more)
+                                                    )
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            } else {
+                                item(key = "song-toolbar") {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp)
+                                            .padding(top = 8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        listOf("hot" to stringResource(R.string.artist_sort_hot),
-                                            "time" to stringResource(R.string.artist_sort_time)
-                                        ).forEach { (order, label) ->
-                                            val checked = sortOrder == order
-                                            JussiMenuItem(
-                                                text = label,
-                                                icon = if (order == "hot") {
-                                                    Icons.Outlined.LocalFireDepartment
-                                                } else {
-                                                    Icons.Outlined.Schedule
-                                                },
-                                                selected = checked,
-                                                trailing = {
-                                                    Checkbox(checked = checked, onCheckedChange = null)
-                                                },
-                                                onClick = {
-                                                    artistScreenViewModel.setSortOrder(order)
-                                                    sortMenuExpanded = false
+                                        FilterChip(
+                                            selected = songMode == "top",
+                                            onClick = { artistScreenViewModel.setSongMode("top") },
+                                            label = { Text(stringResource(R.string.artist_song_top50)) }
+                                        )
+                                        FilterChip(
+                                            selected = songMode == "all",
+                                            onClick = { artistScreenViewModel.setSongMode("all") },
+                                            label = { Text(stringResource(R.string.artist_song_all)) }
+                                        )
+                                        Spacer(Modifier.weight(1f))
+                                        Box {
+                                            FilterChip(
+                                                selected = sortMenuExpanded,
+                                                enabled = songMode == "all",
+                                                onClick = { sortMenuExpanded = true },
+                                                label = { Text(stringResource(R.string.artist_sort)) },
+                                                trailingIcon = {
+                                                    Icon(
+                                                        imageVector = ChevronDown,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            )
+                                            JussiDropdownMenu(
+                                                expanded = sortMenuExpanded,
+                                                onDismissRequest = { sortMenuExpanded = false }
+                                            ) {
+                                                listOf(
+                                                    "hot" to stringResource(R.string.artist_sort_hot),
+                                                    "time" to stringResource(R.string.artist_sort_time)
+                                                ).forEach { (order, label) ->
+                                                    val checked = sortOrder == order
+                                                    JussiMenuItem(
+                                                        text = label,
+                                                        icon = if (order == "hot") {
+                                                            Icons.Outlined.LocalFireDepartment
+                                                        } else {
+                                                            Icons.Outlined.Schedule
+                                                        },
+                                                        selected = checked,
+                                                        trailing = {
+                                                            Checkbox(checked = checked, onCheckedChange = null)
+                                                        },
+                                                        onClick = {
+                                                            artistScreenViewModel.setSortOrder(order)
+                                                            sortMenuExpanded = false
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (songMode == "top") {
+                                    artistTopSongState?.songs?.let { songs ->
+                                        itemsIndexed(
+                                            items = songs,
+                                            key = { _, song -> "top-song-${song.id}" }
+                                        ) { index, song ->
+                                            SongListItem(
+                                                song = song,
+                                                isPlaying = isPlaying,
+                                                showLikedIcon = song.id in likedSongIds,
+                                                isActive = currentMediaId == song.id,
+                                                songIndex = index + 1,
+                                                modifier = Modifier
+                                                    .animateItem(placementSpec = null)
+                                                    .clickable {
+                                                        mediaController?.setPlaylist(
+                                                            songs,
+                                                            sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                                                            sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                                                            navId = artistHeadInfoState?.data?.artist?.id ?: 0L
+                                                        )
+                                                        mediaController?.playMediaAtId(song.id)
+                                                    },
+                                                trailingContent = {
+                                                    IconButton(onClick = {
+                                                        selectSong = song
+                                                        openBottomSheet = true
+                                                    }) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.MoreVert,
+                                                            contentDescription = stringResource(R.string.more)
+                                                        )
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    items(
+                                        count = artistAllSongs.itemCount,
+                                        key = { index -> "all-song-${artistAllSongs.peek(index)?.id ?: index}" }
+                                    ) { index ->
+                                        artistAllSongs[index]?.let { song ->
+                                            val queueSongs = allSongsForQueue
+                                                ?: artistAllSongs.itemSnapshotList.items
+                                            SongListItem(
+                                                song = song,
+                                                isPlaying = isPlaying,
+                                                showLikedIcon = song.id in likedSongIds,
+                                                isActive = currentMediaId == song.id,
+                                                songIndex = index + 1,
+                                                modifier = Modifier
+                                                    .animateItem(placementSpec = null)
+                                                    .clickable {
+                                                        mediaController?.setPlaylist(
+                                                            queueSongs,
+                                                            sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                                                            sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                                                            navId = artistHeadInfoState?.data?.artist?.id ?: 0L
+                                                        )
+                                                        mediaController?.playMediaAtId(song.id)
+                                                    },
+                                                trailingContent = {
+                                                    IconButton(onClick = {
+                                                        selectSong = song
+                                                        openBottomSheet = true
+                                                    }) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.MoreVert,
+                                                            contentDescription = stringResource(R.string.more)
+                                                        )
+                                                    }
                                                 }
                                             )
                                         }
                                     }
                                 }
                             }
+
+                            item {
+                                // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                                if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
+                            }
                         }
 
-                        if (songMode == "top") {
-                            artistTopSongState?.songs?.let { songs ->
-                                itemsIndexed(
-                                    items = songs,
-                                    key = { _, song -> "top-song-${song.id}" }
-                                ) { index, song ->
-                                    SongListItem(
-                                        song = song,
-                                        isPlaying = isPlaying,
-                                        showLikedIcon = song.id in likedSongIds,
-                                        isActive = currentMediaId == song.id,
-                                        songIndex = index + 1,
-                                        modifier = Modifier
-                                            .animateItem(placementSpec = null)
-                                            .clickable {
-                                                mediaController?.setPlaylist(
-                                                    songs,
-                                                    sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
-                                                    sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
-                                                    navId = artistHeadInfoState?.data?.artist?.id ?: 0L
-                                                )
-                                                mediaController?.playMediaAtId(song.id)
-                                            },
-                                        trailingContent = {
-                                            IconButton(onClick = {
-                                                selectSong = song
-                                                openBottomSheet = true
-                                            }) {
-                                                Icon(
-                                                    imageVector = Icons.Default.MoreVert,
-                                                    contentDescription = stringResource(R.string.more)
-                                                )
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        } else {
+                        else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                             items(
-                                count = artistAllSongs.itemCount,
-                                key = { index -> "all-song-${artistAllSongs.peek(index)?.id ?: index}" }
+                                count = artistAlbumList.itemCount,
+                                key = { index -> "album-${artistAlbumList.peek(index)?.id ?: index}" }
                             ) { index ->
-                                artistAllSongs[index]?.let { song ->
-                                    val queueSongs = allSongsForQueue
-                                        ?: artistAllSongs.itemSnapshotList.items
-                                    SongListItem(
-                                        song = song,
-                                        isPlaying = isPlaying,
-                                        showLikedIcon = song.id in likedSongIds,
-                                        isActive = currentMediaId == song.id,
-                                        songIndex = index + 1,
+                                artistAlbumList[index]?.let {
+                                    AlbumListItem(
+                                        album = it,
                                         modifier = Modifier
                                             .animateItem(placementSpec = null)
                                             .clickable {
-                                                mediaController?.setPlaylist(
-                                                    queueSongs,
-                                                    sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
-                                                    sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
-                                                    navId = artistHeadInfoState?.data?.artist?.id ?: 0L
-                                                )
-                                                mediaController?.playMediaAtId(song.id)
-                                            },
-                                        trailingContent = {
-                                            IconButton(onClick = {
-                                                selectSong = song
-                                                openBottomSheet = true
-                                            }) {
-                                                Icon(
-                                                    imageVector = Icons.Default.MoreVert,
-                                                    contentDescription = stringResource(R.string.more)
-                                                )
+                                                navController.navigate(AlbumNav(albumId = it.id))
                                             }
-                                        }
                                     )
                                 }
                             }
-                        }
 
-                        item {
-                            // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
-                            if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
-                        }
-                    }
-
-                    else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(
-                            count = artistAlbumList.itemCount,
-                            key = { index -> "album-${artistAlbumList.peek(index)?.id ?: index}" }
-                        ) { index ->
-                            artistAlbumList[index]?.let {
-                                AlbumListItem(
-                                    album = it,
-                                    modifier = Modifier
-                                        .animateItem(placementSpec = null)
-                                        .clickable {
-                                            navController.navigate(AlbumNav(albumId = it.id))
-                                        }
-                                )
+                            item {
+                                // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
+                                if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
                             }
-                        }
-
-                        item {
-                            // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
-                            if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
                         }
                     }
                 }
             }
-        }
 
-        TopAppBar(
-            title = {
-                Text(
-                    text = "",
-                    maxLines = 1,
-                    style = MaterialTheme.typography.titleLarge,
-                    overflow = TextOverflow.Ellipsis
+            TopAppBar(
+                modifier = Modifier.onSizeChanged { topBarHeightPx = it.height.toFloat() },
+                title = {
+                    if (searchActive) {
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(searchFocusRequester),
+                            placeholder = { Text(stringResource(R.string.search)) },
+                            singleLine = true,
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Close,
+                                            contentDescription = "清空"
+                                        )
+                                    }
+                                }
+                            },
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            )
+                        )
+                    } else {
+                        Text("")
+                    }
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = {
+                            if (searchActive) {
+                                searchActive = false
+                                searchQuery = ""
+                                keyboardController?.hide()
+                            } else {
+                                navController.navigateUp()
+                            }
+                        },
+                        colors = if (searchActive || collapseFraction > 0.6f) {
+                            IconButtonDefaults.iconButtonColors()
+                        } else {
+                            IconButtonDefaults.filledIconButtonColors()
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = null
+                        )
+                    }
+                },
+                actions = {
+                    if (!searchActive) {
+                        IconButton(
+                            onClick = {
+                                searchActive = true
+                                artistScreenViewModel.loadAllSongsIfNeeded()
+                                scope.launch {
+                                    pagerState.animateScrollToPage(1)
+                                }
+                            },
+                            colors = if (collapseFraction > 0.6f) {
+                                IconButtonDefaults.iconButtonColors()
+                            } else {
+                                IconButtonDefaults.filledIconButtonColors()
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Search,
+                                contentDescription = stringResource(R.string.search)
+                            )
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = if (searchActive) {
+                        MaterialTheme.colorScheme.background
+                    } else {
+                        MaterialTheme.colorScheme.background.copy(alpha = collapseFraction)
+                    }
                 )
-            },
-            navigationIcon = {
-                IconButton(
-                    onClick = { navController.navigateUp() },
-                    colors = IconButtonDefaults.filledIconButtonColors()
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = null
-                    )
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = Color.Transparent
             )
-        )
+        }
     }
 
     SongMenuBottomSheet(

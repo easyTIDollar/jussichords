@@ -200,6 +200,12 @@ class ArtistScreenViewModel @Inject constructor(
         loadAllSongsForQueue()
     }
 
+    fun loadAllSongsIfNeeded() {
+        if (_allSongsForQueue.value == null) {
+            loadAllSongsForQueue()
+        }
+    }
+
     private fun loadAllSongsForQueue() {
         val id = artistId ?: return
         val order = _sortOrder.value
