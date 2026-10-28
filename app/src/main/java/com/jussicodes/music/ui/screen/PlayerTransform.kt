@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.zIndex
 import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
 import com.jussicodes.music.animation.AlbumArtBoundsTransform
@@ -153,43 +154,65 @@ fun PlayerTransform(
 
         fun onDragEnd(velocityY: Float) {
             coroutineScope.launch {
+                val minDragThresholdPx = with(density) { 40.dp.toPx() }
+                val velocityThreshold = 250f
+
                 if (isExpanded) {
-                    // 全屏状态下向下滑动退出：阈值 80dp 或向下的甩动速度
+                    // 全屏状态下向下滑动退出：结合位移与惯性速度（PixelPlayer 方案）
                     val dragDistanceDown = sheetTranslationY.value
-                    val dismissThresholdPx = with(density) { 80.dp.toPx() }
-                    val isDragDown = dragDistanceDown >= dismissThresholdPx
-                    val isFlingDown = velocityY >= 350f
-                    if (isDragDown || isFlingDown) {
+                    val isFlingDown = velocityY >= velocityThreshold
+                    val isDragDown = dragDistanceDown >= minDragThresholdPx
+
+                    if (velocityY <= -velocityThreshold) {
+                        // 向上甩动快速回弹全屏
+                        sheetTranslationY.animateTo(
+                            0f,
+                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessLow),
+                            initialVelocity = velocityY
+                        )
+                    } else if (isDragDown || isFlingDown) {
                         isExpanded = false
                         sheetTranslationY.animateTo(
                             collapsedTargetY,
-                            spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)
+                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessLow),
+                            initialVelocity = velocityY
                         )
                         onBackPressed()
                     } else {
                         // 未达阈值平滑回弹全屏
                         sheetTranslationY.animateTo(
                             0f,
-                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessLow),
+                            initialVelocity = velocityY
                         )
                     }
                 } else {
-                    // 收起状态下向上滑动展开：阈值 10px 或向上的速度
+                    // 收起状态下向上滑动展开
                     val dragDistanceUp = collapsedTargetY - sheetTranslationY.value
-                    val isDragUp = dragDistanceUp >= 10f
-                    val isFlingUp = velocityY <= -150f
-                    if (isDragUp || isFlingUp) {
+                    val isFlingUp = velocityY <= -velocityThreshold
+                    val isDragUp = dragDistanceUp >= minDragThresholdPx
+
+                    if (velocityY >= velocityThreshold) {
+                        // 向下甩动快速收回
+                        sheetTranslationY.animateTo(
+                            collapsedTargetY,
+                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessLow),
+                            initialVelocity = velocityY
+                        )
+                        onBackPressed()
+                    } else if (isDragUp || isFlingUp) {
                         isExpanded = true
                         sheetTranslationY.animateTo(
                             0f,
-                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessLow),
+                            initialVelocity = velocityY
                         )
                         onClick()
                     } else {
-                        // 未达阈值平滑回弹收起
                         sheetTranslationY.animateTo(
                             collapsedTargetY,
-                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessLow),
+                            initialVelocity = velocityY
                         )
                         onBackPressed()
                     }
@@ -206,15 +229,16 @@ fun PlayerTransform(
         val bottomY = startBottomY + navBarExitProgress * bottomPaddingPx + seamOverlapPx
         val currentCardHeightPx = (bottomY - sheetTranslationY.value).coerceAtLeast(miniPlayerHeightPx)
 
-        // 透明度曲线优化：
-        // 1. 小播放器：0f ~ 0.28f 内平滑淡出；下滑时在 0.28f 提前平滑就绪，避免与全屏内容交接断层。
-        val miniExitFraction = (progress / 0.28f).coerceIn(0f, 1f)
-        val miniPlayerAlpha = 1f - miniExitFraction * miniExitFraction
+        // 透明度与视差（PixelPlayer 方案）：
+        // 1. 小播放器：0f ~ 0.50f 线性淡出，半屏以下（progress < 0.5f）zIndex 在上
+        val miniPlayerAlpha = (1f - progress * 2f).coerceIn(0f, 1f)
+        val miniPlayerZIndex = if (progress < 0.5f) 1f else 0f
 
-        // 2. 全屏播放器：0.25f ~ 0.80f 柔和浮现（SmoothStep 曲线）。
-        // 0.25f 前彻底留给小播放条和底栏退场；半屏（0.52f）平滑半透；接近全屏（0.80f）饱满实色，绝不提前抢戏。
-        val fullEnterFraction = ((progress - 0.25f) / 0.55f).coerceIn(0f, 1f)
-        val fullPlayerAlpha = fullEnterFraction * fullEnterFraction * (3f - 2f * fullEnterFraction)
+        // 2. 全屏播放器：0.25f 之前完全不可见（alpha = 0）；0.25f ~ 1.0f 线性淡入，并伴随由下至上的视差位移
+        val fullContentAlpha = ((progress - 0.25f) / 0.75f).coerceIn(0f, 1f)
+        val initialFullPlayerOffsetY = with(density) { 32.dp.toPx() }
+        val fullPlayerTranslationY = initialFullPlayerOffsetY * (1f - fullContentAlpha)
+        val fullPlayerZIndex = if (progress >= 0.5f) 1f else 0f
 
         Surface(
             modifier = Modifier
@@ -242,6 +266,7 @@ fun PlayerTransform(
                             .graphicsLayer {
                                 alpha = miniPlayerAlpha
                             }
+                            .zIndex(miniPlayerZIndex)
                     ) {
                         MiniPlayer(
                             mediaMetadata = mediaMetadata,
@@ -252,7 +277,7 @@ fun PlayerTransform(
                                     isExpanded = true
                                     sheetTranslationY.animateTo(
                                         0f,
-                                        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                                        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessLow)
                                     )
                                     onClick()
                                 }
@@ -265,18 +290,17 @@ fun PlayerTransform(
                     }
                 }
 
-                // 全屏播放器层（全屏任意区域下拉手势 + 优雅退出动效）
+                // 全屏播放器层（全屏任意区域下拉手势 + 视差滑移退出动效）
                 if (progress > 0.01f) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(with(density) { screenHeightPx.toDp() })
                             .graphicsLayer {
-                                alpha = fullPlayerAlpha
-                                val scale = 0.94f + 0.06f * progress
-                                scaleX = scale
-                                scaleY = scale
+                                alpha = fullContentAlpha
+                                translationY = fullPlayerTranslationY
                             }
+                            .zIndex(fullPlayerZIndex)
                             .pointerInput(isExpanded) {
                                 if (isExpanded) {
                                     awaitEachGesture {
