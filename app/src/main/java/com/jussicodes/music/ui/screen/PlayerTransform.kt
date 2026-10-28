@@ -102,6 +102,33 @@ fun PlayerTransform(
 
         val sheetTranslationY = remember { Animatable(collapsedTargetY) }
 
+        fun collapseSheet(velocityY: Float = 0f) {
+            coroutineScope.launch {
+                try {
+                    sheetTranslationY.animateTo(
+                        targetValue = collapsedTargetY,
+                        animationSpec = MotionSpring.sheetCollapse,
+                        initialVelocity = velocityY
+                    )
+                } finally {
+                    isExpanded = false
+                    onBackPressed()
+                }
+            }
+        }
+
+        fun expandSheet(velocityY: Float = 0f) {
+            isExpanded = true
+            coroutineScope.launch {
+                sheetTranslationY.animateTo(
+                    targetValue = 0f,
+                    animationSpec = MotionSpring.sheetExpand,
+                    initialVelocity = velocityY
+                )
+                onClick()
+            }
+        }
+
         // 当底栏尺寸或屏幕旋转等导致 collapsedTargetY 变化时，仅在静止处于收起态且当前无动画时同步调整位移
         LaunchedEffect(collapsedTargetY, isExpanded) {
             if (!isExpanded && !sheetTranslationY.isRunning) {
@@ -114,14 +141,7 @@ fun PlayerTransform(
         LaunchedEffect(expandSignal) {
             if (expandSignal > lastExpanded) {
                 lastExpanded = expandSignal
-                isExpanded = true
-                coroutineScope.launch {
-                    sheetTranslationY.animateTo(
-                        targetValue = 0f,
-                        animationSpec = MotionSpring.sheetExpand
-                    )
-                }
-                onClick()
+                expandSheet()
             }
         }
 
@@ -140,14 +160,7 @@ fun PlayerTransform(
             if (fullPlayerSubView != FULL_PLAYER) {
                 fullPlayerSubView = FULL_PLAYER
             } else {
-                coroutineScope.launch {
-                    sheetTranslationY.animateTo(
-                        targetValue = collapsedTargetY,
-                        animationSpec = MotionSpring.sheetCollapse
-                    )
-                    isExpanded = false
-                    onBackPressed()
-                }
+                collapseSheet()
             }
         }
 
@@ -169,13 +182,7 @@ fun PlayerTransform(
                     val isDragDown = dragDistanceDown >= dismissThresholdPx
                     val isFlingDown = velocityY >= 400f
                     if (isDragDown || isFlingDown) {
-                        sheetTranslationY.animateTo(
-                            targetValue = collapsedTargetY,
-                            animationSpec = MotionSpring.sheetCollapse,
-                            initialVelocity = velocityY
-                        )
-                        isExpanded = false
-                        onBackPressed()
+                        collapseSheet(velocityY)
                     } else {
                         // 未达阈值平滑回弹全屏
                         sheetTranslationY.animateTo(
@@ -198,21 +205,10 @@ fun PlayerTransform(
                     val isDragUp = dragDistanceUp >= expandThresholdPx || currentProgress >= 0.10f
                     val isFlingUp = velocityY <= -200f
                     if (isNearTop || isDragUp || isFlingUp) {
-                        isExpanded = true
-                        sheetTranslationY.animateTo(
-                            targetValue = 0f,
-                            animationSpec = MotionSpring.sheetExpand,
-                            initialVelocity = velocityY
-                        )
-                        onClick()
+                        expandSheet(velocityY)
                     } else {
                         // 未达阈值平滑回弹收起
-                        sheetTranslationY.animateTo(
-                            targetValue = collapsedTargetY,
-                            animationSpec = MotionSpring.sheetExpand,
-                            initialVelocity = velocityY
-                        )
-                        onBackPressed()
+                        collapseSheet(velocityY)
                     }
                 }
             }
@@ -368,14 +364,7 @@ fun PlayerTransform(
                                             boundsTransform = AlbumArtBoundsTransform,
                                         ),
                                         onBackPressed = {
-                                            coroutineScope.launch {
-                                                sheetTranslationY.animateTo(
-                                                    targetValue = collapsedTargetY,
-                                                    animationSpec = MotionSpring.sheetCollapse
-                                                )
-                                                isExpanded = false
-                                                onBackPressed()
-                                            }
+                                            collapseSheet()
                                         },
                                         onClick = { fullPlayerSubView = LYRIC_VIEW },
                                         onContainerClick = { fullPlayerSubView = PLAY_QUEUE },
@@ -434,14 +423,7 @@ fun PlayerTransform(
                             duration = duration,
                             isPillProgress = floatingNavBarEnabled,
                             onClick = {
-                                coroutineScope.launch {
-                                    isExpanded = true
-                                    sheetTranslationY.animateTo(
-                                        targetValue = 0f,
-                                        animationSpec = MotionSpring.sheetExpand
-                                    )
-                                    onClick()
-                                }
+                                expandSheet()
                             },
                             onVerticalDrag = { deltaY -> onDrag(deltaY) },
                             onVerticalDragEnd = { velocityY -> onDragEnd(velocityY) },
