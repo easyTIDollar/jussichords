@@ -165,7 +165,7 @@ object CloudflareOptimizedDns : Dns {
             client.newCall(req).execute().use { resp ->
                 if (resp.isSuccessful) {
                     val body = resp.body?.string() ?: return@use
-                    val root = json.parseToJsonElement(body).jsonObject
+                    val root = Json.parseToJsonElement(body).jsonObject
                     val ipsArray = root["ips"]?.jsonArray
                     val ips = ipsArray?.mapNotNull { it.jsonPrimitive.contentOrNull }
                     if (!ips.isNullOrEmpty()) {
@@ -564,8 +564,7 @@ object AppUpdateManager {
      */
     suspend fun measureDownloadSources(targetDownloadUrl: String? = null): List<UpdateSourceStatus> =
         withContext(Dispatchers.IO) {
-            // 先并发极速探测刷新本地针对当前网络的最佳 Cloudflare IP
-            runCatching { CloudflareOptimizedDns.refreshFastestIps() }
+            runCatching { CloudflareOptimizedDns.fetchDynamicBestIps(apiClient) }
 
             val targetUrl = targetDownloadUrl ?: cachedLatestDownloadUrl
 
