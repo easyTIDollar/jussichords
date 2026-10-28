@@ -103,6 +103,18 @@ object MotionSpring {
         dampingRatio = 0.85f,
         stiffness = 480f
     )
+
+    /** 播放器面板展开弹簧：响应迅速，中等阻尼无明显过冲。 */
+    val sheetExpand = spring<Float>(
+        dampingRatio = 0.85f,
+        stiffness = Spring.StiffnessMediumLow
+    )
+
+    /** 播放器面板收起/下滑退出弹簧：柔和低刚度，舒展丝滑不突兀，回落自然。 */
+    val sheetCollapse = spring<Float>(
+        dampingRatio = 0.85f,
+        stiffness = Spring.StiffnessLow
+    )
 }
 
 /** 常用动画 spec 工厂，避免各处重复拼 tween 的四个参数。 */

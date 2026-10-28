@@ -45,11 +45,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.zIndex
 import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
 import com.jussicodes.music.animation.AlbumArtBoundsTransform
 import com.jussicodes.music.animation.MotionDuration
 import com.jussicodes.music.animation.MotionSpec
+import com.jussicodes.music.animation.MotionSpring
 import com.jussicodes.music.animation.PanelBoundsPlaceHolder
 import com.jussicodes.music.animation.SharedArtwork
 import com.jussicodes.music.constants.BottomNavigationHeight
@@ -91,6 +93,12 @@ fun PlayerTransform(
     var isExpanded by remember { mutableStateOf(false) }
     var fullPlayerSubView by remember { mutableIntStateOf(FULL_PLAYER) }
 
+    // 预热全屏播放器树，避免用户第一次手势上滑时突然触发初次组合与排版测量掉帧
+    var hasWarmedUpFullPlayer by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        hasWarmedUpFullPlayer = true
+    }
+
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val screenHeightPx = constraints.maxHeight.toFloat()
         val miniPlayerHeightPx = with(density) { MiniPlayerHeight.toPx() }
@@ -100,9 +108,9 @@ fun PlayerTransform(
 
         val sheetTranslationY = remember { Animatable(collapsedTargetY) }
 
-        // 当底栏尺寸或屏幕旋转等导致 collapsedTargetY 变化时，如果在收起态则同步调整位移
+        // 当底栏尺寸或屏幕旋转等导致 collapsedTargetY 变化时，仅在静止处于收起态且当前无动画时同步调整位移
         LaunchedEffect(collapsedTargetY, isExpanded) {
-            if (!isExpanded) {
+            if (!isExpanded && !sheetTranslationY.isRunning) {
                 sheetTranslationY.snapTo(collapsedTargetY)
             }
         }
@@ -115,8 +123,8 @@ fun PlayerTransform(
                 isExpanded = true
                 coroutineScope.launch {
                     sheetTranslationY.animateTo(
-                        0f,
-                        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                        targetValue = 0f,
+                        animationSpec = MotionSpring.sheetExpand
                     )
                 }
                 onClick()
@@ -141,8 +149,8 @@ fun PlayerTransform(
                 isExpanded = false
                 coroutineScope.launch {
                     sheetTranslationY.animateTo(
-                        collapsedTargetY,
-                        spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
+                        targetValue = collapsedTargetY,
+                        animationSpec = MotionSpring.sheetCollapse
                     )
                     onBackPressed()
                 }
@@ -162,22 +170,24 @@ fun PlayerTransform(
                 val current = sheetTranslationY.value
                 val dismissThresholdPx = with(density) { 80.dp.toPx() }
                 if (isExpanded) {
-                    // 全屏状态下向下滑动退出：阈值 80dp 或向下的甩动速度
+                    // 全屏状态下向下滑动退出：阈值 80dp 或向下的甩动速度，继承松手垂直初速度
                     val dragDistanceDown = current
                     val isDragDown = dragDistanceDown >= dismissThresholdPx
                     val isFlingDown = velocityY >= 400f
                     if (isDragDown || isFlingDown) {
                         isExpanded = false
                         sheetTranslationY.animateTo(
-                            collapsedTargetY,
-                            spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)
+                            targetValue = collapsedTargetY,
+                            animationSpec = MotionSpring.sheetCollapse,
+                            initialVelocity = velocityY
                         )
                         onBackPressed()
                     } else {
                         // 未达阈值平滑回弹全屏
                         sheetTranslationY.animateTo(
-                            0f,
-                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                            targetValue = 0f,
+                            animationSpec = MotionSpring.sheetCollapse,
+                            initialVelocity = velocityY
                         )
                     }
                 } else {
@@ -196,15 +206,17 @@ fun PlayerTransform(
                     if (isNearTop || isDragUp || isFlingUp) {
                         isExpanded = true
                         sheetTranslationY.animateTo(
-                            0f,
-                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                            targetValue = 0f,
+                            animationSpec = MotionSpring.sheetExpand,
+                            initialVelocity = velocityY
                         )
                         onClick()
                     } else {
                         // 未达阈值平滑回弹收起
                         sheetTranslationY.animateTo(
-                            collapsedTargetY,
-                            spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                            targetValue = collapsedTargetY,
+                            animationSpec = MotionSpring.sheetExpand,
+                            initialVelocity = velocityY
                         )
                         onBackPressed()
                     }
@@ -281,6 +293,7 @@ fun PlayerTransform(
                 if (showMiniPlayerContent) {
                     Box(
                         modifier = Modifier
+                            .zIndex(if (progress < 0.5f) 1f else 0f)
                             .align(Alignment.TopCenter)
                             .fillMaxWidth()
                             .height(MiniPlayerHeight)
@@ -297,8 +310,8 @@ fun PlayerTransform(
                                 coroutineScope.launch {
                                     isExpanded = true
                                     sheetTranslationY.animateTo(
-                                        0f,
-                                        spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)
+                                        targetValue = 0f,
+                                        animationSpec = MotionSpring.sheetExpand
                                     )
                                     onClick()
                                 }
@@ -312,9 +325,12 @@ fun PlayerTransform(
                 }
 
                 // 全屏播放器层（带 touchSlop 下拉手势，绝不误拦截左上角返回按钮等子组件点击）
-                if (progress > 0.01f) {
+                // 启动后保持预热组合，彻底消除手势刚起步时的初次组合和测量掉帧
+                val shouldComposeFullPlayer = hasWarmedUpFullPlayer || isExpanded || progress > 0f
+                if (shouldComposeFullPlayer) {
                     Box(
                         modifier = Modifier
+                            .zIndex(if (progress >= 0.5f) 1f else 0f)
                             .fillMaxWidth()
                             .height(with(density) { screenHeightPx.toDp() })
                             .graphicsLayer {
@@ -322,6 +338,8 @@ fun PlayerTransform(
                                 val scale = 0.94f + 0.06f * progress
                                 scaleX = scale
                                 scaleY = scale
+                                // 视差位移：展开时从下方 36dp 伴随托盘升起优雅浮现，下滑退出时顺应手指流向自然下沉并淡出
+                                translationY = with(density) { 36.dp.toPx() } * (1f - progress)
                             }
                             .pointerInput(isExpanded) {
                                 if (isExpanded) {
@@ -388,8 +406,8 @@ fun PlayerTransform(
                                             coroutineScope.launch {
                                                 isExpanded = false
                                                 sheetTranslationY.animateTo(
-                                                    collapsedTargetY,
-                                                    spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
+                                                    targetValue = collapsedTargetY,
+                                                    animationSpec = MotionSpring.sheetCollapse
                                                 )
                                                 onBackPressed()
                                             }

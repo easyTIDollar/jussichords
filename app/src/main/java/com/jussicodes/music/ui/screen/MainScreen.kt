@@ -458,7 +458,6 @@ fun MainScreen() {
             // 小播放器贴底间距（与 main 一致的位置逻辑：首页=底栏上方，二级页=贴系统导航栏，
             // 不加额外高度避免和底栏顶开缝），套 200ms 缓入缓出：进出设置页时下滑/回位平滑。
             val targetMiniBottomPadding = when {
-                showPlayer -> 0.dp
                 navBarTakesBottomSpace -> if (floatingNavBarEnabled) floatingNavBarFullHeight else padding.calculateBottomPadding()
                 else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             }
