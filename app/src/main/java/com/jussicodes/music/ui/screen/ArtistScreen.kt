@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -288,51 +289,43 @@ fun ArtistScreen(
             }
         )
     } else {
-        // 竖屏：Column 承载全屏，头部折叠容器高度平滑收缩，SwipableTabPager 占满剩余全部高度（底边贴紧屏幕底端）
+        // 竖屏方案 A：Header 固定原始尺寸随手势平滑向上移出（绝不变形），Tab 栏平滑上移吸顶在顶栏下方，列表底边始终贴紧屏幕底部
         val density = LocalDensity.current
         val backgroundColor = MaterialTheme.colorScheme.background
-        val collapseHeightDp = if (headerHeightPx > 0f && topBarHeightPx > 0f) {
-            with(density) { (headerHeightPx + headerOffsetPx).coerceAtLeast(topBarHeightPx).toDp() }
-        } else null
 
-        val headerModifier = if (collapseHeightDp != null) {
-            Modifier
-                .fillMaxWidth()
-                .height(collapseHeightDp)
-                .clipToBounds()
-        } else {
-            Modifier
-                .fillMaxWidth()
-                .wrapContentHeight()
-                .clipToBounds()
-        }
-
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .background(backgroundColor)
+                .clipToBounds()
                 .nestedScroll(nestedScrollConnection)
         ) {
-            Box(modifier = headerModifier) {
-                // 折叠头部实际内容（封面 hero + 信息行）
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .offset { IntOffset(0, headerOffsetPx.roundToInt()) }
-                        .onSizeChanged {
-                            if (headerHeightPx == 0f && it.height > 0) {
-                                headerHeightPx = it.height.toFloat()
-                            }
+            val screenHeight = maxHeight
+            val pagerHeight = if (topBarHeightPx > 0f) {
+                (screenHeight - with(density) { topBarHeightPx.toDp() }).coerceAtLeast(0.dp)
+            } else {
+                screenHeight
+            }
+
+            // 1. 头部展示区：Header 完整原始尺寸，绝对不压缩变形，随手势平滑向上移出
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset { IntOffset(0, headerOffsetPx.roundToInt()) }
+                    .onSizeChanged {
+                        if (headerHeightPx == 0f && it.height > 0) {
+                            headerHeightPx = it.height.toFloat()
                         }
-                        .draggable(
-                            orientation = Orientation.Vertical,
-                            enabled = !searchActive,
-                            state = rememberDraggableState { delta ->
-                                val newOffset = (headerOffsetPx + delta).coerceIn(-maxCollapsePx, 0f)
-                                headerOffsetPx = newOffset
-                            }
-                        )
-                ) {
+                    }
+                    .draggable(
+                        orientation = Orientation.Vertical,
+                        enabled = !searchActive,
+                        state = rememberDraggableState { delta ->
+                            val newOffset = (headerOffsetPx + delta).coerceIn(-maxCollapsePx, 0f)
+                            headerOffsetPx = newOffset
+                        }
+                    )
+            ) {
                     Box(
                         modifier = Modifier.fillMaxWidth(),
                         contentAlignment = Alignment.BottomStart
@@ -405,97 +398,7 @@ fun ArtistScreen(
                     }
                 }
 
-                // 1: 顶栏 TopAppBar（搜索按钮无圆底，背景 drawBehind 渐变）
-                TopAppBar(
-                    modifier = Modifier
-                        .onSizeChanged {
-                            if (topBarHeightPx == 0f && it.height > 0) {
-                                topBarHeightPx = it.height.toFloat()
-                            }
-                        }
-                        .drawBehind {
-                        val maxCollapse = maxCollapsePx
-                        val fraction = if (maxCollapse > 0f) {
-                            (-headerOffsetPx / maxCollapse).coerceIn(0f, 1f)
-                        } else 0f
-                        drawRect(
-                            color = if (searchActive) backgroundColor else backgroundColor.copy(alpha = fraction)
-                        )
-                    },
-                    title = {
-                        if (searchActive) {
-                            TextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(searchFocusRequester),
-                                placeholder = { Text(stringResource(R.string.search)) },
-                                singleLine = true,
-                                trailingIcon = {
-                                    if (searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = { searchQuery = "" }) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Close,
-                                                contentDescription = "清空"
-                                            )
-                                        }
-                                    }
-                                },
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = Color.Transparent,
-                                    unfocusedContainerColor = Color.Transparent,
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent
-                                )
-                            )
-                        } else {
-                            Text("")
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(
-                            onClick = {
-                                if (searchActive) {
-                                    searchActive = false
-                                    searchQuery = ""
-                                    keyboardController?.hide()
-                                } else {
-                                    navController.navigateUp()
-                                }
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = null
-                            )
-                        }
-                    },
-                    actions = {
-                        if (!searchActive) {
-                            IconButton(
-                                onClick = {
-                                    searchActive = true
-                                    artistScreenViewModel.loadAllSongsIfNeeded()
-                                    scope.launch {
-                                        pagerState.animateScrollToPage(1)
-                                    }
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = Search,
-                                    contentDescription = stringResource(R.string.search)
-                                )
-                            }
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent
-                    )
-                )
-            }
-
-            // 三个 tab 页左右滑动（可预览相邻页），各页独立懒列
+            // 2. 列表区：SwipableTabPager（固定高度 pagerHeight，随手势平滑上移吸顶在顶栏下方）
             SwipableTabPager(
                 titles = listOf(
                     stringResource(R.string.explore),
@@ -504,8 +407,16 @@ fun ArtistScreen(
                 ),
                 pagerState = pagerState,
                 modifier = Modifier
-                    .weight(1f)
                     .fillMaxWidth()
+                    .height(pagerHeight)
+                    .offset {
+                        val currentY = if (headerHeightPx > 0f && topBarHeightPx > 0f) {
+                            (headerHeightPx + headerOffsetPx).coerceAtLeast(topBarHeightPx)
+                        } else {
+                            0f
+                        }
+                        IntOffset(0, currentY.roundToInt())
+                    }
             ) { page ->
                     when (page) {
                         0 -> LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -786,8 +697,110 @@ fun ArtistScreen(
                         }
                     }
                 }
-            }
+
+            // 3. 悬浮吸顶顶栏：TopAppBar（固定在最顶层，吸顶时歌手名在返回按钮旁平滑淡入，搜索按钮无圆底）
+            TopAppBar(
+                modifier = Modifier
+                    .onSizeChanged {
+                        if (topBarHeightPx == 0f && it.height > 0) {
+                            topBarHeightPx = it.height.toFloat()
+                        }
+                    }
+                    .drawBehind {
+                        val maxCollapse = maxCollapsePx
+                        val fraction = if (maxCollapse > 0f) {
+                            (-headerOffsetPx / maxCollapse).coerceIn(0f, 1f)
+                        } else 0f
+                        drawRect(
+                            color = if (searchActive) backgroundColor else backgroundColor.copy(alpha = fraction)
+                        )
+                    },
+                title = {
+                    if (searchActive) {
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(searchFocusRequester),
+                            placeholder = { Text(stringResource(R.string.search)) },
+                            singleLine = true,
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Close,
+                                            contentDescription = "清空"
+                                        )
+                                    }
+                                }
+                            },
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            )
+                        )
+                    } else {
+                        // 滚动到 Tab 吸顶时，歌手名在返回按钮旁平滑淡入
+                        Text(
+                            text = artistHeadInfoState?.data?.artist?.name.orEmpty(),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.graphicsLayer {
+                                val fraction = if (maxCollapsePx > 0f) {
+                                    (-headerOffsetPx / maxCollapsePx).coerceIn(0f, 1f)
+                                } else 0f
+                                alpha = ((fraction - 0.75f) / 0.25f).coerceIn(0f, 1f)
+                            }
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = {
+                            if (searchActive) {
+                                searchActive = false
+                                searchQuery = ""
+                                keyboardController?.hide()
+                            } else {
+                                navController.navigateUp()
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = null
+                        )
+                    }
+                },
+                actions = {
+                    if (!searchActive) {
+                        IconButton(
+                            onClick = {
+                                searchActive = true
+                                artistScreenViewModel.loadAllSongsIfNeeded()
+                                scope.launch {
+                                    pagerState.animateScrollToPage(1)
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Search,
+                                contentDescription = stringResource(R.string.search)
+                            )
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent
+                )
+            )
         }
+    }
 
     SongMenuBottomSheet(
         navController = navController,
