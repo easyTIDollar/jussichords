@@ -49,6 +49,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -58,7 +59,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -71,6 +75,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.traversalIndex
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -109,6 +114,7 @@ import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.viewModel.SearchViewModel
 import com.rcmiku.ncmapi.api.search.SearchType
 import com.rcmiku.ncmapi.model.Playlist
+import com.rcmiku.ncmapi.model.SearchSuggestItem
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.toAlbumList
 import com.rcmiku.ncmapi.model.toPlaylist
@@ -116,6 +122,7 @@ import com.rcmiku.ncmapi.model.toSearchArtist
 import com.rcmiku.ncmapi.model.toSearchUser
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -138,12 +145,13 @@ fun SearchScreen(
 
     val searchHistoryState by searchViewModel.searchHistory.collectAsState(initial = emptyList())
     val suggestKeywordResponseState by searchViewModel.suggestKeywordResponse.collectAsState()
-    val suggests = suggestKeywordResponseState?.data?.suggests.orEmpty()
+    val rawSuggests = suggestKeywordResponseState?.data?.suggests.orEmpty()
 
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val haptics = LocalHapticFeedback.current
     val focusRequester = remember { FocusRequester() }
+    val coroutineScope = rememberCoroutineScope()
 
     val configuration = LocalConfiguration.current
     val isLandscape = isLandscapePhone() || configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -198,12 +206,33 @@ fun SearchScreen(
         topLists.filter { it.id in selectedIds }
     }
 
+    val trimmedQuery = searchValue.trim()
+
+    // 建议词排序优化：
+    // 1. 过滤掉与用户当前输入完全一致的词（因其已被置顶显示）
+    // 2. 精确匹配项置前，前缀匹配项次之，避免精准想要搜的东西排在最后
+    val reorderedSuggests = remember(rawSuggests, trimmedQuery) {
+        if (trimmedQuery.isEmpty()) {
+            emptyList()
+        } else {
+            rawSuggests
+                .filterNot { it.keyword.equals(trimmedQuery, ignoreCase = true) }
+                .sortedWith(
+                    compareByDescending<SearchSuggestItem> {
+                        it.keyword.equals(trimmedQuery, ignoreCase = true)
+                    }.thenByDescending {
+                        it.keyword.startsWith(trimmedQuery, ignoreCase = true)
+                    }
+                )
+        }
+    }
+
     // 状态判定：
     // 1. isSubmitted == true 且 searchValue NotBlank: 展示搜索结果 (分类 Tab + 对应结果)
-    // 2. !isSubmitted 且 searchValue.isNotBlank() 且 suggests.isNotEmpty(): 展示联想词列表
+    // 2. !isSubmitted 且 searchValue.isNotBlank(): 展示联想建议列表 (含置顶直接搜索项)
     // 3. 其余 (空白或未搜索): 展示历史记录 + 排行榜
     val showSearchResults = isSubmitted && searchValue.isNotBlank()
-    val showSuggests = !isSubmitted && searchValue.isNotBlank() && suggests.isNotEmpty()
+    val showSuggests = !isSubmitted && searchValue.isNotBlank()
 
     val executeSearch = { query: String ->
         if (query.isNotBlank()) {
@@ -221,7 +250,7 @@ fun SearchScreen(
             .background(MaterialTheme.colorScheme.background)
             .semantics { isTraversalGroup = true },
         topBar = {
-            // 统一样式搜索顶栏（胶囊输入框 + 返回键 + 清除键）
+            // 统一样式搜索顶栏（类型下拉选择 + 胶囊输入框 + 返回键 + 清除键）
             SearchTopBar(
                 query = searchValue,
                 onQueryChange = {
@@ -242,7 +271,15 @@ fun SearchScreen(
                     navController.navigateUp()
                 },
                 focusRequester = focusRequester,
-                isLandscape = isLandscape
+                isLandscape = isLandscape,
+                tabs = tab,
+                currentTypeIndex = pagerState.currentPage.coerceIn(0, tab.size - 1),
+                onTypeSelect = { index, type ->
+                    coroutineScope.launch {
+                        pagerState.scrollToPage(index)
+                    }
+                    searchViewModel.updateSearchType(type)
+                }
             )
         }
     ) { innerPadding ->
@@ -253,14 +290,23 @@ fun SearchScreen(
                 .nestedScroll(nestedScrollConnection)
         ) {
             when {
-                // 展示联想建议列表
+                // 展示联想建议列表（第1项固定置顶精确搜索，下方智能重排）
                 showSuggests -> {
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxSize()
                             .semantics { traversalIndex = 1f }
                     ) {
-                        items(suggests) { item ->
+                        // 1. 固定置顶项：直接搜索当前输入的关键词
+                        item(key = "__direct_search__") {
+                            DirectSearchSuggestItem(
+                                query = trimmedQuery,
+                                onClick = { executeSearch(trimmedQuery) }
+                            )
+                        }
+
+                        // 2. 联想词列表（优先排前缀/精确匹配项）
+                        items(reorderedSuggests, key = { it.keyword }) { item ->
                             SuggestItem(
                                 history = false,
                                 query = item.keyword,
@@ -273,6 +319,7 @@ fun SearchScreen(
                                 }
                             )
                         }
+
                         item {
                             if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
                         }
@@ -567,7 +614,7 @@ fun SearchScreen(
 }
 
 /**
- * 现代胶囊搜索顶栏（返回 + 搜索胶囊框 + 清除）
+ * 现代胶囊搜索顶栏（类型下拉选择 + 返回 + 搜索胶囊框 + 清除）
  */
 @Composable
 private fun SearchTopBar(
@@ -577,9 +624,14 @@ private fun SearchTopBar(
     onClear: () -> Unit,
     onBack: () -> Unit,
     focusRequester: FocusRequester,
-    isLandscape: Boolean
+    isLandscape: Boolean,
+    tabs: List<Pair<SearchType, String>>,
+    currentTypeIndex: Int,
+    onTypeSelect: (Int, SearchType) -> Unit
 ) {
     val barHeight = if (isLandscape) 48.dp else 56.dp
+    var typeDropdownExpanded by remember { mutableStateOf(false) }
+    val currentTypeName = tabs.getOrNull(currentTypeIndex)?.second ?: "单曲"
 
     Row(
         modifier = Modifier
@@ -596,37 +648,86 @@ private fun SearchTopBar(
             )
         }
 
-        BasicTextField(
-            value = query,
-            onValueChange = onQueryChange,
+        // 统一外形胶囊输入容器
+        Row(
             modifier = Modifier
                 .weight(1f)
-                .focusRequester(focusRequester),
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                color = MaterialTheme.colorScheme.onSurface
-            ),
-            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-            decorationBox = { innerTextField ->
+                .height(if (isLandscape) 36.dp else 40.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 搜索类型下拉选择入口
+            Box {
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(if (isLandscape) 36.dp else 40.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-                        .padding(horizontal = 12.dp),
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { typeDropdownExpanded = true }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
+                    Text(
+                        text = currentTypeName,
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Box(modifier = Modifier.weight(1f)) {
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Icon(
+                        imageVector = ArrowDropDown,
+                        contentDescription = "选择搜索分类",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                JussiDropdownMenu(
+                    expanded = typeDropdownExpanded,
+                    onDismissRequest = { typeDropdownExpanded = false }
+                ) {
+                    tabs.forEachIndexed { index, (type, name) ->
+                        JussiMenuItem(
+                            text = name,
+                            selected = index == currentTypeIndex,
+                            onClick = {
+                                typeDropdownExpanded = false
+                                onTypeSelect(index, type)
+                            }
+                        )
+                    }
+                }
+            }
+
+            // 分割竖线
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 4.dp)
+                    .width(1.dp)
+                    .height(16.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+            )
+
+            // 输入框
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    color = MaterialTheme.colorScheme.onSurface
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                decorationBox = { innerTextField ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp)
+                    ) {
                         if (query.isEmpty()) {
                             Text(
                                 text = stringResource(R.string.search),
@@ -636,22 +737,23 @@ private fun SearchTopBar(
                         }
                         innerTextField()
                     }
-                    if (query.isNotEmpty()) {
-                        IconButton(
-                            onClick = onClear,
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Close,
-                                contentDescription = "清空",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
+                }
+            )
+
+            if (query.isNotEmpty()) {
+                IconButton(
+                    onClick = onClear,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "清空",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
-        )
+        }
 
         Spacer(modifier = Modifier.width(8.dp))
     }
@@ -836,6 +938,43 @@ private fun String.toTopListIdSet(): Set<Long> =
 
 private fun Set<Long>.toTopListIdsText(): String = joinToString(",")
 
+/**
+ * 联想搜索列表首行：固定置顶的“直接搜索 ‘关键词’”项
+ */
+@Composable
+private fun DirectSearchSuggestItem(
+    query: String,
+    onClick: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp)
+    ) {
+        Icon(
+            imageVector = Search,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .padding(12.dp)
+                .size(20.dp)
+        )
+        Text(
+            text = "搜索 “$query”",
+            style = MaterialTheme.typography.bodyLarge.copy(
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SuggestItem(
@@ -885,4 +1024,24 @@ fun SuggestItem(
             )
         }
     }
+}
+
+/**
+ * 下拉箭头图标（本地绘制，零外部依赖）
+ */
+private val ArrowDropDown: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "ArrowDropDown",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).apply {
+        path(fill = SolidColor(Color.Black)) {
+            moveTo(7f, 10f)
+            lineTo(12f, 15f)
+            lineTo(17f, 10f)
+            close()
+        }
+    }.build()
 }

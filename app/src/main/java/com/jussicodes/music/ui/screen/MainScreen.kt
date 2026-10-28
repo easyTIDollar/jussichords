@@ -273,6 +273,16 @@ fun MainScreen() {
         }
     }
 
+    // 监听进入主页背景编辑模式（更换壁纸 / 在主页中调整）：
+    // 开启胶囊底栏时设置页在 Pager page 2，进入编辑模式必须切回 page 0（我的页），确保回到「我的」进行实时调参。
+    LaunchedEffect(bgDraft != null) {
+        if (bgDraft != null) {
+            if (homePagerState.currentPage != 0) {
+                homePagerState.scrollToPage(0)
+            }
+        }
+    }
+
     fun navigateRootTab(route: String) {
         navController.navigate(route) {
             popUpTo(navController.graph.findStartDestination().id) {

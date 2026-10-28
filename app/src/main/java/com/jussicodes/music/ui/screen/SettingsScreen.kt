@@ -276,6 +276,7 @@ fun SettingsScreen(
     fun startHomeBgEdit(config: HomeBackgroundConfig, ownsFile: Boolean) {
         com.jussicodes.music.data.HomeBgEditor.begin(config, ownsFile)
         showThemeColorSourceDialog = false
+        onBackClick?.invoke()
         // 立即返回主页进编辑模式：把设置页（含外观弹窗）整体弹出栈，
         // 调参全部在主页编辑面板完成，保存后按返回也不会再冒出旧设置页。
         navController.navigate(Screen.Library.route) {
