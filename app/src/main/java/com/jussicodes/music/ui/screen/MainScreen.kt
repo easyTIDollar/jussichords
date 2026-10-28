@@ -82,6 +82,11 @@ import androidx.navigation.compose.rememberNavController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.BottomNavigationHeight
+import com.jussicodes.music.constants.FloatingBottomNavigationHeight
+import com.jussicodes.music.constants.FloatingBottomNavHorizontalPadding
+import com.jussicodes.music.constants.FloatingBottomNavBottomPadding
+import com.jussicodes.music.constants.FloatingBottomNavTopPadding
+import com.jussicodes.music.constants.floatingNavBarEnabledKey
 import com.jussicodes.music.animation.MotionDuration
 import com.jussicodes.music.animation.MotionSpec
 import com.jussicodes.music.animation.MotionDefaults
@@ -92,6 +97,7 @@ import com.jussicodes.music.constants.useNavigationRailLayout
 import com.jussicodes.music.data.HomeBgEditor
 import com.jussicodes.music.ui.components.AdaptiveContent
 import com.jussicodes.music.ui.components.AdaptiveNavigationRail
+import com.jussicodes.music.ui.components.FloatingBottomNavBar
 import com.jussicodes.music.ui.components.HomeBackgroundLayer
 import com.jussicodes.music.ui.components.HomeBgEditPanel
 import com.jussicodes.music.ui.components.rememberHomeBackground
@@ -130,6 +136,7 @@ fun MainScreen() {
     val showMiniPlayer = (playerState?.player?.mediaItemCount ?: 0) != 0
     val currentMediaId = playerState?.currentMediaItem?.mediaId
     var currentPlayMediaId by rememberPreference(currentPlayMediaIdKey, 0)
+    val floatingNavBarEnabled by rememberPreference(floatingNavBarEnabledKey, false)
     var showPlayer by remember { mutableStateOf(false) }
     var miniPlayerDragProgress by remember { mutableFloatStateOf(0f) }
     var homePage by rememberSaveable { mutableIntStateOf(0) }
@@ -314,102 +321,139 @@ fun MainScreen() {
                 ) {
                     // 底栏底色跟随主题 surface（壁纸动态取色时一起变），不再用 M3 默认的
                     // surfaceContainerHigh（它不随动态壁纸色）。
-                    val navBarFullHeight = BottomNavigationHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    val navBarFullHeight = if (floatingNavBarEnabled) {
+                        FloatingBottomNavigationHeight + FloatingBottomNavBottomPadding + FloatingBottomNavTopPadding + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    } else {
+                        BottomNavigationHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    }
                     val navBarExitProgress = (miniPlayerDragProgress * 3f).coerceIn(0f, 1f)
-                    NavigationBar(
-                        modifier = Modifier
-                            .graphicsLayer {
+                    if (floatingNavBarEnabled) {
+                        FloatingBottomNavBar(
+                            modifier = Modifier.graphicsLayer {
                                 val maxPressDownPx = navBarFullHeight.toPx()
                                 translationY = navBarExitProgress * maxPressDownPx
-                            }
-                            .height(BottomNavigationHeight),
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = MaterialTheme.colorScheme.onSurface,
-                    ) {
-                        BoxWithConstraints(Modifier.fillMaxSize()) {
-                            val itemWidth = maxWidth / tabs.size
-                            val indicatorWidth = 72.dp
-                            // 指示胶囊：首页由 pager 连续进度跟手直算，用 snap() 让它零延迟贴手指；
-                            // 非首页路由是离散跳转，用 tween 补一段，否则胶囊会瞬移过去。
-                            val rawIndicatorOffset =
-                                itemWidth * if (isHomeRoute) homePageScroll else homePage.toFloat()
-                            val indicatorOffset by animateDpAsState(
-                                targetValue = rawIndicatorOffset,
-                                animationSpec = if (isHomeRoute) {
-                                    snap()
+                            },
+                            isHomeRoute = isHomeRoute,
+                            homePage = homePage,
+                            homePageScroll = homePageScroll,
+                            isTabSelected = { item ->
+                                if (isHomeRoute) {
+                                    tabs.getOrNull(homePageScroll.roundToInt())?.route == item.route
                                 } else {
-                                    MotionSpec.indicatorShift()
-                                },
-                                label = "TabIndicatorOffset"
-                            )
-
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.CenterStart)
-                                    .offset(x = indicatorOffset + (itemWidth - indicatorWidth) / 2)
-                                    .width(indicatorWidth)
-                                    .height(40.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.secondaryContainer)
-                            )
-
-                            Row(Modifier.fillMaxSize()) {
-                                tabs.forEach { item ->
-                                    val tabIndex = tabs.indexOf(item).coerceAtLeast(0)
-                                    val selected = if (isHomeRoute) {
-                                        tabs.getOrNull(homePageScroll.roundToInt())?.route == item.route
-                                    } else {
-                                        currentDestination?.hierarchy?.any { it.route == item.route } == true
-                                    }
-                                    // 选中态视觉：首页由 pager 连续进度跟手直算（不补间），
-                                    // 非首页路由切换时走 spring 过渡，避免图标瞬跳。
-                                    // 数值与 NavigationRail 共用 TabSelectionMotion。
-                                    val visuals = rememberTabSelectionVisuals(
-                                        isHomeRoute = isHomeRoute,
-                                        homePageScroll = homePageScroll,
-                                        index = tabIndex,
-                                        selected = selected
-                                    )
-
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .fillMaxSize()
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null
-                                            ) {
-                                                val targetPage = tabs.indexOfFirst { it.route == item.route }
-                                                if (targetPage < 0) return@clickable
-
-                                                if (isHomeRoute) {
-                                                    MotionDefaults.animatePagerToPage(
-                                                        pagerState = homePagerState,
-                                                        page = targetPage,
-                                                        scope = coroutineScope
-                                                    )
-                                                } else {
-                                                    navigateRootTab(item.route)
-                                                }
-                                            },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = item.icon,
-                                            contentDescription = stringResource(id = item.titleRes),
-                                            tint = if (selected) {
-                                                MaterialTheme.colorScheme.onSecondaryContainer
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurfaceVariant
-                                            },
-                                            modifier = Modifier
-                                                .size(28.dp)
-                                                .graphicsLayer {
-                                                    scaleX = visuals.iconScale
-                                                    scaleY = visuals.iconScale
-                                                    alpha = visuals.iconAlpha
-                                                }
+                                    currentDestination?.hierarchy?.any { it.route == item.route } == true
+                                }
+                            },
+                            onTabClick = { item ->
+                                val targetPage = tabs.indexOfFirst { it.route == item.route }
+                                if (targetPage >= 0) {
+                                    if (isHomeRoute) {
+                                        MotionDefaults.animatePagerToPage(
+                                            pagerState = homePagerState,
+                                            page = targetPage,
+                                            scope = coroutineScope
                                         )
+                                    } else {
+                                        navigateRootTab(item.route)
+                                    }
+                                }
+                            }
+                        )
+                    } else {
+                        NavigationBar(
+                            modifier = Modifier
+                                .graphicsLayer {
+                                    val maxPressDownPx = navBarFullHeight.toPx()
+                                    translationY = navBarExitProgress * maxPressDownPx
+                                }
+                                .height(BottomNavigationHeight),
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = MaterialTheme.colorScheme.onSurface,
+                        ) {
+                            BoxWithConstraints(Modifier.fillMaxSize()) {
+                                val itemWidth = maxWidth / tabs.size
+                                val indicatorWidth = 72.dp
+                                // 指示胶囊：首页由 pager 连续进度跟手直算，用 snap() 让它零延迟贴手指；
+                                // 非首页路由是离散跳转，用 tween 补一段，否则胶囊会瞬移过去。
+                                val rawIndicatorOffset =
+                                    itemWidth * if (isHomeRoute) homePageScroll else homePage.toFloat()
+                                val indicatorOffset by animateDpAsState(
+                                    targetValue = rawIndicatorOffset,
+                                    animationSpec = if (isHomeRoute) {
+                                        snap()
+                                    } else {
+                                        MotionSpec.indicatorShift()
+                                    },
+                                    label = "TabIndicatorOffset"
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.CenterStart)
+                                        .offset(x = indicatorOffset + (itemWidth - indicatorWidth) / 2)
+                                        .width(indicatorWidth)
+                                        .height(40.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                                )
+
+                                Row(Modifier.fillMaxSize()) {
+                                    tabs.forEach { item ->
+                                        val tabIndex = tabs.indexOf(item).coerceAtLeast(0)
+                                        val selected = if (isHomeRoute) {
+                                            tabs.getOrNull(homePageScroll.roundToInt())?.route == item.route
+                                        } else {
+                                            currentDestination?.hierarchy?.any { it.route == item.route } == true
+                                        }
+                                        // 选中态视觉：首页由 pager 连续进度跟手直算（不补间），
+                                        // 非首页路由切换时走 spring 过渡，避免图标瞬跳。
+                                        // 数值与 NavigationRail 共用 TabSelectionMotion。
+                                        val visuals = rememberTabSelectionVisuals(
+                                            isHomeRoute = isHomeRoute,
+                                            homePageScroll = homePageScroll,
+                                            index = tabIndex,
+                                            selected = selected
+                                        )
+
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxSize()
+                                                .clickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null
+                                                ) {
+                                                    val targetPage = tabs.indexOfFirst { it.route == item.route }
+                                                    if (targetPage < 0) return@clickable
+
+                                                    if (isHomeRoute) {
+                                                        MotionDefaults.animatePagerToPage(
+                                                            pagerState = homePagerState,
+                                                            page = targetPage,
+                                                            scope = coroutineScope
+                                                        )
+                                                    } else {
+                                                        navigateRootTab(item.route)
+                                                    }
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = item.icon,
+                                                contentDescription = stringResource(id = item.titleRes),
+                                                tint = if (selected) {
+                                                    MaterialTheme.colorScheme.onSecondaryContainer
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
+                                                modifier = Modifier
+                                                    .size(28.dp)
+                                                    .graphicsLayer {
+                                                        scaleX = visuals.iconScale
+                                                        scaleY = visuals.iconScale
+                                                        alpha = visuals.iconAlpha
+                                                    }
+                                            )
+                                        }
                                     }
                                 }
                             }

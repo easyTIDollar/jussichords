@@ -86,3 +86,6 @@ val cacheAutoCleanThresholdKey = longPreferencesKey("cacheAutoCleanThresholdByte
  * 顶部快捷选择里除了内置档位，还会把这里保存的档位一并列出。
  */
 val sleepTimerShortcutsKey = stringPreferencesKey("sleepTimerShortcuts")
+/** 悬浮胶囊底栏开关（Bettbox 风格底栏主题），默认关闭。 */
+val floatingNavBarEnabledKey = booleanPreferencesKey("floatingNavBarEnabled")
+
