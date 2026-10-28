@@ -1,5 +1,6 @@
 package com.jussicodes.music.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -117,9 +118,6 @@ fun UpdateDialog(
                     )
                     UpdateSourcesAndProgress(
                         selectedSourceId = selectedSourceId,
-                        sourceStatuses = sourceStatuses,
-                        isMeasuringSources = isMeasuringSources,
-                        onMeasureSources = onMeasureSources,
                         onSourceSelected = onSourceSelected,
                         isDownloading = isDownloading,
                         downloadProgress = downloadProgress,
@@ -138,9 +136,6 @@ fun UpdateDialog(
                     )
                     UpdateSourcesAndProgress(
                         selectedSourceId = selectedSourceId,
-                        sourceStatuses = sourceStatuses,
-                        isMeasuringSources = isMeasuringSources,
-                        onMeasureSources = onMeasureSources,
                         onSourceSelected = onSourceSelected,
                         isDownloading = isDownloading,
                         downloadProgress = downloadProgress,
@@ -226,9 +221,6 @@ private fun UpdateInfoAndNotes(
 @Composable
 private fun UpdateSourcesAndProgress(
     selectedSourceId: String,
-    sourceStatuses: List<UpdateSourceStatus>,
-    isMeasuringSources: Boolean,
-    onMeasureSources: () -> Unit,
     onSourceSelected: (String) -> Unit,
     isDownloading: Boolean,
     downloadProgress: Float?,
@@ -238,71 +230,26 @@ private fun UpdateSourcesAndProgress(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = sourcesLabelTopPadding),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(text = "下载源")
-            if (compact) {
-                Spacer(Modifier.weight(1f))
-                TextButton(
-                    onClick = { if (!isMeasuringSources) onMeasureSources() },
-                    enabled = !isDownloading && !isMeasuringSources
-                ) {
-                    Text("Ping")
-                }
-            }
-        }
+        Text(
+            text = "下载源",
+            modifier = Modifier.padding(top = sourcesLabelTopPadding, bottom = 4.dp)
+        )
         downloadSources.forEach { source ->
-            val status = sourceStatuses.firstOrNull { it.source.id == source.id }
-            Row(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !isDownloading) { onSourceSelected(source.id) },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 RadioButton(
                     selected = source.id == selectedSourceId,
                     onClick = { if (!isDownloading) onSourceSelected(source.id) },
                     enabled = !isDownloading
                 )
-                Row(
-                    modifier = Modifier.padding(top = if (compact) 0.dp else 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = buildString {
-                            append(source.name)
-                            status?.let {
-                                append(" · ")
-                                append(if (it.available) (it.speedText ?: "${it.latencyMs ?: 0} ms") else it.message)
-                            }
-                        }
-                    )
-                    // 测速进行中：还没测出结果的那条源，名字后面挂一个小转圈。
-                    // 不写「测速中…」文字（弹窗里堆字很土），转圈跟文字一样大，
-                    // 视觉上就是「这个名字的延迟还在测」的意思。
-                    if (isMeasuringSources && status == null) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .padding(start = 6.dp)
-                                .size(16.dp),
-                            strokeWidth = 2.dp
-                        )
-                    }
-                }
-            }
-        }
-        if (!compact) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(
-                    onClick = { if (!isMeasuringSources) onMeasureSources() },
-                    enabled = !isDownloading && !isMeasuringSources
-                ) {
-                    Text("Ping")
-                }
+                Text(
+                    text = source.name,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
             }
         }
         if (isDownloading) {

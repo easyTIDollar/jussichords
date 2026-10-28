@@ -7,16 +7,22 @@ import android.net.Uri
 import android.os.Build
 import androidx.core.content.FileProvider
 import com.jussicodes.music.BuildConfig
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -121,14 +127,14 @@ class GitHubUpdateSource(
 
 /**
  * 针对自建 Worker 域名（gh.jussichords.cc.cd）的动态自适应优选 IP 解析器。
- * 覆盖国内电信、联通、移动主流 Anycast 优质节点。
- * 支持在本地进行并发轻量 TCP 握手测速，自动按当前设备网络环境下的最低 RTT 排序返回。
+ * 覆盖国内三网官方高质量 Anycast 节点，支持从自建 Worker 动态下发最新的官方优选 IP，并结合系统原生解析双保险兜底。
  */
 object CloudflareOptimizedDns : Dns {
     private const val TARGET_HOST = "gh.jussichords.cc.cd"
+    private const val BEST_IPS_ENDPOINT = "https://gh.jussichords.cc.cd/cf-best-ips"
 
     // 覆盖国内三网常用骨干段的高质量 Anycast 候选池（含官方实测优质三网节点）
-    val CANDIDATE_IPS = listOf(
+    val DEFAULT_IPS = listOf(
         "172.64.145.93",
         "172.64.145.202",
         "104.18.33.196",
@@ -142,58 +148,39 @@ object CloudflareOptimizedDns : Dns {
     )
 
     @Volatile
-    private var cachedOptimizedIps: List<InetAddress>? = null
-    @Volatile
-    private var lastSpeedTestTime: Long = 0L
-    private const val CACHE_DURATION_MS = 20 * 60 * 1000L // 20 分钟缓存
+    private var dynamicIps: List<String> = DEFAULT_IPS
 
-    /** 对候选池进行并行轻量 Socket 探测，选出当前设备网络下 RTT 最优的 IP 列表 */
-    suspend fun refreshFastestIps(timeoutMs: Int = 500): List<InetAddress> = withContext(Dispatchers.IO) {
+    @Volatile
+    private var lastFetchedTime: Long = 0L
+
+    /** 后台异步从自建 Worker 拉取最新维护的官方 bestcf 节点 */
+    suspend fun fetchDynamicBestIps(client: OkHttpClient) = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        val cached = cachedOptimizedIps
-        if (cached != null && now - lastSpeedTestTime < CACHE_DURATION_MS) {
-            return@withContext cached
-        }
-        val systemResolved = runCatching { Dns.SYSTEM.lookup(TARGET_HOST) }.getOrDefault(emptyList())
-        supervisorScope {
-            val jobs = CANDIDATE_IPS.map { ip ->
-                async {
-                    val start = System.currentTimeMillis()
-                    var reachable = false
-                    var rtt = 9999L
-                    try {
-                        java.net.Socket().use { socket ->
-                            socket.connect(java.net.InetSocketAddress(ip, 443), timeoutMs)
-                            reachable = true
-                            rtt = System.currentTimeMillis() - start
-                        }
-                    } catch (_: Throwable) {
-                        reachable = false
+        if (now - lastFetchedTime < 60 * 60 * 1000L) return@withContext // 1小时缓存
+        runCatching {
+            val req = Request.Builder()
+                .url(BEST_IPS_ENDPOINT)
+                .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@use
+                    val root = json.parseToJsonElement(body).jsonObject
+                    val ipsArray = root["ips"]?.jsonArray
+                    val ips = ipsArray?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                    if (!ips.isNullOrEmpty()) {
+                        dynamicIps = (ips + DEFAULT_IPS).distinct()
+                        lastFetchedTime = now
                     }
-                    Triple(ip, reachable, rtt)
                 }
             }
-            val results = jobs.awaitAll().filter { it.second }.sortedBy { it.third }
-            val resolved = results.mapNotNull {
-                runCatching { InetAddress.getByName(it.first) }.getOrNull()
-            }.ifEmpty {
-                CANDIDATE_IPS.mapNotNull { runCatching { InetAddress.getByName(it) }.getOrNull() }
-            }
-            val combined = (resolved + systemResolved).distinct()
-            if (combined.isNotEmpty()) {
-                cachedOptimizedIps = combined
-                lastSpeedTestTime = now
-            }
-            combined
         }
     }
 
     override fun lookup(hostname: String): List<InetAddress> {
         if (hostname.equals(TARGET_HOST, ignoreCase = true)) {
-            val cached = cachedOptimizedIps
-            if (cached != null) return cached
             val systemResolved = runCatching { Dns.SYSTEM.lookup(hostname) }.getOrDefault(emptyList())
-            val candidateResolved = CANDIDATE_IPS.mapNotNull { runCatching { InetAddress.getByName(it) }.getOrNull() }
+            val candidateResolved = dynamicIps.mapNotNull { runCatching { InetAddress.getByName(it) }.getOrNull() }
             return (candidateResolved + systemResolved).distinct()
         }
         return Dns.SYSTEM.lookup(hostname)
@@ -242,7 +229,7 @@ private class HttpStatusException(val code: Int, val detail: String = "HTTP $cod
 object AppUpdateManager {
     private const val UPDATE_DIR = "updates"
     private const val APK_MIME_TYPE = "application/vnd.android.package-archive"
-    private const val DOWNLOAD_CONNECT_TIMEOUT_SECONDS = 30L
+    private const val DOWNLOAD_CONNECT_TIMEOUT_SECONDS = 10L
     private const val DOWNLOAD_READ_TIMEOUT_SECONDS = 120L
     private const val DOWNLOAD_CALL_TIMEOUT_SECONDS = 300L
     private const val DOWNLOAD_MAX_RETRIES = 2
@@ -315,6 +302,10 @@ object AppUpdateManager {
      * 返回 null 表示已最新。
      */
     suspend fun checkUpdate(): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
+        // 后台异步静默拉取最新的官方 Anycast 优选 IP（1小时内只拉一次）
+        CoroutineScope(Dispatchers.IO).launch {
+            CloudflareOptimizedDns.fetchDynamicBestIps(apiClient)
+        }
         runCatching { resolveUpdate() }
     }
 

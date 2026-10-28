@@ -141,7 +141,6 @@ import com.jussicodes.music.utils.UpdateDownloadPhase
 import com.jussicodes.music.utils.UpdateDownloadService
 import com.jussicodes.music.utils.UpdateDownloadStateStore
 import com.jussicodes.music.utils.UpdateInfo
-import com.jussicodes.music.utils.UpdateSourceStatus
 import com.jussicodes.music.utils.apiServers
 import com.jussicodes.music.utils.downloadSources
 import com.jussicodes.music.utils.normalizedSourceId
@@ -369,9 +368,6 @@ fun SettingsScreen(
     }
     var showCookieDialog by remember { mutableStateOf(false) }
     var showGithubSourceDialog by remember { mutableStateOf(false) }
-    var githubSourceStatuses by remember { mutableStateOf<List<UpdateSourceStatus>>(emptyList()) }
-    var isMeasuringUpdateSources by remember { mutableStateOf(false) }
-    var testingGithubSources by remember { mutableStateOf(false) }
     var showApiServerDialog by remember { mutableStateOf(false) }
     var apiServerStatuses by remember { mutableStateOf<List<ApiServerStatus>>(emptyList()) }
     var apiServerListJson by rememberPreference(
@@ -790,11 +786,6 @@ fun SettingsScreen(
                 trailingContent = {
                     GearButton("更换更新源") {
                         showGithubSourceDialog = true
-                        testingGithubSources = true
-                        coroutineScope.launch {
-                            githubSourceStatuses = AppUpdateManager.measureDownloadSources()
-                            testingGithubSources = false
-                        }
                     }
                 }
             )
@@ -1029,16 +1020,7 @@ fun SettingsScreen(
     if (showGithubSourceDialog) {
         GitHubDownloadSourceDialog(
             currentSourceId = normalizedSourceId(githubDownloadSource),
-            statuses = githubSourceStatuses,
-            testing = testingGithubSources,
             onDismiss = { showGithubSourceDialog = false },
-            onRefresh = {
-                testingGithubSources = true
-                coroutineScope.launch {
-                    githubSourceStatuses = AppUpdateManager.measureDownloadSources()
-                    testingGithubSources = false
-                }
-            },
             onSourceSelected = { githubDownloadSource = it }
         )
     }
@@ -1067,17 +1049,6 @@ fun SettingsScreen(
             downloadProgress = if (downloadingUpdate) updateDownloadProgress else null,
             progressText = updateDownloadText,
             selectedSourceId = normalizedSourceId(githubDownloadSource),
-            sourceStatuses = githubSourceStatuses,
-            isMeasuringSources = isMeasuringUpdateSources,
-            onMeasureSources = {
-                if (!isMeasuringUpdateSources) {
-                    isMeasuringUpdateSources = true
-                    coroutineScope.launch {
-                        githubSourceStatuses = AppUpdateManager.measureDownloadSources()
-                        isMeasuringUpdateSources = false
-                    }
-                }
-            },
             onSourceSelected = { githubDownloadSource = it },
             onDismiss = {
                 pendingUpdateInfo = null
@@ -1282,10 +1253,7 @@ data class SettingGroupData(
 @Composable
 private fun GitHubDownloadSourceDialog(
     currentSourceId: String,
-    statuses: List<UpdateSourceStatus>,
-    testing: Boolean,
     onDismiss: () -> Unit,
-    onRefresh: () -> Unit,
     onSourceSelected: (String) -> Unit,
 ) {
     ScaledDialogContent {
@@ -1294,17 +1262,11 @@ private fun GitHubDownloadSourceDialog(
         title = { Text("更换更新源") },
         text = {
             Column {
-                if (testing) {
-                    LinearProgressIndicator(
+                downloadSources.forEach { source ->
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 8.dp)
-                    )
-                }
-                downloadSources.forEach { source ->
-                    val status = statuses.firstOrNull { it.source.id == source.id }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
+                            .clickable { onSourceSelected(source.id) },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
@@ -1316,24 +1278,9 @@ private fun GitHubDownloadSourceDialog(
                                 .weight(1f)
                                 .padding(vertical = 8.dp)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(source.name, style = MaterialTheme.typography.titleMedium)
-                                // 测速中：源名后面挂一个小转圈，不写「Ping 中…」文字。
-                                if (testing && status == null) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier
-                                            .padding(start = 6.dp)
-                                            .size(16.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                }
-                            }
+                            Text(source.name, style = MaterialTheme.typography.titleMedium)
                             Text(
-                                text = when {
-                                    status == null -> source.detail
-                                    status.available -> "可用 · ${status.speedText ?: "${status.latencyMs ?: 0} ms"}"
-                                    else -> "不可用 · ${status.message}"
-                                },
+                                text = source.detail,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1345,11 +1292,6 @@ private fun GitHubDownloadSourceDialog(
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onRefresh, enabled = !testing) {
-                Text("重新 Ping")
             }
         }
     )
