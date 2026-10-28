@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -59,11 +58,13 @@ import kotlin.math.roundToInt
  * 1. 采用与小播放器统一的圆角体系与水平对齐边距（14dp），形成整齐协调的悬浮控制组；
  * 2. 纯图标纯净展示，去除多余文本，支持横向拖拽与平滑弹性吸附；
  * 3. 共享相同的表面处理材质（surfaceContainer 色调、微光边框与 6dp 阴影）；
- * 4. 胶囊外部完全透明，背景壁纸与列表穿透显现。
+ * 4. 胶囊外部完全透明，背景壁纸与列表穿透显现；
+ * 5. 最右侧集成设置入口 Tab，支持多 Tab 平滑滑块动画。
  */
 @Composable
 fun FloatingBottomNavBar(
     modifier: Modifier = Modifier,
+    displayTabs: List<BottomBarTab> = floatingNavTabs,
     isHomeRoute: Boolean,
     homePage: Int,
     homePageScroll: Float,
@@ -71,12 +72,13 @@ fun FloatingBottomNavBar(
     onTabClick: (BottomBarTab) -> Unit,
 ) {
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val count = tabs.size
-    val selectedIndex = remember(isHomeRoute, homePageScroll, homePage) {
+    val count = displayTabs.size
+    val selectedIndex = remember(isHomeRoute, homePageScroll, homePage, displayTabs) {
         if (isHomeRoute) {
             homePageScroll.roundToInt().coerceIn(0, (count - 1).coerceAtLeast(0))
         } else {
-            tabs.indexOfFirst { isTabSelected(it) }.coerceAtLeast(0)
+            val idx = displayTabs.indexOfFirst { isTabSelected(it) }
+            if (idx >= 0) idx else 0
         }
     }
 
@@ -90,7 +92,7 @@ fun FloatingBottomNavBar(
     val pillCornerRadiusDp = navBarHeightDp / 2 // 25dp 全圆角胶囊
     val pillShape = RoundedCornerShape(pillCornerRadiusDp)
 
-    // 页面 pager 滑动跟手
+    // 页面 pager 滑动跟手（仅在主页时跟手滑动）
     LaunchedEffect(homePageScroll, isHomeRoute) {
         if (isHomeRoute && !isDragging) {
             sliderPosition.snapTo(homePageScroll.coerceIn(0f, (count - 1).toFloat()))
@@ -149,7 +151,7 @@ fun FloatingBottomNavBar(
             val innerPaddingDp = 4.dp
             val availableWidthDp = (totalWidthDp - innerPaddingDp * 2).coerceAtLeast(0.dp)
             val slotWidthDp = if (count > 0) availableWidthDp / count else 0.dp
-            val indicatorWidthDp = (slotWidthDp - 8.dp).coerceIn(48.dp, 136.dp)
+            val indicatorWidthDp = (slotWidthDp - 8.dp).coerceIn(40.dp, 120.dp)
             val indicatorHeightDp = 40.dp
             val indicatorCornerRadiusDp = indicatorHeightDp / 2
 
@@ -197,8 +199,8 @@ fun FloatingBottomNavBar(
                                         )
                                     )
                                 }
-                                if (targetIndex in tabs.indices) {
-                                    onTabClick(tabs[targetIndex])
+                                if (targetIndex in displayTabs.indices) {
+                                    onTabClick(displayTabs[targetIndex])
                                 }
                             },
                             onDragCancel = {
@@ -241,7 +243,7 @@ fun FloatingBottomNavBar(
                         .padding(horizontal = innerPaddingDp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    tabs.forEachIndexed { index, item ->
+                    displayTabs.forEachIndexed { index, item ->
                         val distance = abs(currentSlot - index).coerceIn(0f, 1f)
                         val activeFraction = 1f - distance
 

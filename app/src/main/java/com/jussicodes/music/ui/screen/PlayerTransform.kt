@@ -40,6 +40,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -85,6 +86,7 @@ fun PlayerTransform(
 ) {
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val viewConfiguration = LocalViewConfiguration.current
 
     var isExpanded by remember { mutableStateOf(false) }
     var fullPlayerSubView by remember { mutableIntStateOf(FULL_PLAYER) }
@@ -157,12 +159,13 @@ fun PlayerTransform(
 
         fun onDragEnd(velocityY: Float) {
             coroutineScope.launch {
+                val current = sheetTranslationY.value
+                val dismissThresholdPx = with(density) { 80.dp.toPx() }
                 if (isExpanded) {
                     // 全屏状态下向下滑动退出：阈值 80dp 或向下的甩动速度
-                    val dragDistanceDown = sheetTranslationY.value
-                    val dismissThresholdPx = with(density) { 80.dp.toPx() }
+                    val dragDistanceDown = current
                     val isDragDown = dragDistanceDown >= dismissThresholdPx
-                    val isFlingDown = velocityY >= 350f
+                    val isFlingDown = velocityY >= 400f
                     if (isDragDown || isFlingDown) {
                         isExpanded = false
                         sheetTranslationY.animateTo(
@@ -178,11 +181,19 @@ fun PlayerTransform(
                         )
                     }
                 } else {
-                    // 收起状态下向上滑动展开：阈值 10px 或向上的速度
-                    val dragDistanceUp = collapsedTargetY - sheetTranslationY.value
-                    val isDragUp = dragDistanceUp >= 10f
-                    val isFlingUp = velocityY <= -150f
-                    if (isDragUp || isFlingUp) {
+                    // 收起状态下向上滑动展开：
+                    // 1. 阈值提高至 72dp 或拉动比例达到 30%，避免误碰灵敏触发；
+                    // 2. 如果已推到顶部附近（接近 0 或比例 >= 85%），100% 顺畅吸附全屏，绝不回弹崩溃；
+                    // 3. 甩手速度提高至 -500f，避免轻微晃动被误判为甩动。
+                    val dragDistanceUp = collapsedTargetY - current
+                    val expandThresholdPx = with(density) { 72.dp.toPx() }
+                    val currentProgress = if (collapsedTargetY > 0f) {
+                        ((collapsedTargetY - current) / collapsedTargetY).coerceIn(0f, 1f)
+                    } else 0f
+                    val isNearTop = current <= with(density) { 48.dp.toPx() } || currentProgress >= 0.85f
+                    val isDragUp = dragDistanceUp >= expandThresholdPx || currentProgress >= 0.30f
+                    val isFlingUp = velocityY <= -500f
+                    if (isNearTop || isDragUp || isFlingUp) {
                         isExpanded = true
                         sheetTranslationY.animateTo(
                             0f,
@@ -265,7 +276,9 @@ fun PlayerTransform(
                 )
 
                 // 小播放器层（MiniPlayer 顶栏，高度 64dp）
-                if (progress < 0.99f) {
+                // 拖拽过程中（!isExpanded）保持节点存活，绝不在推到顶部瞬间被拔除导致手势中断
+                val showMiniPlayerContent = !isExpanded || progress < 0.999f
+                if (showMiniPlayerContent) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
@@ -279,6 +292,7 @@ fun PlayerTransform(
                             mediaMetadata = mediaMetadata,
                             position = position,
                             duration = duration,
+                            isPillProgress = floatingNavBarEnabled,
                             onClick = {
                                 coroutineScope.launch {
                                     isExpanded = true
@@ -297,7 +311,7 @@ fun PlayerTransform(
                     }
                 }
 
-                // 全屏播放器层（全屏任意区域下拉手势 + 优雅退出动效）
+                // 全屏播放器层（带 touchSlop 下拉手势，绝不误拦截左上角返回按钮等子组件点击）
                 if (progress > 0.01f) {
                     Box(
                         modifier = Modifier
@@ -315,6 +329,8 @@ fun PlayerTransform(
                                         val down = awaitFirstDown(requireUnconsumed = false)
                                         val velocityTracker = VelocityTracker()
                                         velocityTracker.addPosition(down.uptimeMillis, down.position)
+                                        var totalDragY = 0f
+                                        var isDraggingDown = false
 
                                         while (true) {
                                             val event = awaitPointerEvent()
@@ -323,15 +339,22 @@ fun PlayerTransform(
 
                                             velocityTracker.addPosition(change.uptimeMillis, change.position)
                                             val positionChange = change.positionChange()
+                                            totalDragY += positionChange.y
 
-                                            if (positionChange.y > 0f || sheetTranslationY.value > 0f) {
+                                            if (!isDraggingDown && totalDragY > viewConfiguration.touchSlop) {
+                                                isDraggingDown = true
+                                            }
+
+                                            if (isDraggingDown) {
                                                 change.consume()
                                                 onDrag(positionChange.y)
                                             }
                                         }
 
-                                        val velocityY = velocityTracker.calculateVelocity().y
-                                        onDragEnd(velocityY)
+                                        if (isDraggingDown) {
+                                            val velocityY = velocityTracker.calculateVelocity().y
+                                            onDragEnd(velocityY)
+                                        }
                                     }
                                 }
                             }

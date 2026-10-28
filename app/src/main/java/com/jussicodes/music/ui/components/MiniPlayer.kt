@@ -73,6 +73,7 @@ fun MiniPlayer(
     onVerticalDrag: ((Float) -> Unit)? = null,
     onVerticalDragEnd: ((Float) -> Unit)? = null,
     dragProgress: Float = 0f,
+    isPillProgress: Boolean = false,
 ) {
     val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
@@ -107,8 +108,8 @@ fun MiniPlayer(
         animationSpec = MotionSpring.dragOffset,
         label = "MiniPlayerHorizontalDragOffset"
     )
-    val miniPlayerCorner = 16.dp
-    val miniPlayerShape = RoundedCornerShape(topStart = miniPlayerCorner, topEnd = miniPlayerCorner)
+    val miniPlayerCorner = if (isPillProgress) 26.dp else 16.dp
+    val miniPlayerShape = if (isPillProgress) RoundedCornerShape(26.dp) else RoundedCornerShape(topStart = miniPlayerCorner, topEnd = miniPlayerCorner)
     val openProgress = (-animatedPlayerDragOffsetY / swipePreviewLimitPx).coerceIn(0f, 1f)
     SideEffect {
         onDragProgressChange(openProgress)
@@ -256,6 +257,23 @@ fun MiniPlayer(
                     .clipToBounds()
             ) {
                 ArtworkGlassBackdrop(artwork = mediaMetadata.artworkUri)
+
+                // 悬浮胶囊底栏模式：以小播放器自身作为流体进度条（主题色半透明充盈）
+                if (isPillProgress) {
+                    val progressFraction = (position.toFloat() / duration.coerceAtLeast(1L)).coerceIn(0f, 1f)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(progressFraction)
+                            .background(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+                            )
+                            .graphicsLayer {
+                                val combinedProgress = maxOf(openProgress, dragProgress)
+                                alpha = (1f - combinedProgress * 2.5f).coerceIn(0f, 1f)
+                            }
+                    )
+                }
             }
             Box(
                 modifier = Modifier
@@ -280,17 +298,19 @@ fun MiniPlayer(
                         artworkCorner = miniPlayerCorner
                     )
                 }
-                LinearProgressIndicator(
-                    progress = { (position.toFloat() / duration).coerceIn(0f, 1f) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .align(Alignment.BottomCenter)
-                        .graphicsLayer {
-                            val combinedProgress = maxOf(openProgress, dragProgress)
-                            alpha = if (combinedProgress > 0.01f) 0f else 1f
-                        },
-                )
+                if (!isPillProgress) {
+                    LinearProgressIndicator(
+                        progress = { (position.toFloat() / duration).coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(3.dp)
+                            .align(Alignment.BottomCenter)
+                            .graphicsLayer {
+                                val combinedProgress = maxOf(openProgress, dragProgress)
+                                alpha = if (combinedProgress > 0.01f) 0f else 1f
+                            },
+                    )
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier

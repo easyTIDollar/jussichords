@@ -1,6 +1,8 @@
 package com.jussicodes.music.ui.components
 
 import androidx.annotation.StringRes
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.jussicodes.music.R
 import com.jussicodes.music.ui.icons.AccountCircle
@@ -19,9 +21,23 @@ sealed class BottomBarTab(@StringRes val titleRes: Int, val icon: ImageVector, v
         icon = ExploreCompass,
         route = Screen.Explore.route
     )
+
+    data object Settings : BottomBarTab(
+        titleRes = R.string.settings,
+        icon = Icons.Outlined.Settings,
+        route = Screen.Settings.route
+    )
 }
 
+/** 主页横向滑页专用的 tabs（仅我的/探索 2 页） */
 val tabs = listOf(
     BottomBarTab.Library,
     BottomBarTab.Explore,
+)
+
+/** 悬浮胶囊底栏专用的 tabs（包含右侧设置入口，共 3 项） */
+val floatingNavTabs = listOf(
+    BottomBarTab.Library,
+    BottomBarTab.Explore,
+    BottomBarTab.Settings,
 )

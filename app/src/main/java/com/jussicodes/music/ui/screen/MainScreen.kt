@@ -97,10 +97,12 @@ import com.jussicodes.music.constants.useNavigationRailLayout
 import com.jussicodes.music.data.HomeBgEditor
 import com.jussicodes.music.ui.components.AdaptiveContent
 import com.jussicodes.music.ui.components.AdaptiveNavigationRail
+import com.jussicodes.music.ui.components.BottomBarTab
 import com.jussicodes.music.ui.components.FloatingBottomNavBar
 import com.jussicodes.music.ui.components.HomeBackgroundLayer
 import com.jussicodes.music.ui.components.HomeBgEditPanel
 import com.jussicodes.music.ui.components.rememberHomeBackground
+import com.jussicodes.music.ui.components.floatingNavTabs
 import com.jussicodes.music.ui.components.tabs
 import com.jussicodes.music.ui.navigation.NavGraph
 import com.jussicodes.music.ui.navigation.Screen
@@ -122,8 +124,11 @@ fun MainScreen() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
-    val isTabRoute =
+    val activeNavTabs = if (floatingNavBarEnabled) floatingNavTabs else tabs
+    val isHomeRoute =
         currentDestination?.hierarchy?.any { tabs.any { tab -> it.route == tab.route } } == true
+    val isTabRoute =
+        currentDestination?.hierarchy?.any { activeNavTabs.any { tab -> it.route == tab.route } } == true
     val playerState = LocalPlayerState.current
     var position by rememberSaveable(playerState) {
         mutableLongStateOf(playerState?.player?.currentPosition ?: 0)
@@ -143,16 +148,14 @@ fun MainScreen() {
     var homePageScroll by remember { mutableFloatStateOf(homePage.toFloat()) }
     val homePagerState = rememberPagerState(initialPage = homePage) { tabs.size }
     val coroutineScope = rememberCoroutineScope()
-    val isHomeRoute = isTabRoute
-    // 壁纸层可见性：isTabRoute 去抖版（见 AnimatedVisibility 处的注释）。
-    // 进二级页仍会淡出，但 tab<->tab 切换的中间假false 帧被滤掉，壁纸不再闪。
+    // 壁纸层可见性：isHomeRoute 去抖版（主页两 tab 切换不闪，进设置/二级页淡出）
     var homeBackgroundVisible by remember { mutableStateOf(true) }
-    LaunchedEffect(isTabRoute) {
-        if (isTabRoute) {
+    LaunchedEffect(isHomeRoute) {
+        if (isHomeRoute) {
             homeBackgroundVisible = true
         } else {
             delay(200)
-            homeBackgroundVisible = isTabRoute
+            homeBackgroundVisible = isHomeRoute
         }
     }
     val isRoamRoute = currentDestination?.route == Screen.Roam.route
@@ -542,27 +545,32 @@ fun MainScreen() {
                                 val maxPressDownPx = floatingNavBarFullHeight.toPx()
                                 translationY = navBarExitProgress * maxPressDownPx
                             },
+                            displayTabs = floatingNavTabs,
                             isHomeRoute = isHomeRoute,
                             homePage = homePage,
                             homePageScroll = homePageScroll,
                             isTabSelected = { item ->
-                                if (isHomeRoute) {
-                                    tabs.getOrNull(homePageScroll.roundToInt())?.route == item.route
-                                } else {
-                                    currentDestination?.hierarchy?.any { it.route == item.route } == true
-                                }
+                                currentDestination?.hierarchy?.any { it.route == item.route } == true
                             },
                             onTabClick = { item ->
-                                val targetPage = tabs.indexOfFirst { it.route == item.route }
-                                if (targetPage >= 0) {
-                                    if (isHomeRoute) {
-                                        MotionDefaults.animatePagerToPage(
-                                            pagerState = homePagerState,
-                                            page = targetPage,
-                                            scope = coroutineScope
-                                        )
-                                    } else {
-                                        navigateRootTab(item.route)
+                                if (item == BottomBarTab.Settings) {
+                                    if (currentDestination?.route != Screen.Settings.route) {
+                                        navController.navigate(Screen.Settings.route) {
+                                            launchSingleTop = true
+                                        }
+                                    }
+                                } else {
+                                    val targetPage = tabs.indexOfFirst { it.route == item.route }
+                                    if (targetPage >= 0) {
+                                        if (isHomeRoute) {
+                                            MotionDefaults.animatePagerToPage(
+                                                pagerState = homePagerState,
+                                                page = targetPage,
+                                                scope = coroutineScope
+                                            )
+                                        } else {
+                                            navigateRootTab(item.route)
+                                        }
                                     }
                                 }
                             }
