@@ -108,6 +108,7 @@ import com.jussicodes.music.utils.formatPlayCount
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.ArtistScreenViewModel
 import com.rcmiku.ncmapi.model.Song
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
