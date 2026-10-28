@@ -124,6 +124,7 @@ fun MainScreen() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
+    val floatingNavBarEnabled by rememberPreference(floatingNavBarEnabledKey, false)
     val activeNavTabs = if (floatingNavBarEnabled) floatingNavTabs else tabs
     val isHomeRoute =
         currentDestination?.hierarchy?.any { tabs.any { tab -> it.route == tab.route } } == true
@@ -141,7 +142,6 @@ fun MainScreen() {
     val showMiniPlayer = (playerState?.player?.mediaItemCount ?: 0) != 0
     val currentMediaId = playerState?.currentMediaItem?.mediaId
     var currentPlayMediaId by rememberPreference(currentPlayMediaIdKey, 0)
-    val floatingNavBarEnabled by rememberPreference(floatingNavBarEnabledKey, false)
     var showPlayer by remember { mutableStateOf(false) }
     var miniPlayerDragProgress by remember { mutableFloatStateOf(0f) }
     var homePage by rememberSaveable { mutableIntStateOf(0) }
