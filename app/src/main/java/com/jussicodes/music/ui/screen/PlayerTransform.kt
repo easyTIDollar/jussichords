@@ -10,6 +10,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -33,6 +35,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -150,15 +154,16 @@ fun PlayerTransform(
         fun onDragEnd(velocityY: Float) {
             coroutineScope.launch {
                 if (isExpanded) {
-                    // 全屏状态下向下滑动退出：阈值 15px 或向下的速度
+                    // 全屏状态下向下滑动退出：阈值 80dp 或向下的甩动速度
                     val dragDistanceDown = sheetTranslationY.value
-                    val isDragDown = dragDistanceDown >= 15f
-                    val isFlingDown = velocityY >= 150f
+                    val dismissThresholdPx = with(density) { 80.dp.toPx() }
+                    val isDragDown = dragDistanceDown >= dismissThresholdPx
+                    val isFlingDown = velocityY >= 350f
                     if (isDragDown || isFlingDown) {
                         isExpanded = false
                         sheetTranslationY.animateTo(
                             collapsedTargetY,
-                            spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
+                            spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)
                         )
                         onBackPressed()
                     } else {
@@ -202,14 +207,14 @@ fun PlayerTransform(
         val currentCardHeightPx = (bottomY - sheetTranslationY.value).coerceAtLeast(miniPlayerHeightPx)
 
         // 透明度曲线优化：
-        // 1. 小播放器：0f ~ 0.22f 内优雅淡出。前期微稳保持清晰，中期平滑加速隐去，避免拖泥带水残留重影。
-        val miniExitFraction = (progress / 0.22f).coerceIn(0f, 1f)
+        // 1. 小播放器：0f ~ 0.28f 内平滑淡出；下滑时在 0.28f 提前平滑就绪，避免与全屏内容交接断层。
+        val miniExitFraction = (progress / 0.28f).coerceIn(0f, 1f)
         val miniPlayerAlpha = 1f - miniExitFraction * miniExitFraction
 
-        // 2. 全屏播放器：0.15f ~ 0.55f 快速饱满浮现（EaseOut 减速入场）。
-        // 刚过半屏（0.55f）即达到 100% 完整实色，后半程纯物理展开，彻底消除灰蒙蒙半透状态。
-        val fullEnterFraction = ((progress - 0.15f) / 0.40f).coerceIn(0f, 1f)
-        val fullPlayerAlpha = fullEnterFraction * (2f - fullEnterFraction)
+        // 2. 全屏播放器：0.25f ~ 0.80f 柔和浮现（SmoothStep 曲线）。
+        // 0.25f 前彻底留给小播放条和底栏退场；半屏（0.52f）平滑半透；接近全屏（0.80f）饱满实色，绝不提前抢戏。
+        val fullEnterFraction = ((progress - 0.25f) / 0.55f).coerceIn(0f, 1f)
+        val fullPlayerAlpha = fullEnterFraction * fullEnterFraction * (3f - 2f * fullEnterFraction)
 
         Surface(
             modifier = Modifier
@@ -268,20 +273,34 @@ fun PlayerTransform(
                             .height(with(density) { screenHeightPx.toDp() })
                             .graphicsLayer {
                                 alpha = fullPlayerAlpha
+                                val scale = 0.94f + 0.06f * progress
+                                scaleX = scale
+                                scaleY = scale
                             }
                             .pointerInput(isExpanded) {
                                 if (isExpanded) {
-                                    detectVerticalDragGestures(
-                                        onVerticalDrag = { change, dragAmount ->
-                                            if (dragAmount > 0f || sheetTranslationY.value > 0f) {
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                        val velocityTracker = VelocityTracker()
+                                        velocityTracker.addPosition(down.uptimeMillis, down.position)
+
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                            if (!change.pressed) break
+
+                                            velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                            val positionChange = change.positionChange()
+
+                                            if (positionChange.y > 0f || sheetTranslationY.value > 0f) {
                                                 change.consume()
-                                                onDrag(dragAmount)
+                                                onDrag(positionChange.y)
                                             }
-                                        },
-                                        onDragEnd = {
-                                            onDragEnd(0f)
                                         }
-                                    )
+
+                                        val velocityY = velocityTracker.calculateVelocity().y
+                                        onDragEnd(velocityY)
+                                    }
                                 }
                             }
                     ) {

@@ -157,12 +157,11 @@ fun PlayerLandscape(
         }
     }
 
-    // 封面手势：从竖屏复用（横向拖动切歌、下拉收起），但**不接点击进歌词页**
-    // —— 横屏右侧本来就有歌词栏，点封面不再跳转。
+    // 封面手势：横向拖动切歌，横屏下已移除下滑退出播放页手势
     val coverGestures = rememberPlayerCoverGestures(
         onSwipeNext = { mediaController?.seekToNextMediaItem() },
         onSwipePrevious = { mediaController?.seekToPreviousMediaItem() },
-        onDismiss = { onBackPressed() }
+        onDismiss = {}
     )
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -223,8 +222,7 @@ fun PlayerLandscape(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(start = leftPadH, end = leftPadH, top = leftPadV, bottom = 10.dp)
-                            .then(coverGestures.dismissGraphics()),
+                            .padding(start = leftPadH, end = leftPadH, top = leftPadV, bottom = 10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         // 1) 中部弹性区：封面 + 歌曲信息作为一个整体居中。
@@ -256,7 +254,6 @@ fun PlayerLandscape(
                                         .then(coverGestures.coverGraphics())
                                         .clip(RoundedCornerShape(14.dp))
                                         .then(coverGestures.coverSwipeGestures())
-                                        .then(coverGestures.coverDismissGestures(enabled = true))
                                 )
                                 Column(
                                     modifier = Modifier.fillMaxWidth(),
