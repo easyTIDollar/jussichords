@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.layout.Layout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -156,10 +155,12 @@ fun ArtistScreen(
     val candidateSongs = allSongsForQueue ?: artistTopSongState?.songs.orEmpty()
     val filteredSongs = rememberFilteredSongs(candidateSongs, searchQuery)
 
+    var headerHeightPx by remember { mutableFloatStateOf(0f) }
+    var topBarHeightPx by remember { mutableFloatStateOf(0f) }
     var headerOffsetPx by remember { mutableFloatStateOf(0f) }
-    var maxCollapsePx by remember { mutableFloatStateOf(0f) }
+    val maxCollapsePx = (headerHeightPx - topBarHeightPx).coerceAtLeast(0f)
 
-    val nestedScrollConnection = remember(searchActive) {
+    val nestedScrollConnection = remember(maxCollapsePx, searchActive) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (searchActive) return Offset.Zero
@@ -287,15 +288,42 @@ fun ArtistScreen(
             }
         )
     } else {
-        // 竖屏：使用自定义 Layout 将所有吸顶折叠收敛在 Placement 与 Draw 阶段（零重组，零重新测量）
+        // 竖屏：Column 承载全屏，头部折叠容器高度平滑收缩，SwipableTabPager 占满剩余全部高度（底边贴紧屏幕底端）
+        val density = LocalDensity.current
         val backgroundColor = MaterialTheme.colorScheme.background
+        val collapseHeightDp = if (headerHeightPx > 0f && topBarHeightPx > 0f) {
+            with(density) { (headerHeightPx + headerOffsetPx).coerceAtLeast(topBarHeightPx).toDp() }
+        } else null
 
-        Layout(
-            content = {
-                // 0: Header 实际内容（封面 hero + 粉丝数 Row）
+        val headerModifier = if (collapseHeightDp != null) {
+            Modifier
+                .fillMaxWidth()
+                .height(collapseHeightDp)
+                .clipToBounds()
+        } else {
+            Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .clipToBounds()
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(backgroundColor)
+                .nestedScroll(nestedScrollConnection)
+        ) {
+            Box(modifier = headerModifier) {
+                // 折叠头部实际内容（封面 hero + 信息行）
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .offset { IntOffset(0, headerOffsetPx.roundToInt()) }
+                        .onSizeChanged {
+                            if (headerHeightPx == 0f && it.height > 0) {
+                                headerHeightPx = it.height.toFloat()
+                            }
+                        }
                         .draggable(
                             orientation = Orientation.Vertical,
                             enabled = !searchActive,
@@ -379,7 +407,13 @@ fun ArtistScreen(
 
                 // 1: 顶栏 TopAppBar（搜索按钮无圆底，背景 drawBehind 渐变）
                 TopAppBar(
-                    modifier = Modifier.drawBehind {
+                    modifier = Modifier
+                        .onSizeChanged {
+                            if (topBarHeightPx == 0f && it.height > 0) {
+                                topBarHeightPx = it.height.toFloat()
+                            }
+                        }
+                        .drawBehind {
                         val maxCollapse = maxCollapsePx
                         val fraction = if (maxCollapse > 0f) {
                             (-headerOffsetPx / maxCollapse).coerceIn(0f, 1f)
@@ -459,17 +493,20 @@ fun ArtistScreen(
                         containerColor = Color.Transparent
                     )
                 )
+            }
 
-                // 2: 三个 tab 页左右滑动（可预览相邻页），各页独立懒列
-                SwipableTabPager(
-                    titles = listOf(
-                        stringResource(R.string.explore),
-                        stringResource(R.string.song),
-                        stringResource(R.string.album)
-                    ),
-                    pagerState = pagerState,
-                    modifier = Modifier.fillMaxWidth()
-                ) { page ->
+            // 三个 tab 页左右滑动（可预览相邻页），各页独立懒列
+            SwipableTabPager(
+                titles = listOf(
+                    stringResource(R.string.explore),
+                    stringResource(R.string.song),
+                    stringResource(R.string.album)
+                ),
+                pagerState = pagerState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) { page ->
                     when (page) {
                         0 -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                             item(key = "explore-info") {
@@ -749,37 +786,8 @@ fun ArtistScreen(
                         }
                     }
                 }
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .background(backgroundColor)
-                .clipToBounds()
-                .nestedScroll(nestedScrollConnection)
-        ) { measurables, constraints ->
-            val topBarPlaceable = measurables[1].measure(constraints)
-            val headerPlaceable = measurables[0].measure(constraints)
-
-            val maxCollapse = (headerPlaceable.height - topBarPlaceable.height).toFloat().coerceAtLeast(0f)
-            if (maxCollapse != maxCollapsePx) {
-                maxCollapsePx = maxCollapse
-            }
-
-            val pagerHeight = (constraints.maxHeight - topBarPlaceable.height).coerceAtLeast(0)
-            val tabPagerPlaceable = measurables[2].measure(
-                constraints.copy(
-                    minHeight = pagerHeight,
-                    maxHeight = pagerHeight
-                )
-            )
-
-            layout(constraints.maxWidth, constraints.maxHeight) {
-                val offset = headerOffsetPx.roundToInt()
-                headerPlaceable.placeRelative(0, offset)
-                tabPagerPlaceable.placeRelative(0, headerPlaceable.height + offset)
-                topBarPlaceable.placeRelative(0, 0)
             }
         }
-    }
 
     SongMenuBottomSheet(
         navController = navController,
