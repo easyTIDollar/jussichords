@@ -272,7 +272,7 @@ private fun UpdateSourcesAndProgress(
                             append(source.name)
                             status?.let {
                                 append(" · ")
-                                append(if (it.available) "${it.latencyMs ?: 0} ms" else it.message)
+                                append(if (it.available) (it.speedText ?: "${it.latencyMs ?: 0} ms") else it.message)
                             }
                         }
                     )

@@ -72,6 +72,8 @@ sealed class UpdateSource {
     abstract fun probeRequest(): Request
 }
 
+const val SPEED_TEST_SAMPLE_BYTES = 524288L // 512 KB 测速分片
+
 class GitHubUpdateSource(
     override val id: String,
     override val name: String,
@@ -103,33 +105,91 @@ class GitHubUpdateSource(
             .header("Accept", "application/octet-stream")
             .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
             .build()
+
+    /** 构造 512KB 分段的 Range 测速请求（测真实下载吞吐） */
+    fun speedTestRequest(targetDownloadUrl: String?): Request {
+        val canonical = targetDownloadUrl ?: canonicalGitHubDownloadUrl("v2.3.4", "jussichords-v2.3.4.apk")
+        val url = toDownloadUrl(canonical)
+        return Request.Builder()
+            .url(url)
+            .header("Range", "bytes=0-${SPEED_TEST_SAMPLE_BYTES - 1}")
+            .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+            .header("Accept", "*/*")
+            .build()
+    }
 }
 
 /**
- * 针对自建 Worker 域名（gh.jussichords.cc.cd）的优选 IP 解析器。
- * 绕过国内运营商受污染或拥堵的 LocalDNS，直接向国内三网互联质量最佳的 Cloudflare Anycast 优质节点建联。
- * 其余域名完全走系统原生 DNS。
+ * 针对自建 Worker 域名（gh.jussichords.cc.cd）的动态自适应优选 IP 解析器。
+ * 覆盖国内电信、联通、移动主流 Anycast 优质节点。
+ * 支持在本地进行并发轻量 TCP 握手测速，自动按当前设备网络环境下的最低 RTT 排序返回。
  */
 object CloudflareOptimizedDns : Dns {
     private const val TARGET_HOST = "gh.jussichords.cc.cd"
 
-    private val OPTIMIZED_IPS = listOf(
+    // 覆盖国内三网常用骨干段的优质 Anycast 候选池（电信、联通、移动互联精选）
+    val CANDIDATE_IPS = listOf(
         "104.16.80.1",
         "104.19.18.1",
         "104.16.160.1",
         "172.67.180.1",
         "104.17.200.1",
         "162.159.192.1",
+        "104.18.2.1",
+        "104.16.20.1",
     )
+
+    @Volatile
+    private var cachedOptimizedIps: List<InetAddress>? = null
+    @Volatile
+    private var lastSpeedTestTime: Long = 0L
+    private const val CACHE_DURATION_MS = 20 * 60 * 1000L // 20 分钟缓存
+
+    /** 对候选池进行并行轻量 Socket 探测，选出当前设备网络下 RTT 最优的 IP 列表 */
+    suspend fun refreshFastestIps(timeoutMs: Int = 600): List<InetAddress> = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        val cached = cachedOptimizedIps
+        if (cached != null && now - lastSpeedTestTime < CACHE_DURATION_MS) {
+            return@withContext cached
+        }
+        supervisorScope {
+            val jobs = CANDIDATE_IPS.map { ip ->
+                async {
+                    val start = System.currentTimeMillis()
+                    var reachable = false
+                    var rtt = 9999L
+                    try {
+                        java.net.Socket().use { socket ->
+                            socket.connect(java.net.InetSocketAddress(ip, 443), timeoutMs)
+                            reachable = true
+                            rtt = System.currentTimeMillis() - start
+                        }
+                    } catch (_: Throwable) {
+                        reachable = false
+                    }
+                    Triple(ip, reachable, rtt)
+                }
+            }
+            val results = jobs.awaitAll().filter { it.second }.sortedBy { it.third }
+            val resolved = results.mapNotNull {
+                runCatching { InetAddress.getByName(it.first) }.getOrNull()
+            }.ifEmpty {
+                CANDIDATE_IPS.mapNotNull { runCatching { InetAddress.getByName(it) }.getOrNull() }
+            }
+            if (resolved.isNotEmpty()) {
+                cachedOptimizedIps = resolved
+                lastSpeedTestTime = now
+            }
+            resolved
+        }
+    }
 
     override fun lookup(hostname: String): List<InetAddress> {
         if (hostname.equals(TARGET_HOST, ignoreCase = true)) {
-            val resolved = OPTIMIZED_IPS.mapNotNull { ip ->
-                runCatching { InetAddress.getByName(ip) }.getOrNull()
-            }
-            if (resolved.isNotEmpty()) {
-                return resolved
-            }
+            val cached = cachedOptimizedIps
+            if (cached != null) return cached
+            return CANDIDATE_IPS.mapNotNull { runCatching { InetAddress.getByName(it) }.getOrNull() }
+                .ifEmpty { Dns.SYSTEM.lookup(hostname) }
         }
         return Dns.SYSTEM.lookup(hostname)
     }
@@ -285,6 +345,7 @@ object AppUpdateManager {
                 if (isStaleCanaryTag(result.versionName, BuildConfig.VERSION_NAME)) {
                     continue
                 }
+                cachedLatestDownloadUrl = result.downloadUrl
                 return result
             } catch (e: Throwable) {
                 lastError = e
@@ -496,27 +557,83 @@ object AppUpdateManager {
         }
     }
 
-    /** 并行探测全部下载源（各源自探测），返回延迟与可用性，供「Ping」弹窗展示。 */
-    suspend fun measureDownloadSources(): List<UpdateSourceStatus> =
+    @Volatile
+    private var cachedLatestDownloadUrl: String? = null
+
+    /**
+     * 并行真实测速全部下载源：
+     * 1. 触发自建源本地网络最优 Anycast IP 并发测速与选优（针对不同地区/运营商自适应）；
+     * 2. 对每个源发起 512KB Range 分段下载，计算真实下载吞吐速率（MB/s / KB/s）；
+     * 3. 失败时回落到错误原因展示。
+     */
+    suspend fun measureDownloadSources(targetDownloadUrl: String? = null): List<UpdateSourceStatus> =
         withContext(Dispatchers.IO) {
+            // 先并发极速探测刷新本地针对当前网络的最佳 Cloudflare IP
+            runCatching { CloudflareOptimizedDns.refreshFastestIps() }
+
+            val targetUrl = targetDownloadUrl ?: cachedLatestDownloadUrl
+
             supervisorScope {
                 downloadSources.map { source ->
                     async {
                         runCatching {
+                            if (source !is GitHubUpdateSource) {
+                                val elapsed = measureTimeMillis {
+                                    sourceTestClient.newCall(source.probeRequest()).execute().use { response ->
+                                        if (!response.isSuccessful && response.code !in 300..399) {
+                                            throw HttpStatusException(response.code)
+                                        }
+                                    }
+                                }
+                                return@async UpdateSourceStatus(source, elapsed, true, "可用", null, "${elapsed} ms")
+                            }
+
+                            val request = source.speedTestRequest(targetUrl)
+                            var bytesRead = 0L
+                            var rttMs = 0L
+
                             val elapsed = measureTimeMillis {
-                                sourceTestClient.newCall(source.probeRequest()).execute().use { response ->
-                                    if (!response.isSuccessful && response.code !in 300..399) {
-                                        throw HttpStatusException(response.code)
+                                val callStart = System.currentTimeMillis()
+                                sourceTestClient.newCall(request).execute().use { response ->
+                                    if (response.code !in listOf(200, 206)) {
+                                        throw HttpStatusException(response.code, "HTTP ${response.code}")
+                                    }
+                                    rttMs = System.currentTimeMillis() - callStart
+                                    val body = response.body ?: throw IOException("Empty response body")
+                                    val buffer = ByteArray(8192)
+                                    body.byteStream().use { input ->
+                                        while (bytesRead < SPEED_TEST_SAMPLE_BYTES) {
+                                            val toRead = (SPEED_TEST_SAMPLE_BYTES - bytesRead)
+                                                .coerceAtMost(buffer.size.toLong()).toInt()
+                                            val read = input.read(buffer, 0, toRead)
+                                            if (read == -1) break
+                                            bytesRead += read
+                                        }
                                     }
                                 }
                             }
-                            UpdateSourceStatus(source, elapsed, true, "可用")
+
+                            if (bytesRead == 0L) throw IOException("No data received")
+
+                            val speedBps = if (elapsed > 0) (bytesRead * 1000L) / elapsed else 0L
+                            val speedText = formatSpeed(speedBps)
+
+                            UpdateSourceStatus(
+                                source = source,
+                                latencyMs = rttMs.takeIf { it > 0 } ?: elapsed,
+                                available = true,
+                                message = "可用",
+                                speedBps = speedBps,
+                                speedText = speedText,
+                            )
                         }.getOrElse { throwable ->
                             UpdateSourceStatus(
                                 source = source,
                                 latencyMs = null,
                                 available = false,
                                 message = pingFailureDetail(throwable),
+                                speedBps = null,
+                                speedText = null,
                             )
                         }
                     }
@@ -687,6 +804,16 @@ object AppUpdateManager {
     private fun Throwable.isRetryableDownloadError(): Boolean =
         this is SocketTimeoutException || this is IOException
 
+    private fun formatSpeed(bytesPerSec: Long): String {
+        val mb = bytesPerSec / (1024.0 * 1024.0)
+        return if (mb >= 1.0) {
+            String.format(java.util.Locale.US, "%.1f MB/s", mb)
+        } else {
+            val kb = bytesPerSec / 1024.0
+            String.format(java.util.Locale.US, "%.0f KB/s", kb)
+        }
+    }
+
     /** Ping/探测失败时的简短说明，给对话框里逐行展示用。 */
     private fun pingFailureDetail(throwable: Throwable): String = when (throwable) {
         is SocketTimeoutException -> "超时"
@@ -701,6 +828,8 @@ data class UpdateSourceStatus(
     val latencyMs: Long?,
     val available: Boolean,
     val message: String,
+    val speedBps: Long? = null,
+    val speedText: String? = null,
 )
 
 /** 预设 ncmapi 后端的 Ping 结果：URL、延迟（ms）、是否可用、说明文案。 */

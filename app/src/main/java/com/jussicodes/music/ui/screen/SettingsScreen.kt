@@ -1331,7 +1331,7 @@ private fun GitHubDownloadSourceDialog(
                             Text(
                                 text = when {
                                     status == null -> source.detail
-                                    status.available -> "可用 · ${status.latencyMs ?: 0} ms"
+                                    status.available -> "可用 · ${status.speedText ?: "${status.latencyMs ?: 0} ms"}"
                                     else -> "不可用 · ${status.message}"
                                 },
                                 style = MaterialTheme.typography.bodySmall,

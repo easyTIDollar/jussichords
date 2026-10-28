@@ -260,7 +260,7 @@ class MainActivity : ComponentActivity() {
                                     isMeasuringUpdateSources = true
                                     lifecycleScope.launch {
                                         updateSourceStatuses =
-                                            AppUpdateManager.measureDownloadSources()
+                                            AppUpdateManager.measureDownloadSources(updateInfo.downloadUrl)
                                         isMeasuringUpdateSources = false
                                     }
                                 }
