@@ -95,6 +95,7 @@ import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.constants.floatingNavBarEnabledKey
+import com.jussicodes.music.constants.playerBackgroundBlurEnabledKey
 import com.jussicodes.music.constants.homeBgBlurKey
 import com.jussicodes.music.constants.homeBgImageKey
 import com.jussicodes.music.constants.homeBgOffsetXKey
@@ -116,6 +117,7 @@ import com.jussicodes.music.ui.components.UpdateDialog
 import com.jussicodes.music.ui.components.unblockSourceOptions
 import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.AudioLines
+import com.jussicodes.music.ui.icons.Blur
 import com.jussicodes.music.ui.icons.DesktopLyrics
 import androidx.compose.material.icons.outlined.Dns
 import com.jussicodes.music.ui.icons.Gesture
@@ -185,6 +187,7 @@ fun SettingsScreen(
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
     var floatingNavBarEnabled by rememberPreference(floatingNavBarEnabledKey, false)
+    var playerBackgroundBlurEnabled by rememberPreference(playerBackgroundBlurEnabledKey, false)
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
     // 音源三选一（LX / 内置直连 / 代理）。旧选择由 JetMeloApp 里的一次性迁移清掉，
@@ -577,6 +580,22 @@ fun SettingsScreen(
                     Switch(
                         checked = floatingNavBarEnabled,
                         onCheckedChange = { floatingNavBarEnabled = it }
+                    )
+                    Spacer(Modifier.width(12.dp))
+                }
+            ),
+            SettingItemData(
+                title = "上滑背景高斯模糊",
+                subtitle = if (playerBackgroundBlurEnabled) {
+                    "已开启 · 上滑播放器动态模糊背景，掉帧请关闭"
+                } else {
+                    "已关闭 · 使用景深遮罩减少掉帧"
+                },
+                imageVector = Blur,
+                trailingContent = {
+                    Switch(
+                        checked = playerBackgroundBlurEnabled,
+                        onCheckedChange = { playerBackgroundBlurEnabled = it }
                     )
                     Spacer(Modifier.width(12.dp))
                 }

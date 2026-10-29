@@ -88,6 +88,7 @@ import com.jussicodes.music.constants.FloatingBottomNavHorizontalPadding
 import com.jussicodes.music.constants.FloatingBottomNavBottomPadding
 import com.jussicodes.music.constants.FloatingBottomNavTopPadding
 import com.jussicodes.music.constants.floatingNavBarEnabledKey
+import com.jussicodes.music.constants.playerBackgroundBlurEnabledKey
 import com.jussicodes.music.animation.MotionDuration
 import com.jussicodes.music.animation.MotionSpec
 import com.jussicodes.music.animation.MotionDefaults
@@ -127,6 +128,7 @@ fun MainScreen() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val floatingNavBarEnabled by rememberPreference(floatingNavBarEnabledKey, false)
+    val playerBackgroundBlurEnabled by rememberPreference(playerBackgroundBlurEnabledKey, false)
     val activeNavTabs = if (floatingNavBarEnabled) floatingNavTabs else tabs
     val isHomeRoute =
         currentDestination?.hierarchy?.any { tabs.any { tab -> it.route == tab.route } } == true
@@ -509,8 +511,19 @@ fun MainScreen() {
 
             // Expanded（大屏）左侧竖排导航栏；Compact/Medium 保持底部横条。
             // 两者只在这里分叉：rail 占左侧固定宽度，内容区限宽居中（AdaptiveContent）。
-            // 移除全屏动态高斯模糊以杜绝上滑播放器时的 GPU 掉帧与整屏重绘，景深层次由下方的硬件加速暗色遮罩承载。
-            Row(Modifier.fillMaxSize()) {
+            // 动态高斯模糊受设置项「上滑背景高斯模糊」控制，默认关闭以减少掉帧。
+            val bgBlurRadius = if (playerBackgroundBlurEnabled && miniPlayerDragProgress > 0.01f) {
+                (miniPlayerDragProgress * 18f).dp
+            } else 0.dp
+            Row(
+                Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (playerBackgroundBlurEnabled && miniPlayerDragProgress > 0.01f) {
+                            Modifier.blur(bgBlurRadius)
+                        } else Modifier
+                    )
+            ) {
                 if (useNavigationRail && showNavigationBar) {
                     AdaptiveNavigationRail(
                         currentRoute = currentDestination?.route,

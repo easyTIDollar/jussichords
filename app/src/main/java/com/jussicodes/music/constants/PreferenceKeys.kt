@@ -88,4 +88,6 @@ val cacheAutoCleanThresholdKey = longPreferencesKey("cacheAutoCleanThresholdByte
 val sleepTimerShortcutsKey = stringPreferencesKey("sleepTimerShortcuts")
 /** 悬浮胶囊底栏开关，默认关闭。 */
 val floatingNavBarEnabledKey = booleanPreferencesKey("floatingNavBarEnabled")
+/** 上滑播放器时是否对背景执行动态高斯模糊（默认关闭以减少掉帧）。 */
+val playerBackgroundBlurEnabledKey = booleanPreferencesKey("playerBackgroundBlurEnabled")
 
