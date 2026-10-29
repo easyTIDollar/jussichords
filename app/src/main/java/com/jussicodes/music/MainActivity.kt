@@ -51,6 +51,7 @@ import com.rcmiku.ncmapi.utils.FileProvider
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.android.awaitFrame
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -114,13 +115,10 @@ class MainActivity : ComponentActivity() {
                     dataStore.data.first()[ignoredUpdateVersionKey].orEmpty()
                 }
                 // 每次打开都检查更新（不看节流窗口）。
-                // 放在独立协程里跑，不能挡在私信缓存预热前面：网络最坏 30s
-                //（两个源各 15s 超时），挡着就等于启动被更新检查拖住。
-                // 两步走：
-                //  1. 先读缓存，零网络、立刻把上次发现的更新弹出来（避免联网前空窗）；
-                //  2. 再 force=true 强制联网查一次，命中新版本就覆盖弹窗。
-                // 这样「每次打开都检查」，离线时也不会因为联网失败而看不到已知更新。
+                // 启动关键路径让路首屏：延迟 600ms 等主界面首帧与各列表完全渲染落定，
+                // 再启动后台更新检查与私信缓存预热，消除冷启动争抢 CPU 导致的初次操作顿挫。
                 lifecycleScope.launch {
+                    delay(600)
                     UpdateCheckCoordinator.cachedUpdate(applicationContext)?.let { info ->
                         if (info.versionName != ignoredVersion) {
                             pendingUpdateInfo = info
@@ -133,9 +131,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 私信会话缓存预热：并行拉 /msg/private + /msg/recentcontact，
-                // 之后分享菜单/消息页首屏直接读缓存，不再现场等网络
-                MsgSessionCache.ensureLoaded(lifecycleScope)
+                // 私信会话缓存预热：同样错峰 600ms，之后分享菜单/消息页直接读缓存
+                lifecycleScope.launch {
+                    delay(600)
+                    MsgSessionCache.ensureLoaded(lifecycleScope)
+                }
             }
 
             LaunchedEffect(Unit) {

@@ -257,7 +257,8 @@ fun MiniPlayer(
                     .clickable { onClick() }
                     .clipToBounds()
             ) {
-                ArtworkGlassBackdrop(artwork = mediaMetadata.artworkUri)
+                // 移除此处冗余的 ArtworkGlassBackdrop：外层 PlayerTransform 容器已全量承载磨砂玻璃底板，
+                // 消除双重高斯模糊计算与重复图片请求产生的绘制开销。
 
                 // 悬浮胶囊底栏模式：以小播放器自身作为流体进度条（主题色半透明充盈）
                 if (isPillProgress) {

@@ -289,8 +289,16 @@ fun PlayerTransform(
                 )
 
                 // 全屏播放器层（带 touchSlop 下拉手势，绝不误拦截左上角返回按钮等子组件点击）
-                // 仅在展开态或手势拖拽中挂载，收起态彻底卸载，绝不遮挡小播放器手势
-                val shouldComposeFullPlayer = isFullyExpanded || progress > 0.001f
+                // 优化冷启动与上滑体验：0~20% 属于手势起手/小播放器淡出阶段（此时 fullPlayerAlpha 恒为 0，视觉完全不可见），
+                // 仅在拖拽过 20% 或确认展开（点击/信号）时才挂载巨型 Player 树，消灭刚启动/轻碰小播放器时的首帧组合卡死；
+                // 一旦挂载后在拖动过程中保持稳定存活，直到完全收起才卸载释放资源。
+                var fullPlayerActive by remember { mutableStateOf(false) }
+                if (isFullyExpanded || isExpanded || progress >= 0.20f || (sheetTranslationY.isRunning && sheetTranslationY.targetValue == 0f)) {
+                    fullPlayerActive = true
+                } else if (progress <= 0.001f && !isExpanded && !sheetTranslationY.isRunning) {
+                    fullPlayerActive = false
+                }
+                val shouldComposeFullPlayer = fullPlayerActive
                 if (shouldComposeFullPlayer) {
                     Box(
                         modifier = Modifier

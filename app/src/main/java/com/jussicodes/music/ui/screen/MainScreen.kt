@@ -360,12 +360,12 @@ fun MainScreen() {
                     exit = shrinkVertically()
                 ) {
                     val navBarFullHeight = BottomNavigationHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                    val navBarExitProgress = (miniPlayerDragProgress * 3f).coerceIn(0f, 1f)
                     NavigationBar(
                         modifier = Modifier
                             .graphicsLayer {
+                                val exitProgress = (miniPlayerDragProgress * 3f).coerceIn(0f, 1f)
                                 val maxPressDownPx = navBarFullHeight.toPx()
-                                translationY = navBarExitProgress * maxPressDownPx
+                                translationY = exitProgress * maxPressDownPx
                             }
                             .height(BottomNavigationHeight),
                         containerColor = MaterialTheme.colorScheme.surface,
@@ -509,16 +509,8 @@ fun MainScreen() {
 
             // Expanded（大屏）左侧竖排导航栏；Compact/Medium 保持底部横条。
             // 两者只在这里分叉：rail 占左侧固定宽度，内容区限宽居中（AdaptiveContent）。
-            val bgBlurRadius = (miniPlayerDragProgress * 18f).dp
-            Row(
-                Modifier
-                    .fillMaxSize()
-                    .then(
-                        if (miniPlayerDragProgress > 0.01f) {
-                            Modifier.blur(bgBlurRadius)
-                        } else Modifier
-                    )
-            ) {
+            // 移除全屏动态高斯模糊以杜绝上滑播放器时的 GPU 掉帧与整屏重绘，景深层次由下方的硬件加速暗色遮罩承载。
+            Row(Modifier.fillMaxSize()) {
                 if (useNavigationRail && showNavigationBar) {
                     AdaptiveNavigationRail(
                         currentRoute = currentDestination?.route,
@@ -552,15 +544,15 @@ fun MainScreen() {
                 }
             }
 
-            // 向上滑动播放器时的由浅入深暗色遮罩与景深层次
-            val scrimAlpha = (miniPlayerDragProgress * 0.45f).coerceIn(0f, 0.45f)
-            if (scrimAlpha > 0.001f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = scrimAlpha))
-                )
-            }
+            // 向上滑动播放器时的由浅入深暗色遮罩与景深层次（在 Draw 阶段消费 alpha，完全避免主屏幕重组）
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = (miniPlayerDragProgress * 0.45f).coerceIn(0f, 0.45f)
+                    }
+                    .background(Color.Black)
+            )
 
             // 悬浮胶囊底栏：浮在内容层与背景图之上，胶囊周围完全透明穿透
             if (floatingNavBarEnabled && !useNavigationRail) {
@@ -570,7 +562,6 @@ fun MainScreen() {
                         .zIndex(0.9f),
                     contentAlignment = Alignment.BottomCenter
                 ) {
-                    val navBarExitProgress = (miniPlayerDragProgress * 3f).coerceIn(0f, 1f)
                     AnimatedVisibility(
                         visible = showNavigationBar,
                         enter = fadeIn(MotionSpec.screenEnter()) + expandVertically(),
@@ -578,8 +569,9 @@ fun MainScreen() {
                     ) {
                         FloatingBottomNavBar(
                             modifier = Modifier.graphicsLayer {
+                                val exitProgress = (miniPlayerDragProgress * 3f).coerceIn(0f, 1f)
                                 val maxPressDownPx = floatingNavBarFullHeight.toPx()
-                                translationY = navBarExitProgress * maxPressDownPx
+                                translationY = exitProgress * maxPressDownPx
                             },
                             displayTabs = floatingNavTabs,
                             isHomeRoute = isHomeRoute,
