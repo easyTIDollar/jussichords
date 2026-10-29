@@ -52,6 +52,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,7 +78,14 @@ import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.MiniPlayerHeight
+import com.jussicodes.music.extensions.playMediaAt
+import com.jussicodes.music.extensions.setPlaylist
+import com.jussicodes.music.ui.screen.PERSONAL_FM_SOURCE
+import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
+import com.jussicodes.music.utils.PlayerExpandBus
+import kotlinx.coroutines.launch
 import com.jussicodes.music.data.HomeBgTextStore
 import com.jussicodes.music.data.HomeTransparentCardStore
 import com.jussicodes.music.data.HomeUserInfoStore
@@ -142,7 +150,41 @@ fun LibraryScreen(
     // 卡片 + LazyColumn 整块不渲染（用户报的"闪未登录提示框/信息卡片闪白"）。
     val ncmCookie by NcmCookieStore.cookie.collectAsState()
     // 小播放器是否显示（有歌在队列）：末尾避让空白块只在有歌时留。
-    val hasMiniPlayer = (LocalPlayerState.current?.player?.mediaItemCount ?: 0) != 0
+    val playerState = LocalPlayerState.current
+    val hasMiniPlayer = (playerState?.player?.mediaItemCount ?: 0) != 0
+    val coroutineScope = rememberCoroutineScope()
+    var isStartingRoam by remember { mutableStateOf(false) }
+
+    fun launchPersonalFm() {
+        val player = playerState?.player ?: return
+        val currentSourceName = playerState.currentMediaItem?.mediaMetadata?.extras
+            ?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME)
+        val isPersonalFm = currentSourceName == PERSONAL_FM_SOURCE
+
+        if (isPersonalFm && player.currentMediaItem != null) {
+            PlayerExpandBus.expand()
+            return
+        }
+        if (isStartingRoam) return
+        isStartingRoam = true
+        coroutineScope.launch {
+            try {
+                PersonalFmQueueLoader.load().onSuccess { songs ->
+                    if (songs.isNotEmpty()) {
+                        player.setPlaylist(
+                            songs = songs,
+                            sourceName = PERSONAL_FM_SOURCE,
+                            sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM
+                        )
+                        player.playMediaAt(0)
+                        PlayerExpandBus.expand()
+                    }
+                }
+            } finally {
+                isStartingRoam = false
+            }
+        }
+    }
     val userInfoBatchState by libraryScreenViewModel.userInfo.collectAsState()
     // 信息卡内容走进程级 store（PinnedAlbumStore 同款）：VM 的 collectAsState 首帧可能出 null
     // （userInfo 门控整卡 / userDetail 无缓存恒 null）→ 切 tab 重组闪一下；进程级首帧即真值。
@@ -294,7 +336,7 @@ fun LibraryScreen(
                             avatarCacheVersion = avatarCacheVersion,
                             followsCount = homeUserDetail?.profile?.followsCount,
                             followedsCount = homeUserDetail?.profile?.followedsCount,
-                            onRoamClick = { navController.navigate(Screen.Roam.route) },
+                            onRoamClick = { launchPersonalFm() },
                             onRecentPlayClick = { navController.navigate(Screen.RecentPlay.route) },
                             onMessagesClick = { navController.navigate(Screen.Messages.route) },
                             onRecordClick = { navController.navigate(RecordNav(uid = it.account.profile.userId)) },

@@ -195,27 +195,35 @@ fun MainScreen() {
     LaunchedEffect(
         playerState?.currentMediaItem,
         playerState?.mediaItemIndex,
-        playerState?.timeline?.windowCount
+        playerState?.timeline?.windowCount,
+        playerState?.playbackState
     ) {
         val player = playerState?.player ?: return@LaunchedEffect
         val sourceName = playerState.currentMediaItem?.mediaMetadata?.extras
             ?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME)
         if (sourceName != PERSONAL_FM_SOURCE) return@LaunchedEffect
 
+        val isEnded = playerState.playbackState == Player.STATE_ENDED
         val itemCount = player.mediaItemCount
-        if (itemCount == 0 || player.currentMediaItemIndex < itemCount - 2) return@LaunchedEffect
+        val shouldPreload = itemCount > 0 && player.currentMediaItemIndex >= itemCount - 2
+        if (!isEnded && !shouldPreload) return@LaunchedEffect
 
         PersonalFmQueueLoader.load().onSuccess { songs ->
             val existingIds = (0 until player.mediaItemCount)
                 .mapTo(mutableSetOf()) { player.getMediaItemAt(it).mediaId }
             val newSongs = songs.filter { it.id.toString() !in existingIds }
             if (newSongs.isNotEmpty()) {
+                val wasEnded = player.playbackState == Player.STATE_ENDED
+                val startIndex = player.mediaItemCount
                 player.addMediaItems(
                     newSongs.toMediaItemList(
                         sourceName = PERSONAL_FM_SOURCE,
                         sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM
                     )
                 )
+                if (wasEnded) {
+                    player.playMediaAt(startIndex)
+                }
             }
         }
     }

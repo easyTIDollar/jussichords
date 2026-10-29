@@ -136,8 +136,9 @@ fun PlayerTransform(
             }
         }
 
-        // 外部信号（如私信一起听进房成功）请求展开全屏播放界面
-        var lastExpanded by remember { mutableStateOf(expandSignal) }
+        // 外部信号（如私信一起听进房成功、主页点击私人 FM 电台）请求展开全屏播放界面。
+        // 初值恒为 0L：冷启动空播放器首次加载并展开时，expandSignal > 0 能被正确捕获触发。
+        var lastExpanded by remember { mutableStateOf(0L) }
         LaunchedEffect(expandSignal) {
             if (expandSignal > lastExpanded) {
                 lastExpanded = expandSignal
