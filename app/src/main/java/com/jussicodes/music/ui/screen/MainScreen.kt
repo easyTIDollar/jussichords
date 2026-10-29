@@ -79,6 +79,7 @@ import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.media3.common.Player
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.BottomNavigationHeight
@@ -106,6 +107,7 @@ import com.jussicodes.music.ui.components.floatingNavTabs
 import com.jussicodes.music.ui.components.tabs
 import com.jussicodes.music.ui.navigation.NavGraph
 import com.jussicodes.music.ui.navigation.Screen
+import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.toMediaItemList
 import com.jussicodes.music.utils.MenuSnackbarBus
 import com.jussicodes.music.utils.MiniPlayerHiddenBus
