@@ -186,8 +186,8 @@ fun SettingsScreen(
     )
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
-    var floatingNavBarEnabled by rememberPreference(floatingNavBarEnabledKey, false)
-    var playerBackgroundBlurEnabled by rememberPreference(playerBackgroundBlurEnabledKey, false)
+    var floatingNavBarEnabled by rememberPreference(floatingNavBarEnabledKey, true)
+    var playerBackgroundBlurEnabled by rememberPreference(playerBackgroundBlurEnabledKey, true)
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
     // 音源三选一（LX / 内置直连 / 代理）。旧选择由 JetMeloApp 里的一次性迁移清掉，

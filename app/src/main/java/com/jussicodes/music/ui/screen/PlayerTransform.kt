@@ -83,7 +83,7 @@ fun PlayerTransform(
     navController: NavHostController,
     expandSignal: Long = 0L,
     bottomPadding: Dp = 0.dp,
-    floatingNavBarEnabled: Boolean = false,
+    floatingNavBarEnabled: Boolean = true,
     onDragProgressChange: (Float) -> Unit = {},
 ) {
     val coroutineScope = rememberCoroutineScope()

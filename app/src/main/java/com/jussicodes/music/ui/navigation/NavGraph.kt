@@ -60,7 +60,7 @@ fun NavGraph(
     homePagerState: PagerState,
     onHomePageChange: (Int) -> Unit,
     onHomePageScroll: (Float) -> Unit,
-    floatingNavBarEnabled: Boolean = false
+    floatingNavBarEnabled: Boolean = true
 ) {
     // The two home destinations (library/explore) render the same HorizontalPager;
     // switching between them is route bookkeeping only (driven by MainScreen's

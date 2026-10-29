@@ -127,8 +127,8 @@ fun MainScreen() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
-    val floatingNavBarEnabled by rememberPreference(floatingNavBarEnabledKey, false)
-    val playerBackgroundBlurEnabled by rememberPreference(playerBackgroundBlurEnabledKey, false)
+    val floatingNavBarEnabled by rememberPreference(floatingNavBarEnabledKey, true)
+    val playerBackgroundBlurEnabled by rememberPreference(playerBackgroundBlurEnabledKey, true)
     val activeNavTabs = if (floatingNavBarEnabled) floatingNavTabs else tabs
     val isHomeRoute =
         currentDestination?.hierarchy?.any { tabs.any { tab -> it.route == tab.route } } == true

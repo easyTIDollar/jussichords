@@ -86,8 +86,8 @@ val cacheAutoCleanThresholdKey = longPreferencesKey("cacheAutoCleanThresholdByte
  * 顶部快捷选择里除了内置档位，还会把这里保存的档位一并列出。
  */
 val sleepTimerShortcutsKey = stringPreferencesKey("sleepTimerShortcuts")
-/** 悬浮胶囊底栏开关，默认关闭。 */
+/** 悬浮胶囊底栏开关，默认开启。 */
 val floatingNavBarEnabledKey = booleanPreferencesKey("floatingNavBarEnabled")
-/** 上滑播放器时是否对背景执行动态高斯模糊（默认关闭以减少掉帧）。 */
+/** 上滑播放器时是否对背景执行动态高斯模糊（默认开启，低配掉帧可关闭）。 */
 val playerBackgroundBlurEnabledKey = booleanPreferencesKey("playerBackgroundBlurEnabled")
 
