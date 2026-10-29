@@ -80,7 +80,7 @@ fun NavGraph(
                 if (isHomeToHome) {
                     EnterTransition.None
                 } else {
-                    MotionSpec.pixelScreenEnter()
+                    MotionSpec.spatialScreenEnter()
                 }
             },
             exitTransition = {
@@ -89,7 +89,7 @@ fun NavGraph(
                 if (isHomeToHome) {
                     ExitTransition.None
                 } else {
-                    MotionSpec.pixelScreenExit()
+                    MotionSpec.spatialScreenExit()
                 }
             },
             popEnterTransition = {
@@ -98,7 +98,7 @@ fun NavGraph(
                 if (isHomeToHome) {
                     EnterTransition.None
                 } else {
-                    MotionSpec.pixelScreenPopEnter()
+                    MotionSpec.spatialScreenPopEnter()
                 }
             },
             popExitTransition = {
@@ -107,7 +107,7 @@ fun NavGraph(
                 if (isHomeToHome) {
                     ExitTransition.None
                 } else {
-                    MotionSpec.pixelScreenPopExit()
+                    MotionSpec.spatialScreenPopExit()
                 }
             }
         ) {

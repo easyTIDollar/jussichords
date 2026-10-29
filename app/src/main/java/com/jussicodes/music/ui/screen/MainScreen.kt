@@ -254,10 +254,8 @@ fun MainScreen() {
         }
     }
 
-    // 从二级页返回/跳到某个首页 tab 时，把 pager 对到那一页。
-    //只在「上一个路由不是 tab 路由」时才强制 scrollToPage：首页内部路由恒为
-    // Library（pager 不再反调 navigateRootTab），若这里无条件 scroll 回index 0，
-    // 从二级页返回就会把用户原本停在「探索」的 pager 拽回「我的」。
+    // 监听路由变化：从二级页返回时保持用户离开首页时的 Pager 停靠页，不强制篡改；
+    // 胶囊底栏开启时若导航到 settings 则自动转为内部 Pager 第 2 页。
     var previousRoute by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(currentDestination?.route) {
         val route = currentDestination?.route
@@ -272,17 +270,7 @@ fun MainScreen() {
             }
             return@LaunchedEffect
         }
-        val cameFromNonTab = previousRoute != null &&
-            activeNavTabs.none { tab -> tab.route == previousRoute }
         previousRoute = route
-        val targetPage = activeNavTabs.indexOfFirst { it.route == route }.takeIf { it >= 0 }
-        if (targetPage != null && cameFromNonTab) {
-            homePage = targetPage
-            homePageScroll = targetPage.toFloat()
-            if (homePagerState.currentPage != targetPage || homePagerState.currentPageOffsetFraction != 0f) {
-                homePagerState.scrollToPage(targetPage)
-            }
-        }
     }
 
     // 监听进入主页背景编辑模式（更换壁纸 / 在主页中调整）：
@@ -296,12 +284,12 @@ fun MainScreen() {
     }
 
     fun navigateRootTab(route: String) {
-        navController.navigate(route) {
-            popUpTo(navController.graph.findStartDestination().id) {
-                saveState = true
+        val targetPage = activeNavTabs.indexOfFirst { it.route == route }.takeIf { it >= 0 } ?: 0
+        navController.popBackStack(Screen.Library.route, inclusive = false)
+        coroutineScope.launch {
+            if (homePagerState.currentPage != targetPage) {
+                homePagerState.scrollToPage(targetPage)
             }
-            launchSingleTop = true
-            restoreState = true
         }
     }
 

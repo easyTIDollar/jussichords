@@ -11,13 +11,11 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.unit.Dp
+import kotlin.math.roundToInt
 
 /**
  * 全 App 动效 Token。
@@ -31,11 +29,14 @@ import androidx.compose.ui.unit.Dp
  * 保证本次重构**不改变任何现有动画行为**；调用方迁移完成后旧常量再逐步退场。
  */
 object MotionDuration {
-    /** 二级页推入 / 返回时的页面淡入。 */
-    const val ScreenEnter: Int = 400
+    /** 二级页推入 / 返回时的页面淡入。方案 3 紧凑呼吸 280ms。 */
+    const val ScreenEnter: Int = 280
 
-    /** 二级页退出 / 页面淡出。保持适度紧凑，兼顾平滑过渡。 */
-    const val ScreenExit: Int = 200
+    /** 二级页退出 / 页面淡出。保持适度紧凑，兼顾平滑过渡（150ms）。 */
+    const val ScreenExit: Int = 150
+
+    /** 二级页返回恢复上一页淡入时长（200ms）。 */
+    const val ScreenPopEnter: Int = 200
 
     /**
      * 播放面板状态切换（Mini ↔ Full ↔ Queue ↔ Lyric）的淡入时长。
@@ -66,20 +67,11 @@ object MotionDuration {
 
     /** 缓存进度条等较长但仍属于"读数跟随"的动画。 */
     const val ProgressIndicator: Int = 600
-
-    /** Pixel 风格二级详情页进出动画时长（450ms）。 */
-    const val PixelScreenTransition: Int = 450
-
-    /** Pixel 风格退场/恢复半程淡入淡出时长（225ms）。 */
-    const val PixelScreenTransitionHalf: Int = 225
 }
 
 object MotionEasing {
     /** 进入 / 淡入：Material 3 Emphasized Decelerate。 */
     val decelerate: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
-
-    /** Pixel 风格页面进入减速：CubicBezierEasing(0.2f, 0.85f, 0.7f, 1f)。 */
-    val pixelDecelerate: Easing = CubicBezierEasing(0.2f, 0.85f, 0.7f, 1f)
 
     /** 退出 / 淡出：Material 3 Emphasized Accelerate。 */
     val accelerate: Easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
@@ -187,51 +179,31 @@ object MotionSpec {
     fun indicatorShift(): FiniteAnimationSpec<Dp> =
         tween(durationMillis = MotionDuration.LayoutShift, easing = MotionEasing.standard)
 
-    /** Pixel 风格二级详情页推入进场（从右向左滑入 50% + 0.92 缩放放大 + 全程淡入）。 */
-    fun pixelScreenEnter(): EnterTransition =
-        slideInHorizontally(
-            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.pixelDecelerate),
-            initialOffsetX = { (it * 0.5f).toInt() }
-        ) + scaleIn(
-            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.pixelDecelerate),
-            initialScale = 0.92f,
-            transformOrigin = TransformOrigin(0.5f, 0.5f)
-        ) + fadeIn(
-            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.accelerate)
+    /** 方案 3：微呼吸纵向浮现进场（垂直微浮升 5% + 280ms 柔和淡入，零缩放零横向晃动）。 */
+    fun spatialScreenEnter(): EnterTransition =
+        fadeIn(
+            animationSpec = tween(MotionDuration.ScreenEnter, easing = MotionEasing.decelerate)
+        ) + slideInVertically(
+            animationSpec = tween(MotionDuration.ScreenEnter, easing = MotionEasing.decelerate)
+        ) { (it * 0.05f).roundToInt() }
+
+    /** 方案 3：底页让位退出（原地 150ms 静谧加速淡出）。 */
+    fun spatialScreenExit(): ExitTransition =
+        fadeOut(
+            animationSpec = tween(MotionDuration.ScreenExit, easing = MotionEasing.accelerate)
         )
 
-    /** Pixel 风格底页让位退出（向左视差退位 -25% + 225ms 半程淡出）。 */
-    fun pixelScreenExit(): ExitTransition =
-        slideOutHorizontally(
-            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.accelerate),
-            targetOffsetX = { -(it * 0.25f).toInt() }
-        ) + fadeOut(
-            animationSpec = tween(MotionDuration.PixelScreenTransitionHalf, easing = MotionEasing.accelerate)
+    /** 方案 3：返回恢复上一页进场（原地 200ms 优雅淡入恢复）。 */
+    fun spatialScreenPopEnter(): EnterTransition =
+        fadeIn(
+            animationSpec = tween(MotionDuration.ScreenPopEnter, easing = MotionEasing.decelerate)
         )
 
-    /** Pixel 风格返回上一页恢复进场（从左侧 -25% 视差滑回 + 0.95 缩放回弹 + 225ms 半程淡入）。 */
-    fun pixelScreenPopEnter(): EnterTransition =
-        slideInHorizontally(
-            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.pixelDecelerate),
-            initialOffsetX = { -(it * 0.25f).toInt() }
-        ) + scaleIn(
-            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.pixelDecelerate),
-            initialScale = 0.95f,
-            transformOrigin = TransformOrigin(0.5f, 0.5f)
-        ) + fadeIn(
-            animationSpec = tween(MotionDuration.PixelScreenTransitionHalf, easing = MotionEasing.pixelDecelerate)
-        )
-
-    /** Pixel 风格当前页返回退出（向右滑出 50% + 0.92 缩放微缩 + 225ms 半程淡出）。 */
-    fun pixelScreenPopExit(): ExitTransition =
-        slideOutHorizontally(
-            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.accelerate),
-            targetOffsetX = { (it * 0.5f).toInt() }
-        ) + scaleOut(
-            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.accelerate),
-            targetScale = 0.92f,
-            transformOrigin = TransformOrigin(0.5f, 0.5f)
-        ) + fadeOut(
-            animationSpec = tween(MotionDuration.PixelScreenTransitionHalf, easing = MotionEasing.accelerate)
-        )
+    /** 方案 3：当前页返回退出（垂直微下沉 5% + 150ms 加速淡出）。 */
+    fun spatialScreenPopExit(): ExitTransition =
+        fadeOut(
+            animationSpec = tween(MotionDuration.ScreenExit, easing = MotionEasing.accelerate)
+        ) + slideOutVertically(
+            animationSpec = tween(MotionDuration.ScreenExit, easing = MotionEasing.accelerate)
+        ) { (it * 0.05f).roundToInt() }
 }
