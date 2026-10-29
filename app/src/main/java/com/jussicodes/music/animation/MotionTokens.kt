@@ -1,5 +1,7 @@
 package com.jussicodes.music.animation
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.PathEasing
@@ -7,7 +9,14 @@ import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.unit.Dp
 
 /**
@@ -57,11 +66,20 @@ object MotionDuration {
 
     /** 缓存进度条等较长但仍属于"读数跟随"的动画。 */
     const val ProgressIndicator: Int = 600
+
+    /** Pixel 风格二级详情页进出动画时长（450ms）。 */
+    const val PixelScreenTransition: Int = 450
+
+    /** Pixel 风格退场/恢复半程淡入淡出时长（225ms）。 */
+    const val PixelScreenTransitionHalf: Int = 225
 }
 
 object MotionEasing {
     /** 进入 / 淡入：Material 3 Emphasized Decelerate。 */
     val decelerate: Easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
+
+    /** Pixel 风格页面进入减速：CubicBezierEasing(0.2f, 0.85f, 0.7f, 1f)。 */
+    val pixelDecelerate: Easing = CubicBezierEasing(0.2f, 0.85f, 0.7f, 1f)
 
     /** 退出 / 淡出：Material 3 Emphasized Accelerate。 */
     val accelerate: Easing = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
@@ -168,4 +186,52 @@ object MotionSpec {
      */
     fun indicatorShift(): FiniteAnimationSpec<Dp> =
         tween(durationMillis = MotionDuration.LayoutShift, easing = MotionEasing.standard)
+
+    /** Pixel 风格二级详情页推入进场（从右向左滑入 50% + 0.92 缩放放大 + 全程淡入）。 */
+    fun pixelScreenEnter(): EnterTransition =
+        slideInHorizontally(
+            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.pixelDecelerate),
+            initialOffsetX = { (it * 0.5f).toInt() }
+        ) + scaleIn(
+            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.pixelDecelerate),
+            initialScale = 0.92f,
+            transformOrigin = TransformOrigin(0.5f, 0.5f)
+        ) + fadeIn(
+            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.accelerate)
+        )
+
+    /** Pixel 风格底页让位退出（向左视差退位 -25% + 225ms 半程淡出）。 */
+    fun pixelScreenExit(): ExitTransition =
+        slideOutHorizontally(
+            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.accelerate),
+            targetOffsetX = { -(it * 0.25f).toInt() }
+        ) + fadeOut(
+            animationSpec = tween(MotionDuration.PixelScreenTransitionHalf, easing = MotionEasing.accelerate)
+        )
+
+    /** Pixel 风格返回上一页恢复进场（从左侧 -25% 视差滑回 + 0.95 缩放回弹 + 225ms 半程淡入）。 */
+    fun pixelScreenPopEnter(): EnterTransition =
+        slideInHorizontally(
+            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.pixelDecelerate),
+            initialOffsetX = { -(it * 0.25f).toInt() }
+        ) + scaleIn(
+            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.pixelDecelerate),
+            initialScale = 0.95f,
+            transformOrigin = TransformOrigin(0.5f, 0.5f)
+        ) + fadeIn(
+            animationSpec = tween(MotionDuration.PixelScreenTransitionHalf, easing = MotionEasing.pixelDecelerate)
+        )
+
+    /** Pixel 风格当前页返回退出（向右滑出 50% + 0.92 缩放微缩 + 225ms 半程淡出）。 */
+    fun pixelScreenPopExit(): ExitTransition =
+        slideOutHorizontally(
+            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.accelerate),
+            targetOffsetX = { (it * 0.5f).toInt() }
+        ) + scaleOut(
+            animationSpec = tween(MotionDuration.PixelScreenTransition, easing = MotionEasing.accelerate),
+            targetScale = 0.92f,
+            transformOrigin = TransformOrigin(0.5f, 0.5f)
+        ) + fadeOut(
+            animationSpec = tween(MotionDuration.PixelScreenTransitionHalf, easing = MotionEasing.accelerate)
+        )
 }
