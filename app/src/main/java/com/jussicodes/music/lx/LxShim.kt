@@ -121,8 +121,10 @@ object LxShim {
                         action: 'musicUrl',
                         info: {
                             type: quality,
-                            musicInfo: musicInfo
-                        }
+                            musicInfo: musicInfo,
+                            quality: quality
+                        },
+                        quality: quality
                     });
                 }).then(function(result) {
                     var url = typeof result === 'string' ? result : (result && result.url ? result.url : null);

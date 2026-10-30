@@ -849,13 +849,13 @@ private fun DownloadingSongItem(
                     "$downloadedStr / $totalStr$speed"
                 }
                 DownloadStatus.PAUSED -> "已暂停"
-                DownloadStatus.ERROR -> task.errorMsg ?: "下载失败"
+                DownloadStatus.FAILED -> task.errorMsg ?: "下载失败"
                 else -> "等待中…"
             }
             Text(
                 text = statusDesc,
                 style = MaterialTheme.typography.bodySmall,
-                color = if (task.status == DownloadStatus.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (task.status == DownloadStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Spacer(Modifier.height(4.dp))
@@ -886,7 +886,7 @@ private fun DownloadingSongItem(
                         Icon(Icons.Outlined.Pause, contentDescription = "暂停")
                     }
                 }
-                DownloadStatus.PAUSED, DownloadStatus.ERROR -> {
+                DownloadStatus.PAUSED, DownloadStatus.FAILED -> {
                     IconButton(onClick = onResume) {
                         Icon(Icons.Outlined.PlayArrow, contentDescription = "继续")
                     }
