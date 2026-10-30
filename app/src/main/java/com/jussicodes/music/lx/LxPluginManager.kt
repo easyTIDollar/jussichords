@@ -322,7 +322,7 @@ object LxPluginManager {
      * 智能获取当前全部启用音源支持的网易云档位集合。
      */
     fun getSupportedWyQualities(): Set<String> {
-        val enabled = LxPluginStore.snapshot().filter { it.isEnabled }
+        val enabled = LxPluginStore.latest.value.filter { it.isEnabled }
         if (enabled.isEmpty()) {
             return setOf("128k", "320k", "flac", "flac24bit", "hires")
         }

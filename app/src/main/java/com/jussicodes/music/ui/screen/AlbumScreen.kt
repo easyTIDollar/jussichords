@@ -25,9 +25,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.CloudDownload
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Share
 import com.jussicodes.music.constants.downloadQualityKey
+import com.jussicodes.music.data.download.DownloadStore
 import com.jussicodes.music.download.DownloadManager
 import com.jussicodes.music.ui.components.DownloadQualityDialog
 import com.jussicodes.music.utils.rememberPreference
