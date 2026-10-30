@@ -101,6 +101,7 @@ fun PlayerMenuBottomSheet(
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
     var timePicker by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
     val downloadQuality by rememberPreference(downloadQualityKey, "ask")
     var openDownloadQualityDialog by rememberSaveable { mutableStateOf(false) }
     val isCurrentSongDownloaded = currentSong?.let { DownloadStore.isSongDownloaded(it.id) } == true
@@ -175,7 +176,6 @@ fun PlayerMenuBottomSheet(
             }
         }
     }
-    val context = LocalContext.current
     var cancelSleepTimer by rememberSaveable { mutableStateOf(false) }
     var openSongListBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openShareSheet by rememberSaveable { mutableStateOf(false) }
