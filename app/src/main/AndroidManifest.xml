@@ -64,6 +64,11 @@
             android:name=".lyric.DesktopLyricService"
             android:exported="false" />
 
+        <service
+            android:name=".download.DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <receiver
             android:name=".lyric.DesktopLyricRestoreReceiver"
             android:exported="false">

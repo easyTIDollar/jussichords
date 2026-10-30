@@ -635,7 +635,8 @@ class PlaybackService : MediaSessionService() {
                         val resolvedUri = withTimeout(resolveUrlTimeoutMs) {
                             updateMediaItemUri(
                                 dataSpec.uri,
-                                audioQuality
+                                audioQuality,
+                                this@PlaybackService
                             )
                         } ?: throw PlaybackException(
                             null,

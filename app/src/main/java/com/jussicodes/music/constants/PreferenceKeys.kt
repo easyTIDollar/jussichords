@@ -91,3 +91,12 @@ val floatingNavBarEnabledKey = booleanPreferencesKey("floatingNavBarEnabled")
 /** 上滑播放器时是否对背景执行动态高斯模糊（默认开启，低配掉帧可关闭）。 */
 val playerBackgroundBlurEnabledKey = booleanPreferencesKey("playerBackgroundBlurEnabled")
 
+/** 下载功能设置 */
+val downloadQualityKey = stringPreferencesKey("downloadQuality")
+val downloadWifiOnlyKey = booleanPreferencesKey("downloadWifiOnly")
+val downloadLrcKey = booleanPreferencesKey("downloadLrc")
+val downloadCoverKey = booleanPreferencesKey("downloadCover")
+val downloadCustomDirUriKey = stringPreferencesKey("downloadCustomDirUri")
+val downloadCustomDirNameKey = stringPreferencesKey("downloadCustomDirName")
+
+

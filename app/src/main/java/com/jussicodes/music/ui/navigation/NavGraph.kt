@@ -144,6 +144,9 @@ fun NavGraph(
             composable(Screen.DesktopLyricSettings.route) {
                 DesktopLyricSettingsScreen(navController = navController)
             }
+            composable(Screen.DownloadManager.route) {
+                com.jussicodes.music.ui.screen.DownloadScreen(navController = navController)
+            }
             composable<PlaylistNav> {
                 PlaylistScreen(
                     navController = navController,
