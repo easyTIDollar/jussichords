@@ -376,11 +376,12 @@ fun PlaylistScreen(
                                     }
                                 )
                             }
-                        },
-                    )
-                }
+                        }
+                    },
+                )
             }
-        ) { padding ->
+        }
+    ) { padding ->
             if (playlistDetailState == null) {
                 Box(
                     modifier = Modifier
