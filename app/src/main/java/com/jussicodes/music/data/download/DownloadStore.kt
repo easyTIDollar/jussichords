@@ -178,6 +178,51 @@ object DownloadStore {
         }
     }
 
+    suspend fun removeTasks(context: Context, songIds: Set<Long>) {
+        val appContext = context.applicationContext
+        mutex.withLock {
+            val current = _tasks.value.filterNot { it.songId in songIds }
+            _tasks.value = current
+            save(appContext, current)
+        }
+    }
+
+    /**
+     * 校验已下载任务的本地文件是否存在，移除已被用户在外部删除的死链。
+     * 返回清理掉的失效任务数量。
+     */
+    suspend fun verifyAndSyncLocalFiles(context: Context): Int {
+        val appContext = context.applicationContext
+        return mutex.withLock {
+            val current = _tasks.value
+            val valid = current.filter { task ->
+                if (task.status != DownloadStatus.COMPLETED) return@filter true
+                val pathStr = task.filePath
+                if (!pathStr.isNullOrBlank()) {
+                    val file = File(pathStr)
+                    if (file.exists() && file.length() > 0) return@filter true
+                }
+                val uriStr = task.fileUri
+                if (!uriStr.isNullOrBlank()) {
+                    val uri = Uri.parse(uriStr)
+                    val exists = runCatching {
+                        appContext.contentResolver.openFileDescriptor(uri, "r")?.use {
+                            it.statSize > 0
+                        } ?: false
+                    }.getOrDefault(false)
+                    if (exists) return@filter true
+                }
+                false
+            }
+            val removedCount = current.size - valid.size
+            if (removedCount > 0) {
+                _tasks.value = valid
+                save(appContext, valid)
+            }
+            removedCount
+        }
+    }
+
     private suspend fun save(context: Context, list: List<DownloadTask>) {
         runCatching {
             val raw = json.encodeToString(list)

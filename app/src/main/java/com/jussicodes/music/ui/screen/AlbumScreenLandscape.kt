@@ -205,21 +205,6 @@ fun AlbumLandscapeBody(
                 Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                 Text(text = "评论")
             }
-            if (onDownloadAll != null) {
-                OutlinedButton(
-                    onClick = onDownloadAll,
-                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.CloudDownload,
-                        contentDescription = null,
-                        modifier = Modifier.size(ButtonDefaults.IconSize)
-                    )
-                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                    Text(text = "下载")
-                }
-            }
         },
         listHeader = {
             if (searchActive) {

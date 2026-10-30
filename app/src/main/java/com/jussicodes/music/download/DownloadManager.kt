@@ -124,26 +124,34 @@ object DownloadManager {
     }
 
     fun deleteDownloaded(context: Context, songId: Long, deleteFile: Boolean = true) {
+        deleteDownloadedBatch(context, listOf(songId), deleteFile)
+    }
+
+    fun deleteDownloadedBatch(context: Context, songIds: Collection<Long>, deleteFiles: Boolean = true) {
         val appContext = context.applicationContext
         scope.launch {
-            activeCalls[songId]?.cancel()
-            activeJobs[songId]?.cancel()
-            val task = DownloadStore.getCompletedTask(songId)
-            if (deleteFile && task != null) {
-                runCatching {
-                    if (!task.filePath.isNullOrBlank()) {
-                        val f = File(task.filePath)
-                        if (f.exists()) f.delete()
-                    }
-                    if (!task.fileUri.isNullOrBlank()) {
-                        val uri = Uri.parse(task.fileUri)
-                        if (uri.scheme == "content") {
-                            appContext.contentResolver.delete(uri, null, null)
+            songIds.forEach { id ->
+                activeCalls[id]?.cancel()
+                activeJobs[id]?.cancel()
+            }
+            val tasks = DownloadStore.getAllTasks().filter { it.songId in songIds }
+            if (deleteFiles) {
+                tasks.forEach { task ->
+                    runCatching {
+                        if (!task.filePath.isNullOrBlank()) {
+                            val f = File(task.filePath)
+                            if (f.exists()) f.delete()
+                        }
+                        if (!task.fileUri.isNullOrBlank()) {
+                            val uri = Uri.parse(task.fileUri)
+                            if (uri.scheme == "content") {
+                                appContext.contentResolver.delete(uri, null, null)
+                            }
                         }
                     }
                 }
             }
-            DownloadStore.removeTask(appContext, songId)
+            DownloadStore.removeTasks(appContext, songIds.toSet())
             _serviceEvents.tryEmit(Unit)
         }
     }
@@ -575,34 +583,40 @@ object DownloadManager {
                 defaultDir.mkdirs()
             }
 
-            val openedDefault = runCatching {
-                val uri = androidx.core.content.FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    defaultDir
-                )
-                val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "resource/folder")
+            // 优先尝试调起系统文件管理器（MIUI/华为/OPPO/vivo/AOSP/Pixel）
+            val candidates = listOf(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(Uri.parse("content://com.android.externalstorage.documents/document/primary%3AMusic%2FJussichords"), "vnd.android.document/directory")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                },
+                Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+                Intent(Intent.ACTION_VIEW).apply {
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        defaultDir
+                    )
+                    setDataAndType(uri, "*/*")
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                context.startActivity(intent)
-                true
-            }.getOrDefault(false)
+            )
 
-            if (!openedDefault) {
-                // 回退到系统通用文档选择界面或提示绝对路径
-                runCatching {
-                    val fallbackIntent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(
-                            Uri.parse("content://media/external/file"),
-                            "vnd.android.document/directory"
-                        )
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    context.startActivity(fallbackIntent)
-                }.onFailure {
-                    Toast.makeText(context, "下载目录: ${defaultDir.absolutePath}", Toast.LENGTH_LONG).show()
+            var openedAny = false
+            for (intent in candidates) {
+                val ok = runCatching {
+                    context.startActivity(intent)
+                    true
+                }.getOrDefault(false)
+                if (ok) {
+                    openedAny = true
+                    break
                 }
+            }
+
+            if (!openedAny) {
+                Toast.makeText(context, "下载目录: ${defaultDir.absolutePath}", Toast.LENGTH_LONG).show()
             }
         }
     }

@@ -179,7 +179,7 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
     }
 
     val songId = uri.toResolveKey()
-    val idLong = songId.toLongOrNull()
+    val idLong = songId.substringBefore("?").toLongOrNull()
     if (context != null && idLong != null) {
         val localPlayable = com.jussicodes.music.data.download.DownloadStore.getCompletedPlayableUri(context, idLong)
         if (localPlayable != null) {
