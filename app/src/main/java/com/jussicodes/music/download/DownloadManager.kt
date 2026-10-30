@@ -87,7 +87,38 @@ object DownloadManager {
                     coverUrl = song.al?.picUrl.orEmpty(),
                     durationMs = song.dt,
                     quality = quality,
-                    status = DownloadStatus.PENDING
+                    status = DownloadStatus.PENDING,
+                    isAlbumFolder = false
+                )
+                DownloadStore.upsertTask(appContext, task)
+            }
+            triggerLoop(appContext)
+        }
+    }
+
+    /**
+     * 专供整张专辑下载：根据专辑分文件夹
+     */
+    fun enqueueAlbum(context: Context, songs: List<Song>, quality: String) {
+        val appContext = context.applicationContext
+        scope.launch {
+            for (song in songs) {
+                if (DownloadStore.getCompletedPlayableUri(appContext, song.id) != null) {
+                    continue
+                }
+                val artistStr = song.ar.joinToString("/") { it.name }
+                val task = DownloadTask(
+                    songId = song.id,
+                    title = song.name,
+                    artist = artistStr,
+                    album = song.al?.name.orEmpty(),
+                    artistId = song.ar.firstOrNull()?.id ?: 0L,
+                    albumId = song.al?.id ?: 0L,
+                    coverUrl = song.al?.picUrl.orEmpty(),
+                    durationMs = song.dt,
+                    quality = quality,
+                    status = DownloadStatus.PENDING,
+                    isAlbumFolder = true
                 )
                 DownloadStore.upsertTask(appContext, task)
             }
@@ -445,7 +476,7 @@ object DownloadManager {
                 val cleanTitle = sanitizeFileName("${task.artist} - ${task.title}")
                 val fileName = "$cleanTitle.$ext"
 
-                val subDirName = if (task.album.isNotBlank()) {
+                val subDirName = if (task.isAlbumFolder && task.album.isNotBlank()) {
                     sanitizeFileName(if (task.artist.isNotBlank()) "${task.artist} - ${task.album}" else task.album)
                 } else null
 

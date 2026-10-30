@@ -160,13 +160,17 @@ fun AlbumScreen(
     var openDownloadQualityDialog by rememberSaveable { mutableStateOf(false) }
     val downloadQuality by rememberPreference(downloadQualityKey, "ask")
 
+    val isAllDownloaded = remember(albumSongs) {
+        albumSongs.isNotEmpty() && albumSongs.all { DownloadStore.isSongDownloaded(it.id) }
+    }
+
     val triggerDownloadAlbum: (List<Song>) -> Unit = { list ->
         if (list.isNotEmpty()) {
             if (downloadQuality == "ask") {
                 pendingDownloadSongs = list
                 openDownloadQualityDialog = true
             } else {
-                DownloadManager.enqueueBatch(context, list, downloadQuality)
+                DownloadManager.enqueueAlbum(context, list, downloadQuality)
                 Toast.makeText(context, "已将专辑 ${list.size} 首歌曲加入下载队列", Toast.LENGTH_SHORT).show()
             }
         }
@@ -253,6 +257,7 @@ fun AlbumScreen(
                                 expanded = albumMenuExpanded,
                                 onDismiss = { albumMenuExpanded = false },
                                 isPinned = isPinned,
+                                isDownloaded = isAllDownloaded,
                                 onTogglePin = {
                                     albumMenuExpanded = false
                                     currentAlbum?.let { album ->
@@ -596,7 +601,7 @@ fun AlbumScreen(
             },
             onQualitySelected = { q ->
                 pendingDownloadSongs?.let { list ->
-                    DownloadManager.enqueueBatch(context, list, q)
+                    DownloadManager.enqueueAlbum(context, list, q)
                     Toast.makeText(context, "已将专辑 ${list.size} 首歌曲加入下载队列", Toast.LENGTH_SHORT).show()
                 }
                 openDownloadQualityDialog = false
@@ -616,7 +621,8 @@ fun AlbumOverflowMenu(
     isPinned: Boolean,
     onTogglePin: () -> Unit,
     onShare: () -> Unit,
-    onDownloadAll: (() -> Unit)? = null
+    onDownloadAll: (() -> Unit)? = null,
+    isDownloaded: Boolean = false
 ) {
     JussiDropdownMenu(
         expanded = expanded,
@@ -624,8 +630,8 @@ fun AlbumOverflowMenu(
     ) {
         if (onDownloadAll != null) {
             JussiMenuItem(
-                text = "下载整张专辑",
-                icon = Icons.Outlined.CloudDownload,
+                text = if (isDownloaded) "已下载" else "下载",
+                icon = Icons.Outlined.FileDownload,
                 onClick = onDownloadAll
             )
         }

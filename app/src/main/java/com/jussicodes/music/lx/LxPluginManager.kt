@@ -71,7 +71,8 @@ object LxPluginManager {
                 id = BUILTIN_ID,
                 name = "玉宁熙 Pro（内置）",
                 rawScript = script,
-                isEnabled = true
+                isEnabled = true,
+                wyQualities = listOf("128k", "320k", "flac", "flac24bit", "hires")
             )
         }
     }
@@ -94,8 +95,11 @@ object LxPluginManager {
             description = info.description,
             rawScript = script
         )
-        val sources = runCatching { engine?.verify(candidate).orEmpty() }.getOrDefault(emptyList())
-        val item = candidate.copy(sources = sources)
+        val verifyRes = runCatching { engine?.verify(candidate) }.getOrNull()
+        val item = candidate.copy(
+            sources = verifyRes?.sources.orEmpty(),
+            wyQualities = verifyRes?.wyQualities.orEmpty()
+        )
         val existing = LxPluginStore.snapshot().firstOrNull { it.name == item.name }
         return if (existing != null) ImportResult.Duplicate(existing, item) else ImportResult.Success(item)
     }
@@ -312,6 +316,21 @@ object LxPluginManager {
             }
         }
         return ScriptHeader(name, version, author, desc)
+    }
+
+    /**
+     * 智能获取当前全部启用音源支持的网易云档位集合。
+     */
+    fun getSupportedWyQualities(): Set<String> {
+        val enabled = LxPluginStore.snapshot().filter { it.isEnabled }
+        if (enabled.isEmpty()) {
+            return setOf("128k", "320k", "flac", "flac24bit", "hires")
+        }
+        val set = mutableSetOf<String>()
+        for (item in enabled) {
+            set.addAll(item.wyQualities)
+        }
+        return if (set.isEmpty()) setOf("128k", "320k", "flac", "flac24bit", "hires") else set
     }
 
     private const val MAX_WARM_PLUGINS = 5

@@ -108,10 +108,14 @@ fun AlbumLandscapeBody(
                         contentDescription = stringResource(R.string.more)
                     )
                 }
+                val isAllDownloaded = remember(songs) {
+                    songs.isNotEmpty() && songs.all { DownloadStore.isSongDownloaded(it.id) }
+                }
                 AlbumOverflowMenu(
                     expanded = menuExpanded,
                     onDismiss = { menuExpanded = false },
                     isPinned = isPinned,
+                    isDownloaded = isAllDownloaded,
                     onTogglePin = {
                         menuExpanded = false
                         onTogglePin()

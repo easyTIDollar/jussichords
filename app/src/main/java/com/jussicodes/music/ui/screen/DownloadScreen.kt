@@ -85,8 +85,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -335,6 +337,7 @@ private fun DownloadedListSection(
     onDelete: (Long, Boolean) -> Unit
 ) {
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
     val mediaController = LocalPlayerController.current.controller
     var pendingDeleteTask by remember { mutableStateOf<DownloadTask?>(null) }
@@ -473,7 +476,10 @@ private fun DownloadedListSection(
                         isSelectionMode = isSelectionMode,
                         isSelected = task.songId in selectedSongIds,
                         onClick = { onItemClick(task) },
-                        onLongClick = { onEnterSelection(task.songId) },
+                        onLongClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onEnterSelection(task.songId)
+                        },
                         onDeleteClick = { pendingDeleteTask = task },
                         onShareClick = { shareDownloadedFile(context, task) }
                     )
@@ -502,7 +508,10 @@ private fun DownloadedListSection(
                         isSelectionMode = isSelectionMode,
                         isSelected = task.songId in selectedSongIds,
                         onClick = { onItemClick(task) },
-                        onLongClick = { onEnterSelection(task.songId) },
+                        onLongClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onEnterSelection(task.songId)
+                        },
                         onDeleteClick = { pendingDeleteTask = task },
                         onShareClick = { shareDownloadedFile(context, task) }
                     )
