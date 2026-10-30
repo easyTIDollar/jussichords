@@ -143,7 +143,8 @@ object DownloadStore {
         filePath: String? = null,
         fileUri: String? = null,
         mimeType: String? = null,
-        totalBytes: Long? = null
+        totalBytes: Long? = null,
+        actualQualityText: String? = null
     ) {
         val appContext = context.applicationContext
         mutex.withLock {
@@ -158,6 +159,7 @@ object DownloadStore {
                     fileUri = fileUri ?: old.fileUri,
                     mimeType = mimeType ?: old.mimeType,
                     totalBytes = totalBytes ?: old.totalBytes,
+                    actualQualityText = actualQualityText ?: old.actualQualityText,
                     speedText = "",
                     finishTime = if (status == DownloadStatus.COMPLETED) System.currentTimeMillis() else old.finishTime
                 )

@@ -354,16 +354,6 @@ fun SettingsScreen(
     var showDirectSourceDialog by remember { mutableStateOf(false) }
     var showCacheDialog by remember { mutableStateOf(false) }
 
-    // 下载设置
-    var downloadQuality by rememberPreference(downloadQualityKey, "ask")
-    var downloadWifiOnly by rememberPreference(downloadWifiOnlyKey, false)
-    var downloadLrc by rememberPreference(downloadLrcKey, true)
-    var downloadCover by rememberPreference(downloadCoverKey, true)
-    var downloadCustomDirUri by rememberPreference(downloadCustomDirUriKey, "")
-    var downloadCustomDirName by rememberPreference(downloadCustomDirNameKey, "")
-    var showDownloadQualityDialog by remember { mutableStateOf(false) }
-    var showResetDirConfirmDialog by remember { mutableStateOf(false) }
-
     val downloadTasks by DownloadStore.tasks.collectAsState()
     val completedDownloadCount = remember(downloadTasks) {
         downloadTasks.count { it.status == DownloadStatus.COMPLETED }
@@ -377,21 +367,6 @@ fun SettingsScreen(
         else -> "管理本地已下载歌曲"
     }
 
-    val dirPickerLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        if (uri != null) {
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(uri, flags)
-            }
-            val docFile = DocumentFile.fromTreeUri(context, uri)
-            val name = docFile?.name ?: uri.lastPathSegment ?: "自定义目录"
-            downloadCustomDirUri = uri.toString()
-            downloadCustomDirName = name
-            Toast.makeText(context, "下载目录已设为: $name", Toast.LENGTH_SHORT).show()
-        }
-    }
     // 「缓存」：进设置页先异步测一次当前占用，之后开弹窗/清理后刷新。
     var cacheSnapshot by remember { mutableStateOf<CacheManager.Snapshot?>(null) }
     var cacheMeasuring by remember { mutableStateOf(false) }
@@ -740,77 +715,14 @@ fun SettingsScreen(
     )
 
     val downloadGroup = SettingGroupData(
-        name = "下载设置",
-        note = "下载歌曲到本地离线存储，播放时优先读取本地文件",
+        name = "下载",
+        note = "管理本地下载的离线歌曲与存储设置",
         items = listOf(
             SettingItemData(
                 title = "下载管理",
                 subtitle = downloadSubtitle,
                 imageVector = Icons.Outlined.FileDownload,
                 onClick = { navController.navigate(Screen.DownloadManager.route) }
-            ),
-            SettingItemData(
-                title = "默认下载音质",
-                subtitle = when (downloadQuality) {
-                    "standard" -> "标准 (128 kbps)"
-                    "exhigh" -> "极高 (320 kbps)"
-                    "lossless" -> "无损 (FLAC)"
-                    "hires" -> "Hi-Res (母带)"
-                    else -> "每次下载时询问"
-                },
-                imageVector = AudioLines,
-                onClick = { showDownloadQualityDialog = true }
-            ),
-            SettingItemData(
-                title = "存储目录",
-                subtitle = if (downloadCustomDirName.isNotBlank()) downloadCustomDirName else "默认 (Music/Jussichords)",
-                imageVector = Icons.Outlined.Folder,
-                onClick = {
-                    if (downloadCustomDirUri.isNotBlank()) {
-                        showResetDirConfirmDialog = true
-                    } else {
-                        dirPickerLauncher.launch(null)
-                    }
-                }
-            ),
-            SettingItemData(
-                title = "仅在 Wi-Fi 下下载",
-                subtitle = "使用移动数据时不自动开始下载",
-                imageVector = Icons.Outlined.Wifi,
-                trailingContent = {
-                    Switch(
-                        checked = downloadWifiOnly,
-                        onCheckedChange = { downloadWifiOnly = it }
-                    )
-                    Spacer(Modifier.width(12.dp))
-                },
-                onClick = { downloadWifiOnly = !downloadWifiOnly }
-            ),
-            SettingItemData(
-                title = "同时保存歌词",
-                subtitle = "下载音频时保存同名 .lrc 歌词文件",
-                imageVector = Icons.Outlined.Description,
-                trailingContent = {
-                    Switch(
-                        checked = downloadLrc,
-                        onCheckedChange = { downloadLrc = it }
-                    )
-                    Spacer(Modifier.width(12.dp))
-                },
-                onClick = { downloadLrc = !downloadLrc }
-            ),
-            SettingItemData(
-                title = "同时保存封面",
-                subtitle = "下载音频时保存同名 .jpg 专辑封面",
-                imageVector = Icons.Outlined.Description,
-                trailingContent = {
-                    Switch(
-                        checked = downloadCover,
-                        onCheckedChange = { downloadCover = it }
-                    )
-                    Spacer(Modifier.width(12.dp))
-                },
-                onClick = { downloadCover = !downloadCover }
             )
         )
     )
@@ -1013,49 +925,6 @@ fun SettingsScreen(
                 SettingGroupCard(group)
             }
         }
-    }
-
-
-    if (showDownloadQualityDialog) {
-        DownloadQualityDialog(
-            currentKey = downloadQuality,
-            includeAskOption = true,
-            onDismiss = { showDownloadQualityDialog = false },
-            onQualitySelected = { selected ->
-                downloadQuality = selected
-                showDownloadQualityDialog = false
-            }
-        )
-    }
-
-    if (showResetDirConfirmDialog) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showResetDirConfirmDialog = false },
-            title = { Text("下载存储目录") },
-            text = { Text("当前已配置自定义目录：$downloadCustomDirName\n\n您可以重新选择其他目录，或恢复为系统默认存储目录。") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showResetDirConfirmDialog = false
-                        dirPickerLauncher.launch(null)
-                    }
-                ) {
-                    Text("重新选择")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        downloadCustomDirUri = ""
-                        downloadCustomDirName = ""
-                        showResetDirConfirmDialog = false
-                        Toast.makeText(context, "已恢复为默认存储目录", Toast.LENGTH_SHORT).show()
-                    }
-                ) {
-                    Text("恢复默认")
-                }
-            }
-        )
     }
 
     if (showQualityDialog) {

@@ -4,13 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,48 +21,49 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,31 +71,34 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
+import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
-import com.jussicodes.music.R
 import com.jussicodes.music.constants.MiniPlayerHeight
+import com.jussicodes.music.constants.downloadCoverKey
+import com.jussicodes.music.constants.downloadCustomDirNameKey
+import com.jussicodes.music.constants.downloadCustomDirUriKey
+import com.jussicodes.music.constants.downloadLrcKey
+import com.jussicodes.music.constants.downloadQualityKey
+import com.jussicodes.music.constants.downloadWifiOnlyKey
 import com.jussicodes.music.data.download.DownloadStatus
 import com.jussicodes.music.data.download.DownloadStore
 import com.jussicodes.music.data.download.DownloadTask
 import com.jussicodes.music.download.DownloadManager
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
+import com.jussicodes.music.ui.components.DownloadQualityDialog
 import com.jussicodes.music.ui.components.JussiDropdownMenu
 import com.jussicodes.music.ui.components.JussiMenuItem
-import com.jussicodes.music.ui.components.TopBar
+import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.model.Artist
 import com.rcmiku.ncmapi.model.Song
-import kotlinx.coroutines.launch
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -106,7 +107,6 @@ fun DownloadScreen(
     navController: NavHostController
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val tasks by DownloadStore.tasks.collectAsState()
 
     val completedTasks = remember(tasks) {
@@ -117,6 +117,7 @@ fun DownloadScreen(
     }
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var showSettingsSheet by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -127,6 +128,14 @@ fun DownloadScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = null
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showSettingsSheet = true }) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = "下载设置"
                         )
                     }
                 }
@@ -178,6 +187,12 @@ fun DownloadScreen(
             }
         }
     }
+
+    if (showSettingsSheet) {
+        DownloadSettingsBottomSheet(
+            onDismiss = { showSettingsSheet = false }
+        )
+    }
 }
 
 @Composable
@@ -228,7 +243,6 @@ private fun DownloadedListSection(
         modifier = Modifier.fillMaxSize()
     ) {
         item {
-            // 顶部统计与操作卡片
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -367,7 +381,26 @@ private fun DownloadedSongItem(
             )
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                QualityBadge(quality = task.quality)
+                // 显示真实下载到的格式与码率（例如 "MP3 320K"、"FLAC 无损"），真实反映文件质量
+                val badgeText = task.actualQualityText ?: when (task.quality) {
+                    "hires" -> "Hi-Res"
+                    "lossless" -> "FLAC"
+                    "exhigh" -> "320K"
+                    else -> "128K"
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        text = badgeText,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
                 Spacer(Modifier.width(6.dp))
                 Text(
                     text = "${task.artist} · ${formatBytes(task.totalBytes)}",
@@ -448,24 +481,27 @@ private fun DownloadingListSection(
         return
     }
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize()
+    ) {
         item {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "排队任务 (${activeTasks.size})",
+                    text = "下载队列 (${activeTasks.size})",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row {
                     OutlinedButton(onClick = onPauseAll) {
                         Text("全部暂停")
                     }
+                    Spacer(Modifier.width(8.dp))
                     FilledTonalButton(onClick = onResumeAll) {
                         Text("全部开始")
                     }
@@ -474,7 +510,7 @@ private fun DownloadingListSection(
         }
 
         items(activeTasks, key = { it.songId }) { task ->
-            DownloadingTaskItem(
+            DownloadingSongItem(
                 task = task,
                 onPause = { onPause(task.songId) },
                 onResume = { onResume(task.songId) },
@@ -489,7 +525,7 @@ private fun DownloadingListSection(
 }
 
 @Composable
-private fun DownloadingTaskItem(
+private fun DownloadingSongItem(
     task: DownloadTask,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -520,88 +556,261 @@ private fun DownloadingTaskItem(
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(Modifier.height(2.dp))
-
-            val statusText = when (task.status) {
-                DownloadStatus.PENDING -> "排队中..."
-                DownloadStatus.RESOLVING -> "正在解析直链..."
+            val statusDesc = when (task.status) {
+                DownloadStatus.RESOLVING -> "正在解析直链…"
                 DownloadStatus.DOWNLOADING -> {
-                    val percent = (task.progress * 100).toInt()
-                    "$percent% · ${task.speedText}"
+                    val downloadedStr = formatBytes(task.downloadedBytes)
+                    val totalStr = if (task.totalBytes > 0) formatBytes(task.totalBytes) else "未知"
+                    val speed = if (task.speedText.isNotBlank()) " · ${task.speedText}" else ""
+                    "$downloadedStr / $totalStr$speed"
                 }
                 DownloadStatus.PAUSED -> "已暂停"
                 DownloadStatus.FAILED -> "下载失败: ${task.errorMsg ?: "未知错误"}"
+                DownloadStatus.PENDING -> "等待下载…"
                 DownloadStatus.COMPLETED -> "已完成"
             }
-
             Text(
-                text = "${task.artist} · $statusText",
+                text = "${task.artist} · $statusDesc",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (task.status == DownloadStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-
             Spacer(Modifier.height(6.dp))
-
-            if (task.status == DownloadStatus.RESOLVING) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            } else {
-                LinearProgressIndicator(
-                    progress = { task.progress },
-                    modifier = Modifier.fillMaxWidth()
-                )
+            if (task.status == DownloadStatus.DOWNLOADING || task.status == DownloadStatus.RESOLVING) {
+                if (task.status == DownloadStatus.RESOLVING) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(4.dp))
+                } else {
+                    LinearProgressIndicator(
+                        progress = { task.progress },
+                        modifier = Modifier.fillMaxWidth().height(4.dp)
+                    )
+                }
             }
         }
 
         Spacer(Modifier.width(8.dp))
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            when (task.status) {
-                DownloadStatus.DOWNLOADING, DownloadStatus.RESOLVING, DownloadStatus.PENDING -> {
-                    IconButton(onClick = onPause) {
-                        Icon(imageVector = Icons.Default.Pause, contentDescription = "暂停")
-                    }
+        when (task.status) {
+            DownloadStatus.DOWNLOADING, DownloadStatus.RESOLVING -> {
+                IconButton(onClick = onPause) {
+                    Icon(imageVector = Icons.Outlined.Pause, contentDescription = "暂停")
                 }
-                DownloadStatus.PAUSED -> {
-                    IconButton(onClick = onResume) {
-                        Icon(imageVector = Icons.Default.PlayArrow, contentDescription = "继续")
-                    }
-                }
-                DownloadStatus.FAILED -> {
-                    IconButton(onClick = onResume) {
-                        Icon(imageVector = Icons.Default.Refresh, contentDescription = "重试")
-                    }
-                }
-                else -> Unit
             }
+            DownloadStatus.PAUSED -> {
+                IconButton(onClick = onResume) {
+                    Icon(imageVector = Icons.Outlined.PlayArrow, contentDescription = "继续")
+                }
+            }
+            DownloadStatus.FAILED -> {
+                IconButton(onClick = onResume) {
+                    Icon(imageVector = Icons.Default.Refresh, contentDescription = "重试")
+                }
+            }
+            else -> {}
+        }
 
-            IconButton(onClick = onCancel) {
-                Icon(imageVector = Icons.Default.Close, contentDescription = "取消")
-            }
+        IconButton(onClick = onCancel) {
+            Icon(imageVector = Icons.Default.Close, contentDescription = "取消")
         }
     }
 }
 
+/**
+ * 右上角「下载设置」抽屉：统一收纳所有下载相关偏好配置
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun QualityBadge(quality: String) {
-    val (label, bg) = when (quality) {
-        "hires" -> "Hi-Res" to MaterialTheme.colorScheme.tertiaryContainer
-        "lossless" -> "FLAC" to MaterialTheme.colorScheme.primaryContainer
-        "exhigh" -> "320K" to MaterialTheme.colorScheme.secondaryContainer
-        else -> "128K" to MaterialTheme.colorScheme.surfaceVariant
+private fun DownloadSettingsBottomSheet(
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    var downloadQuality by rememberPreference(downloadQualityKey, "ask")
+    var downloadWifiOnly by rememberPreference(downloadWifiOnlyKey, false)
+    var downloadLrc by rememberPreference(downloadLrcKey, true)
+    var downloadCover by rememberPreference(downloadCoverKey, true)
+    var downloadCustomDirUri by rememberPreference(downloadCustomDirUriKey, "")
+    var downloadCustomDirName by rememberPreference(downloadCustomDirNameKey, "")
+
+    var showQualityPicker by remember { mutableStateOf(false) }
+
+    val dirPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, flags)
+            }
+            val docFile = DocumentFile.fromTreeUri(context, uri)
+            val name = docFile?.name ?: uri.lastPathSegment ?: "自定义目录"
+            downloadCustomDirUri = uri.toString()
+            downloadCustomDirName = name
+            Toast.makeText(context, "存储目录已更改为: $name", Toast.LENGTH_SHORT).show()
+        }
     }
 
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(bg)
-            .padding(horizontal = 4.dp, vertical = 1.dp)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState
     ) {
-        Text(
-            text = label,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "下载设置",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                TextButton(onClick = onDismiss) {
+                    Text("完成")
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // 1. 默认音质
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().clickable { showQualityPicker = true }
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("默认下载音质", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = when (downloadQuality) {
+                                "standard" -> "标准 (128 kbps)"
+                                "exhigh" -> "极高 (320 kbps)"
+                                "lossless" -> "无损 (FLAC)"
+                                "hires" -> "Hi-Res (母带)"
+                                else -> "每次下载时询问"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    TextButton(onClick = { showQualityPicker = true }) {
+                        Text("更改")
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // 2. 存储目录
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text("存储目录", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = if (downloadCustomDirName.isNotBlank()) downloadCustomDirName else "系统默认 (Music/Jussichords/)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row {
+                        FilledTonalButton(onClick = { dirPickerLauncher.launch(null) }) {
+                            Icon(Icons.Outlined.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("更改目录")
+                        }
+                        if (downloadCustomDirUri.isNotBlank()) {
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(onClick = {
+                                downloadCustomDirUri = ""
+                                downloadCustomDirName = ""
+                                Toast.makeText(context, "已恢复为默认存储目录", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Text("恢复默认")
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // 3. 网络与内嵌开关
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("仅在 Wi-Fi 下下载", style = MaterialTheme.typography.bodyLarge)
+                            Text("移动网络时不自动启动下载", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = downloadWifiOnly, onCheckedChange = { downloadWifiOnly = it })
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("内嵌歌词到歌曲文件", style = MaterialTheme.typography.bodyLarge)
+                            Text("直接写入音频 ID3/Vorbis，本地播放器可滚动显示", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = downloadLrc, onCheckedChange = { downloadLrc = it })
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("内嵌专辑封面到歌曲文件", style = MaterialTheme.typography.bodyLarge)
+                            Text("直接写入音频文件，离线播放展示高清封面", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = downloadCover, onCheckedChange = { downloadCover = it })
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+
+    if (showQualityPicker) {
+        DownloadQualityDialog(
+            currentKey = downloadQuality,
+            includeAskOption = true,
+            onDismiss = { showQualityPicker = false },
+            onQualitySelected = {
+                downloadQuality = it
+                showQualityPicker = false
+            }
         )
     }
 }

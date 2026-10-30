@@ -29,6 +29,7 @@ data class DownloadTask(
     val filePath: String? = null,     // 物理绝对路径（若有）
     val fileUri: String? = null,      // Content Uri 或 File Uri 字符串
     val mimeType: String = "audio/mpeg",
+    val actualQualityText: String? = null, // 真实下载到的格式与码率，如 "FLAC 无损"、"MP3 320K"
     val errorMsg: String? = null,
     val createTime: Long = System.currentTimeMillis(),
     val finishTime: Long? = null

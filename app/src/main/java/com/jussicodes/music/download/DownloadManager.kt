@@ -14,8 +14,8 @@ import com.jussicodes.music.constants.downloadWifiOnlyKey
 import com.jussicodes.music.data.download.DownloadStatus
 import com.jussicodes.music.data.download.DownloadStore
 import com.jussicodes.music.data.download.DownloadTask
-import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.extensions.isTrialClip
+import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.player.PlayerApi
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.Song
@@ -35,8 +35,8 @@ import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -232,33 +232,79 @@ object DownloadManager {
         DownloadStore.markStatus(context, task.songId, DownloadStatus.RESOLVING)
         _serviceEvents.tryEmit(Unit)
 
-        val songLevel = when (task.quality) {
-            "standard" -> SongLevel.STANDARD
-            "higher" -> SongLevel.HIGHER
-            "exhigh" -> SongLevel.EXHIGH
-            "hires" -> SongLevel.HIRES
-            else -> SongLevel.LOSSLESS
+        // 候选音质顺降（高音质没有就顺降到可用音质，确保 VIP 歌不因缺 hires 而下不了）
+        val candidateLevels = when (task.quality) {
+            "hires" -> listOf("hires", "lossless", "exhigh", "standard")
+            "lossless" -> listOf("lossless", "exhigh", "standard")
+            "exhigh" -> listOf("exhigh", "standard")
+            else -> listOf("standard")
         }
 
-        // 2. 解析直链（优先走已有音源体系）
-        val songUrlObj = runCatching {
-            PlayerApi.songPlayUrlV1(task.songId.toString(), songLevel).getOrNull()?.data?.firstOrNull()
-        }.getOrNull()
+        var downloadUrl: String? = null
 
-        val downloadUrl = songUrlObj?.url?.takeIf { it.isNotBlank() }
-        val isTrial = songUrlObj?.isTrialClip() == true || downloadUrl?.contains("musicrep-ts", ignoreCase = true) == true
+        // 1. 优先直接走洛雪音源插件
+        for (lvl in candidateLevels) {
+            val url = runCatching {
+                com.jussicodes.music.lx.LxPluginManager.resolveUrl(task.songId.toString(), lvl)
+            }.getOrNull()
+            if (!url.isNullOrBlank() && !url.contains("musicrep-ts", ignoreCase = true)) {
+                downloadUrl = url
+                android.util.Log.i(TAG, "Download resolved via LX plugin: songId=${task.songId} quality=$lvl url=$url")
+                break
+            }
+        }
 
-        if (downloadUrl == null || isTrial) {
+        // 2. 若 LX 未命中，走第三方解灰（显式传 fee=1 强制开启第三方解析）
+        if (downloadUrl.isNullOrBlank()) {
+            for (lvl in candidateLevels) {
+                val sLevel = when (lvl) {
+                    "standard" -> SongLevel.STANDARD
+                    "higher" -> SongLevel.HIGHER
+                    "exhigh" -> SongLevel.EXHIGH
+                    "hires" -> SongLevel.HIRES
+                    else -> SongLevel.LOSSLESS
+                }
+                val resp = runCatching {
+                    PlayerApi.songPlayUrlV1("${task.songId}?fee=1", sLevel).getOrNull()?.data?.firstOrNull()
+                }.getOrNull()
+                val u = resp?.url?.takeIf { it.isNotBlank() }
+                if (u != null && resp.isTrialClip() != true && !u.contains("musicrep-ts", ignoreCase = true)) {
+                    downloadUrl = u
+                    android.util.Log.i(TAG, "Download resolved via unblock: songId=${task.songId} quality=$lvl url=$u")
+                    break
+                }
+            }
+        }
+
+        // 3. 最终官方兜底（若账号有 VIP 则可下，否则只拿试听会被拦截）
+        if (downloadUrl.isNullOrBlank()) {
+            val sLevel = when (task.quality) {
+                "standard" -> SongLevel.STANDARD
+                "higher" -> SongLevel.HIGHER
+                "exhigh" -> SongLevel.EXHIGH
+                "hires" -> SongLevel.HIRES
+                else -> SongLevel.LOSSLESS
+            }
+            val resp = runCatching {
+                PlayerApi.songPlayUrlV1(task.songId.toString(), sLevel).getOrNull()?.data?.firstOrNull()
+            }.getOrNull()
+            val u = resp?.url?.takeIf { it.isNotBlank() }
+            if (u != null && resp.isTrialClip() != true && !u.contains("musicrep-ts", ignoreCase = true)) {
+                downloadUrl = u
+            }
+        }
+
+        if (downloadUrl == null) {
             DownloadStore.markStatus(
                 context,
                 task.songId,
                 DownloadStatus.FAILED,
-                errorMsg = if (isTrial) "仅能获取试听片段，暂无完整音频" else "解析音频直链失败"
+                errorMsg = "当前音源未能获取到完整可下载音频"
             )
             return
         }
 
-        // 3. 开始下载流
+        // 3. 开始下载流到临时文件
         DownloadStore.markStatus(context, task.songId, DownloadStatus.DOWNLOADING)
         _serviceEvents.tryEmit(Unit)
 
@@ -269,6 +315,9 @@ object DownloadManager {
 
         val call = okHttpClient.newCall(req)
         activeCalls[task.songId] = call
+
+        // 建立 cache 临时文件
+        val tempAudioFile = File(context.cacheDir, "dl_${task.songId}_${System.currentTimeMillis()}.tmp")
 
         runCatching {
             call.execute().use { resp ->
@@ -288,29 +337,13 @@ object DownloadManager {
                 }
 
                 val totalBytes = body.contentLength()
-                val contentType = resp.header("Content-Type").orEmpty().lowercase()
-                val isFlac = contentType.contains("flac") || task.quality in listOf("lossless", "hires") || downloadUrl.contains(".flac", ignoreCase = true)
-                val ext = if (isFlac) "flac" else "mp3"
-                val mimeType = if (isFlac) "audio/flac" else "audio/mpeg"
-                val cleanTitle = sanitizeFileName("${task.artist} - ${task.title}")
-                val fileName = "$cleanTitle.$ext"
-
-                // 目标输出流
-                val target = prepareOutputStream(context, fileName, mimeType)
-                if (target == null) {
-                    DownloadStore.markStatus(context, task.songId, DownloadStatus.FAILED, errorMsg = "创建本地文件失败")
-                    return@use
-                }
-
-                val (outStream, filePath, fileUri) = target
-
                 val buf = ByteArray(8192)
                 var downloaded = 0L
                 var lastSpeedCalcTime = System.currentTimeMillis()
                 var bytesSinceLastCalc = 0L
                 var speedText = ""
 
-                outStream.use { out ->
+                FileOutputStream(tempAudioFile).use { out ->
                     body.byteStream().use { input ->
                         var read: Int
                         while (input.read(buf).also { read = it } != -1) {
@@ -340,13 +373,86 @@ object DownloadManager {
                     }
                 }
 
+                // 4. 分析真实音频格式与计算真实码率
+                val header4 = ByteArray(4)
+                FileInputStream(tempAudioFile).use { it.read(header4) }
+                val isFlac = header4[0] == 'f'.code.toByte() &&
+                        header4[1] == 'L'.code.toByte() &&
+                        header4[2] == 'a'.code.toByte() &&
+                        header4[3] == 'C'.code.toByte()
+
+                val durationSec = (task.durationMs / 1000).coerceAtLeast(1)
+                val kbps = ((downloaded * 8) / durationSec / 1000).toInt()
+                val actualQualityText = if (isFlac) {
+                    if (kbps > 1500) "FLAC Hi-Res" else "FLAC 无损"
+                } else {
+                    when {
+                        kbps >= 280 -> "MP3 320K"
+                        kbps >= 180 -> "MP3 192K"
+                        else -> "MP3 128K"
+                    }
+                }
+
+                // 5. 抓取歌词与封面并内嵌至音频文件
+                val saveLrc = context.dataStore.data.first()[downloadLrcKey] ?: true
+                val saveCover = context.dataStore.data.first()[downloadCoverKey] ?: true
+
+                var lyricsText: String? = null
+                if (saveLrc) {
+                    runCatching {
+                        val lyricResp = PlayerApi.songLyric(task.songId).getOrNull()
+                        lyricsText = lyricResp?.lrc?.lyric?.takeIf { it.isNotBlank() }
+                    }
+                }
+
+                var coverBytes: ByteArray? = null
+                if (saveCover && task.coverUrl.isNotBlank()) {
+                    runCatching {
+                        val coverReq = Request.Builder().url(task.coverUrl).build()
+                        okHttpClient.newCall(coverReq).execute().use { cResp ->
+                            if (cResp.isSuccessful) {
+                                coverBytes = cResp.body?.bytes()
+                            }
+                        }
+                    }
+                }
+
+                // 真正执行内嵌到同一个音频文件！
+                AudioTagWriter.embedMetadata(
+                    file = tempAudioFile,
+                    title = task.title,
+                    artist = task.artist,
+                    album = task.album,
+                    lyrics = lyricsText,
+                    coverBytes = coverBytes
+                )
+
+                // 6. 确定最终文件名与目标存储
+                val ext = if (isFlac) "flac" else "mp3"
+                val mimeType = if (isFlac) "audio/flac" else "audio/mpeg"
+                val cleanTitle = sanitizeFileName("${task.artist} - ${task.title}")
+                val fileName = "$cleanTitle.$ext"
+
+                val target = prepareOutputStream(context, fileName, mimeType)
+                if (target == null) {
+                    tempAudioFile.delete()
+                    DownloadStore.markStatus(context, task.songId, DownloadStatus.FAILED, errorMsg = "创建目标存储文件失败")
+                    return@use
+                }
+
+                val (outStream, filePath, fileUri) = target
+                outStream.use { dest ->
+                    FileInputStream(tempAudioFile).use { src ->
+                        src.copyTo(dest)
+                    }
+                    dest.flush()
+                }
+                tempAudioFile.delete()
+
                 // 刷新系统媒体库
                 if (filePath != null) {
                     MediaScannerConnection.scanFile(context, arrayOf(filePath), arrayOf(mimeType), null)
                 }
-
-                // 同步下载歌词与封面
-                fetchLrcAndCover(context, task, cleanTitle)
 
                 // 标记完成
                 DownloadStore.markStatus(
@@ -356,10 +462,12 @@ object DownloadManager {
                     filePath = filePath,
                     fileUri = fileUri,
                     mimeType = mimeType,
-                    totalBytes = downloaded
+                    totalBytes = downloaded,
+                    actualQualityText = actualQualityText
                 )
             }
         }.onFailure { err ->
+            tempAudioFile.delete()
             if (activeCalls[task.songId]?.isCanceled() == true) {
                 // 用户主动暂停或取消，不标记 FAILED
                 android.util.Log.d(TAG, "Task cancelled/paused by user: ${task.songId}")
@@ -380,12 +488,10 @@ object DownloadManager {
         val fileUri: String?
     )
 
-    private suspend fun prepareOutputStream(
-        context: Context,
-        fileName: String,
-        mimeType: String
-    ): OutputTarget? {
+    private suspend fun prepareOutputStream(context: Context, fileName: String, mimeType: String): OutputTarget? {
         val customUriStr = context.dataStore.data.first()[downloadCustomDirUriKey].orEmpty()
+
+        // 若用户设置了 SAF 自定义目录
         if (customUriStr.isNotBlank()) {
             val customTarget = runCatching {
                 val treeUri = Uri.parse(customUriStr)
@@ -414,42 +520,6 @@ object DownloadManager {
             val file = File(jussiDir, fileName)
             OutputTarget(FileOutputStream(file), file.absolutePath, Uri.fromFile(file).toString())
         }.getOrNull()
-    }
-
-    private suspend fun fetchLrcAndCover(context: Context, task: DownloadTask, baseFileName: String) {
-        val saveLrc = context.dataStore.data.first()[downloadLrcKey] ?: true
-        val saveCover = context.dataStore.data.first()[downloadCoverKey] ?: true
-
-        // 仅在默认公共目录时保存同名 .lrc 与 .jpg（SAF DocumentFile 不干扰）
-        val musicDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "Jussichords")
-        if (!musicDir.exists()) musicDir.mkdirs()
-
-        if (saveLrc) {
-            runCatching {
-                val lyricResp = PlayerApi.songLyric(task.songId).getOrNull()
-                val lrcText = lyricResp?.lrc?.lyric.orEmpty()
-                if (lrcText.isNotBlank()) {
-                    val lrcFile = File(musicDir, "$baseFileName.lrc")
-                    lrcFile.writeText(lrcText)
-                }
-            }
-        }
-
-        if (saveCover && task.coverUrl.isNotBlank()) {
-            runCatching {
-                val coverReq = Request.Builder().url(task.coverUrl).build()
-                okHttpClient.newCall(coverReq).execute().use { resp ->
-                    if (resp.isSuccessful) {
-                        resp.body?.byteStream()?.use { input ->
-                            val coverFile = File(musicDir, "$baseFileName.jpg")
-                            FileOutputStream(coverFile).use { out ->
-                                input.copyTo(out)
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     private fun sanitizeFileName(name: String): String {
