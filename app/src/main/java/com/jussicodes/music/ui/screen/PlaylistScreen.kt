@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -139,7 +140,7 @@ import com.jussicodes.music.ui.components.ResponsiveAlertDialog
 
 private const val PLAYLIST_COVER_UPLOAD_SIZE = 300
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun PlaylistScreen(
     navController: NavHostController,
@@ -264,7 +265,7 @@ fun PlaylistScreen(
                                     selectedSongIds = emptySet()
                                 }) {
                                     Icon(
-                                        imageVector = Icons.Default.Close,
+                                        imageVector = Icons.Filled.Close,
                                         contentDescription = "取消多选"
                                     )
                                 }
@@ -517,6 +518,15 @@ fun PlaylistScreen(
                                     expanded = playlistMenuExpanded,
                                     onDismiss = { playlistMenuExpanded = false },
                                     isOwnPlaylist = detail.playlist.creator?.userId == userId,
+                                    onDownloadAll = {
+                                        playlistMenuExpanded = false
+                                        triggerDownloadSongs(tracks)
+                                    },
+                                    onEnterMultiSelect = {
+                                        playlistMenuExpanded = false
+                                        selectionMode = true
+                                        selectedSongIds = emptySet()
+                                    },
                                     onEditInfo = {
                                         playlistMenuExpanded = false
                                         editPlaylistName = detail.playlist.name

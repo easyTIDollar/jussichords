@@ -115,14 +115,6 @@ class DownloadService : Service() {
         max: Int,
         indeterminate: Boolean,
         contentText: String = ""
-    ) = buildNotification(title, contentText, progress, max, indeterminate)
-
-    private fun buildNotification(
-        title: String,
-        contentText: String,
-        progress: Int,
-        max: Int,
-        indeterminate: Boolean
     ): android.app.Notification {
         val tapIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP

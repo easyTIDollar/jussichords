@@ -15,8 +15,8 @@ import com.jussicodes.music.data.download.DownloadStatus
 import com.jussicodes.music.data.download.DownloadStore
 import com.jussicodes.music.data.download.DownloadTask
 import com.jussicodes.music.utils.dataStore
+import com.jussicodes.music.extensions.isTrialClip
 import com.rcmiku.ncmapi.api.player.PlayerApi
-import com.rcmiku.ncmapi.api.player.isTrialClip
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.Song
 import kotlinx.coroutines.CoroutineScope

@@ -144,7 +144,7 @@ fun List<Radio>.toRadioMediaItemList(
  * - `time in 1..60000`：NCM 试听占位固定回 30040ms。
  * `freeTrial*` 字段对可播歌曲也常回非 null 的空对象，不能当判据（见 PlayerApi.isPlayableFullUrl 注释）。
  */
-private fun SongUrl.isTrialClip(): Boolean =
+fun SongUrl.isTrialClip(): Boolean =
     url?.contains("musicrep-ts", ignoreCase = true) == true || time in 1L..60_000L
 
 /**

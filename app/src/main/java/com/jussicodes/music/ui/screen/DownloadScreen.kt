@@ -118,13 +118,13 @@ fun DownloadScreen(
 
     Scaffold(
         topBar = {
-            TopBar(
+            TopAppBar(
                 title = { Text("下载管理") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = stringResource(R.string.back)
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = null
                         )
                     }
                 }
@@ -401,7 +401,7 @@ private fun DownloadedSongItem(
                 JussiMenuItem(
                     text = "删除下载",
                     icon = Icons.Outlined.Delete,
-                    danger = true,
+                    destructive = true,
                     onClick = {
                         menuExpanded = false
                         onDeleteClick()
@@ -615,7 +615,7 @@ private fun formatBytes(bytes: Long): String {
 
 private fun shareDownloadedFile(context: Context, task: DownloadTask) {
     runCatching {
-        val uri: Uri = if (!task.filePath.isNullOrBlank()) {
+        val uri: Uri? = if (!task.filePath.isNullOrBlank()) {
             val file = File(task.filePath)
             if (file.exists()) {
                 FileProvider.getUriForFile(
@@ -626,7 +626,11 @@ private fun shareDownloadedFile(context: Context, task: DownloadTask) {
             } else null
         } else if (!task.fileUri.isNullOrBlank()) {
             Uri.parse(task.fileUri)
-        } else null ?: run {
+        } else {
+            null
+        }
+
+        if (uri == null) {
             Toast.makeText(context, "文件不存在", Toast.LENGTH_SHORT).show()
             return
         }
