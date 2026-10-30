@@ -18,6 +18,8 @@ data class DownloadTask(
     val title: String,
     val artist: String,
     val album: String,
+    val artistId: Long = 0L,
+    val albumId: Long = 0L,
     val coverUrl: String,
     val durationMs: Long = 0L,
     val quality: String = "lossless", // standard, exhigh, lossless, hires

@@ -2,12 +2,14 @@ package com.jussicodes.music.ui.screen
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,8 +21,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -70,6 +77,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -107,6 +115,8 @@ fun DownloadScreen(
     navController: NavHostController
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val tasks by DownloadStore.tasks.collectAsState()
 
     val completedTasks = remember(tasks) {
@@ -127,11 +137,17 @@ fun DownloadScreen(
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = null
+                            contentDescription = "返回"
                         )
                     }
                 },
                 actions = {
+                    IconButton(onClick = { DownloadManager.openDownloadFolder(context) }) {
+                        Icon(
+                            imageVector = Icons.Outlined.Folder,
+                            contentDescription = "打开存储目录"
+                        )
+                    }
                     IconButton(onClick = { showSettingsSheet = true }) {
                         Icon(
                             imageVector = Icons.Outlined.Settings,
@@ -171,6 +187,7 @@ fun DownloadScreen(
             if (selectedTab == 0) {
                 DownloadedListSection(
                     completedTasks = completedTasks,
+                    isLandscape = isLandscape,
                     onDelete = { songId, deleteFile ->
                         DownloadManager.deleteDownloaded(context, songId, deleteFile)
                     }
@@ -178,6 +195,7 @@ fun DownloadScreen(
             } else {
                 DownloadingListSection(
                     activeTasks = activeTasks,
+                    isLandscape = isLandscape,
                     onPause = { DownloadManager.pause(context, it) },
                     onResume = { DownloadManager.resume(context, it) },
                     onCancel = { DownloadManager.cancel(context, it) },
@@ -190,6 +208,7 @@ fun DownloadScreen(
 
     if (showSettingsSheet) {
         DownloadSettingsBottomSheet(
+            isLandscape = isLandscape,
             onDismiss = { showSettingsSheet = false }
         )
     }
@@ -198,6 +217,7 @@ fun DownloadScreen(
 @Composable
 private fun DownloadedListSection(
     completedTasks: List<DownloadTask>,
+    isLandscape: Boolean,
     onDelete: (Long, Boolean) -> Unit
 ) {
     val context = LocalContext.current
@@ -230,7 +250,7 @@ private fun DownloadedListSection(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "在播放页或单曲菜单中点击下载，离线也能随心畅听",
+                    text = "在专辑页、歌单页或播放菜单中点击下载，离线也能随心畅听",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
@@ -239,85 +259,98 @@ private fun DownloadedListSection(
         return
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "已下载 ${completedTasks.size} 首歌曲",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = "占用空间: ${formatBytes(totalBytes)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                FilledTonalButton(
-                    onClick = {
-                        val songs = completedTasks.map { task ->
-                            Song(
-                                id = task.songId,
-                                name = task.title,
-                                ar = listOf(Artist(id = 0, name = task.artist)),
-                                al = com.rcmiku.ncmapi.model.SongAlbum(id = 0, name = task.album, picUrl = task.coverUrl),
-                                dt = task.durationMs
-                            )
-                        }
-                        mediaController?.setPlaylist(
-                            songs,
-                            sourceId = 20261L,
-                            sourceName = "已下载歌曲",
-                            sourceType = "download"
-                        )
-                        mediaController?.playMediaAtId(completedTasks.first().songId)
-                    }
-                ) {
-                    Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("全部播放")
-                }
-            }
-        }
-
-        items(completedTasks, key = { it.songId }) { task ->
-            DownloadedSongItem(
-                task = task,
-                onClick = {
-                    val songs = completedTasks.map { t ->
-                        Song(
-                            id = t.songId,
-                            name = t.title,
-                            ar = listOf(Artist(id = 0, name = t.artist)),
-                            al = com.rcmiku.ncmapi.model.SongAlbum(id = 0, name = t.album, picUrl = t.coverUrl),
-                            dt = t.durationMs
-                        )
-                    }
-                    mediaController?.setPlaylist(
-                        songs,
-                        sourceId = 20261L,
-                        sourceName = "已下载歌曲",
-                        sourceType = "download"
-                    )
-                    mediaController?.playMediaAtId(task.songId)
-                },
-                onDeleteClick = { pendingDeleteTask = task },
-                onShareClick = { shareDownloadedFile(context, task) }
+    val playAllAction = {
+        val songs = completedTasks.map { task ->
+            Song(
+                id = task.songId,
+                name = task.title,
+                ar = listOf(Artist(id = task.artistId, name = task.artist)),
+                al = com.rcmiku.ncmapi.model.SongAlbum(id = task.albumId, name = task.album, picUrl = task.coverUrl),
+                dt = task.durationMs
             )
         }
+        mediaController?.setPlaylist(
+            songs,
+            sourceId = 20261L,
+            sourceName = "已下载歌曲",
+            sourceType = "download"
+        )
+        mediaController?.playMediaAtId(completedTasks.first().songId)
+    }
 
-        item {
-            Spacer(Modifier.height(MiniPlayerHeight + 16.dp))
+    val onItemClick: (DownloadTask) -> Unit = { task ->
+        val songs = completedTasks.map { t ->
+            Song(
+                id = t.songId,
+                name = t.title,
+                ar = listOf(Artist(id = t.artistId, name = t.artist)),
+                al = com.rcmiku.ncmapi.model.SongAlbum(id = t.albumId, name = t.album, picUrl = t.coverUrl),
+                dt = t.durationMs
+            )
+        }
+        mediaController?.setPlaylist(
+            songs,
+            sourceId = 20261L,
+            sourceName = "已下载歌曲",
+            sourceType = "download"
+        )
+        mediaController?.playMediaAtId(task.songId)
+    }
+
+    if (isLandscape) {
+        // 横屏双列网格布局，充分利用大宽度视野
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)
+        ) {
+            item(span = { GridItemSpan(2) }) {
+                DownloadedHeaderCard(
+                    taskCount = completedTasks.size,
+                    totalBytes = totalBytes,
+                    onPlayAll = playAllAction,
+                    onOpenFolder = { DownloadManager.openDownloadFolder(context) }
+                )
+            }
+
+            items(completedTasks, key = { it.songId }) { task ->
+                DownloadedSongItem(
+                    task = task,
+                    onClick = { onItemClick(task) },
+                    onDeleteClick = { pendingDeleteTask = task },
+                    onShareClick = { shareDownloadedFile(context, task) }
+                )
+            }
+
+            item(span = { GridItemSpan(2) }) {
+                Spacer(Modifier.height(MiniPlayerHeight + 16.dp))
+            }
+        }
+    } else {
+        // 竖屏单列流式布局
+        LazyColumn(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            item {
+                DownloadedHeaderCard(
+                    taskCount = completedTasks.size,
+                    totalBytes = totalBytes,
+                    onPlayAll = playAllAction,
+                    onOpenFolder = { DownloadManager.openDownloadFolder(context) }
+                )
+            }
+
+            items(completedTasks, key = { it.songId }) { task ->
+                DownloadedSongItem(
+                    task = task,
+                    onClick = { onItemClick(task) },
+                    onDeleteClick = { pendingDeleteTask = task },
+                    onShareClick = { shareDownloadedFile(context, task) }
+                )
+            }
+
+            item {
+                Spacer(Modifier.height(MiniPlayerHeight + 16.dp))
+            }
         }
     }
 
@@ -325,7 +358,7 @@ private fun DownloadedListSection(
         AlertDialog(
             onDismissRequest = { pendingDeleteTask = null },
             title = { Text("删除已下载歌曲") },
-            text = { Text("确定要删除「${task.title}」吗？文件将从本地存储彻底移除。") },
+            text = { Text("确定要删除「${task.title}」吗？音频文件将从本地存储彻底移除。") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -346,6 +379,58 @@ private fun DownloadedListSection(
 }
 
 @Composable
+private fun DownloadedHeaderCard(
+    taskCount: Int,
+    totalBytes: Long,
+    onPlayAll: () -> Unit,
+    onOpenFolder: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column {
+            Text(
+                text = "已下载 $taskCount 首歌曲",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "占用空间: ${formatBytes(totalBytes)} · 长按歌曲可删除",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = onOpenFolder) {
+                Icon(
+                    imageVector = Icons.Outlined.Folder,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("文件夹")
+            }
+            Spacer(Modifier.width(8.dp))
+            FilledTonalButton(onClick = onPlayAll) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("全部播放")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun DownloadedSongItem(
     task: DownloadTask,
     onClick: () -> Unit,
@@ -357,7 +442,11 @@ private fun DownloadedSongItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clip(RoundedCornerShape(8.dp))
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onDeleteClick // 长按直接弹出删除确认框
+            )
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -381,7 +470,6 @@ private fun DownloadedSongItem(
             )
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // 显示真实下载到的格式与码率（例如 "MP3 320K"、"FLAC 无损"），真实反映文件质量
                 val badgeText = task.actualQualityText ?: when (task.quality) {
                     "hires" -> "Hi-Res"
                     "lossless" -> "FLAC"
@@ -426,7 +514,7 @@ private fun DownloadedSongItem(
                 onDismissRequest = { menuExpanded = false }
             ) {
                 JussiMenuItem(
-                    text = "分享文件",
+                    text = "分享音频文件",
                     icon = Icons.Outlined.Share,
                     onClick = {
                         menuExpanded = false
@@ -434,7 +522,7 @@ private fun DownloadedSongItem(
                     }
                 )
                 JussiMenuItem(
-                    text = "删除下载",
+                    text = "删除已下载",
                     icon = Icons.Outlined.Delete,
                     destructive = true,
                     onClick = {
@@ -450,6 +538,7 @@ private fun DownloadedSongItem(
 @Composable
 private fun DownloadingListSection(
     activeTasks: List<DownloadTask>,
+    isLandscape: Boolean,
     onPause: (Long) -> Unit,
     onResume: (Long) -> Unit,
     onCancel: (Long) -> Unit,
@@ -481,45 +570,78 @@ private fun DownloadingListSection(
         return
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "下载队列 (${activeTasks.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+    if (isLandscape) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)
+        ) {
+            item(span = { GridItemSpan(2) }) {
+                DownloadingHeaderRow(activeTasks.size, onPauseAll, onResumeAll)
+            }
+
+            items(activeTasks, key = { it.songId }) { task ->
+                DownloadingSongItem(
+                    task = task,
+                    onPause = { onPause(task.songId) },
+                    onResume = { onResume(task.songId) },
+                    onCancel = { onCancel(task.songId) }
                 )
-                Row {
-                    OutlinedButton(onClick = onPauseAll) {
-                        Text("全部暂停")
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    FilledTonalButton(onClick = onResumeAll) {
-                        Text("全部开始")
-                    }
-                }
+            }
+
+            item(span = { GridItemSpan(2) }) {
+                Spacer(Modifier.height(MiniPlayerHeight + 16.dp))
             }
         }
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            item {
+                DownloadingHeaderRow(activeTasks.size, onPauseAll, onResumeAll)
+            }
 
-        items(activeTasks, key = { it.songId }) { task ->
-            DownloadingSongItem(
-                task = task,
-                onPause = { onPause(task.songId) },
-                onResume = { onResume(task.songId) },
-                onCancel = { onCancel(task.songId) }
-            )
+            items(activeTasks, key = { it.songId }) { task ->
+                DownloadingSongItem(
+                    task = task,
+                    onPause = { onPause(task.songId) },
+                    onResume = { onResume(task.songId) },
+                    onCancel = { onCancel(task.songId) }
+                )
+            }
+
+            item {
+                Spacer(Modifier.height(MiniPlayerHeight + 16.dp))
+            }
         }
+    }
+}
 
-        item {
-            Spacer(Modifier.height(MiniPlayerHeight + 16.dp))
+@Composable
+private fun DownloadingHeaderRow(
+    count: Int,
+    onPauseAll: () -> Unit,
+    onResumeAll: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "下载队列 ($count)",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Row {
+            OutlinedButton(onClick = onPauseAll) {
+                Text("全部暂停")
+            }
+            Spacer(Modifier.width(8.dp))
+            FilledTonalButton(onClick = onResumeAll) {
+                Text("全部开始")
+            }
         }
     }
 }
@@ -617,11 +739,12 @@ private fun DownloadingSongItem(
 }
 
 /**
- * 右上角「下载设置」抽屉：统一收纳所有下载相关偏好配置
+ * 右上角「下载设置」抽屉：横屏自适应居中与最大宽度限制
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DownloadSettingsBottomSheet(
+    isLandscape: Boolean,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -659,8 +782,10 @@ private fun DownloadSettingsBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .widthIn(max = if (isLandscape) 560.dp else 1200.dp)
                 .padding(horizontal = 20.dp, vertical = 8.dp)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -668,7 +793,7 @@ private fun DownloadSettingsBottomSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "下载设置",
+                    text = "下载偏好设置",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -712,7 +837,7 @@ private fun DownloadSettingsBottomSheet(
 
             Spacer(Modifier.height(12.dp))
 
-            // 2. 存储目录
+            // 2. 存储目录与快速跳转
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(16.dp),
@@ -722,7 +847,7 @@ private fun DownloadSettingsBottomSheet(
                     Text("存储目录", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = if (downloadCustomDirName.isNotBlank()) downloadCustomDirName else "系统默认 (Music/Jussichords/)",
+                        text = if (downloadCustomDirName.isNotBlank()) downloadCustomDirName else "系统默认 (Music/Jussichords/歌手 - 专辑/)",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -732,6 +857,10 @@ private fun DownloadSettingsBottomSheet(
                             Icon(Icons.Outlined.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("更改目录")
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedButton(onClick = { DownloadManager.openDownloadFolder(context) }) {
+                            Text("打开目录")
                         }
                         if (downloadCustomDirUri.isNotBlank()) {
                             Spacer(Modifier.width(8.dp))
@@ -749,7 +878,7 @@ private fun DownloadSettingsBottomSheet(
 
             Spacer(Modifier.height(12.dp))
 
-            // 3. 网络与内嵌开关
+            // 3. 网络与内嵌标签开关
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(16.dp),
@@ -763,7 +892,7 @@ private fun DownloadSettingsBottomSheet(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("仅在 Wi-Fi 下下载", style = MaterialTheme.typography.bodyLarge)
-                            Text("移动网络时不自动启动下载", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("移动网络时不自动启动后台下载任务", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(checked = downloadWifiOnly, onCheckedChange = { downloadWifiOnly = it })
                     }
@@ -776,8 +905,8 @@ private fun DownloadSettingsBottomSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("内嵌歌词到歌曲文件", style = MaterialTheme.typography.bodyLarge)
-                            Text("直接写入音频 ID3/Vorbis，本地播放器可滚动显示", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("内嵌歌词到音频文件", style = MaterialTheme.typography.bodyLarge)
+                            Text("写入 ID3v2 USLT / Vorbis 歌词标签，离线即时滚动", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(checked = downloadLrc, onCheckedChange = { downloadLrc = it })
                     }
@@ -790,8 +919,8 @@ private fun DownloadSettingsBottomSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("内嵌专辑封面到歌曲文件", style = MaterialTheme.typography.bodyLarge)
-                            Text("直接写入音频文件，离线播放展示高清封面", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("内嵌高清封面到音频文件", style = MaterialTheme.typography.bodyLarge)
+                            Text("写入 APIC / PICTURE 封面，车载与本地播放器完美显示", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(checked = downloadCover, onCheckedChange = { downloadCover = it })
                     }

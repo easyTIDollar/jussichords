@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -81,6 +82,7 @@ fun AlbumLandscapeBody(
     onShare: () -> Unit,
     onPlayAll: () -> Unit,
     onComments: () -> Unit,
+    onDownloadAll: (() -> Unit)? = null,
     onSongClick: (Song) -> Unit,
     onSongMenu: (Song) -> Unit,
     modifier: Modifier = Modifier,
@@ -117,6 +119,10 @@ fun AlbumLandscapeBody(
                     onShare = {
                         menuExpanded = false
                         onShare()
+                    },
+                    onDownloadAll = {
+                        menuExpanded = false
+                        onDownloadAll?.invoke()
                     }
                 )
             }
@@ -198,6 +204,21 @@ fun AlbumLandscapeBody(
                 )
                 Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                 Text(text = "评论")
+            }
+            if (onDownloadAll != null) {
+                OutlinedButton(
+                    onClick = onDownloadAll,
+                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.CloudDownload,
+                        contentDescription = null,
+                        modifier = Modifier.size(ButtonDefaults.IconSize)
+                    )
+                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                    Text(text = "下载")
+                }
             }
         },
         listHeader = {

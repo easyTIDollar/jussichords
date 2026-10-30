@@ -80,6 +80,8 @@ object DownloadManager {
                     title = song.name,
                     artist = artistStr,
                     album = song.al?.name.orEmpty(),
+                    artistId = song.ar.firstOrNull()?.id ?: 0L,
+                    albumId = song.al?.id ?: 0L,
                     coverUrl = song.al?.picUrl.orEmpty(),
                     durationMs = song.dt,
                     quality = quality,
@@ -433,7 +435,11 @@ object DownloadManager {
                 val cleanTitle = sanitizeFileName("${task.artist} - ${task.title}")
                 val fileName = "$cleanTitle.$ext"
 
-                val target = prepareOutputStream(context, fileName, mimeType)
+                val subDirName = if (task.album.isNotBlank()) {
+                    sanitizeFileName(if (task.artist.isNotBlank()) "${task.artist} - ${task.album}" else task.album)
+                } else null
+
+                val target = prepareOutputStream(context, fileName, mimeType, subDirName)
                 if (target == null) {
                     tempAudioFile.delete()
                     DownloadStore.markStatus(context, task.songId, DownloadStatus.FAILED, errorMsg = "创建目标存储文件失败")
@@ -488,7 +494,12 @@ object DownloadManager {
         val fileUri: String?
     )
 
-    private suspend fun prepareOutputStream(context: Context, fileName: String, mimeType: String): OutputTarget? {
+    private suspend fun prepareOutputStream(
+        context: Context,
+        fileName: String,
+        mimeType: String,
+        subDirName: String? = null
+    ): OutputTarget? {
         val customUriStr = context.dataStore.data.first()[downloadCustomDirUriKey].orEmpty()
 
         // 若用户设置了 SAF 自定义目录
@@ -497,7 +508,14 @@ object DownloadManager {
                 val treeUri = Uri.parse(customUriStr)
                 val treeDir = DocumentFile.fromTreeUri(context, treeUri)
                 if (treeDir != null && treeDir.canWrite()) {
-                    val docFile = treeDir.createFile(mimeType, fileName)
+                    val targetDir = if (!subDirName.isNullOrBlank()) {
+                        treeDir.findFile(subDirName)?.takeIf { it.isDirectory }
+                            ?: treeDir.createDirectory(subDirName)
+                            ?: treeDir
+                    } else {
+                        treeDir
+                    }
+                    val docFile = targetDir.createFile(mimeType, fileName)
                     if (docFile != null) {
                         val stream = context.contentResolver.openOutputStream(docFile.uri)
                         if (stream != null) {
@@ -510,16 +528,81 @@ object DownloadManager {
             if (customTarget != null) return customTarget
         }
 
-        // 默认目录：公共 Music/Jussichords
+        // 默认目录：公共 Music/Jussichords/[歌手 - 专辑/]
         return runCatching {
             val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
             val jussiDir = File(musicDir, "Jussichords")
-            if (!jussiDir.exists()) {
-                jussiDir.mkdirs()
+            val targetDir = if (!subDirName.isNullOrBlank()) {
+                File(jussiDir, subDirName)
+            } else {
+                jussiDir
             }
-            val file = File(jussiDir, fileName)
+            if (!targetDir.exists()) {
+                targetDir.mkdirs()
+            }
+            val file = File(targetDir, fileName)
             OutputTarget(FileOutputStream(file), file.absolutePath, Uri.fromFile(file).toString())
         }.getOrNull()
+    }
+
+    /**
+     * 一键打开本地下载文件夹，优先调起系统文件管理器
+     */
+    fun openDownloadFolder(context: Context) {
+        val appContext = context.applicationContext
+        scope.launch(Dispatchers.Main) {
+            val customUriStr = appContext.dataStore.data.first()[downloadCustomDirUriKey].orEmpty()
+            if (customUriStr.isNotBlank()) {
+                val opened = runCatching {
+                    val treeUri = Uri.parse(customUriStr)
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(treeUri, "vnd.android.document/directory")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(intent)
+                    true
+                }.getOrDefault(false)
+                if (opened) return@launch
+            }
+
+            val defaultDir = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+                "Jussichords"
+            )
+            if (!defaultDir.exists()) {
+                defaultDir.mkdirs()
+            }
+
+            val openedDefault = runCatching {
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    defaultDir
+                )
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "resource/folder")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(intent)
+                true
+            }.getOrDefault(false)
+
+            if (!openedDefault) {
+                // 回退到系统通用文档选择界面或提示绝对路径
+                runCatching {
+                    val fallbackIntent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(
+                            Uri.parse("content://media/external/file"),
+                            "vnd.android.document/directory"
+                        )
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(fallbackIntent)
+                }.onFailure {
+                    Toast.makeText(context, "下载目录: ${defaultDir.absolutePath}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
     private fun sanitizeFileName(name: String): String {

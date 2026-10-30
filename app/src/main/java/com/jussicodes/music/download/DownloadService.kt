@@ -11,7 +11,6 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.jussicodes.music.MainActivity
-import com.jussicodes.music.R
 import com.jussicodes.music.data.download.DownloadStatus
 import com.jussicodes.music.data.download.DownloadStore
 import kotlinx.coroutines.CoroutineScope
@@ -47,7 +46,13 @@ class DownloadService : Service() {
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
 
-        val initialNotification = buildNotification("准备下载中...", 0, 0, false)
+        val initialNotification = buildNotification(
+            title = "歌曲下载准备中…",
+            contentText = "正在初始化下载队列",
+            progress = 0,
+            max = 100,
+            indeterminate = true
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
@@ -72,14 +77,15 @@ class DownloadService : Service() {
                 }
 
                 if (activeTasks.isEmpty()) {
-                    // 没有正在执行的任务了，稍微延迟等待看是否还有新入队，若无则停止服务
-                    delay(2000)
+                    // 没有正在执行的任务了，稍微延迟等待看是否还有新入队
+                    delay(1500)
                     val recheck = DownloadStore.getAllTasks().any {
                         it.status == DownloadStatus.DOWNLOADING ||
                         it.status == DownloadStatus.RESOLVING ||
                         it.status == DownloadStatus.PENDING
                     }
                     if (!recheck) {
+                        showCompletedNotification()
                         stopForeground(STOP_FOREGROUND_REMOVE)
                         stopSelf()
                     }
@@ -88,13 +94,14 @@ class DownloadService : Service() {
                         ?: activeTasks.firstOrNull { it.status == DownloadStatus.RESOLVING }
                         ?: activeTasks.first()
 
-                    val title = when (currentDownloading.status) {
-                        DownloadStatus.DOWNLOADING -> "正在下载: ${currentDownloading.title} (${currentDownloading.speedText})"
-                        DownloadStatus.RESOLVING -> "正在解析: ${currentDownloading.title}"
-                        else -> "排队中 (${activeTasks.size} 首)"
-                    }
                     val percent = (currentDownloading.progress * 100).toInt().coerceIn(0, 100)
-                    val content = "${currentDownloading.artist} · 队列剩余 ${activeTasks.size} 首"
+                    val title = when (currentDownloading.status) {
+                        DownloadStatus.DOWNLOADING -> "正在下载 (${activeTasks.size} 首): ${currentDownloading.title}"
+                        DownloadStatus.RESOLVING -> "正在解析直链 (${activeTasks.size} 首): ${currentDownloading.title}"
+                        else -> "等待下载 (${activeTasks.size} 首): ${currentDownloading.title}"
+                    }
+                    val speed = if (currentDownloading.speedText.isNotBlank()) " · ${currentDownloading.speedText}" else ""
+                    val content = "${currentDownloading.artist} · $percent%$speed"
 
                     val notification = buildNotification(
                         title = title,
@@ -111,10 +118,10 @@ class DownloadService : Service() {
 
     private fun buildNotification(
         title: String,
+        contentText: String,
         progress: Int,
         max: Int,
-        indeterminate: Boolean,
-        contentText: String = ""
+        indeterminate: Boolean
     ): android.app.Notification {
         val tapIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -127,7 +134,7 @@ class DownloadService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(title)
             .setContentText(contentText)
             .setOnlyAlertOnce(true)
@@ -138,6 +145,30 @@ class DownloadService : Service() {
             .build()
     }
 
+    private fun showCompletedNotification() {
+        val tapIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            tapIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val completedNotification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle("歌曲下载完成")
+            .setContentText("所选歌曲已成功保存到本地存储")
+            .setAutoCancel(true)
+            .setOngoing(false)
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID + 1, completedNotification)
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -145,7 +176,7 @@ class DownloadService : Service() {
                 "歌曲下载",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "显示歌曲下载进度"
+                description = "显示歌曲下载进度与状态"
                 setShowBadge(false)
             }
             notificationManager.createNotificationChannel(channel)
