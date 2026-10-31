@@ -49,10 +49,15 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Tune
+import com.jussicodes.music.ui.components.AudioQualityProbeDialog
+import com.jussicodes.music.ui.components.ProbeDialogMode
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -159,6 +164,10 @@ fun DownloadScreen(
     }
 
     var showSettingsSheet by rememberSaveable { mutableStateOf(false) }
+    var downloadQuality by rememberPreference(downloadQualityKey, "ask")
+    var probeTask by remember { mutableStateOf<DownloadTask?>(null) }
+    var probeDialogMode by remember { mutableStateOf(ProbeDialogMode.UPGRADE) }
+    var showBenchmarkProbe by remember { mutableStateOf(false) }
     var customGroupsRaw by rememberPreference(downloadCustomGroupsKey, "")
     val customGroupNames: Set<String> = remember(customGroupsRaw) {
         customGroupsRaw.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
@@ -305,6 +314,10 @@ fun DownloadScreen(
                     },
                     onDelete = { songId, deleteFile ->
                         DownloadManager.deleteDownloaded(context, songId, deleteFile)
+                    },
+                    onProbeQuality = { task ->
+                        probeTask = task
+                        probeDialogMode = ProbeDialogMode.UPGRADE
                     }
                 )
                 1 -> DownloadingListSection(
@@ -314,7 +327,11 @@ fun DownloadScreen(
                     onResume = { DownloadManager.resume(context, it) },
                     onCancel = { DownloadManager.cancel(context, it) },
                     onPauseAll = { DownloadManager.pauseAll(context) },
-                    onResumeAll = { DownloadManager.resumeAll(context) }
+                    onResumeAll = { DownloadManager.resumeAll(context) },
+                    onRetryWithProbe = { task ->
+                        probeTask = task
+                        probeDialogMode = ProbeDialogMode.RETRY_FAILED
+                    }
                 )
             }
         }
@@ -480,7 +497,67 @@ fun DownloadScreen(
     if (showSettingsSheet) {
         DownloadSettingsBottomSheet(
             isLandscape = isLandscape,
-            onDismiss = { showSettingsSheet = false }
+            onDismiss = { showSettingsSheet = false },
+            onOpenBenchmarkProbe = {
+                showSettingsSheet = false
+                showBenchmarkProbe = true
+            }
+        )
+    }
+
+    if (showBenchmarkProbe) {
+        AudioQualityProbeDialog(
+            mode = ProbeDialogMode.BENCHMARK,
+            songId = 2644774041L,
+            title = "音源下载能力体检",
+            subtitle = "基准曲目 · ID: 2644774041",
+            durationMs = 0L,
+            currentQualityKey = downloadQuality,
+            onDismiss = { showBenchmarkProbe = false },
+            onConfirm = { selectedLevel, _, _ ->
+                downloadQuality = selectedLevel.value
+                showBenchmarkProbe = false
+                Toast.makeText(context, "已将默认下载音质设置为: ${selectedLevel.value}", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    probeTask?.let { task ->
+        AudioQualityProbeDialog(
+            mode = probeDialogMode,
+            songId = task.songId,
+            title = task.title,
+            subtitle = task.artist,
+            durationMs = task.durationMs,
+            currentQualityKey = if (probeDialogMode == ProbeDialogMode.UPGRADE) {
+                task.actualQualityText ?: task.quality
+            } else {
+                task.quality
+            },
+            onDismiss = { probeTask = null },
+            onConfirm = { selectedLevel, preloadUrl, preloadSize ->
+                val levelKey = selectedLevel.value
+                if (probeDialogMode == ProbeDialogMode.UPGRADE) {
+                    DownloadManager.redownload(
+                        context = context,
+                        songId = task.songId,
+                        newQuality = levelKey,
+                        preloadUrl = preloadUrl,
+                        preloadSize = preloadSize
+                    )
+                    Toast.makeText(context, "已开始重新下载: ${task.title} ($levelKey)", Toast.LENGTH_SHORT).show()
+                } else if (probeDialogMode == ProbeDialogMode.RETRY_FAILED) {
+                    DownloadManager.retryWithQuality(
+                        context = context,
+                        songId = task.songId,
+                        newQuality = levelKey,
+                        preloadUrl = preloadUrl,
+                        preloadSize = preloadSize
+                    )
+                    Toast.makeText(context, "已使用 $levelKey 重试: ${task.title}", Toast.LENGTH_SHORT).show()
+                }
+                probeTask = null
+            }
         )
     }
 }
@@ -494,7 +571,8 @@ private fun DownloadedListSection(
     selectedSongIds: Set<Long>,
     onToggleSelect: (Long) -> Unit,
     onEnterSelection: (Long) -> Unit,
-    onDelete: (Long, Boolean) -> Unit
+    onDelete: (Long, Boolean) -> Unit,
+    onProbeQuality: (DownloadTask) -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -767,7 +845,8 @@ private fun DownloadedListSection(
                                     onEnterSelection(task.songId)
                                 },
                                 onDeleteClick = { pendingDeleteTask = task },
-                                onShareClick = { shareDownloadedFile(context, task) }
+                                onShareClick = { shareDownloadedFile(context, task) },
+                                onProbeQualityClick = { onProbeQuality(task) }
                             )
                         }
                     }
@@ -792,7 +871,8 @@ private fun DownloadedListSection(
                                     onEnterSelection(songId)
                                 },
                                 onDeleteClick = { pendingDeleteTask = it },
-                                onShareClick = { shareDownloadedFile(context, it) }
+                                onShareClick = { shareDownloadedFile(context, it) },
+                                onProbeQualityClick = onProbeQuality
                             )
                         }
                     }
@@ -858,6 +938,7 @@ private fun DownloadedListSection(
                                     },
                                     onDeleteClick = { pendingDeleteTask = it },
                                     onShareClick = { shareDownloadedFile(context, it) },
+                                    onProbeQualityClick = onProbeQuality,
                                     onRenameGroup = {
                                         renameTargetGroup = group.title
                                         renameInput = group.title
@@ -925,7 +1006,8 @@ private fun DownloadedListSection(
                                     onEnterSelection(task.songId)
                                 },
                                 onDeleteClick = { pendingDeleteTask = task },
-                                onShareClick = { shareDownloadedFile(context, task) }
+                                onShareClick = { shareDownloadedFile(context, task) },
+                                onProbeQualityClick = { onProbeQuality(task) }
                             )
                         }
                     }
@@ -950,7 +1032,8 @@ private fun DownloadedListSection(
                                     onEnterSelection(songId)
                                 },
                                 onDeleteClick = { pendingDeleteTask = it },
-                                onShareClick = { shareDownloadedFile(context, it) }
+                                onShareClick = { shareDownloadedFile(context, it) },
+                                onProbeQualityClick = onProbeQuality
                             )
                         }
                     }
@@ -1016,6 +1099,7 @@ private fun DownloadedListSection(
                                     },
                                     onDeleteClick = { pendingDeleteTask = it },
                                     onShareClick = { shareDownloadedFile(context, it) },
+                                    onProbeQualityClick = onProbeQuality,
                                     onRenameGroup = {
                                         renameTargetGroup = group.title
                                         renameInput = group.title
@@ -1232,7 +1316,8 @@ private fun DownloadedSongItem(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDeleteClick: () -> Unit,
-    onShareClick: () -> Unit
+    onShareClick: () -> Unit,
+    onProbeQualityClick: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -1318,6 +1403,14 @@ private fun DownloadedSongItem(
                     onDismissRequest = { menuExpanded = false }
                 ) {
                     JussiMenuItem(
+                        text = "音质体检 / 升级",
+                        icon = Icons.Outlined.HighQuality,
+                        onClick = {
+                            menuExpanded = false
+                            onProbeQualityClick()
+                        }
+                    )
+                    JussiMenuItem(
                         text = "分享音频文件",
                         icon = Icons.Outlined.Share,
                         onClick = {
@@ -1348,7 +1441,8 @@ private fun DownloadingListSection(
     onResume: (Long) -> Unit,
     onCancel: (Long) -> Unit,
     onPauseAll: () -> Unit,
-    onResumeAll: () -> Unit
+    onResumeAll: () -> Unit,
+    onRetryWithProbe: (DownloadTask) -> Unit = {}
 ) {
     if (activeTasks.isEmpty()) {
         Box(
@@ -1389,7 +1483,8 @@ private fun DownloadingListSection(
                     task = task,
                     onPause = { onPause(task.songId) },
                     onResume = { onResume(task.songId) },
-                    onCancel = { onCancel(task.songId) }
+                    onCancel = { onCancel(task.songId) },
+                    onRetryWithProbe = { onRetryWithProbe(task) }
                 )
             }
 
@@ -1410,7 +1505,8 @@ private fun DownloadingListSection(
                     task = task,
                     onPause = { onPause(task.songId) },
                     onResume = { onResume(task.songId) },
-                    onCancel = { onCancel(task.songId) }
+                    onCancel = { onCancel(task.songId) },
+                    onRetryWithProbe = { onRetryWithProbe(task) }
                 )
             }
 
@@ -1456,7 +1552,8 @@ private fun DownloadingSongItem(
     task: DownloadTask,
     onPause: () -> Unit,
     onResume: () -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    onRetryWithProbe: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -1500,6 +1597,16 @@ private fun DownloadingSongItem(
                 style = MaterialTheme.typography.bodySmall,
                 color = if (task.status == DownloadStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (task.status == DownloadStatus.FAILED) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "换档重试 ›",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable { onRetryWithProbe() }.padding(vertical = 2.dp)
+                )
+            }
 
             Spacer(Modifier.height(4.dp))
             if (task.status == DownloadStatus.DOWNLOADING || task.status == DownloadStatus.PAUSED) {
@@ -1523,6 +1630,15 @@ private fun DownloadingSongItem(
         Spacer(Modifier.width(12.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
+            if (task.status == DownloadStatus.FAILED) {
+                IconButton(onClick = onRetryWithProbe) {
+                    Icon(
+                        imageVector = Icons.Outlined.Tune,
+                        contentDescription = "换档重试",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
             when (task.status) {
                 DownloadStatus.DOWNLOADING, DownloadStatus.RESOLVING -> {
                     IconButton(onClick = onPause) {
@@ -1550,7 +1666,8 @@ private fun DownloadingSongItem(
 @Composable
 private fun DownloadSettingsBottomSheet(
     isLandscape: Boolean,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onOpenBenchmarkProbe: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -1647,8 +1764,19 @@ private fun DownloadSettingsBottomSheet(
                                             color = MaterialTheme.colorScheme.primary
                                         )
                                     }
-                                    TextButton(onClick = { showQualityPicker = true }) {
-                                        Text("更改")
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        TextButton(onClick = onOpenBenchmarkProbe) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Speed,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("音源体检")
+                                        }
+                                        TextButton(onClick = { showQualityPicker = true }) {
+                                            Text("更改")
+                                        }
                                     }
                                 }
                             }
@@ -1792,8 +1920,19 @@ private fun DownloadSettingsBottomSheet(
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
-                        TextButton(onClick = { showQualityPicker = true }) {
-                            Text("更改")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = onOpenBenchmarkProbe) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Speed,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text("音源体检")
+                            }
+                            TextButton(onClick = { showQualityPicker = true }) {
+                                Text("更改")
+                            }
                         }
                     }
                 }
@@ -1989,7 +2128,8 @@ private fun DownloadedGroupCard(
     onDeleteClick: (DownloadTask) -> Unit,
     onShareClick: (DownloadTask) -> Unit,
     onRenameGroup: (() -> Unit)? = null,
-    onDeleteGroup: (() -> Unit)? = null
+    onDeleteGroup: (() -> Unit)? = null,
+    onProbeQualityClick: (DownloadTask) -> Unit = {}
 ) {
     Card(
         modifier = Modifier
@@ -2116,7 +2256,8 @@ private fun DownloadedGroupCard(
                         onClick = { onItemClick(songTask) },
                         onLongClick = { onLongClick(songTask.songId) },
                         onDeleteClick = { onDeleteClick(songTask) },
-                        onShareClick = { onShareClick(songTask) }
+                        onShareClick = { onShareClick(songTask) },
+                        onProbeQualityClick = { onProbeQualityClick(songTask) }
                     )
                 }
             }

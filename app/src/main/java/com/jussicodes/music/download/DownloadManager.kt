@@ -183,6 +183,38 @@ object DownloadManager {
         }
     }
 
+    fun redownload(
+        context: Context,
+        songId: Long,
+        newQuality: String,
+        preloadUrl: String? = null,
+        preloadSize: Long? = null
+    ) {
+        val appContext = context.applicationContext
+        scope.launch {
+            activeCalls[songId]?.cancel()
+            activeJobs[songId]?.cancel()
+            DownloadStore.resetForRedownload(appContext, songId, newQuality, preloadUrl, preloadSize)
+            triggerLoop(appContext)
+        }
+    }
+
+    fun retryWithQuality(
+        context: Context,
+        songId: Long,
+        newQuality: String,
+        preloadUrl: String? = null,
+        preloadSize: Long? = null
+    ) {
+        val appContext = context.applicationContext
+        scope.launch {
+            activeCalls[songId]?.cancel()
+            activeJobs[songId]?.cancel()
+            DownloadStore.resetForRetry(appContext, songId, newQuality, preloadUrl, preloadSize)
+            triggerLoop(appContext)
+        }
+    }
+
     fun deleteDownloaded(context: Context, songId: Long, deleteFile: Boolean = true) {
         deleteDownloadedBatch(context, listOf(songId), deleteFile)
     }
@@ -311,15 +343,17 @@ object DownloadManager {
             else -> SongLevel.STANDARD
         }
 
-        var downloadUrl: String? = null
+        var downloadUrl: String? = task.preloadUrl?.takeIf { it.isNotBlank() }
 
         // 1. 优先标准接口请求（VIP账号有完整权限，或免费歌曲直接获取对应音质）
-        val resp = runCatching {
-            PlayerApi.songPlayUrlV1(task.songId.toString(), sLevel).getOrNull()?.data?.firstOrNull()
-        }.getOrNull()
-        val u = resp?.url?.takeIf { it.isNotBlank() }
-        if (u != null && resp?.isTrialClip() != true && !u.contains("musicrep-ts", ignoreCase = true)) {
-            downloadUrl = u
+        if (downloadUrl.isNullOrBlank()) {
+            val resp = runCatching {
+                PlayerApi.songPlayUrlV1(task.songId.toString(), sLevel).getOrNull()?.data?.firstOrNull()
+            }.getOrNull()
+            val u = resp?.url?.takeIf { it.isNotBlank() }
+            if (u != null && resp?.isTrialClip() != true && !u.contains("musicrep-ts", ignoreCase = true)) {
+                downloadUrl = u
+            }
         }
 
         // 2. 若官方未获取到完整音频（VIP歌曲），尝试配置的第三方解灰音源
