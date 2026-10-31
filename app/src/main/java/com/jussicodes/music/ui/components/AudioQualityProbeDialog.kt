@@ -244,7 +244,7 @@ fun AudioQualityProbeDialog(
                                             ProbeItemStatus.PENDING, ProbeItemStatus.PROBING -> "检测直链中…"
                                             ProbeItemStatus.AVAILABLE -> levelDesc
                                             ProbeItemStatus.DOWNGRADED -> {
-                                                val act = probeItem.actualLevel?.value ?: "低档位"
+                                                val act = probeItem?.actualLevel?.value ?: "低档位"
                                                 "请求 $levelLabel · 实际返回 $act"
                                             }
                                             ProbeItemStatus.ENCRYPTED_SHELL -> "私有加密格式，无法保存"
