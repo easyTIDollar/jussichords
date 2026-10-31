@@ -53,7 +53,7 @@ Telegram群组: [https://t.me/jussichords_chat](https://t.me/jussichords_chat)
 
 | 模块 | 类型 | 职责 |
 |---|---|---|
-| `:app` | Android 应用 | Jetpack Compose 界面、Media3 播放引擎、桌面悬浮歌词服务、LX 脚本沙箱、智能缓存与业务逻辑 |
+| `:app` | Android 应用 | Jetpack Compose 界面、Media3 播放引擎、桌面悬浮歌词服务、离线下载管理服务、LX 脚本沙箱、智能缓存与业务逻辑 |
 | `:ncmapi` | Android 库 | 网易云原生协议层（WeApi / EApi / LinuxApi / NCBL）、加密通道与统一数据模型 |
 
 代码目录按业务域与基础设施组织：
@@ -65,6 +65,7 @@ app/src/main/java/com/jussicodes/music/
 ├── di/                          # Hilt 依赖注入模块
 ├── ui/                          # Compose 界面层（探索、我的、播放页、评论、消息、设置等）
 ├── playback/                    # Media3 音频播放服务与状态控制
+├── download/                    # 离线下载管理服务与音频元数据（ID3）写入
 ├── lyric/                       # 歌词解析、实时滚动与桌面悬浮歌词服务
 ├── lx/                          # 洛雪脚本音源解析引擎与 WebView 安全沙箱
 ├── data/                        # 仓储实现、DataStore 本地存储、缓存管理
@@ -85,6 +86,7 @@ ncmapi/src/main/java/com/rcmiku/ncmapi/
 - **简约且清晰的双tab主页**：
   - **我的**：账号信息、喜欢歌单、自建与收藏歌单
   - **探索**：每日推荐横滑卡片、推荐歌单画廊
+- **离线下载管理**：支持单曲与歌单整单批量离线下载，可自选音质（标准/极高/无损等），自动内嵌高清封面及歌曲元数据标签，提供独立下载管理页与队列调度
 - **私人 FM**：支持自由切换默认、AI DJ、熟悉、探索、运动场景、专注场景与夜晚情绪
 - **听歌排行**：支持周榜与全部时间听歌排行（精确统计播放频次），以及歌曲、歌单、专辑三维度的播放历史
 - **歌词页面**：提供「歌词翻译」与「逐字歌词」独立开关
