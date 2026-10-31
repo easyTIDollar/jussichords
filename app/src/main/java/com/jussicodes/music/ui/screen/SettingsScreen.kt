@@ -108,7 +108,6 @@ import com.jussicodes.music.constants.directSourceKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.resolveAllSongsKey
 import com.jussicodes.music.constants.ncmCookieKey
-import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.constants.floatingNavBarEnabledKey
 import com.jussicodes.music.constants.playerBackgroundBlurEnabledKey
@@ -124,6 +123,7 @@ import com.jussicodes.music.constants.updateLastErrorKey
 import com.jussicodes.music.lyric.DesktopLyricManager
 import com.jussicodes.music.lyric.DesktopLyricDefaultFontSizeSp
 import com.jussicodes.music.ui.components.ScaledDialogContent
+import com.jussicodes.music.ui.components.PlayerGestureTutorialDialog
 import com.jussicodes.music.ui.components.Dialog
 import com.jussicodes.music.ui.components.SongQualityDialog
 import com.jussicodes.music.ui.components.ThemeColorSourceDialog
@@ -249,10 +249,7 @@ fun SettingsScreen(
     var ignoredUpdateVersion by rememberPreference(ignoredUpdateVersionKey, "")
     // 检查更新的可见状态：只留失败原因（失败不再静默）。
     var updateLastError by rememberPreference(updateLastErrorKey, "")
-    var playerGestureTutorialVersion by rememberPreference(
-        playerGestureTutorialVersionKey,
-        0
-    )
+    var showGestureTutorialDialog by rememberSaveable { mutableStateOf(false) }
     val uiScaleController = LocalUiScaleController.current
     var githubDownloadSource by rememberPreference(
         githubDownloadSourceKey,
@@ -675,12 +672,11 @@ fun SettingsScreen(
                 }
             ),
             SettingItemData(
-                title = "播放器手势教程",
-                subtitle = "重新显示手势操作指南",
+                title = "播放页手势指南",
+                subtitle = "查看播放器常用手势说明",
                 imageVector = Gesture,
                 onClick = {
-                    playerGestureTutorialVersion = 0
-                    Toast.makeText(context, "播放器手势教程已重新开启", Toast.LENGTH_SHORT).show()
+                    showGestureTutorialDialog = true
                 }
             )
         )
@@ -1055,6 +1051,12 @@ fun SettingsScreen(
                 showDirectSourceDialog = false
                 reloadCurrentSong()
             }
+        )
+    }
+
+    if (showGestureTutorialDialog) {
+        PlayerGestureTutorialDialog(
+            onDismiss = { showGestureTutorialDialog = false }
         )
     }
 

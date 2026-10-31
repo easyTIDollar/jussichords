@@ -68,7 +68,6 @@ import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.constants.isLandscapePhone
-import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.Artist
@@ -156,11 +155,6 @@ fun Player(
     var openPlayerBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openComments by rememberSaveable { mutableStateOf(false) }
     var playerLabelMenuExpanded by rememberSaveable { mutableStateOf(false) }
-    var gestureTutorialVersion by rememberPreference(
-        playerGestureTutorialVersionKey,
-        0
-    )
-    val showGestureTutorial = gestureTutorialVersion < PLAYER_GESTURE_TUTORIAL_VERSION
     var coverPreviewUrl by remember { mutableStateOf<Any?>(null) }
 
     // 一起听会话：歌名行爱心左侧的成员小组件（进房才出现）读的就是这个 StateFlow。
@@ -708,18 +702,9 @@ fun Player(
                 }
             )
         }
-
-        PlayerGestureTutorialOverlay(
-            visible = showGestureTutorial,
-            onDismiss = {
-                gestureTutorialVersion = PLAYER_GESTURE_TUTORIAL_VERSION
-            }
-        )
         }
     }
 }
-
-private const val PLAYER_GESTURE_TUTORIAL_VERSION = 2
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

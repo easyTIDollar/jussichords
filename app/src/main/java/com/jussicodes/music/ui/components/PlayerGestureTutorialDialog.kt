@@ -1,17 +1,11 @@
 package com.jussicodes.music.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -30,10 +24,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,49 +38,26 @@ import com.jussicodes.music.ui.icons.MusicNote
 import com.jussicodes.music.ui.icons.SkipNext
 
 /**
- * 播放器全屏手势引导蒙层。
+ * 播放页手势指南弹窗（从设置页面点击进入）。
  *
- * 覆盖在播放器上方，以优雅的卡片结构集中展示所有高频手势操作
- * （封面左右滑切歌、下拉收起、轻触歌词、长按大图；底栏空白点击看列表、上滑看评论）。
+ * 集中展示播放器所有高频手势操作：
+ * 封面左右滑切歌、下拉收起、轻触歌词、长按大图；底栏空白点击看列表、上滑看评论。
  */
 @Composable
-fun PlayerGestureTutorialOverlay(
-    visible: Boolean,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+fun PlayerGestureTutorialDialog(
+    onDismiss: () -> Unit
 ) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(),
-        exit = fadeOut(),
-        modifier = modifier
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.6f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss
-                ),
-            contentAlignment = Alignment.Center
-        ) {
+    ResponsiveDialogWindow(onDismissRequest = onDismiss) {
+        ScaledDialogContent {
             Card(
                 modifier = Modifier
-                    .padding(horizontal = 24.dp, vertical = 32.dp)
-                    .widthIn(max = 420.dp)
-                    .fillMaxWidth()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = { /* 阻断点击冒泡到背景蒙层 */ }
-                    ),
-                shape = RoundedCornerShape(28.dp),
+                    .widthIn(max = 400.dp)
+                    .fillMaxWidth(),
+                shape = MaterialTheme.shapes.extraLarge,
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
             ) {
                 Column(
                     modifier = Modifier
@@ -118,7 +87,7 @@ fun PlayerGestureTutorialOverlay(
                     Spacer(Modifier.height(14.dp))
 
                     Text(
-                        text = "播放器手势指南",
+                        text = "播放页手势指南",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -127,7 +96,7 @@ fun PlayerGestureTutorialOverlay(
                     Spacer(Modifier.height(4.dp))
 
                     Text(
-                        text = "探索快捷手势，自如操控音乐",
+                        text = "常用手势操作一览，掌控播放更便捷",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -188,7 +157,7 @@ fun PlayerGestureTutorialOverlay(
                         icon = Message
                     )
 
-                    Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(22.dp))
 
                     Button(
                         onClick = onDismiss,
