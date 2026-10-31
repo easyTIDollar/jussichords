@@ -244,31 +244,29 @@ fun ThemeColorSourceDialog(
                             }
                         }
 
-                        // 字体颜色三档（背景太亮/太暗时选白字/黑字，避免看不清）；
-                        // 仅当设置了背景图才显示——没背景图时文字走主题，无可调。
-                        if (homeBg.enabled) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 2.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                Text(
-                                    text = "字体颜色",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.weight(1f),
+                        // 字体颜色三档（常驻外观弹窗：自动/白字/黑字，方便自由适配不同壁纸或主题风格）
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "字体颜色",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            listOf(
+                                "auto" to "自动",
+                                "white" to "白字",
+                                "black" to "黑字",
+                            ).forEach { (mode, label) ->
+                                FilterChip(
+                                    selected = homeBgTextColor == mode,
+                                    onClick = { onHomeBgTextColorChanged(mode) },
+                                    label = { Text(label) },
                                 )
-                                listOf(
-                                    "auto" to "自动",
-                                    "white" to "白字",
-                                    "black" to "黑字",
-                                ).forEach { (mode, label) ->
-                                    FilterChip(
-                                        selected = homeBgTextColor == mode,
-                                        onClick = { onHomeBgTextColorChanged(mode) },
-                                        label = { Text(label) },
-                                    )
-                                }
                             }
                         }
 

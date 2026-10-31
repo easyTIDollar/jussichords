@@ -763,7 +763,7 @@ object DownloadManager {
     }
 
     /**
-     * 一键打开本地下载文件夹，优先调起系统文件管理器
+     * 一键打开本地下载文件夹，优先定向直达指定目录
      */
     fun openDownloadFolder(context: Context) {
         val appContext = context.applicationContext
@@ -776,13 +776,14 @@ object DownloadManager {
                 defaultDir.mkdirs()
             }
 
-            // 1. 复制路径到剪贴板兜底
+            // 1. 复制物理路径到剪贴板兜底
             runCatching {
                 val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
                 val clip = android.content.ClipData.newPlainText("Jussichords Music", defaultDir.absolutePath)
                 cm?.setPrimaryClip(clip)
             }
 
+            // 2. 如果配置了自定义 SAF 目录 Uri
             val customUriStr = appContext.dataStore.data.first()[downloadCustomDirUriKey].orEmpty()
             if (customUriStr.isNotBlank()) {
                 val opened = runCatching {
@@ -800,40 +801,68 @@ object DownloadManager {
                 }
             }
 
-            // 2. 优先通过包名唤起主流厂商及常用文件管理器
-            val knownFileManagerPkgs = listOf(
-                "com.android.fileexplorer",               // 小米 / 红米 / HyperOS / MIUI
-                "com.coloros.filemanager",                // OPPO / OnePlus / Realme
-                "com.vivo.filemanager",                   // vivo / iQOO
-                "com.huawei.hidisk",                      // 华为
-                "com.hihonor.filemanager",                // 荣耀
-                "com.sec.android.app.myfiles",            // 三星
-                "com.google.android.apps.nbu.files",      // Google Files
-                "com.android.documentsui",                // AOSP 原生文件系统
-                "bin.mt.plus",                            // MT 管理器
-                "ru.zdevs.zarchiver"                      // ZArchiver
-            )
+            // 3. 核心：通过临时解除 StrictMode 规避 FileUriExposedException，以实现携带真实 file:// 路径直达具体文件夹
+            val oldPolicy = android.os.StrictMode.getVmPolicy()
+            android.os.StrictMode.setVmPolicy(android.os.StrictMode.VmPolicy.Builder().build())
 
-            var launched = false
-            val pm = context.packageManager
-            for (pkg in knownFileManagerPkgs) {
-                val launchIntent = pm.getLaunchIntentForPackage(pkg)
-                if (launchIntent != null) {
-                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    val ok = runCatching {
-                        context.startActivity(launchIntent)
-                        true
-                    }.getOrDefault(false)
-                    if (ok) {
-                        launched = true
-                        break
-                    }
-                }
-            }
+            var openedExact = false
+            try {
+                val fileUri = Uri.fromFile(defaultDir)
 
-            // 3. 兜底尝试通过 SAF 协议或系统 Downloads 视图查看
-            if (!launched) {
-                val fallbackIntents = listOf(
+                // 各家文件管理器精准打开具体目录的定向 Intent 列表
+                val directFolderIntents = listOf(
+                    // 小米 / HyperOS / MIUI 文件管理器（携带 current_directory / explorer_path 直达文件夹）
+                    Intent("android.intent.action.VIEW").apply {
+                        component = android.content.ComponentName("com.android.fileexplorer", "com.android.fileexplorer.FileExplorerTabActivity")
+                        putExtra("current_directory", defaultDir.absolutePath)
+                        putExtra("explorer_path", defaultDir.absolutePath)
+                        putExtra("path", defaultDir.absolutePath)
+                        setDataAndType(fileUri, "resource/folder")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    },
+                    // 华为 / 荣耀文件管理器
+                    Intent().apply {
+                        component = android.content.ComponentName("com.huawei.hidisk", "com.huawei.hidisk.view.activity.FileManagerTabActivity")
+                        putExtra("PATH", defaultDir.absolutePath)
+                        putExtra("path", defaultDir.absolutePath)
+                        putExtra("default_path", defaultDir.absolutePath)
+                        setDataAndType(fileUri, "resource/folder")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    },
+                    // OPPO / OnePlus / Realme
+                    Intent().apply {
+                        component = android.content.ComponentName("com.coloros.filemanager", "com.coloros.filemanager.MainPageActivity")
+                        putExtra("currentDir", defaultDir.absolutePath)
+                        putExtra("path", defaultDir.absolutePath)
+                        setDataAndType(fileUri, "resource/folder")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    },
+                    // vivo / iQOO
+                    Intent().apply {
+                        component = android.content.ComponentName("com.vivo.filemanager", "com.vivo.filemanager.FileExplorerActivity")
+                        putExtra("current_path", defaultDir.absolutePath)
+                        putExtra("path", defaultDir.absolutePath)
+                        setDataAndType(fileUri, "resource/folder")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    },
+                    // MT 管理器（直接以目录形式打开）
+                    Intent(Intent.ACTION_VIEW).apply {
+                        component = android.content.ComponentName("bin.mt.plus", "bin.mt.plus.Main")
+                        setDataAndType(fileUri, "resource/folder")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    },
+                    // ZArchiver
+                    Intent(Intent.ACTION_VIEW).apply {
+                        setPackage("ru.zdevs.zarchiver")
+                        setDataAndType(fileUri, "resource/folder")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    },
+                    // OpenIntents / Total Commander 行业标准
+                    Intent("org.openintents.action.VIEW_DIRECTORY").apply {
+                        setData(fileUri)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    },
+                    // 原生 AOSP DocumentsUI Document URI
                     Intent(Intent.ACTION_VIEW).apply {
                         setDataAndType(
                             Uri.parse("content://com.android.externalstorage.documents/document/primary%3AMusic%2FJussichords"),
@@ -841,27 +870,83 @@ object DownloadManager {
                         )
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     },
-                    Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
+                    // 原生 AOSP DocumentsUI Tree URI
+                    Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(
+                            Uri.parse("content://com.android.externalstorage.documents/tree/primary%3AMusic%2FJussichords"),
+                            "vnd.android.document/directory"
+                        )
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    },
+                    // 通用 resource/folder 打开方式
+                    Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(fileUri, "resource/folder")
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                 )
 
-                for (intent in fallbackIntents) {
+                for (intent in directFolderIntents) {
                     val ok = runCatching {
                         context.startActivity(intent)
                         true
                     }.getOrDefault(false)
                     if (ok) {
-                        launched = true
+                        openedExact = true
                         break
+                    }
+                }
+            } finally {
+                android.os.StrictMode.setVmPolicy(oldPolicy)
+            }
+
+            // 4. 若直达失败，尝试唤起常用文件管理器首页兜底
+            if (!openedExact) {
+                val knownFileManagerPkgs = listOf(
+                    "com.android.fileexplorer",
+                    "com.coloros.filemanager",
+                    "com.vivo.filemanager",
+                    "com.huawei.hidisk",
+                    "com.hihonor.filemanager",
+                    "com.sec.android.app.myfiles",
+                    "com.google.android.apps.nbu.files",
+                    "com.android.documentsui",
+                    "bin.mt.plus",
+                    "ru.zdevs.zarchiver"
+                )
+                val pm = context.packageManager
+                for (pkg in knownFileManagerPkgs) {
+                    val launchIntent = pm.getLaunchIntentForPackage(pkg)
+                    if (launchIntent != null) {
+                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        launchIntent.putExtra("path", defaultDir.absolutePath)
+                        val ok = runCatching {
+                            context.startActivity(launchIntent)
+                            true
+                        }.getOrDefault(false)
+                        if (ok) {
+                            openedExact = true
+                            break
+                        }
                     }
                 }
             }
 
-            if (launched) {
-                Toast.makeText(context, "已打开文件管理器，目录已复制：\n${defaultDir.absolutePath}", Toast.LENGTH_SHORT).show()
+            // 5. 若仍未打开，尝试调起系统通用下载视图
+            if (!openedExact) {
+                runCatching {
+                    context.startActivity(
+                        Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                    )
+                    openedExact = true
+                }
+            }
+
+            if (openedExact) {
+                Toast.makeText(context, "已跳转至下载目录 (路径已复制)：\n${defaultDir.absolutePath}", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(context, "下载目录: ${defaultDir.absolutePath} (已复制)", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "未找到文件管理器，目录已复制：\n${defaultDir.absolutePath}", Toast.LENGTH_LONG).show()
             }
         }
     }
