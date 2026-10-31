@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -39,9 +40,13 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CloudDownload
+import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DriveFileMove
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -67,6 +72,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -77,6 +83,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberModalBottomSheetState
 import com.jussicodes.music.ui.components.SwipableTabPager
@@ -113,7 +120,9 @@ import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.downloadCoverKey
 import com.jussicodes.music.constants.downloadCustomDirNameKey
 import com.jussicodes.music.constants.downloadCustomDirUriKey
+import com.jussicodes.music.constants.downloadCustomGroupsKey
 import com.jussicodes.music.constants.downloadLrcKey
+import com.jussicodes.music.constants.downloadTlyricKey
 import com.jussicodes.music.constants.downloadQualityKey
 import com.jussicodes.music.constants.downloadWifiOnlyKey
 import com.jussicodes.music.data.download.DownloadStatus
@@ -149,11 +158,18 @@ fun DownloadScreen(
     }
 
     var showSettingsSheet by rememberSaveable { mutableStateOf(false) }
+    var customGroupNames by rememberPreference(downloadCustomGroupsKey, emptySet())
 
     // 多选模式状态
     var isSelectionMode by rememberSaveable { mutableStateOf(false) }
     var selectedSongIds by remember { mutableStateOf(setOf<Long>()) }
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+    var showMoveToGroupDialog by remember { mutableStateOf(false) }
+
+    // 当处于多选模式时，拦截系统返回键/手势返回，仅退出多选而非返回上一页
+    BackHandler(enabled = isSelectionMode) {
+        exitSelectionMode()
+    }
 
     // 当切换 tab 时如果处于多选，自动退出多选模式
     val exitSelectionMode = {
@@ -182,6 +198,19 @@ fun DownloadScreen(
                             }
                         }) {
                             Text(if (allSelected) "取消全选" else "全选")
+                        }
+                        IconButton(
+                            onClick = {
+                                if (selectedSongIds.isNotEmpty()) {
+                                    showMoveToGroupDialog = true
+                                }
+                            },
+                            enabled = selectedSongIds.isNotEmpty()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.CreateNewFolder,
+                                contentDescription = "加入分组"
+                            )
                         }
                         IconButton(
                             onClick = {
@@ -311,6 +340,139 @@ fun DownloadScreen(
         )
     }
 
+    if (showMoveToGroupDialog) {
+        var newGroupNameInput by remember { mutableStateOf("") }
+        var isCreatingNew by remember { mutableStateOf(false) }
+
+        val existingGroups = remember(customGroupNames, completedTasks) {
+            val fromTasks = completedTasks.mapNotNull { it.customGroup?.takeIf { g -> g.isNotBlank() } }
+            (customGroupNames + fromTasks).toSet().toList().sorted()
+        }
+
+        AlertDialog(
+            onDismissRequest = { showMoveToGroupDialog = false },
+            title = { Text("移至分组 (${selectedSongIds.size} 首)") },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "将选中的歌曲移入指定分组，对应音频文件将同步移动至对应文件夹。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+
+                    if (isCreatingNew) {
+                        OutlinedTextField(
+                            value = newGroupNameInput,
+                            onValueChange = { newGroupNameInput = it },
+                            label = { Text("新分组名称") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp)) {
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            isCreatingNew = true
+                                        }
+                                        .padding(vertical = 10.dp, horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Outlined.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("+ 新建分组", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                            }
+
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
+                                            scope.launch {
+                                                DownloadManager.moveSongsToGroup(context, selectedSongIds, null)
+                                                Toast.makeText(context, "已移出分组至根目录", Toast.LENGTH_SHORT).show()
+                                                showMoveToGroupDialog = false
+                                                exitSelectionMode()
+                                            }
+                                        }
+                                        .padding(vertical = 10.dp, horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Outlined.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("根目录 (无分组)", style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+
+                            items(existingGroups) { groupName ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
+                                            scope.launch {
+                                                DownloadManager.moveSongsToGroup(context, selectedSongIds, groupName)
+                                                Toast.makeText(context, "已移至分组「$groupName」", Toast.LENGTH_SHORT).show()
+                                                showMoveToGroupDialog = false
+                                                exitSelectionMode()
+                                            }
+                                        }
+                                        .padding(vertical = 10.dp, horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Outlined.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(groupName, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (isCreatingNew) {
+                    TextButton(
+                        onClick = {
+                            val name = newGroupNameInput.trim()
+                            if (name.isNotBlank()) {
+                                customGroupNames = customGroupNames + name
+                                val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
+                                scope.launch {
+                                    DownloadManager.moveSongsToGroup(context, selectedSongIds, name)
+                                    Toast.makeText(context, "已创建分组「$name」并移入歌曲", Toast.LENGTH_SHORT).show()
+                                    showMoveToGroupDialog = false
+                                    exitSelectionMode()
+                                }
+                            }
+                        },
+                        enabled = newGroupNameInput.trim().isNotBlank()
+                    ) {
+                        Text("创建并移入")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        if (isCreatingNew) {
+                            isCreatingNew = false
+                        } else {
+                            showMoveToGroupDialog = false
+                        }
+                    }
+                ) {
+                    Text(if (isCreatingNew) "返回列表" else "取消")
+                }
+            }
+        )
+    }
+
     if (showSettingsSheet) {
         DownloadSettingsBottomSheet(
             isLandscape = isLandscape,
@@ -348,16 +510,26 @@ private fun DownloadedListSection(
             onRefresh = {
                 coroutineScope.launch {
                     isRefreshing = true
-                    val removed = DownloadStore.verifyAndSyncLocalFiles(context)
-                    isRefreshing = false
-                    if (removed > 0) {
-                        Toast.makeText(context, "已清理 $removed 首失效歌曲", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "本地文件校验完毕", Toast.LENGTH_SHORT).show()
+                    try {
+                        val removed = DownloadStore.verifyAndSyncLocalFiles(context)
+                        if (removed > 0) {
+                            Toast.makeText(context, "已清理 $removed 首失效歌曲", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "本地文件校验完毕", Toast.LENGTH_SHORT).show()
+                        }
+                    } finally {
+                        isRefreshing = false
                     }
                 }
             },
             state = pullToRefreshState,
+            indicator = {
+                PullToRefreshDefaults.Indicator(
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    isRefreshing = isRefreshing,
+                    state = pullToRefreshState
+                )
+            },
             modifier = Modifier.fillMaxSize()
         ) {
             Box(
@@ -454,17 +626,14 @@ private fun DownloadedListSection(
         }
     }
 
-    // 分组模型与计算
+    // 分组模型与计算：只有在专辑页下载整张专辑的歌曲（isAlbumFolder == true）才进入专辑分组！
     val albumGroups = remember(completedTasks) {
-        completedTasks.groupBy { task ->
-            task.groupFolder?.takeIf { it.isNotBlank() }
-                ?: if (task.album.isNotBlank()) {
-                    if (task.artist.isNotBlank()) "${task.artist} - ${task.album}" else task.album
-                } else "其他单曲"
+        completedTasks.filter { it.isAlbumFolder }.groupBy { task ->
+            task.groupFolder?.takeIf { it.isNotBlank() } ?: task.album.ifBlank { "未知专辑" }
         }.map { (name, songs) ->
             val first = songs.first()
             val groupBytes = songs.sumOf { it.totalBytes }
-            val artistStr = if (name == "其他单曲") "" else first.artist
+            val artistStr = first.artist
             val subtitle = buildString {
                 if (artistStr.isNotBlank()) append("$artistStr · ")
                 append("${songs.size} 首歌曲")
@@ -472,7 +641,7 @@ private fun DownloadedListSection(
             }
             DownloadGroupItem(
                 key = name,
-                title = if (name == "其他单曲") "其他单曲" else (first.album.ifBlank { name }),
+                title = first.album.ifBlank { name },
                 subtitle = subtitle,
                 coverUrl = songs.firstOrNull { it.coverUrl.isNotBlank() }?.coverUrl.orEmpty(),
                 tasks = songs
@@ -480,10 +649,14 @@ private fun DownloadedListSection(
         }.sortedByDescending { it.tasks.size }
     }
 
-    val playlistGroups = remember(completedTasks) {
-        completedTasks.groupBy { task ->
-            task.sourceName.takeIf { it.isNotBlank() } ?: "单曲下载"
-        }.map { (name, songs) ->
+    var customGroupNames by rememberPreference(downloadCustomGroupsKey, emptySet())
+    val allCustomGroupNames = remember(customGroupNames, completedTasks) {
+        val fromTasks = completedTasks.mapNotNull { it.customGroup?.takeIf { g -> g.isNotBlank() } }.toSet()
+        (customGroupNames + fromTasks).toList().sorted()
+    }
+    val customGroups = remember(allCustomGroupNames, completedTasks) {
+        allCustomGroupNames.map { name ->
+            val songs = completedTasks.filter { it.customGroup == name }
             val groupBytes = songs.sumOf { it.totalBytes }
             val subtitle = buildString {
                 append("${songs.size} 首歌曲")
@@ -496,27 +669,42 @@ private fun DownloadedListSection(
                 coverUrl = songs.firstOrNull { it.coverUrl.isNotBlank() }?.coverUrl.orEmpty(),
                 tasks = songs
             )
-        }.sortedByDescending { it.tasks.size }
+        }
     }
 
-    var groupFilterIndex by rememberSaveable { mutableIntStateOf(0) } // 0: 全部, 1: 专辑, 2: 歌单
+    var groupFilterIndex by rememberSaveable { mutableIntStateOf(0) } // 0: 全部, 1: 专辑, 2: 分组
     var expandedGroupKeys by remember { mutableStateOf(setOf<String>()) }
+    var showCreateGroupDialog by remember { mutableStateOf(false) }
+    var renameTargetGroup by remember { mutableStateOf<String?>(null) }
+    var renameInput by remember { mutableStateOf("") }
+    var deleteTargetGroup by remember { mutableStateOf<String?>(null) }
+    var newGroupNameInput by remember { mutableStateOf("") }
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = {
             coroutineScope.launch {
                 isRefreshing = true
-                val removed = DownloadStore.verifyAndSyncLocalFiles(context)
-                isRefreshing = false
-                if (removed > 0) {
-                    Toast.makeText(context, "已清理 $removed 首失效歌曲", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "已校验，本地文件全部正常", Toast.LENGTH_SHORT).show()
+                try {
+                    val removed = DownloadStore.verifyAndSyncLocalFiles(context)
+                    if (removed > 0) {
+                        Toast.makeText(context, "已清理 $removed 首失效歌曲", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "已校验，本地文件全部正常", Toast.LENGTH_SHORT).show()
+                    }
+                } finally {
+                    isRefreshing = false
                 }
             }
         },
         state = pullToRefreshState,
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                modifier = Modifier.align(Alignment.TopCenter),
+                isRefreshing = isRefreshing,
+                state = pullToRefreshState
+            )
+        },
         modifier = Modifier.fillMaxSize()
     ) {
         if (isLandscape) {
@@ -551,7 +739,7 @@ private fun DownloadedListSection(
                             FilterChip(
                                 selected = groupFilterIndex == 2,
                                 onClick = { groupFilterIndex = 2 },
-                                label = { Text("歌单 (${playlistGroups.size})") }
+                                label = { Text("分组 (${customGroups.size})") }
                             )
                         }
                     }
@@ -600,28 +788,76 @@ private fun DownloadedListSection(
                         }
                     }
                     2 -> {
-                        items(playlistGroups, key = { it.key }, span = { GridItemSpan(2) }) { group ->
-                            DownloadedGroupCard(
-                                group = group,
-                                isExpanded = group.key in expandedGroupKeys,
-                                onToggleExpand = {
-                                    expandedGroupKeys = if (group.key in expandedGroupKeys) {
-                                        expandedGroupKeys - group.key
-                                    } else {
-                                        expandedGroupKeys + group.key
+                        item(span = { GridItemSpan(2) }) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                                    .clickable { showCreateGroupDialog = true }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Add,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "新建分组 (同步本地文件夹)",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        if (customGroups.isEmpty()) {
+                            item(span = { GridItemSpan(2) }) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "暂无自定义分组，可点击上方新建分组，或多选歌曲移入分组",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            items(customGroups, key = { it.key }, span = { GridItemSpan(2) }) { group ->
+                                DownloadedGroupCard(
+                                    group = group,
+                                    isExpanded = group.key in expandedGroupKeys,
+                                    onToggleExpand = {
+                                        expandedGroupKeys = if (group.key in expandedGroupKeys) {
+                                            expandedGroupKeys - group.key
+                                        } else {
+                                            expandedGroupKeys + group.key
+                                        }
+                                    },
+                                    onPlayAll = { playGroupAction(group.tasks, group.title) },
+                                    isSelectionMode = isSelectionMode,
+                                    selectedSongIds = selectedSongIds,
+                                    onItemClick = onItemClick,
+                                    onLongClick = { songId ->
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onEnterSelection(songId)
+                                    },
+                                    onDeleteClick = { pendingDeleteTask = it },
+                                    onShareClick = { shareDownloadedFile(context, it) },
+                                    onRenameGroup = {
+                                        renameTargetGroup = group.title
+                                        renameInput = group.title
+                                    },
+                                    onDeleteGroup = {
+                                        deleteTargetGroup = group.title
                                     }
-                                },
-                                onPlayAll = { playGroupAction(group.tasks, group.title) },
-                                isSelectionMode = isSelectionMode,
-                                selectedSongIds = selectedSongIds,
-                                onItemClick = onItemClick,
-                                onLongClick = { songId ->
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onEnterSelection(songId)
-                                },
-                                onDeleteClick = { pendingDeleteTask = it },
-                                onShareClick = { shareDownloadedFile(context, it) }
-                            )
+                                )
+                            }
                         }
                     }
                 }
@@ -661,7 +897,7 @@ private fun DownloadedListSection(
                             FilterChip(
                                 selected = groupFilterIndex == 2,
                                 onClick = { groupFilterIndex = 2 },
-                                label = { Text("歌单 (${playlistGroups.size})") }
+                                label = { Text("分组 (${customGroups.size})") }
                             )
                         }
                     }
@@ -710,28 +946,76 @@ private fun DownloadedListSection(
                         }
                     }
                     2 -> {
-                        items(playlistGroups, key = { it.key }) { group ->
-                            DownloadedGroupCard(
-                                group = group,
-                                isExpanded = group.key in expandedGroupKeys,
-                                onToggleExpand = {
-                                    expandedGroupKeys = if (group.key in expandedGroupKeys) {
-                                        expandedGroupKeys - group.key
-                                    } else {
-                                        expandedGroupKeys + group.key
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                                    .clickable { showCreateGroupDialog = true }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Add,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "新建分组 (同步本地文件夹)",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        if (customGroups.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "暂无自定义分组，可点击上方新建分组，或多选歌曲移入分组",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            items(customGroups, key = { it.key }) { group ->
+                                DownloadedGroupCard(
+                                    group = group,
+                                    isExpanded = group.key in expandedGroupKeys,
+                                    onToggleExpand = {
+                                        expandedGroupKeys = if (group.key in expandedGroupKeys) {
+                                            expandedGroupKeys - group.key
+                                        } else {
+                                            expandedGroupKeys + group.key
+                                        }
+                                    },
+                                    onPlayAll = { playGroupAction(group.tasks, group.title) },
+                                    isSelectionMode = isSelectionMode,
+                                    selectedSongIds = selectedSongIds,
+                                    onItemClick = onItemClick,
+                                    onLongClick = { songId ->
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onEnterSelection(songId)
+                                    },
+                                    onDeleteClick = { pendingDeleteTask = it },
+                                    onShareClick = { shareDownloadedFile(context, it) },
+                                    onRenameGroup = {
+                                        renameTargetGroup = group.title
+                                        renameInput = group.title
+                                    },
+                                    onDeleteGroup = {
+                                        deleteTargetGroup = group.title
                                     }
-                                },
-                                onPlayAll = { playGroupAction(group.tasks, group.title) },
-                                isSelectionMode = isSelectionMode,
-                                selectedSongIds = selectedSongIds,
-                                onItemClick = onItemClick,
-                                onLongClick = { songId ->
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onEnterSelection(songId)
-                                },
-                                onDeleteClick = { pendingDeleteTask = it },
-                                onShareClick = { shareDownloadedFile(context, it) }
-                            )
+                                )
+                            }
                         }
                     }
                 }
@@ -765,6 +1049,128 @@ private fun DownloadedListSection(
             }
         )
     }
+
+    if (showCreateGroupDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateGroupDialog = false },
+            title = { Text("新建分组") },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "分组将自动同步在本地下载目录创建对应文件夹。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = newGroupNameInput,
+                        onValueChange = { newGroupNameInput = it },
+                        label = { Text("分组名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val name = newGroupNameInput.trim()
+                        if (name.isNotBlank()) {
+                            customGroupNames = customGroupNames + name
+                            coroutineScope.launch {
+                                DownloadManager.moveSongsToGroup(context, emptySet(), name)
+                                Toast.makeText(context, "分组「$name」创建成功", Toast.LENGTH_SHORT).show()
+                                showCreateGroupDialog = false
+                                newGroupNameInput = ""
+                            }
+                        }
+                    },
+                    enabled = newGroupNameInput.trim().isNotBlank()
+                ) {
+                    Text("创建")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateGroupDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    renameTargetGroup?.let { oldName ->
+        AlertDialog(
+            onDismissRequest = { renameTargetGroup = null },
+            title = { Text("重命名分组") },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "将同步重命名本地文件夹及该分组下的所有歌曲。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = renameInput,
+                        onValueChange = { renameInput = it },
+                        label = { Text("新分组名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val newName = renameInput.trim()
+                        if (newName.isNotBlank() && newName != oldName) {
+                            customGroupNames = (customGroupNames - oldName) + newName
+                            coroutineScope.launch {
+                                DownloadManager.renameCustomGroup(context, oldName, newName)
+                                Toast.makeText(context, "分组已重命名为「$newName」", Toast.LENGTH_SHORT).show()
+                                renameTargetGroup = null
+                            }
+                        }
+                    },
+                    enabled = renameInput.trim().isNotBlank() && renameInput.trim() != oldName
+                ) {
+                    Text("重命名")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTargetGroup = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    deleteTargetGroup?.let { groupName ->
+        AlertDialog(
+            onDismissRequest = { deleteTargetGroup = null },
+            title = { Text("解散分组「$groupName」") },
+            text = { Text("解散后，该分组下的所有歌曲将移回根目录，本地对应空文件夹将被清理。不会删除歌曲文件。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        customGroupNames = customGroupNames - groupName
+                        coroutineScope.launch {
+                            DownloadManager.deleteCustomGroup(context, groupName)
+                            Toast.makeText(context, "分组「$groupName」已解散", Toast.LENGTH_SHORT).show()
+                            deleteTargetGroup = null
+                        }
+                    }
+                ) {
+                    Text("解散", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTargetGroup = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -787,7 +1193,7 @@ private fun DownloadedHeaderCard(
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = "占用空间: ${formatBytes(totalBytes)} · 长按多选 · 下滑校验",
+                text = "占用空间: ${formatBytes(totalBytes)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -1142,6 +1548,7 @@ private fun DownloadSettingsBottomSheet(
     var downloadQuality by rememberPreference(downloadQualityKey, "ask")
     var downloadWifiOnly by rememberPreference(downloadWifiOnlyKey, false)
     var downloadLrc by rememberPreference(downloadLrcKey, true)
+    var downloadTlyric by rememberPreference(downloadTlyricKey, true)
     var downloadCover by rememberPreference(downloadCoverKey, true)
     var downloadCustomDirUri by rememberPreference(downloadCustomDirUriKey, "")
     var downloadCustomDirName by rememberPreference(downloadCustomDirNameKey, "")
@@ -1290,6 +1697,19 @@ private fun DownloadSettingsBottomSheet(
                                     ) {
                                         Text("内嵌歌词", style = MaterialTheme.typography.bodyMedium)
                                         Switch(checked = downloadLrc, onCheckedChange = { downloadLrc = it })
+                                    }
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("下载歌词翻译", style = MaterialTheme.typography.bodyMedium)
+                                        Switch(
+                                            checked = downloadTlyric,
+                                            onCheckedChange = { downloadTlyric = it },
+                                            enabled = downloadLrc
+                                        )
                                     }
                                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                                     Row(
@@ -1453,6 +1873,24 @@ private fun DownloadSettingsBottomSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
+                                Text("下载歌词翻译", style = MaterialTheme.typography.bodyLarge)
+                                Text("若歌曲含有译文，合并写入双语歌词标签", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = downloadTlyric,
+                                onCheckedChange = { downloadTlyric = it },
+                                enabled = downloadLrc
+                            )
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text("内嵌高清封面到音频文件", style = MaterialTheme.typography.bodyLarge)
                                 Text("写入 APIC / PICTURE 封面，车载与本地播放器完美显示", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -1540,7 +1978,9 @@ private fun DownloadedGroupCard(
     onItemClick: (DownloadTask) -> Unit,
     onLongClick: (Long) -> Unit,
     onDeleteClick: (DownloadTask) -> Unit,
-    onShareClick: (DownloadTask) -> Unit
+    onShareClick: (DownloadTask) -> Unit,
+    onRenameGroup: (() -> Unit)? = null,
+    onDeleteGroup: (() -> Unit)? = null
 ) {
     Card(
         modifier = Modifier
@@ -1610,6 +2050,41 @@ private fun DownloadedGroupCard(
                         contentDescription = "播放全组",
                         tint = MaterialTheme.colorScheme.primary
                     )
+                }
+
+                if (onRenameGroup != null || onDeleteGroup != null) {
+                    var groupMenuExpanded by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { groupMenuExpanded = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "分组操作")
+                        }
+                        JussiDropdownMenu(
+                            expanded = groupMenuExpanded,
+                            onDismissRequest = { groupMenuExpanded = false }
+                        ) {
+                            if (onRenameGroup != null) {
+                                JussiMenuItem(
+                                    text = "重命名分组",
+                                    icon = Icons.Outlined.Edit,
+                                    onClick = {
+                                        groupMenuExpanded = false
+                                        onRenameGroup()
+                                    }
+                                )
+                            }
+                            if (onDeleteGroup != null) {
+                                JussiMenuItem(
+                                    text = "删除/解散分组",
+                                    icon = Icons.Outlined.Delete,
+                                    destructive = true,
+                                    onClick = {
+                                        groupMenuExpanded = false
+                                        onDeleteGroup()
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Icon(

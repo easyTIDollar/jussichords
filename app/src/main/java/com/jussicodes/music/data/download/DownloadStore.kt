@@ -188,6 +188,89 @@ object DownloadStore {
     }
 
     /**
+     * 将歌曲移入指定分组（或移出分组：groupName 为 null）
+     */
+    suspend fun assignCustomGroup(
+        context: Context,
+        songIds: Set<Long>,
+        groupName: String?,
+        updatedPaths: Map<Long, Pair<String?, String?>> = emptyMap()
+    ) {
+        val appContext = context.applicationContext
+        mutex.withLock {
+            val current = _tasks.value.toMutableList()
+            for (i in current.indices) {
+                val t = current[i]
+                if (t.songId in songIds) {
+                    val p = updatedPaths[t.songId]
+                    current[i] = t.copy(
+                        customGroup = groupName?.takeIf { it.isNotBlank() },
+                        filePath = p?.first ?: t.filePath,
+                        fileUri = p?.second ?: t.fileUri
+                    )
+                }
+            }
+            _tasks.value = current
+            save(appContext, current)
+        }
+    }
+
+    /**
+     * 重命名分组
+     */
+    suspend fun renameCustomGroup(
+        context: Context,
+        oldName: String,
+        newName: String,
+        updatedPaths: Map<Long, Pair<String?, String?>> = emptyMap()
+    ) {
+        val appContext = context.applicationContext
+        mutex.withLock {
+            val current = _tasks.value.toMutableList()
+            for (i in current.indices) {
+                val t = current[i]
+                if (t.customGroup == oldName) {
+                    val p = updatedPaths[t.songId]
+                    current[i] = t.copy(
+                        customGroup = newName,
+                        filePath = p?.first ?: t.filePath,
+                        fileUri = p?.second ?: t.fileUri
+                    )
+                }
+            }
+            _tasks.value = current
+            save(appContext, current)
+        }
+    }
+
+    /**
+     * 解散/删除分组
+     */
+    suspend fun deleteCustomGroup(
+        context: Context,
+        groupName: String,
+        updatedPaths: Map<Long, Pair<String?, String?>> = emptyMap()
+    ) {
+        val appContext = context.applicationContext
+        mutex.withLock {
+            val current = _tasks.value.toMutableList()
+            for (i in current.indices) {
+                val t = current[i]
+                if (t.customGroup == groupName) {
+                    val p = updatedPaths[t.songId]
+                    current[i] = t.copy(
+                        customGroup = null,
+                        filePath = p?.first ?: t.filePath,
+                        fileUri = p?.second ?: t.fileUri
+                    )
+                }
+            }
+            _tasks.value = current
+            save(appContext, current)
+        }
+    }
+
+    /**
      * 校验已下载任务的本地文件是否存在，移除已被用户在外部删除的死链。
      * 返回清理掉的失效任务数量。
      */

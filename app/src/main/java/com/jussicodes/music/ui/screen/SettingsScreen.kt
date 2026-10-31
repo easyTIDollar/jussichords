@@ -716,7 +716,6 @@ fun SettingsScreen(
 
     val downloadGroup = SettingGroupData(
         name = "下载",
-        note = "管理本地下载的离线歌曲与存储设置",
         items = listOf(
             SettingItemData(
                 title = "下载管理",

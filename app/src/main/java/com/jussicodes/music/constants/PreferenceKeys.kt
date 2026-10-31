@@ -95,8 +95,10 @@ val playerBackgroundBlurEnabledKey = booleanPreferencesKey("playerBackgroundBlur
 val downloadQualityKey = stringPreferencesKey("downloadQuality")
 val downloadWifiOnlyKey = booleanPreferencesKey("downloadWifiOnly")
 val downloadLrcKey = booleanPreferencesKey("downloadLrc")
+val downloadTlyricKey = booleanPreferencesKey("downloadTlyric")
 val downloadCoverKey = booleanPreferencesKey("downloadCover")
 val downloadCustomDirUriKey = stringPreferencesKey("downloadCustomDirUri")
 val downloadCustomDirNameKey = stringPreferencesKey("downloadCustomDirName")
+val downloadCustomGroupsKey = stringSetPreferencesKey("downloadCustomGroups")
 
 

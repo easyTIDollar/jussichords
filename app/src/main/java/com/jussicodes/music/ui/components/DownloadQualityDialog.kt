@@ -61,7 +61,13 @@ fun DownloadQualityDialog(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                    Text(
+                        text = "根据多选音源随缘下载高音质音频",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                     )
                     Spacer(Modifier.height(8.dp))
                     Column(modifier = Modifier.selectableGroup()) {

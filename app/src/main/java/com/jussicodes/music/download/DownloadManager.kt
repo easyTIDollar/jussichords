@@ -12,6 +12,7 @@ import androidx.documentfile.provider.DocumentFile
 import com.jussicodes.music.constants.downloadCoverKey
 import com.jussicodes.music.constants.downloadCustomDirUriKey
 import com.jussicodes.music.constants.downloadLrcKey
+import com.jussicodes.music.constants.downloadTlyricKey
 import com.jussicodes.music.constants.downloadWifiOnlyKey
 import com.jussicodes.music.data.download.DownloadStatus
 import com.jussicodes.music.data.download.DownloadStore
@@ -438,13 +439,20 @@ object DownloadManager {
 
                 // 5. 抓取歌词与封面并内嵌至音频文件
                 val saveLrc = context.dataStore.data.first()[downloadLrcKey] ?: true
+                val saveTlyric = context.dataStore.data.first()[downloadTlyricKey] ?: true
                 val saveCover = context.dataStore.data.first()[downloadCoverKey] ?: true
 
                 var lyricsText: String? = null
                 if (saveLrc) {
                     runCatching {
                         val lyricResp = PlayerApi.songLyric(task.songId).getOrNull()
-                        lyricsText = lyricResp?.lrc?.lyric?.takeIf { it.isNotBlank() }
+                        val origLrc = lyricResp?.lrc?.lyric?.takeIf { it.isNotBlank() }
+                        val transLrc = if (saveTlyric) lyricResp?.tlyric?.lyric?.takeIf { it.isNotBlank() } else null
+                        lyricsText = if (origLrc != null && !transLrc.isNullOrBlank()) {
+                            mergeLrcWithTranslation(origLrc, transLrc)
+                        } else {
+                            origLrc
+                        }
                     }
                 }
 
@@ -601,6 +609,160 @@ object DownloadManager {
     }
 
     /**
+     * 合并原文歌词与翻译歌词为双语 LRC 格式
+     */
+    private fun mergeLrcWithTranslation(origLrc: String, transLrc: String): String {
+        if (transLrc.isBlank()) return origLrc
+        val origLines = origLrc.lines()
+        val transMap = mutableMapOf<String, String>()
+        val timeTagRegex = """\[(\d+:\d+\.\d{2,3})\]""".toRegex()
+        for (line in transLrc.lines()) {
+            val m = timeTagRegex.find(line)
+            if (m != null) {
+                val tag = m.value
+                val content = line.substring(m.range.last + 1).trim()
+                if (content.isNotBlank()) {
+                    transMap[tag] = content
+                }
+            }
+        }
+        if (transMap.isEmpty()) return origLrc
+        val result = StringBuilder()
+        for (line in origLines) {
+            result.append(line).append("\n")
+            val m = timeTagRegex.find(line)
+            if (m != null) {
+                val transText = transMap[m.value]
+                if (!transText.isNullOrBlank()) {
+                    result.append(m.value).append(" ").append(transText).append("\n")
+                }
+            }
+        }
+        return result.toString().trimEnd()
+    }
+
+    /**
+     * 将歌曲移入指定分组（同时物理同步本地文件夹）
+     */
+    suspend fun moveSongsToGroup(
+        context: Context,
+        songIds: Set<Long>,
+        targetGroupName: String?
+    ): Boolean {
+        val appContext = context.applicationContext
+        val tasks = DownloadStore.tasks.value.filter { it.songId in songIds && it.status == DownloadStatus.COMPLETED }
+        val updatedPaths = mutableMapOf<Long, Pair<String?, String?>>()
+
+        val rootDir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+            "Jussichords"
+        )
+        val targetDir = if (!targetGroupName.isNullOrBlank()) {
+            File(rootDir, sanitizeFileName(targetGroupName)).also { if (!it.exists()) it.mkdirs() }
+        } else {
+            rootDir
+        }
+
+        for (task in tasks) {
+            val oldPath = task.filePath
+            if (!oldPath.isNullOrBlank()) {
+                val oldFile = File(oldPath)
+                if (oldFile.exists()) {
+                    val destFile = File(targetDir, oldFile.name)
+                    if (oldFile.absolutePath != destFile.absolutePath) {
+                        val moved = oldFile.renameTo(destFile) || runCatching {
+                            oldFile.copyTo(destFile, overwrite = true)
+                            oldFile.delete()
+                            true
+                        }.getOrDefault(false)
+                        if (moved) {
+                            val newUri = Uri.fromFile(destFile).toString()
+                            updatedPaths[task.songId] = Pair(destFile.absolutePath, newUri)
+                            MediaScannerConnection.scanFile(
+                                appContext,
+                                arrayOf(destFile.absolutePath),
+                                arrayOf(task.mimeType),
+                                null
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        DownloadStore.assignCustomGroup(appContext, songIds, targetGroupName, updatedPaths)
+        return true
+    }
+
+    /**
+     * 重命名自定义分组（同时物理同步重命名本地文件夹）
+     */
+    suspend fun renameCustomGroup(
+        context: Context,
+        oldName: String,
+        newName: String
+    ): Boolean {
+        val appContext = context.applicationContext
+        val rootDir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+            "Jussichords"
+        )
+        val oldDir = File(rootDir, sanitizeFileName(oldName))
+        val newDir = File(rootDir, sanitizeFileName(newName))
+        val updatedPaths = mutableMapOf<Long, Pair<String?, String?>>()
+
+        if (oldDir.exists()) {
+            if (oldDir.renameTo(newDir)) {
+                val tasks = DownloadStore.tasks.value.filter { it.customGroup == oldName }
+                for (task in tasks) {
+                    val oldPath = task.filePath
+                    if (!oldPath.isNullOrBlank()) {
+                        val file = File(oldPath)
+                        val newPath = File(newDir, file.name).absolutePath
+                        val newUri = Uri.fromFile(File(newPath)).toString()
+                        updatedPaths[task.songId] = Pair(newPath, newUri)
+                    }
+                }
+            }
+        }
+
+        DownloadStore.renameCustomGroup(appContext, oldName, newName, updatedPaths)
+        return true
+    }
+
+    /**
+     * 删除自定义分组（将内部文件移回根目录并删除文件夹）
+     */
+    suspend fun deleteCustomGroup(
+        context: Context,
+        groupName: String
+    ): Boolean {
+        val appContext = context.applicationContext
+        val rootDir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+            "Jussichords"
+        )
+        val dir = File(rootDir, sanitizeFileName(groupName))
+        val updatedPaths = mutableMapOf<Long, Pair<String?, String?>>()
+
+        if (dir.exists()) {
+            dir.listFiles()?.forEach { file ->
+                val destFile = File(rootDir, file.name)
+                if (file.renameTo(destFile)) {
+                    val songId = DownloadStore.tasks.value.find { it.filePath == file.absolutePath }?.songId
+                    if (songId != null) {
+                        updatedPaths[songId] = Pair(destFile.absolutePath, Uri.fromFile(destFile).toString())
+                    }
+                }
+            }
+            dir.delete()
+        }
+
+        DownloadStore.deleteCustomGroup(appContext, groupName, updatedPaths)
+        return true
+    }
+
+    /**
      * 一键打开本地下载文件夹，优先调起系统文件管理器
      */
     fun openDownloadFolder(context: Context) {
@@ -628,14 +790,18 @@ object DownloadManager {
                 defaultDir.mkdirs()
             }
 
+            // 复制路径到剪贴板兜底
+            runCatching {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                val clip = android.content.ClipData.newPlainText("Jussichords Music", defaultDir.absolutePath)
+                cm?.setPrimaryClip(clip)
+            }
+
             // 优先尝试调起系统文件管理器（MIUI/华为/OPPO/vivo/AOSP/Pixel）
             val candidates = listOf(
                 Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(Uri.parse("content://com.android.externalstorage.documents/document/primary%3AMusic%2FJussichords"), "vnd.android.document/directory")
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                },
-                Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 },
                 Intent(Intent.ACTION_VIEW).apply {
                     val uri = androidx.core.content.FileProvider.getUriForFile(
@@ -645,6 +811,26 @@ object DownloadManager {
                     )
                     setDataAndType(uri, "*/*")
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                },
+                Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+                // 常见国产定制机文件管理器的独立 Intent
+                Intent().apply {
+                    setClassName("com.android.fileexplorer", "com.android.fileexplorer.FileExplorerTabActivity")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+                Intent().apply {
+                    setClassName("com.huawei.hidisk", "com.huawei.hidisk.view.activity.FileManagerTabActivity")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+                Intent().apply {
+                    setClassName("com.coloros.filemanager", "com.coloros.filemanager.MainPageActivity")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+                Intent().apply {
+                    setClassName("com.google.android.apps.nbu.files", "com.google.android.apps.nbu.files.home.HomeActivity")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             )
 
@@ -661,7 +847,7 @@ object DownloadManager {
             }
 
             if (!openedAny) {
-                Toast.makeText(context, "下载目录: ${defaultDir.absolutePath}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "下载目录: ${defaultDir.absolutePath} (已复制)", Toast.LENGTH_LONG).show()
             }
         }
     }
