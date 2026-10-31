@@ -29,9 +29,13 @@ data class DownloadQualityOption(
 
 val DOWNLOAD_QUALITY_OPTIONS = listOf(
     DownloadQualityOption("standard", "标准", "128 kbps · MP3 · 免费畅听"),
-    DownloadQualityOption("exhigh", "极高", "320 kbps · MP3 · 高保真 (部分歌曲需VIP)"),
-    DownloadQualityOption("lossless", "无损", "16bit / 44.1kHz · FLAC · CD音质 (需VIP)"),
-    DownloadQualityOption("hires", "Hi-Res", "24bit / ≥48kHz · FLAC · 母带解析 (需黑胶VIP)")
+    DownloadQualityOption("exhigh", "极高", "320 kbps · MP3 · 高保真"),
+    DownloadQualityOption("lossless", "无损", "16bit / 44.1kHz · FLAC · CD音质"),
+    DownloadQualityOption("hires", "Hi-Res", "24bit / ≥48kHz · FLAC · 母带解析"),
+    DownloadQualityOption("jymaster", "超清母带", "Master 顶尖母带音频 (需源支持)"),
+    DownloadQualityOption("dolby", "杜比全景声", "Dolby Atmos 空间音频 (需源支持)"),
+    DownloadQualityOption("sky", "沉浸环绕声", "沉浸式环绕全景声场 (需源支持)"),
+    DownloadQualityOption("jyeffect", "高清臻音", "空间高清增强音效 (需源支持)")
 )
 
 @Composable

@@ -1353,6 +1353,10 @@ private fun DownloadedSongItem(
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val badgeText = task.actualQualityText ?: when (task.quality) {
+                    "jymaster" -> "母带"
+                    "dolby" -> "杜比"
+                    "sky" -> "沉浸声"
+                    "jyeffect" -> "臻音"
                     "hires" -> "Hi-Res"
                     "lossless" -> "FLAC"
                     "exhigh" -> "320K"
@@ -1757,7 +1761,11 @@ private fun DownloadSettingsBottomSheet(
                                                 "standard" -> "标准 (128 kbps)"
                                                 "exhigh" -> "极高 (320 kbps)"
                                                 "lossless" -> "无损 (FLAC)"
-                                                "hires" -> "Hi-Res (母带)"
+                                                "hires" -> "Hi-Res (高解析)"
+                                                "jymaster" -> "超清母带 (Master)"
+                                                "dolby" -> "杜比全景声 (Dolby)"
+                                                "sky" -> "沉浸环绕声 (Sky)"
+                                                "jyeffect" -> "高清臻音 (JyEffect)"
                                                 else -> "每次询问"
                                             },
                                             style = MaterialTheme.typography.bodySmall,
@@ -1913,7 +1921,11 @@ private fun DownloadSettingsBottomSheet(
                                     "standard" -> "标准 (128 kbps)"
                                     "exhigh" -> "极高 (320 kbps)"
                                     "lossless" -> "无损 (FLAC)"
-                                    "hires" -> "Hi-Res (母带)"
+                                    "hires" -> "Hi-Res (高解析)"
+                                    "jymaster" -> "超清母带 (Master)"
+                                    "dolby" -> "杜比全景声 (Dolby)"
+                                    "sky" -> "沉浸环绕声 (Sky)"
+                                    "jyeffect" -> "高清臻音 (JyEffect)"
                                     else -> "每次下载时询问"
                                 },
                                 style = MaterialTheme.typography.bodyMedium,

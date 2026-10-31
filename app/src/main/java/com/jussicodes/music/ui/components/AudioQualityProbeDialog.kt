@@ -244,8 +244,19 @@ fun AudioQualityProbeDialog(
                                             ProbeItemStatus.PENDING, ProbeItemStatus.PROBING -> "检测直链中…"
                                             ProbeItemStatus.AVAILABLE -> levelDesc
                                             ProbeItemStatus.DOWNGRADED -> {
-                                                val act = probeItem?.actualLevel?.value ?: "低档位"
-                                                "请求 $levelLabel · 实际返回 $act"
+                                                val act = when (probeItem?.actualLevel) {
+                                                    SongLevel.STANDARD -> "标准 128k"
+                                                    SongLevel.HIGHER -> "较高 192k"
+                                                    SongLevel.EXHIGH -> "极高 320k"
+                                                    SongLevel.LOSSLESS -> "无损 FLAC"
+                                                    SongLevel.HIRES -> "Hi-Res"
+                                                    SongLevel.JYMASTER -> "超清母带"
+                                                    SongLevel.DOLBY -> "杜比全景声"
+                                                    SongLevel.SKY -> "沉浸环绕声"
+                                                    SongLevel.JYEFFECT -> "高清臻音"
+                                                    null -> "低档位"
+                                                }
+                                                "请求 $levelLabel · 实际降为 $act"
                                             }
                                             ProbeItemStatus.ENCRYPTED_SHELL -> "私有加密格式，无法保存"
                                             ProbeItemStatus.UNAVAILABLE -> "无可用直链 / 试听限制"

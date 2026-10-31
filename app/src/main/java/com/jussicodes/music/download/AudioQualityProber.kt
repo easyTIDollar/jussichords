@@ -50,7 +50,11 @@ object AudioQualityProber {
         .build()
 
     val PROBE_LEVELS = listOf(
-        SongLevel.HIRES to ("Hi-Res" to "母带级无损 24bit / ≥48kHz"),
+        SongLevel.JYMASTER to ("超清母带" to "Master 顶尖母带音质"),
+        SongLevel.DOLBY to ("杜比全景声" to "Dolby / Atmos 沉浸空间音频"),
+        SongLevel.SKY to ("沉浸环绕声" to "Sky 环绕全景声场"),
+        SongLevel.JYEFFECT to ("高清臻音" to "JyEffect 空间高清增强"),
+        SongLevel.HIRES to ("Hi-Res" to "高解析无损 24bit / ≥48kHz"),
         SongLevel.LOSSLESS to ("无损" to "CD级音质 16bit / 44.1kHz FLAC"),
         SongLevel.EXHIGH to ("极高" to "高保真 320 kbps MP3"),
         SongLevel.STANDARD to ("标准" to "标准音质 128 kbps MP3")
@@ -188,6 +192,15 @@ object AudioQualityProber {
         }
 
         when (level) {
+            SongLevel.JYMASTER, SongLevel.DOLBY, SongLevel.SKY, SongLevel.JYEFFECT -> {
+                if (isMp3Url || (approxBitrate in 1..384_000)) {
+                    qualityMatched = false
+                    actualLevel = if (approxBitrate in 1..192_000) SongLevel.STANDARD else SongLevel.EXHIGH
+                } else if (approxBitrate in 1..900_000) {
+                    qualityMatched = false
+                    actualLevel = SongLevel.LOSSLESS
+                }
+            }
             SongLevel.HIRES -> {
                 if (isMp3Url || (approxBitrate in 1..384_000)) {
                     qualityMatched = false

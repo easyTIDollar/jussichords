@@ -57,23 +57,36 @@ object LxPluginManager {
      */
     const val BUILTIN_ID = "builtin-lx-yuanningxi"
     private const val BUILTIN_ASSET = "lx/lx-builtin.js"
+    val DEFAULT_QUALITIES = listOf(
+        "128k", "320k", "flac", "flac24bit", "hires",
+        "master", "jymaster", "sky", "jyeffect", "dolby", "atmos"
+    )
 
     private suspend fun ensureBuiltinScript(context: Context) {
         // 注意：这里必须用 snapshot()（等磁盘读完）判断，不能用 latest.value 空镜像，
         // 否则启动瞬间读到空列表 → 把整份脚本列表覆盖成只剩内置脚本（用户脚本全丢）。
-        if (LxPluginStore.snapshot().any { it.id == BUILTIN_ID }) return
         val script = runCatching {
             context.assets.open(BUILTIN_ASSET).bufferedReader().use { it.readText() }
         }.getOrNull() ?: return
         LxPluginStore.update { list ->
-            if (list.any { it.id == BUILTIN_ID }) list
-            else list + LxPluginItem(
-                id = BUILTIN_ID,
-                name = "玉宁熙 Pro（内置）",
-                rawScript = script,
-                isEnabled = true,
-                wyQualities = listOf("128k", "320k", "flac", "flac24bit", "hires")
-            )
+            val existing = list.firstOrNull { it.id == BUILTIN_ID }
+            if (existing != null) {
+                if (existing.wyQualities.size <= 5) {
+                    list.map {
+                        if (it.id == BUILTIN_ID) it.copy(wyQualities = DEFAULT_QUALITIES) else it
+                    }
+                } else {
+                    list
+                }
+            } else {
+                list + LxPluginItem(
+                    id = BUILTIN_ID,
+                    name = "玉宁熙 Pro（内置）",
+                    rawScript = script,
+                    isEnabled = true,
+                    wyQualities = DEFAULT_QUALITIES
+                )
+            }
         }
     }
 
@@ -285,8 +298,13 @@ object LxPluginManager {
     }.toString()
 
     private fun getQualityCandidates(songLevel: String): List<String> = when (songLevel.lowercase()) {
-        "hires", "flac24bit", "jymaster", "sky", "jyeffect", "dolby" -> listOf("flac24bit", "hires", "master")
+        "jymaster", "master" -> listOf("master", "jymaster", "flac24bit", "hires")
+        "dolby", "atmos", "atmos_plus" -> listOf("atmos_plus", "atmos", "dolby", "flac24bit")
+        "sky" -> listOf("sky", "flac24bit", "hires")
+        "jyeffect" -> listOf("jyeffect", "flac", "320k")
+        "hires", "flac24bit" -> listOf("flac24bit", "hires")
         "lossless", "flac" -> listOf("flac", "lossless")
+        "higher", "192k" -> listOf("192k", "320k", "exhigh")
         "exhigh", "320k" -> listOf("320k", "exhigh")
         else -> listOf("128k", "standard")
     }

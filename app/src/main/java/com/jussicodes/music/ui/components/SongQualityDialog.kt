@@ -23,13 +23,17 @@ import androidx.compose.ui.unit.dp
 import com.jussicodes.music.R
 import com.rcmiku.ncmapi.api.player.SongLevel
 
-/** 常用播放音质档位：过滤后四项（沉浸声/环绕声/杜比/超清母带），仅保留标准五档。 */
+/** 播放音质档位：包含标准、无损及母带、杜比、沉浸环绕声。 */
 private val DISPLAY_QUALITY_LEVELS = listOf(
     SongLevel.STANDARD,
     SongLevel.HIGHER,
     SongLevel.EXHIGH,
     SongLevel.LOSSLESS,
     SongLevel.HIRES,
+    SongLevel.JYMASTER,
+    SongLevel.DOLBY,
+    SongLevel.SKY,
+    SongLevel.JYEFFECT,
 )
 
 @Composable
@@ -139,7 +143,10 @@ private fun QualityOptionRow(
                 SongLevel.EXHIGH -> stringResource(R.string.exhigh)
                 SongLevel.LOSSLESS -> stringResource(R.string.lossless)
                 SongLevel.HIRES -> stringResource(R.string.hi_res)
-                else -> level.value
+                SongLevel.JYMASTER -> stringResource(R.string.jymaster)
+                SongLevel.DOLBY -> stringResource(R.string.dolby)
+                SongLevel.SKY -> stringResource(R.string.sky)
+                SongLevel.JYEFFECT -> stringResource(R.string.jyeffect)
             },
             style = MaterialTheme.typography.bodyLarge,
             maxLines = 1
