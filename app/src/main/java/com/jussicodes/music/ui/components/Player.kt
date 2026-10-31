@@ -48,9 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
@@ -163,7 +161,6 @@ fun Player(
         0
     )
     val showGestureTutorial = gestureTutorialVersion < PLAYER_GESTURE_TUTORIAL_VERSION
-    var gestureTutorialActionCompleted by rememberSaveable { mutableStateOf(false) }
     var coverPreviewUrl by remember { mutableStateOf<Any?>(null) }
 
     // 一起听会话：歌名行爱心左侧的成员小组件（进房才出现）读的就是这个 StateFlow。
@@ -271,14 +268,6 @@ fun Player(
     val screenHeight = LocalConfiguration.current.screenHeightDp
     val dragDirectionSlopPx = with(density) { 3.dp.toPx() }
     val queueOpenThresholdPx = with(density) { 40.dp.toPx() }
-    val tutorialContentColor = MaterialTheme.colorScheme.onSurface
-    val tutorialAccentColor = MaterialTheme.colorScheme.primary
-
-    LaunchedEffect(showGestureTutorial) {
-        if (showGestureTutorial) {
-            gestureTutorialActionCompleted = false
-        }
-    }
 
     Surface(
         modifier = modifier
@@ -587,17 +576,6 @@ fun Player(
                         .padding(horizontal = 24.dp)
                         .fillMaxWidth()
                         .weight(1f)
-                        .drawBehind {
-                            if (showGestureTutorial) {
-                                val top = 72.dp.toPx()
-                                drawLine(
-                                    color = tutorialAccentColor.copy(alpha = 0.8f),
-                                    start = Offset(16.dp.toPx(), top),
-                                    end = Offset(size.width - 16.dp.toPx(), top),
-                                    strokeWidth = 2.dp.toPx()
-                                )
-                            }
-                        }
                         .pointerInput(
                             openAlbumSheet,
                             openArtistSheet,
@@ -641,7 +619,6 @@ fun Player(
                                         !openArtistSheet &&
                                         !openPlayerBottomSheet
                                     ) {
-                                        gestureTutorialActionCompleted = true
                                         openComments = true
                                         change.consume()
                                         break
@@ -663,7 +640,6 @@ fun Player(
                         )
 
                         Box(
-                            contentAlignment = Alignment.Center,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
@@ -672,52 +648,9 @@ fun Player(
                                     indication = null,
                                     enabled = !openAlbumSheet && !openArtistSheet && !openPlayerBottomSheet
                                 ) {
-                                    gestureTutorialActionCompleted = true
                                     onContainerClick()
                                 }
-                        ) {
-                            if (showGestureTutorial) {
-                                if (gestureTutorialActionCompleted) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        Text(
-                                            text = "操作完成",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = tutorialContentColor
-                                        )
-                                        androidx.compose.material3.TextButton(
-                                            onClick = {
-                                                gestureTutorialVersion =
-                                                    PLAYER_GESTURE_TUTORIAL_VERSION
-                                            }
-                                        ) {
-                                            Text(text = "关闭教程", color = tutorialContentColor)
-                                        }
-                                    }
-                                } else {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceEvenly,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "点击 · 播放列表",
-                                            maxLines = 1,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = tutorialContentColor
-                                        )
-                                        Text(
-                                            text = "上滑 · 评论",
-                                            maxLines = 1,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = tutorialContentColor
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        )
                     }
                 }
             }   // ← Column 结束
@@ -775,11 +708,18 @@ fun Player(
                 }
             )
         }
+
+        PlayerGestureTutorialOverlay(
+            visible = showGestureTutorial,
+            onDismiss = {
+                gestureTutorialVersion = PLAYER_GESTURE_TUTORIAL_VERSION
+            }
+        )
         }
     }
 }
 
-private const val PLAYER_GESTURE_TUTORIAL_VERSION = 1
+private const val PLAYER_GESTURE_TUTORIAL_VERSION = 2
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -676,7 +676,7 @@ fun SettingsScreen(
             ),
             SettingItemData(
                 title = "播放器手势教程",
-                subtitle = "重新显示点按和上滑提示",
+                subtitle = "重新显示手势操作指南",
                 imageVector = Gesture,
                 onClick = {
                     playerGestureTutorialVersion = 0
