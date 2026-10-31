@@ -258,6 +258,7 @@ fun AudioQualityProbeDialog(
                                                     SongLevel.JYMASTER -> "超清母带"
                                                     SongLevel.DOLBY -> "杜比全景声"
                                                     null -> "低档位"
+                                                    else -> "其他档位"
                                                 }
                                                 "请求 $levelLabel · 实际降为 $act"
                                             }
