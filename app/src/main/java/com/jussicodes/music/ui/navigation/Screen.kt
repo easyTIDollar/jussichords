@@ -15,6 +15,7 @@ sealed class Screen(val route: String) {
     data object Search : Screen("search")
     data object LxPlugins : Screen("lxPlugins")
     data object DesktopLyricSettings : Screen("desktopLyricSettings")
+    data object DownloadManager : Screen("downloadManager")
 }
 
 @Serializable

@@ -113,7 +113,10 @@ fun PlayerTransform(
                     animationSpec = MotionSpring.sheetCollapse,
                     initialVelocity = velocityY
                 )
-                // 能走到这里说明动画正常结束；被打断会抛 CancellationException 从这里直接跳走
+                // 动画结束守卫：若在弹簧运行期间底栏尺寸发生突变（如切入二级页），确保最终精确对齐
+                if (!isExpanded) {
+                    sheetTranslationY.snapTo(collapsedTargetY)
+                }
                 onBackPressed()
             }
         }
@@ -150,12 +153,11 @@ fun PlayerTransform(
         // 手势/返回键/图层显隐全部以它为准，任何一次时序抖动都不会让面板「看得见却点不动」。
         val isFullyExpanded = progress >= 0.999f
 
-        // 当底栏尺寸或屏幕旋转等导致 collapsedTargetY 变化时，仅在「静止且物理上确实停在收起位」时重新贴合。
-        // 不能拿 isExpanded 当条件：收起动画一开始就会把它置 false，此时若 snapTo 会把动画瞬跳成终端值。
-        LaunchedEffect(collapsedTargetY, isFullyExpanded) {
-            if (!isFullyExpanded && !sheetTranslationY.isRunning &&
-                sheetTranslationY.value >= collapsedTargetY * 0.85f
-            ) {
+        // 当底栏尺寸、屏幕旋转或路由切换导致底部停靠目标高度（collapsedTargetY）改变时，
+        // 只要当前处于收起态（!isExpanded 且 !isFullyExpanded），立即同步贴合最新停靠高度。
+        // key 仅监听 collapsedTargetY 本身，手势拖拽与正常展开/收起期间该值完全恒定，绝不发生误触。
+        LaunchedEffect(collapsedTargetY) {
+            if (!isExpanded && !isFullyExpanded) {
                 sheetTranslationY.snapTo(collapsedTargetY)
             }
         }

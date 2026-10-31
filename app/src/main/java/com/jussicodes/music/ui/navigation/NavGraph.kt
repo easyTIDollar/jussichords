@@ -4,10 +4,6 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -25,7 +21,6 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
-import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import com.jussicodes.music.animation.MotionSpec
@@ -80,37 +75,39 @@ fun NavGraph(
             Modifier
                 .windowInsetsPadding(WindowInsets(bottom = bottomPadding)),
             enterTransition = {
-                if (targetState.destination.route in homeRoutes) {
+                val isHomeToHome = (initialState.destination.route in homeRoutes || initialState.destination.route == null) &&
+                    targetState.destination.route in homeRoutes
+                if (isHomeToHome) {
                     EnterTransition.None
                 } else {
-                    fadeIn(animationSpec = MotionSpec.screenEnter()) +
-                        slideInVertically(animationSpec = MotionSpec.screenEnter()) { (it * 0.06f).roundToInt() }
+                    MotionSpec.spatialScreenEnter()
                 }
             },
             exitTransition = {
-                if (targetState.destination.route in homeRoutes) {
-                    // home <-> home is pager bookkeeping only: instant switch,
-                    // crossfading two identical pagers reads as a flash.
+                val isHomeToHome = initialState.destination.route in homeRoutes &&
+                    targetState.destination.route in homeRoutes
+                if (isHomeToHome) {
                     ExitTransition.None
                 } else {
-                    // push into a detail page: crossfade the home out under it
-                    // instead of letting it vanish to a blank window.
-                    fadeOut(animationSpec = MotionSpec.screenExit())
+                    MotionSpec.spatialScreenExit()
                 }
             },
             popEnterTransition = {
-                if (targetState.destination.route in homeRoutes) {
+                val isHomeToHome = initialState.destination.route in homeRoutes &&
+                    targetState.destination.route in homeRoutes
+                if (isHomeToHome) {
                     EnterTransition.None
                 } else {
-                    fadeIn(animationSpec = MotionSpec.screenEnter())
+                    MotionSpec.spatialScreenPopEnter()
                 }
             },
             popExitTransition = {
-                if (initialState.destination.route in homeRoutes) {
+                val isHomeToHome = initialState.destination.route in homeRoutes &&
+                    targetState.destination.route in homeRoutes
+                if (isHomeToHome) {
                     ExitTransition.None
                 } else {
-                    fadeOut(animationSpec = MotionSpec.screenExit()) +
-                        slideOutVertically(animationSpec = MotionSpec.screenExit()) { (it * 0.06f).roundToInt() }
+                    MotionSpec.spatialScreenPopExit()
                 }
             }
         ) {
@@ -146,6 +143,9 @@ fun NavGraph(
             composable(Screen.LxPlugins.route) { LxPluginScreen(navController = navController) }
             composable(Screen.DesktopLyricSettings.route) {
                 DesktopLyricSettingsScreen(navController = navController)
+            }
+            composable(Screen.DownloadManager.route) {
+                com.jussicodes.music.ui.screen.DownloadScreen(navController = navController)
             }
             composable<PlaylistNav> {
                 PlaylistScreen(

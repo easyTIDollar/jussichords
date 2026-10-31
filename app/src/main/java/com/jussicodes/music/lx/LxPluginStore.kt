@@ -27,7 +27,8 @@ data class LxPluginItem(
     val description: String = "",
     val sources: List<String> = emptyList(),
     val rawScript: String,
-    val isEnabled: Boolean = true
+    val isEnabled: Boolean = true,
+    val wyQualities: List<String> = emptyList()
 )
 
 /**

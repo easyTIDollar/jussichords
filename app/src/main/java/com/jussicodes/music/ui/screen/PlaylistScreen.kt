@@ -9,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentScope
@@ -32,10 +33,22 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.Delete
+import com.jussicodes.music.ui.icons.DragHandle
+import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import com.jussicodes.music.constants.downloadQualityKey
+import com.jussicodes.music.download.DownloadManager
+import com.jussicodes.music.ui.components.DownloadQualityDialog
+import com.jussicodes.music.utils.rememberPreference
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -130,7 +143,7 @@ import com.jussicodes.music.ui.components.ResponsiveAlertDialog
 
 private const val PLAYLIST_COVER_UPLOAD_SIZE = 300
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun PlaylistScreen(
     navController: NavHostController,
@@ -182,8 +195,42 @@ fun PlaylistScreen(
             selectedCoverUri = it
         }
     }
-    val isLandscape = isLandscapePhone()
+    var isLandscape = isLandscapePhone()
     var showDescriptionOverlay by remember { mutableStateOf(false) }
+
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
+    var selectedSongIds by remember { mutableStateOf(setOf<Long>()) }
+    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+
+    // 处于多选模式下手势返回退出多选状态
+    BackHandler(enabled = selectionMode) {
+        selectionMode = false
+        selectedSongIds = emptySet()
+    }
+    var pendingDownloadSongs by remember { mutableStateOf<List<Song>?>(null) }
+    var openDownloadQualityDialog by rememberSaveable { mutableStateOf(false) }
+    val downloadQuality by rememberPreference(downloadQualityKey, "ask")
+
+    val triggerDownloadSongs: (List<Song>) -> Unit = { list ->
+        if (list.isNotEmpty()) {
+            val plName = playlistInfoState?.playlist?.name.orEmpty()
+            if (downloadQuality == "ask") {
+                pendingDownloadSongs = list
+                openDownloadQualityDialog = true
+            } else {
+                DownloadManager.enqueueBatch(
+                    context = context,
+                    songs = list,
+                    quality = downloadQuality,
+                    sourceName = plName,
+                    sourceType = "playlist"
+                )
+                Toast.makeText(context, "已将 ${list.size} 首歌加入下载队列", Toast.LENGTH_SHORT).show()
+                selectionMode = false
+                selectedSongIds = emptySet()
+            }
+        }
+    }
 
     LaunchedEffect(searchActive) {
         if (searchActive) {
@@ -199,9 +246,12 @@ fun PlaylistScreen(
             topBar = {
                 // 横屏（矮屏）走主从双栏：顶栏收进左栏顶部，这里不显示顶栏。
                 if (!isLandscape) {
+                    val allTracks = playlistDetailState?.playlist?.getAllTracks() ?: emptyList()
                     TopAppBar(
                         title = {
-                            if (searchActive) {
+                            if (selectionMode) {
+                                Text("已选择 ${selectedSongIds.size} 首")
+                            } else if (searchActive) {
                                 TextField(
                                     value = searchQuery,
                                     onValueChange = { searchQuery = it },
@@ -226,45 +276,101 @@ fun PlaylistScreen(
                             }
                         },
                         navigationIcon = {
-                            IconButton(onClick = {
-                                if (searchActive) {
-                                    searchActive = false
-                                    searchQuery = ""
-                                    keyboardController?.hide()
-                                } else {
-                                    navController.navigateUp()
+                            if (selectionMode) {
+                                IconButton(onClick = {
+                                    selectionMode = false
+                                    selectedSongIds = emptySet()
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Close,
+                                        contentDescription = "取消多选"
+                                    )
                                 }
-                            }) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = null
-                                )
+                            } else {
+                                IconButton(onClick = {
+                                    if (searchActive) {
+                                        searchActive = false
+                                        searchQuery = ""
+                                        keyboardController?.hide()
+                                    } else {
+                                        navController.navigateUp()
+                                    }
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = null
+                                    )
+                                }
                             }
                         },
                         actions = {
-                            IconButton(onClick = {
-                                searchActive = !searchActive
-                                if (!searchActive) {
-                                    searchQuery = ""
-                                    keyboardController?.hide()
-                                }
-                            }) {
-                                Icon(
-                                    imageVector = Search,
-                                    contentDescription = stringResource(R.string.search)
-                                )
-                            }
-                            Box {
-                                IconButton(onClick = { playlistMenuExpanded = true }) {
+                            if (selectionMode) {
+                                IconButton(onClick = {
+                                    selectedSongIds = if (selectedSongIds.size == allTracks.size) {
+                                        emptySet()
+                                    } else {
+                                        allTracks.map { it.id }.toSet()
+                                    }
+                                }) {
                                     Icon(
-                                        imageVector = Icons.Default.MoreVert,
-                                        contentDescription = stringResource(R.string.more)
+                                        imageVector = Icons.Outlined.Checklist,
+                                        contentDescription = "全选"
                                     )
                                 }
-                                PlaylistOverflowMenu(
-                                    expanded = playlistMenuExpanded,
-                                    onDismiss = { playlistMenuExpanded = false },
-                                    isOwnPlaylist = playlistDetailState?.playlist?.creator?.userId == userId,
+                                IconButton(
+                                    enabled = selectedSongIds.isNotEmpty(),
+                                    onClick = {
+                                        val toDownload = allTracks.filter { it.id in selectedSongIds }
+                                        triggerDownloadSongs(toDownload)
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.FileDownload,
+                                        contentDescription = "下载所选"
+                                    )
+                                }
+                                val isOwnerOrLiked = (playlistDetailState?.playlist?.creator?.userId == userId) ||
+                                    (playlistDetailState?.playlist?.specialType == 5)
+                                if (isOwnerOrLiked) {
+                                    IconButton(
+                                        enabled = selectedSongIds.isNotEmpty(),
+                                        onClick = { showBatchDeleteConfirm = true }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Delete,
+                                            contentDescription = "删除歌曲",
+                                            tint = if (selectedSongIds.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        )
+                                    }
+                                }
+                            } else {
+                                IconButton(onClick = {
+                                    searchActive = !searchActive
+                                    if (!searchActive) {
+                                        searchQuery = ""
+                                        keyboardController?.hide()
+                                    }
+                                }) {
+                                    Icon(
+                                        imageVector = Search,
+                                        contentDescription = stringResource(R.string.search)
+                                    )
+                                }
+                                Box {
+                                    IconButton(onClick = { playlistMenuExpanded = true }) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = stringResource(R.string.more)
+                                        )
+                                    }
+                                    PlaylistOverflowMenu(
+                                        expanded = playlistMenuExpanded,
+                                        onDismiss = { playlistMenuExpanded = false },
+                                        isOwnPlaylist = playlistDetailState?.playlist?.creator?.userId == userId,
+                                        onDownloadAll = {
+                                            playlistMenuExpanded = false
+                                            triggerDownloadSongs(allTracks)
+                                        },
                                     onEditInfo = {
                                         val playlist = playlistDetailState?.playlist
                                         playlistMenuExpanded = false
@@ -297,11 +403,12 @@ fun PlaylistScreen(
                                     }
                                 )
                             }
-                        },
-                    )
-                }
+                        }
+                    },
+                )
             }
-        ) { padding ->
+        }
+    ) { padding ->
             if (playlistDetailState == null) {
                 Box(
                     modifier = Modifier
@@ -437,6 +544,10 @@ fun PlaylistScreen(
                                     expanded = playlistMenuExpanded,
                                     onDismiss = { playlistMenuExpanded = false },
                                     isOwnPlaylist = detail.playlist.creator?.userId == userId,
+                                    onDownloadAll = {
+                                        playlistMenuExpanded = false
+                                        triggerDownloadSongs(tracks)
+                                    },
                                     onEditInfo = {
                                         playlistMenuExpanded = false
                                         editPlaylistName = detail.playlist.name
@@ -493,9 +604,10 @@ fun PlaylistScreen(
                 }
                 val tracks = reorderedTracks ?: serverTracks
                 val visibleTracks = rememberFilteredSongs(tracks, searchQuery)
+                val isOwnerOrLiked = (it.playlist.creator?.userId == userId) || (it.playlist.specialType == 5)
                 val canReorderSongs = !searchActive &&
                     searchQuery.isBlank() &&
-                    it.playlist.creator?.userId == userId
+                    isOwnerOrLiked
                 val currentPlaylistId = it.playlist.id
                 val currentPlaylistName = it.playlist.name
                 val headerOffset = if (!searchActive || searchQuery.isBlank()) 1 else 0
@@ -659,7 +771,7 @@ fun PlaylistScreen(
                         ReorderableItem(
                             reorderableLazyListState,
                             key = song.id,
-                            enabled = canReorderSongs
+                            enabled = canReorderSongs && selectionMode
                         ) {
                             SongListItem(
                                 song = song,
@@ -669,7 +781,7 @@ fun PlaylistScreen(
                                 songIndex = index + 1,
                                 modifier = Modifier
                                     .then(
-                                        if (canReorderSongs) {
+                                        if (canReorderSongs && selectionMode) {
                                             Modifier.longPressDraggableHandle(
                                                 onDragStarted = {
                                                     ViewCompat.performHapticFeedback(
@@ -688,25 +800,84 @@ fun PlaylistScreen(
                                             Modifier
                                         }
                                     )
-                                    .clickable {
-                                        mediaController?.setPlaylist(
-                                            tracks,
-                                            sourceId = currentPlaylistId,
-                                            sourceName = currentPlaylistName,
-                                            sourceType = MediaSessionConstants.SOURCE_TYPE_PLAYLIST,
-                                            navId = currentPlaylistId
-                                        )
-                                        mediaController?.playMediaAtId(song.id)
-                                    },
+                                    .then(
+                                        if (selectionMode) {
+                                            Modifier.clickable {
+                                                selectedSongIds = if (song.id in selectedSongIds) {
+                                                    selectedSongIds - song.id
+                                                } else {
+                                                    selectedSongIds + song.id
+                                                }
+                                            }
+                                        } else {
+                                            Modifier.combinedClickable(
+                                                onClick = {
+                                                    mediaController?.setPlaylist(
+                                                        tracks,
+                                                        sourceId = currentPlaylistId,
+                                                        sourceName = currentPlaylistName,
+                                                        sourceType = MediaSessionConstants.SOURCE_TYPE_PLAYLIST,
+                                                        navId = currentPlaylistId
+                                                    )
+                                                    mediaController?.playMediaAtId(song.id)
+                                                },
+                                                onLongClick = {
+                                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    selectionMode = true
+                                                    selectedSongIds = setOf(song.id)
+                                                }
+                                            )
+                                        }
+                                    ),
                                 trailingContent = {
-                                    IconButton(onClick = {
-                                        selectSong = song
-                                        openBottomSheet = true
-                                    }) {
-                                        Icon(
-                                            imageVector = Icons.Default.MoreVert,
-                                            contentDescription = stringResource(R.string.more)
-                                        )
+                                    if (selectionMode) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Checkbox(
+                                                checked = song.id in selectedSongIds,
+                                                onCheckedChange = { checked ->
+                                                    selectedSongIds = if (checked) {
+                                                        selectedSongIds + song.id
+                                                    } else {
+                                                        selectedSongIds - song.id
+                                                    }
+                                                }
+                                            )
+                                            if (canReorderSongs) {
+                                                IconButton(
+                                                    onClick = {},
+                                                    modifier = Modifier.draggableHandle(
+                                                        onDragStarted = {
+                                                            ViewCompat.performHapticFeedback(
+                                                                view,
+                                                                HapticFeedbackConstantsCompat.GESTURE_START
+                                                            )
+                                                        },
+                                                        onDragStopped = {
+                                                            ViewCompat.performHapticFeedback(
+                                                                view,
+                                                                HapticFeedbackConstantsCompat.GESTURE_END
+                                                            )
+                                                        }
+                                                    )
+                                                ) {
+                                                    Icon(
+                                                        imageVector = DragHandle,
+                                                        contentDescription = "拖动排序",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        IconButton(onClick = {
+                                            selectSong = song
+                                            openBottomSheet = true
+                                        }) {
+                                            Icon(
+                                                imageVector = Icons.Default.MoreVert,
+                                                contentDescription = stringResource(R.string.more)
+                                            )
+                                        }
                                     }
                                 }
                             )
@@ -746,6 +917,61 @@ fun PlaylistScreen(
             imageUrl = imageUrl,
             onDismiss = { previewCoverUrl = null },
             showSaveAction = true
+        )
+    }
+
+    if (openDownloadQualityDialog && !pendingDownloadSongs.isNullOrEmpty()) {
+        val plName = playlistInfoState?.playlist?.name.orEmpty()
+        DownloadQualityDialog(
+            currentKey = "lossless",
+            onDismiss = { openDownloadQualityDialog = false },
+            onQualitySelected = { q ->
+                openDownloadQualityDialog = false
+                val list = pendingDownloadSongs ?: emptyList()
+                DownloadManager.enqueueBatch(
+                    context = context,
+                    songs = list,
+                    quality = q,
+                    sourceName = plName,
+                    sourceType = "playlist"
+                )
+                Toast.makeText(context, "已将 ${list.size} 首歌加入下载队列", Toast.LENGTH_SHORT).show()
+                selectionMode = false
+                selectedSongIds = emptySet()
+                pendingDownloadSongs = null
+            }
+        )
+    }
+
+    if (showBatchDeleteConfirm) {
+        ResponsiveAlertDialog(
+            onDismissRequest = { showBatchDeleteConfirm = false },
+            title = { Text("从歌单中移除歌曲") },
+            text = { Text("确定要从该歌单中移除选中的 ${selectedSongIds.size} 首歌曲吗？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val idsToDelete = selectedSongIds.toList()
+                        showBatchDeleteConfirm = false
+                        selectionMode = false
+                        selectedSongIds = emptySet()
+                        playlistScreenViewModel.removeSongsFromPlaylist(idsToDelete) { success ->
+                            if (success) {
+                                Toast.makeText(context, "已从歌单中移除 ${idsToDelete.size} 首歌曲", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "移除失败，请重试", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                ) {
+                    Text("移除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatchDeleteConfirm = false }) {
+                    Text("取消")
+                }
+            }
         )
     }
 
@@ -906,11 +1132,18 @@ private fun PlaylistOverflowMenu(
     onEditInfo: () -> Unit,
     onUploadCover: () -> Unit,
     onShare: () -> Unit,
+    onDownloadAll: () -> Unit,
 ) {
     JussiDropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss
     ) {
+        JussiMenuItem(
+            text = "下载全部",
+            icon = Icons.Outlined.FileDownload,
+            onClick = onDownloadAll
+        )
+        JussiMenuDivider()
         if (isOwnPlaylist) {
             JussiMenuItem(
                 text = "编辑信息",

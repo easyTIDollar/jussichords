@@ -144,7 +144,7 @@ fun List<Radio>.toRadioMediaItemList(
  * - `time in 1..60000`：NCM 试听占位固定回 30040ms。
  * `freeTrial*` 字段对可播歌曲也常回非 null 的空对象，不能当判据（见 PlayerApi.isPlayableFullUrl 注释）。
  */
-private fun SongUrl.isTrialClip(): Boolean =
+fun SongUrl.isTrialClip(): Boolean =
     url?.contains("musicrep-ts", ignoreCase = true) == true || time in 1L..60_000L
 
 /**
@@ -173,12 +173,21 @@ fun Uri.toResolveKey(): String {
  * 每次真正返回给播放器的直链都登记到 [ResolveGuard]：播放器拿到真实音频时长后核对，
  * 对不上会把它拉黑并触发重新解析（这是「解析成功但放不出声 / 播一半断」的兜底）。
  */
-suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel): Uri? {
-    if (uri.scheme == "http" || uri.scheme == "https") {
+suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.content.Context? = null): Uri? {
+    if (uri.scheme == "http" || uri.scheme == "https" || uri.scheme == "file" || uri.scheme == "content") {
         return uri
     }
 
     val songId = uri.toResolveKey()
+    val idLong = songId.substringBefore("?").toLongOrNull()
+    if (context != null && idLong != null) {
+        val localPlayable = com.jussicodes.music.data.download.DownloadStore.getCompletedPlayableUri(context, idLong)
+        if (localPlayable != null) {
+            android.util.Log.i("PlayerApi", "Hit local downloaded audio for songId=$songId uri=$localPlayable")
+            return localPlayable
+        }
+    }
+
     // 上次被时长校验判定为错源的直链：解析层会跳过它们，于是重试会升级到下一个脚本/下一个直连源，
     // 而不是把同一根坏链再刷一遍。
     val skipUrls = ResolveGuard.skipUrls(songId)

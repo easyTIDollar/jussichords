@@ -48,6 +48,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.constants.downloadQualityKey
+import com.jussicodes.music.data.download.DownloadStore
+import com.jussicodes.music.download.DownloadManager
+import com.jussicodes.music.ui.components.DownloadQualityDialog
+import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.audioSourceKey
 import com.jussicodes.music.constants.directSourceKey
@@ -96,6 +101,21 @@ fun PlayerMenuBottomSheet(
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
     var timePicker by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val downloadQuality by rememberPreference(downloadQualityKey, "ask")
+    var openDownloadQualityDialog by rememberSaveable { mutableStateOf(false) }
+    val isCurrentSongDownloaded = currentSong?.let { DownloadStore.isSongDownloaded(it.id) } == true
+    val handleDownload = {
+        val s = currentSong
+        if (s != null) {
+            if (downloadQuality == "ask") {
+                openDownloadQualityDialog = true
+            } else {
+                DownloadManager.enqueue(context, s, downloadQuality)
+                Toast.makeText(context, "已加入下载队列", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     val playerState = LocalPlayerState.current
     val mediaController = LocalPlayerController.current.controller
     val isSleepTimerSet = playerState?.isSleepTimerSet == true
@@ -156,7 +176,6 @@ fun PlayerMenuBottomSheet(
             }
         }
     }
-    val context = LocalContext.current
     var cancelSleepTimer by rememberSaveable { mutableStateOf(false) }
     var openSongListBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openShareSheet by rememberSaveable { mutableStateOf(false) }
@@ -273,6 +292,11 @@ fun PlayerMenuBottomSheet(
                     ) {
                         MenuSectionLabel("操作")
                         ActionMenuSection(
+                            isDownloaded = isCurrentSongDownloaded,
+                            onDownload = {
+                                onDismiss()
+                                handleDownload()
+                            },
                             onAddToSongList = {
                                 openSongListBottomSheet = true
                                 onDismiss()
@@ -340,6 +364,11 @@ fun PlayerMenuBottomSheet(
                             MenuSectionLabel("操作")
                             Spacer(Modifier.height(8.dp))
                             ActionMenuSection(
+                                isDownloaded = isCurrentSongDownloaded,
+                                onDownload = {
+                                    onDismiss()
+                                    handleDownload()
+                                },
                                 onAddToSongList = {
                                     openSongListBottomSheet = true
                                     onDismiss()
@@ -402,6 +431,18 @@ fun PlayerMenuBottomSheet(
             onTimeSet = {
                 playerState?.startTimer(it)
                 timePicker = false
+            }
+        )
+    }
+
+    if (openDownloadQualityDialog && currentSong != null) {
+        DownloadQualityDialog(
+            currentKey = "lossless",
+            onDismiss = { openDownloadQualityDialog = false },
+            onQualitySelected = { q ->
+                openDownloadQualityDialog = false
+                DownloadManager.enqueue(context, currentSong, q)
+                Toast.makeText(context, "已加入下载队列", Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -553,13 +594,20 @@ private fun AudioMenuSection(
     }
 }
 
-/** 「操作」分组：添加到歌单 / 分享。 */
+/** 「操作」分组：下载 / 添加到歌单 / 分享。 */
 @Composable
 private fun ActionMenuSection(
+    isDownloaded: Boolean,
+    onDownload: () -> Unit,
     onAddToSongList: () -> Unit,
     onShare: () -> Unit,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        MenuActionButton(
+            text = if (isDownloaded) "已下载" else "下载",
+            onClick = onDownload,
+            modifier = Modifier.weight(1f)
+        )
         MenuActionButton(
             text = stringResource(R.string.add_to_songList),
             onClick = onAddToSongList,

@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MiniPlayerHeight
+import com.jussicodes.music.data.download.DownloadStore
 import com.jussicodes.music.ui.components.MasterDetailLandscape
 import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.icons.LibraryAdd
@@ -81,6 +83,7 @@ fun AlbumLandscapeBody(
     onShare: () -> Unit,
     onPlayAll: () -> Unit,
     onComments: () -> Unit,
+    onDownloadAll: (() -> Unit)? = null,
     onSongClick: (Song) -> Unit,
     onSongMenu: (Song) -> Unit,
     modifier: Modifier = Modifier,
@@ -106,10 +109,14 @@ fun AlbumLandscapeBody(
                         contentDescription = stringResource(R.string.more)
                     )
                 }
+                val isAllDownloaded = remember(songs) {
+                    songs.isNotEmpty() && songs.all { DownloadStore.isSongDownloaded(it.id) }
+                }
                 AlbumOverflowMenu(
                     expanded = menuExpanded,
                     onDismiss = { menuExpanded = false },
                     isPinned = isPinned,
+                    isDownloaded = isAllDownloaded,
                     onTogglePin = {
                         menuExpanded = false
                         onTogglePin()
@@ -117,6 +124,10 @@ fun AlbumLandscapeBody(
                     onShare = {
                         menuExpanded = false
                         onShare()
+                    },
+                    onDownloadAll = {
+                        menuExpanded = false
+                        onDownloadAll?.invoke()
                     }
                 )
             }

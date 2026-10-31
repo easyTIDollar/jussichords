@@ -3,4 +3,10 @@
     <cache-path
         name="updates"
         path="updates/" />
+    <external-path
+        name="external_music"
+        path="." />
+    <external-files-path
+        name="external_files_music"
+        path="." />
 </paths>

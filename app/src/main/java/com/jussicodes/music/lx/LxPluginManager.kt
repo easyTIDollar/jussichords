@@ -71,7 +71,8 @@ object LxPluginManager {
                 id = BUILTIN_ID,
                 name = "玉宁熙 Pro（内置）",
                 rawScript = script,
-                isEnabled = true
+                isEnabled = true,
+                wyQualities = listOf("128k", "320k", "flac", "flac24bit", "hires")
             )
         }
     }
@@ -94,8 +95,11 @@ object LxPluginManager {
             description = info.description,
             rawScript = script
         )
-        val sources = runCatching { engine?.verify(candidate).orEmpty() }.getOrDefault(emptyList())
-        val item = candidate.copy(sources = sources)
+        val verifyRes = runCatching { engine?.verify(candidate) }.getOrNull()
+        val item = candidate.copy(
+            sources = verifyRes?.sources.orEmpty(),
+            wyQualities = verifyRes?.wyQualities.orEmpty()
+        )
         val existing = LxPluginStore.snapshot().firstOrNull { it.name == item.name }
         return if (existing != null) ImportResult.Duplicate(existing, item) else ImportResult.Success(item)
     }
@@ -225,32 +229,34 @@ object LxPluginManager {
             return null
         }
         val musicInfo = buildMusicInfo(songId, song)
-        val quality = mapQuality(songLevel)
+        val qualityCandidates = getQualityCandidates(songLevel)
         for (item in enabled) {
-            val t0 = System.currentTimeMillis()
-            val url = engine?.resolveUrl(item.id, musicInfo, quality)
-            val cost = System.currentTimeMillis() - t0
-            when {
-                url.isNullOrBlank() ->
-                    android.util.Log.w(TAG, "plugin '${item.name}' miss songId=$songId quality=$quality cost=${cost}ms")
-                // 脚本降级到官方试听链时不能当命中，继续下一个插件。
-                url.contains("musicrep-ts", ignoreCase = true) ->
-                    android.util.Log.w(TAG, "plugin '${item.name}' returned trial clip, try next songId=$songId")
-                // 播放器侧时长校验判定这条链不是这首歌的完整音频：跳过它，换下一个脚本。
-                PlayUrlSkip.blocks(skipUrls, url) ->
-                    android.util.Log.w(
-                        TAG,
-                        "plugin '${item.name}' url rejected by duration check, try next songId=$songId"
-                    )
-                else -> {
-                    android.util.Log.i(TAG, "plugin '${item.name}' hit songId=$songId quality=$quality cost=${cost}ms")
-                    return url
+            for (quality in qualityCandidates) {
+                val t0 = System.currentTimeMillis()
+                val url = engine?.resolveUrl(item.id, musicInfo, quality)
+                val cost = System.currentTimeMillis() - t0
+                when {
+                    url.isNullOrBlank() ->
+                        android.util.Log.w(TAG, "plugin '${item.name}' miss songId=$songId quality=$quality cost=${cost}ms")
+                    // 脚本降级到官方试听链时不能当命中，继续下一个
+                    url.contains("musicrep-ts", ignoreCase = true) ->
+                        android.util.Log.w(TAG, "plugin '${item.name}' returned trial clip, try next songId=$songId")
+                    // 播放器侧时长校验判定这条链不是这首歌的完整音频：跳过它
+                    PlayUrlSkip.blocks(skipUrls, url) ->
+                        android.util.Log.w(
+                            TAG,
+                            "plugin '${item.name}' url rejected by duration check, try next songId=$songId"
+                        )
+                    else -> {
+                        android.util.Log.i(TAG, "plugin '${item.name}' hit songId=$songId quality=$quality cost=${cost}ms")
+                        return url
+                    }
                 }
             }
         }
         android.util.Log.w(
             TAG,
-            "all plugins missed songId=$songId quality=$quality plugins=${enabled.size} " +
+            "all plugins missed songId=$songId levels=$qualityCandidates plugins=${enabled.size} " +
                 "total=${System.currentTimeMillis() - startedAt}ms"
         )
         return null
@@ -278,13 +284,14 @@ object LxPluginManager {
         put("interval", "%02d:%02d".format(song.dt / 60000, (song.dt / 1000) % 60))
     }.toString()
 
-    private fun mapQuality(songLevel: String): String = when (songLevel) {
-        "standard" -> "128k"
-        "higher" -> "128k"
-        "exhigh" -> "320k"
-        "lossless" -> "flac"
-        else -> "flac24bit"
+    private fun getQualityCandidates(songLevel: String): List<String> = when (songLevel.lowercase()) {
+        "hires", "flac24bit", "jymaster", "sky", "jyeffect", "dolby" -> listOf("flac24bit", "hires", "master")
+        "lossless", "flac" -> listOf("flac", "lossless")
+        "exhigh", "320k" -> listOf("320k", "exhigh")
+        else -> listOf("128k", "standard")
     }
+
+    private fun mapQuality(songLevel: String): String = getQualityCandidates(songLevel).first()
 
     /** 脚本头部注释（照 Melodia LxScriptSupport 的 @name/@version/@author/@description）。 */
     private data class ScriptHeader(
@@ -309,6 +316,21 @@ object LxPluginManager {
             }
         }
         return ScriptHeader(name, version, author, desc)
+    }
+
+    /**
+     * 智能获取当前全部启用音源支持的网易云档位集合。
+     */
+    fun getSupportedWyQualities(): Set<String> {
+        val enabled = LxPluginStore.latest.value.filter { it.isEnabled }
+        if (enabled.isEmpty()) {
+            return setOf("128k", "320k", "flac", "flac24bit", "hires")
+        }
+        val set = mutableSetOf<String>()
+        for (item in enabled) {
+            set.addAll(item.wyQualities)
+        }
+        return if (set.isEmpty()) setOf("128k", "320k", "flac", "flac24bit", "hires") else set
     }
 
     private const val MAX_WARM_PLUGINS = 5

@@ -165,6 +165,7 @@ dependencies {
     implementation(libs.androidx.material.icons.core)
     // 官方服务器样式图标 Icons.Outlined.Dns (core 里没有 Dns/Lan/Storage)
     implementation(libs.androidx.material.icons.extended)
+    implementation("androidx.documentfile:documentfile:1.0.1")
     implementation(libs.androidx.navigation.compose)
     implementation(libs.datastore)
     implementation(libs.datastore.preferences)

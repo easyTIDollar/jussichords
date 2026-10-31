@@ -248,11 +248,6 @@ fun ExploreScreen(
                                             .width(gridCoverSize())
                                             .clickable(
                                                 onClick = {
-                                                    if (navController.currentDestination?.route != Screen.Explore.route) {
-                                                        navController.navigate(Screen.Explore.route) {
-                                                            launchSingleTop = true
-                                                        }
-                                                    }
                                                     navController.navigate(
                                                         PlaylistNav(
                                                             playlistId = playlist.id,

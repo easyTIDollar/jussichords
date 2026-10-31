@@ -19,6 +19,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.FileDownload
+import android.widget.Toast
+import com.jussicodes.music.constants.downloadQualityKey
+import com.jussicodes.music.data.download.DownloadStore
+import com.jussicodes.music.download.DownloadManager
+import com.jussicodes.music.utils.rememberPreference
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -97,12 +103,14 @@ fun SongMenuBottomSheet(
     var openArtistPickerBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openSongListBottomSheet by rememberSaveable { mutableStateOf(false) }
     var openShareSheet by rememberSaveable { mutableStateOf(false) }
+    var openDownloadQualityDialog by rememberSaveable { mutableStateOf(false) }
 
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val mediaController = LocalPlayerController.current.controller
+    val downloadQuality by rememberPreference(downloadQualityKey, "ask")
     val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
         .collectAsState(emptyList())
     val scope = rememberCoroutineScope()
@@ -138,6 +146,14 @@ fun SongMenuBottomSheet(
                 openArtistPicker = { openArtistPickerBottomSheet = it },
                 openSongListPicker = { openSongListBottomSheet = it },
                 openShare = { openShareSheet = it },
+                onDownload = {
+                    if (downloadQuality == "ask") {
+                        openDownloadQualityDialog = true
+                    } else {
+                        DownloadManager.enqueue(context, s, downloadQuality)
+                        Toast.makeText(context, "已加入下载队列", Toast.LENGTH_SHORT).show()
+                    }
+                },
                 isLiked = s.id in songIds,
                 onLikeToggle = { targetLiked ->
                     scope.launch {
@@ -212,6 +228,18 @@ fun SongMenuBottomSheet(
             openBottomSheet = openShareSheet,
             onDismiss = { openShareSheet = false },
         )
+
+        if (openDownloadQualityDialog) {
+            DownloadQualityDialog(
+                currentKey = "lossless",
+                onDismiss = { openDownloadQualityDialog = false },
+                onQualitySelected = { q ->
+                    openDownloadQualityDialog = false
+                    DownloadManager.enqueue(context, it, q)
+                    Toast.makeText(context, "已加入下载队列", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
     }
 }
 
@@ -227,6 +255,7 @@ private fun SongMenuContent(
     onLikeToggle: (Boolean) -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
+    onDownload: () -> Unit,
     onRemoveFromPlaylist: () -> Unit,
     openArtistPicker: (Boolean) -> Unit,
     openSongListPicker: (Boolean) -> Unit,
@@ -264,7 +293,15 @@ private fun SongMenuContent(
 
     // ---- 数据列表：普通行（按三组分隔）----
     val artistLabel = song.ar.joinToString("/") { it.name }
+    val isDownloaded = DownloadStore.isSongDownloaded(song.id)
     val group1 = listOf(
+        SongMenuItem(
+            label = if (isDownloaded) "已下载单曲" else "下载单曲",
+            icon = Icons.Outlined.FileDownload,
+            trailing = if (isDownloaded) "已就绪" else null,
+            danger = false,
+            onClick = { onDismiss(); onDownload() },
+        ),
         SongMenuItem(
             label = stringResource(R.string.add_to_playlist),
             icon = PlaylistAdd,

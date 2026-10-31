@@ -16,6 +16,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -60,21 +62,20 @@ class LxPluginEngine(private val context: Context) {
         .followRedirects(true)
         .build()
 
-    /** 脚本体检：起一个临时无头沙盒跑一遍，等 inited 事件拿支持平台。 */
+    data class VerifyResult(
+        val sources: List<String> = emptyList(),
+        val wyQualities: List<String> = emptyList()
+    )
+
+    /** 脚本体检：起一个临时无头沙盒跑一遍，等 inited 事件拿支持平台与网易云音质。 */
     @SuppressLint("SetJavaScriptEnabled")
-    suspend fun verify(item: LxPluginItem): List<String> = withContext(Dispatchers.Main) {
-        val inited = CompletableDeferred<List<String>>()
-        val sandbox = createSandbox(item.id, item, inited) ?: return@withContext emptyList()
+    suspend fun verify(item: LxPluginItem): VerifyResult = withContext(Dispatchers.Main) {
+        val inited = CompletableDeferred<VerifyResult>()
+        val sandbox = createSandbox(item.id, item, inited) ?: return@withContext VerifyResult()
         // 体检期间也要能出网（部分脚本在 inited 前就发请求），先挂进池子再执行。
         active[item.id] = sandbox
         try {
-            val sources = withTimeoutOrNull(INIT_TIMEOUT_MS) { inited.await() }.orEmpty()
-            if (sources.isEmpty()) {
-                // 没触发 inited 的脚本未必非法（部分脚本懒注册），仍放行，交由实际解析验证。
-                emptyList()
-            } else {
-                sources
-            }
+            withTimeoutOrNull(INIT_TIMEOUT_MS) { inited.await() } ?: VerifyResult()
         } finally {
             active.remove(item.id, sandbox)
             destroySandbox(sandbox)
@@ -183,7 +184,7 @@ class LxPluginEngine(private val context: Context) {
     private suspend fun createSandbox(
         pluginId: String,
         item: LxPluginItem,
-        inited: CompletableDeferred<List<String>>
+        inited: CompletableDeferred<VerifyResult>
     ): Sandbox? = withContext(Dispatchers.Main) {
         val ready = CompletableDeferred<Unit>()
         lateinit var sandbox: Sandbox
@@ -191,7 +192,7 @@ class LxPluginEngine(private val context: Context) {
             onHttp = { id, url, method, headersJson, body ->
                 handleHttpRequest(pluginId, id, url, method, headersJson, body)
             },
-            onInited = { sources -> inited.complete(sources) },
+            onInited = { res -> inited.complete(res) },
             onResolved = { callId, url, error ->
                 if (!error.isNullOrBlank()) {
                     sandbox.lastError = error
@@ -312,7 +313,7 @@ class LxPluginEngine(private val context: Context) {
 
     private class SandboxBridge(
         private val onHttp: (Int, String, String, String, String) -> Unit,
-        private val onInited: (List<String>) -> Unit,
+        private val onInited: (VerifyResult) -> Unit,
         private val onResolved: (Int, String?, String?) -> Unit,
         private val onTimer: (Int) -> Unit
     ) {
@@ -324,12 +325,16 @@ class LxPluginEngine(private val context: Context) {
         fun onEvent(event: String, dataJson: String) {
             if (event != "inited") return
             val sources = mutableListOf<String>()
+            val wyQualities = mutableListOf<String>()
             runCatching {
-                json.parseToJsonElement(dataJson).jsonObject["sources"]?.jsonObject?.keys?.forEach {
-                    sources.add(it)
+                val root = json.parseToJsonElement(dataJson).jsonObject
+                val sourcesObj = root["sources"]?.jsonObject
+                sourcesObj?.keys?.forEach { sources.add(it) }
+                sourcesObj?.get("wy")?.jsonObject?.get("qualitys")?.jsonArray?.forEach { el ->
+                    el.jsonPrimitive.contentOrNull?.let { wyQualities.add(it) }
                 }
             }
-            onInited(sources)
+            onInited(VerifyResult(sources, wyQualities))
         }
 
         @JavascriptInterface

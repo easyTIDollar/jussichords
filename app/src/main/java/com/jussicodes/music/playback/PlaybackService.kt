@@ -602,25 +602,28 @@ class PlaybackService : MediaSessionService() {
 
         val player = ExoPlayer.Builder(this, audioOnlyRenderersFactory)
             .apply {
+                val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+                    .setUserAgent(UserAgentUtil.DEFAULT_USER_AGENT)
+                    // 弱网下别 8s 就判死，给足恢复窗口
+                    .setConnectTimeoutMs(15_000)
+                    .setReadTimeoutMs(30_000)
+                    .setDefaultRequestProperties(
+                        buildMap {
+                            put("Referer", "https://music.163.com/")
+                            put("Origin", "https://music.163.com")
+                            val cookie = CookieProvider.cookie
+                            if (cookie.isNotBlank()) {
+                                put("Cookie", cookie)
+                            }
+                        }
+                    )
+                val upstreamFactory = androidx.media3.datasource.DefaultDataSource.Factory(
+                    this@PlaybackService,
+                    httpDataSourceFactory
+                )
                 val cacheDataSourceFactory = CacheDataSource.Factory()
                     .setCache(AudioCache.get(this@PlaybackService))
-                    .setUpstreamDataSourceFactory(
-                        DefaultHttpDataSource.Factory()
-                            .setUserAgent(UserAgentUtil.DEFAULT_USER_AGENT)
-                            // 弱网下别 8s 就判死，给足恢复窗口
-                            .setConnectTimeoutMs(15_000)
-                            .setReadTimeoutMs(30_000)
-                            .setDefaultRequestProperties(
-                                buildMap {
-                                    put("Referer", "https://music.163.com/")
-                                    put("Origin", "https://music.163.com")
-                                    val cookie = CookieProvider.cookie
-                                    if (cookie.isNotBlank()) {
-                                        put("Cookie", cookie)
-                                    }
-                                }
-                            )
-                    )
+                    .setUpstreamDataSourceFactory(upstreamFactory)
                     .setCacheKeyFactory { dataSpec ->
                         // 音源代号进 cacheKey：换源后同一首歌的直链缓存必须失效，
                         // 否则 ResolvingDataSource 会直接复用旧音源解析出的 url。
@@ -635,7 +638,8 @@ class PlaybackService : MediaSessionService() {
                         val resolvedUri = withTimeout(resolveUrlTimeoutMs) {
                             updateMediaItemUri(
                                 dataSpec.uri,
-                                audioQuality
+                                audioQuality,
+                                this@PlaybackService
                             )
                         } ?: throw PlaybackException(
                             null,

@@ -1,5 +1,7 @@
 package com.jussicodes.music.animation
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.PathEasing
@@ -7,8 +9,13 @@ import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.unit.Dp
+import kotlin.math.roundToInt
 
 /**
  * 全 App 动效 Token。
@@ -22,11 +29,14 @@ import androidx.compose.ui.unit.Dp
  * 保证本次重构**不改变任何现有动画行为**；调用方迁移完成后旧常量再逐步退场。
  */
 object MotionDuration {
-    /** 二级页推入 / 返回时的页面淡入。 */
-    const val ScreenEnter: Int = 400
+    /** 二级页推入 / 返回时的页面淡入。方案 3 紧凑呼吸 280ms。 */
+    const val ScreenEnter: Int = 280
 
-    /** 二级页退出 / 页面淡出。保持适度紧凑，兼顾平滑过渡。 */
-    const val ScreenExit: Int = 200
+    /** 二级页退出 / 页面淡出。保持适度紧凑，兼顾平滑过渡（150ms）。 */
+    const val ScreenExit: Int = 150
+
+    /** 二级页返回恢复上一页淡入时长（200ms）。 */
+    const val ScreenPopEnter: Int = 200
 
     /**
      * 播放面板状态切换（Mini ↔ Full ↔ Queue ↔ Lyric）的淡入时长。
@@ -168,4 +178,32 @@ object MotionSpec {
      */
     fun indicatorShift(): FiniteAnimationSpec<Dp> =
         tween(durationMillis = MotionDuration.LayoutShift, easing = MotionEasing.standard)
+
+    /** 方案 3：微呼吸纵向浮现进场（垂直微浮升 5% + 280ms 柔和淡入，零缩放零横向晃动）。 */
+    fun spatialScreenEnter(): EnterTransition =
+        fadeIn(
+            animationSpec = tween(MotionDuration.ScreenEnter, easing = MotionEasing.decelerate)
+        ) + slideInVertically(
+            animationSpec = tween(MotionDuration.ScreenEnter, easing = MotionEasing.decelerate)
+        ) { (it * 0.05f).roundToInt() }
+
+    /** 方案 3：底页让位退出（原地 150ms 静谧加速淡出）。 */
+    fun spatialScreenExit(): ExitTransition =
+        fadeOut(
+            animationSpec = tween(MotionDuration.ScreenExit, easing = MotionEasing.accelerate)
+        )
+
+    /** 方案 3：返回恢复上一页进场（原地 200ms 优雅淡入恢复）。 */
+    fun spatialScreenPopEnter(): EnterTransition =
+        fadeIn(
+            animationSpec = tween(MotionDuration.ScreenPopEnter, easing = MotionEasing.decelerate)
+        )
+
+    /** 方案 3：当前页返回退出（垂直微下沉 5% + 150ms 加速淡出）。 */
+    fun spatialScreenPopExit(): ExitTransition =
+        fadeOut(
+            animationSpec = tween(MotionDuration.ScreenExit, easing = MotionEasing.accelerate)
+        ) + slideOutVertically(
+            animationSpec = tween(MotionDuration.ScreenExit, easing = MotionEasing.accelerate)
+        ) { (it * 0.05f).roundToInt() }
 }

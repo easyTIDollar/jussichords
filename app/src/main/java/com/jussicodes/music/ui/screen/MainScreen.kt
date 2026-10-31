@@ -254,10 +254,8 @@ fun MainScreen() {
         }
     }
 
-    // 从二级页返回/跳到某个首页 tab 时，把 pager 对到那一页。
-    //只在「上一个路由不是 tab 路由」时才强制 scrollToPage：首页内部路由恒为
-    // Library（pager 不再反调 navigateRootTab），若这里无条件 scroll 回index 0，
-    // 从二级页返回就会把用户原本停在「探索」的 pager 拽回「我的」。
+    // 监听路由变化：从二级页返回时保持用户离开首页时的 Pager 停靠页，不强制篡改；
+    // 胶囊底栏开启时若导航到 settings 则自动转为内部 Pager 第 2 页。
     var previousRoute by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(currentDestination?.route) {
         val route = currentDestination?.route
@@ -272,17 +270,7 @@ fun MainScreen() {
             }
             return@LaunchedEffect
         }
-        val cameFromNonTab = previousRoute != null &&
-            activeNavTabs.none { tab -> tab.route == previousRoute }
         previousRoute = route
-        val targetPage = activeNavTabs.indexOfFirst { it.route == route }.takeIf { it >= 0 }
-        if (targetPage != null && cameFromNonTab) {
-            homePage = targetPage
-            homePageScroll = targetPage.toFloat()
-            if (homePagerState.currentPage != targetPage || homePagerState.currentPageOffsetFraction != 0f) {
-                homePagerState.scrollToPage(targetPage)
-            }
-        }
     }
 
     // 监听进入主页背景编辑模式（更换壁纸 / 在主页中调整）：
@@ -296,12 +284,12 @@ fun MainScreen() {
     }
 
     fun navigateRootTab(route: String) {
-        navController.navigate(route) {
-            popUpTo(navController.graph.findStartDestination().id) {
-                saveState = true
+        val targetPage = activeNavTabs.indexOfFirst { it.route == route }.takeIf { it >= 0 } ?: 0
+        navController.popBackStack(Screen.Library.route, inclusive = false)
+        coroutineScope.launch {
+            if (homePagerState.currentPage != targetPage) {
+                homePagerState.scrollToPage(targetPage)
             }
-            launchSingleTop = true
-            restoreState = true
         }
     }
 
@@ -467,11 +455,10 @@ fun MainScreen() {
         },
         content = { padding ->
             val floatingNavBarFullHeight = FloatingBottomNavigationHeight + FloatingBottomNavBottomPadding + FloatingBottomNavTopPadding + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-            // 小播放器贴底间距（与 main 一致的位置逻辑：首页=底栏上方，二级页=贴系统导航栏，
-            // 不加额外高度避免和底栏顶开缝），套 200ms 缓入缓出：进出设置页时下滑/回位平滑。
+            // 小播放器贴底间距（首页=底栏上方，二级页=避开系统导航栏并额外抬高 12dp 避免被手势栏遮挡），套 200ms 缓入缓出
             val targetMiniBottomPadding = when {
                 navBarTakesBottomSpace -> if (floatingNavBarEnabled) floatingNavBarFullHeight else padding.calculateBottomPadding()
-                else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp
             }
             // 内容区跟小播放器用同一个贴底间距（无整体垫高）：首页列表的底部避让
             // 由各列表自己在末尾加空白块实现（如专辑墙），这里不再全局 +64dp。

@@ -24,8 +24,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.CloudDownload
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Share
+import com.jussicodes.music.constants.downloadQualityKey
+import com.jussicodes.music.data.download.DownloadStore
+import com.jussicodes.music.download.DownloadManager
+import com.jussicodes.music.ui.components.DownloadQualityDialog
+import com.jussicodes.music.utils.rememberPreference
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -151,6 +158,32 @@ fun AlbumScreen(
     val albumIndexById = remember(albumSongs) { albumSongs.withIndex().associate { it.value.id to it.index + 1 } }
     val isPinned = pinnedAlbums.any { it.id == currentAlbum?.id }
 
+    var pendingDownloadSongs by remember { mutableStateOf<List<Song>?>(null) }
+    var openDownloadQualityDialog by rememberSaveable { mutableStateOf(false) }
+    val downloadQuality by rememberPreference(downloadQualityKey, "ask")
+
+    val isAllDownloaded = remember(albumSongs) {
+        albumSongs.isNotEmpty() && albumSongs.all { DownloadStore.isSongDownloaded(it.id) }
+    }
+
+    val triggerDownloadAlbum: (List<Song>) -> Unit = { list ->
+        if (list.isNotEmpty()) {
+            if (downloadQuality == "ask") {
+                pendingDownloadSongs = list
+                openDownloadQualityDialog = true
+            } else {
+                DownloadManager.enqueueAlbum(
+                    context = context,
+                    songs = list,
+                    quality = downloadQuality,
+                    albumName = currentAlbum?.name.orEmpty(),
+                    albumArtist = currentAlbum?.artist?.name.orEmpty()
+                )
+                Toast.makeText(context, "已将专辑 ${list.size} 首歌曲加入下载队列", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     LaunchedEffect(searchActive) {
         if (searchActive) {
             // requestFocus 在 requester 尚未挂载到节点时会抛 IllegalStateException，用 runCatching 兜住。
@@ -232,6 +265,7 @@ fun AlbumScreen(
                                 expanded = albumMenuExpanded,
                                 onDismiss = { albumMenuExpanded = false },
                                 isPinned = isPinned,
+                                isDownloaded = isAllDownloaded,
                                 onTogglePin = {
                                     albumMenuExpanded = false
                                     currentAlbum?.let { album ->
@@ -248,6 +282,10 @@ fun AlbumScreen(
                                     currentAlbum?.let { album ->
                                         sharePayload = SharePayload.AlbumShare(album)
                                     }
+                                },
+                                onDownloadAll = {
+                                    albumMenuExpanded = false
+                                    triggerDownloadAlbum(albumSongs)
                                 }
                             )
                         }
@@ -331,6 +369,7 @@ fun AlbumScreen(
                         mediaController?.playMediaAt()
                     },
                     onComments = { openAlbumComments = true },
+                    onDownloadAll = { triggerDownloadAlbum(albumSongs) },
                     onSongClick = { song ->
                         mediaController?.setPlaylist(
                             detail.songs,
@@ -559,12 +598,35 @@ fun AlbumScreen(
             )
         }
     }
+
+    if (openDownloadQualityDialog) {
+        DownloadQualityDialog(
+            currentKey = downloadQuality,
+            includeAskOption = false,
+            onDismiss = {
+                openDownloadQualityDialog = false
+                pendingDownloadSongs = null
+            },
+            onQualitySelected = { q ->
+                pendingDownloadSongs?.let { list ->
+                    DownloadManager.enqueueAlbum(
+                        context = context,
+                        songs = list,
+                        quality = q,
+                        albumName = currentAlbum?.name.orEmpty(),
+                        albumArtist = currentAlbum?.artist?.name.orEmpty()
+                    )
+                    Toast.makeText(context, "已将专辑 ${list.size} 首歌曲加入下载队列", Toast.LENGTH_SHORT).show()
+                }
+                openDownloadQualityDialog = false
+                pendingDownloadSongs = null
+            }
+        )
+    }
 }
 
 /**
- * 专辑「更多」下拉菜单（固定专辑 / 分享）。
- *
- * 与歌单页的「更多」菜单一致：纯文字条目，不用图标。
+ * 专辑「更多」下拉菜单（下载专辑 / 固定专辑 / 分享）。
  */
 @Composable
 fun AlbumOverflowMenu(
@@ -573,11 +635,20 @@ fun AlbumOverflowMenu(
     isPinned: Boolean,
     onTogglePin: () -> Unit,
     onShare: () -> Unit,
+    onDownloadAll: (() -> Unit)? = null,
+    isDownloaded: Boolean = false
 ) {
     JussiDropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismiss
     ) {
+        if (onDownloadAll != null) {
+            JussiMenuItem(
+                text = if (isDownloaded) "已下载" else "下载",
+                icon = Icons.Outlined.FileDownload,
+                onClick = onDownloadAll
+            )
+        }
         JussiMenuItem(
             text = if (isPinned) "取消固定" else "固定专辑",
             icon = if (isPinned) PushPinFill else PushPin,

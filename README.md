@@ -119,12 +119,11 @@ ncmapi/src/main/java/com/rcmiku/ncmapi/
 
 ## 非常感谢
 
-- [JetMelo](https://github.com/rcmiku/JetMelo/releases) - JetMelo
 - [kid-depress/Mooic](https://github.com/kid-depress/Mooic) - Mooic
 - [Moriafly/SaltPlayerSource](https://github.com/Moriafly/SaltPlayerSource) - 椒盐音乐
 - [rinchao0721/Melodia](https://github.com/rinchao0721/Melodia) - Melodia
-- [youshen2/MeloX](https://github.com/youshen2/MeloX) - Apple Music 风格的第三方客户端
-- [NEORUAA/MeiloX](https://github.com/NEORUAA/MeiloX) - Apple Music 网易云音乐客户端
+- [youshen2/MeloX](https://github.com/youshen2/MeloX) Apple Music 风格的第三方客户端
+- [NEORUAA/MeiloX](https://github.com/NEORUAA/MeiloX) Apple Music 网易云音乐客户端
 - [NeteaseCloudMusicApi](https://github.com/binaryify/NeteaseCloudMusicApi) - API
 - [api-enhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced) - 增强接口与加密逻辑参考
 - [LX Music (落雪音乐)](https://github.com/lyswhut/lx-music-desktop) - 优秀的开源音乐播放器与脚本音源生态
