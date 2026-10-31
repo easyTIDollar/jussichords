@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -158,7 +159,10 @@ fun DownloadScreen(
     }
 
     var showSettingsSheet by rememberSaveable { mutableStateOf(false) }
-    var customGroupNames by rememberPreference(downloadCustomGroupsKey, emptySet())
+    var customGroupsRaw by rememberPreference(downloadCustomGroupsKey, "")
+    val customGroupNames: Set<String> = remember(customGroupsRaw) {
+        customGroupsRaw.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+    }
 
     // 多选模式状态
     var isSelectionMode by rememberSaveable { mutableStateOf(false) }
@@ -166,15 +170,15 @@ fun DownloadScreen(
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
     var showMoveToGroupDialog by remember { mutableStateOf(false) }
 
-    // 当处于多选模式时，拦截系统返回键/手势返回，仅退出多选而非返回上一页
-    BackHandler(enabled = isSelectionMode) {
-        exitSelectionMode()
-    }
-
-    // 当切换 tab 时如果处于多选，自动退出多选模式
+    // 当切换 tab 或退出多选模式
     val exitSelectionMode = {
         isSelectionMode = false
         selectedSongIds = emptySet()
+    }
+
+    // 当处于多选模式时，拦截系统返回键/手势返回，仅退出多选而非返回上一页
+    BackHandler(enabled = isSelectionMode) {
+        exitSelectionMode()
     }
 
     Scaffold(
@@ -344,7 +348,7 @@ fun DownloadScreen(
         var newGroupNameInput by remember { mutableStateOf("") }
         var isCreatingNew by remember { mutableStateOf(false) }
 
-        val existingGroups = remember(customGroupNames, completedTasks) {
+        val existingGroups: List<String> = remember(customGroupNames, completedTasks) {
             val fromTasks = completedTasks.mapNotNull { it.customGroup?.takeIf { g -> g.isNotBlank() } }
             (customGroupNames + fromTasks).toSet().toList().sorted()
         }
@@ -410,7 +414,7 @@ fun DownloadScreen(
                                 }
                             }
 
-                            items(existingGroups) { groupName ->
+                            items(existingGroups, key = { it }) { groupName ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -441,7 +445,7 @@ fun DownloadScreen(
                         onClick = {
                             val name = newGroupNameInput.trim()
                             if (name.isNotBlank()) {
-                                customGroupNames = customGroupNames + name
+                                customGroupsRaw = (customGroupNames + name).joinToString(",")
                                 val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
                                 scope.launch {
                                     DownloadManager.moveSongsToGroup(context, selectedSongIds, name)
@@ -649,7 +653,10 @@ private fun DownloadedListSection(
         }.sortedByDescending { it.tasks.size }
     }
 
-    var customGroupNames by rememberPreference(downloadCustomGroupsKey, emptySet())
+    var customGroupsRaw by rememberPreference(downloadCustomGroupsKey, "")
+    val customGroupNames: Set<String> = remember(customGroupsRaw) {
+        customGroupsRaw.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+    }
     val allCustomGroupNames = remember(customGroupNames, completedTasks) {
         val fromTasks = completedTasks.mapNotNull { it.customGroup?.takeIf { g -> g.isNotBlank() } }.toSet()
         (customGroupNames + fromTasks).toList().sorted()
@@ -1076,7 +1083,7 @@ private fun DownloadedListSection(
                     onClick = {
                         val name = newGroupNameInput.trim()
                         if (name.isNotBlank()) {
-                            customGroupNames = customGroupNames + name
+                            customGroupsRaw = (customGroupNames + name).joinToString(",")
                             coroutineScope.launch {
                                 DownloadManager.moveSongsToGroup(context, emptySet(), name)
                                 Toast.makeText(context, "分组「$name」创建成功", Toast.LENGTH_SHORT).show()
@@ -1124,7 +1131,7 @@ private fun DownloadedListSection(
                     onClick = {
                         val newName = renameInput.trim()
                         if (newName.isNotBlank() && newName != oldName) {
-                            customGroupNames = (customGroupNames - oldName) + newName
+                            customGroupsRaw = (customGroupNames - oldName + newName).joinToString(",")
                             coroutineScope.launch {
                                 DownloadManager.renameCustomGroup(context, oldName, newName)
                                 Toast.makeText(context, "分组已重命名为「$newName」", Toast.LENGTH_SHORT).show()
@@ -1153,7 +1160,7 @@ private fun DownloadedListSection(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        customGroupNames = customGroupNames - groupName
+                        customGroupsRaw = (customGroupNames - groupName).joinToString(",")
                         coroutineScope.launch {
                             DownloadManager.deleteCustomGroup(context, groupName)
                             Toast.makeText(context, "分组「$groupName」已解散", Toast.LENGTH_SHORT).show()

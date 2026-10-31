@@ -99,6 +99,6 @@ val downloadTlyricKey = booleanPreferencesKey("downloadTlyric")
 val downloadCoverKey = booleanPreferencesKey("downloadCover")
 val downloadCustomDirUriKey = stringPreferencesKey("downloadCustomDirUri")
 val downloadCustomDirNameKey = stringPreferencesKey("downloadCustomDirName")
-val downloadCustomGroupsKey = stringSetPreferencesKey("downloadCustomGroups")
+val downloadCustomGroupsKey = stringPreferencesKey("downloadCustomGroups")
 
 
