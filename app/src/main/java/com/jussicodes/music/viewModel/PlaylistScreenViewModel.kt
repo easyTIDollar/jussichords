@@ -232,6 +232,41 @@ class PlaylistScreenViewModel @Inject constructor(
         }
     }
 
+    fun removeSongsFromPlaylist(songIds: List<Long>, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val playlist = _playlistDetail.value?.playlist
+            val isLikedSpecial = playlist?.specialType == LIKED_PLAYLIST_SPECIAL_TYPE
+            val success = if (isLikedSpecial) {
+                var allSuccess = true
+                for (id in songIds) {
+                    val res = com.rcmiku.ncmapi.api.account.AccountApi.songLike(like = false, songId = id)
+                    if (!res.isSuccess) allSuccess = false
+                }
+                context.favoriteSongIdsDatastore.updateData { pref ->
+                    pref.toBuilder()
+                        .clearSongIds()
+                        .addAllSongIds(pref.songIdsList.filter { it !in songIds })
+                        .build()
+                }
+                allSuccess
+            } else {
+                val pid = playlist?.id ?: return@launch
+                val res = com.rcmiku.ncmapi.api.account.AccountApi.playlistManipulate(
+                    pid,
+                    songIds,
+                    com.rcmiku.ncmapi.model.PlayManipulateType.DEL
+                )
+                res.isSuccess
+            }
+            if (success) {
+                playlist?.id?.let { PlaylistApi.clearPlaylistCaches(it) }
+                refreshPlaylistDetail()
+                refreshLibraryPlaylists()
+            }
+            onResult(success)
+        }
+    }
+
     private fun refreshPlaylistDetail() {
         viewModelScope.launch {
             playlistId?.let {

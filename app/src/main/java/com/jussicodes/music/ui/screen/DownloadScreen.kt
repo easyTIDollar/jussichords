@@ -81,6 +81,7 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberModalBottomSheetState
 import com.jussicodes.music.ui.components.SwipableTabPager
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -162,7 +163,7 @@ fun DownloadScreen(
 
     Scaffold(
         topBar = {
-            if (isSelectionMode && selectedTab == 0) {
+            if (isSelectionMode) {
                 // 多选模式顶部栏
                 TopAppBar(
                     title = { Text("已选择 ${selectedSongIds.size} 首") },

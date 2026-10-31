@@ -39,6 +39,8 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.Delete
+import com.jussicodes.music.ui.icons.DragHandle
 import androidx.compose.material3.Checkbox
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -197,13 +199,14 @@ fun PlaylistScreen(
 
     var selectionMode by rememberSaveable { mutableStateOf(false) }
     var selectedSongIds by remember { mutableStateOf(setOf<Long>()) }
+    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
     var pendingDownloadSongs by remember { mutableStateOf<List<Song>?>(null) }
     var openDownloadQualityDialog by rememberSaveable { mutableStateOf(false) }
     val downloadQuality by rememberPreference(downloadQualityKey, "ask")
 
     val triggerDownloadSongs: (List<Song>) -> Unit = { list ->
         if (list.isNotEmpty()) {
-            val plName = playlistInfoState?.name.orEmpty()
+            val plName = playlistInfoState?.playlist?.name.orEmpty()
             if (downloadQuality == "ask") {
                 pendingDownloadSongs = list
                 openDownloadQualityDialog = true
@@ -319,6 +322,20 @@ fun PlaylistScreen(
                                         contentDescription = "下载所选"
                                     )
                                 }
+                                val isOwnerOrLiked = (playlistDetailState?.playlist?.creator?.userId == userId) ||
+                                    (playlistDetailState?.playlist?.specialType == 5)
+                                if (isOwnerOrLiked) {
+                                    IconButton(
+                                        enabled = selectedSongIds.isNotEmpty(),
+                                        onClick = { showBatchDeleteConfirm = true }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Delete,
+                                            contentDescription = "删除歌曲",
+                                            tint = if (selectedSongIds.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        )
+                                    }
+                                }
                             } else {
                                 IconButton(onClick = {
                                     searchActive = !searchActive
@@ -346,11 +363,6 @@ fun PlaylistScreen(
                                         onDownloadAll = {
                                             playlistMenuExpanded = false
                                             triggerDownloadSongs(allTracks)
-                                        },
-                                        onEnterMultiSelect = {
-                                            playlistMenuExpanded = false
-                                            selectionMode = true
-                                            selectedSongIds = emptySet()
                                         },
                                     onEditInfo = {
                                         val playlist = playlistDetailState?.playlist
@@ -529,11 +541,6 @@ fun PlaylistScreen(
                                         playlistMenuExpanded = false
                                         triggerDownloadSongs(tracks)
                                     },
-                                    onEnterMultiSelect = {
-                                        playlistMenuExpanded = false
-                                        selectionMode = true
-                                        selectedSongIds = emptySet()
-                                    },
                                     onEditInfo = {
                                         playlistMenuExpanded = false
                                         editPlaylistName = detail.playlist.name
@@ -590,9 +597,10 @@ fun PlaylistScreen(
                 }
                 val tracks = reorderedTracks ?: serverTracks
                 val visibleTracks = rememberFilteredSongs(tracks, searchQuery)
+                val isOwnerOrLiked = (it.playlist.creator?.userId == userId) || (it.playlist.specialType == 5)
                 val canReorderSongs = !searchActive &&
                     searchQuery.isBlank() &&
-                    it.playlist.creator?.userId == userId
+                    isOwnerOrLiked
                 val currentPlaylistId = it.playlist.id
                 val currentPlaylistName = it.playlist.name
                 val headerOffset = if (!searchActive || searchQuery.isBlank()) 1 else 0
@@ -756,7 +764,7 @@ fun PlaylistScreen(
                         ReorderableItem(
                             reorderableLazyListState,
                             key = song.id,
-                            enabled = canReorderSongs && !selectionMode
+                            enabled = canReorderSongs && selectionMode
                         ) {
                             SongListItem(
                                 song = song,
@@ -766,7 +774,7 @@ fun PlaylistScreen(
                                 songIndex = index + 1,
                                 modifier = Modifier
                                     .then(
-                                        if (canReorderSongs && !selectionMode) {
+                                        if (canReorderSongs && selectionMode) {
                                             Modifier.longPressDraggableHandle(
                                                 onDragStarted = {
                                                     ViewCompat.performHapticFeedback(
@@ -807,6 +815,7 @@ fun PlaylistScreen(
                                                     mediaController?.playMediaAtId(song.id)
                                                 },
                                                 onLongClick = {
+                                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                                     selectionMode = true
                                                     selectedSongIds = setOf(song.id)
                                                 }
@@ -815,16 +824,43 @@ fun PlaylistScreen(
                                     ),
                                 trailingContent = {
                                     if (selectionMode) {
-                                        Checkbox(
-                                            checked = song.id in selectedSongIds,
-                                            onCheckedChange = { checked ->
-                                                selectedSongIds = if (checked) {
-                                                    selectedSongIds + song.id
-                                                } else {
-                                                    selectedSongIds - song.id
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Checkbox(
+                                                checked = song.id in selectedSongIds,
+                                                onCheckedChange = { checked ->
+                                                    selectedSongIds = if (checked) {
+                                                        selectedSongIds + song.id
+                                                    } else {
+                                                        selectedSongIds - song.id
+                                                    }
+                                                }
+                                            )
+                                            if (canReorderSongs) {
+                                                IconButton(
+                                                    onClick = {},
+                                                    modifier = Modifier.draggableHandle(
+                                                        onDragStarted = {
+                                                            ViewCompat.performHapticFeedback(
+                                                                view,
+                                                                HapticFeedbackConstantsCompat.GESTURE_START
+                                                            )
+                                                        },
+                                                        onDragStopped = {
+                                                            ViewCompat.performHapticFeedback(
+                                                                view,
+                                                                HapticFeedbackConstantsCompat.GESTURE_END
+                                                            )
+                                                        }
+                                                    )
+                                                ) {
+                                                    Icon(
+                                                        imageVector = DragHandle,
+                                                        contentDescription = "拖动排序",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
                                                 }
                                             }
-                                        )
+                                        }
                                     } else {
                                         IconButton(onClick = {
                                             selectSong = song
@@ -878,7 +914,7 @@ fun PlaylistScreen(
     }
 
     if (openDownloadQualityDialog && !pendingDownloadSongs.isNullOrEmpty()) {
-        val plName = playlistInfoState?.name.orEmpty()
+        val plName = playlistInfoState?.playlist?.name.orEmpty()
         DownloadQualityDialog(
             currentKey = "lossless",
             onDismiss = { openDownloadQualityDialog = false },
@@ -896,6 +932,38 @@ fun PlaylistScreen(
                 selectionMode = false
                 selectedSongIds = emptySet()
                 pendingDownloadSongs = null
+            }
+        )
+    }
+
+    if (showBatchDeleteConfirm) {
+        ResponsiveAlertDialog(
+            onDismissRequest = { showBatchDeleteConfirm = false },
+            title = { Text("从歌单中移除歌曲") },
+            text = { Text("确定要从该歌单中移除选中的 ${selectedSongIds.size} 首歌曲吗？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val idsToDelete = selectedSongIds.toList()
+                        showBatchDeleteConfirm = false
+                        selectionMode = false
+                        selectedSongIds = emptySet()
+                        playlistScreenViewModel.removeSongsFromPlaylist(idsToDelete) { success ->
+                            if (success) {
+                                Toast.makeText(context, "已从歌单中移除 ${idsToDelete.size} 首歌曲", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "移除失败，请重试", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                ) {
+                    Text("移除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatchDeleteConfirm = false }) {
+                    Text("取消")
+                }
             }
         )
     }
@@ -1058,7 +1126,6 @@ private fun PlaylistOverflowMenu(
     onUploadCover: () -> Unit,
     onShare: () -> Unit,
     onDownloadAll: () -> Unit,
-    onEnterMultiSelect: () -> Unit,
 ) {
     JussiDropdownMenu(
         expanded = expanded,
@@ -1068,11 +1135,6 @@ private fun PlaylistOverflowMenu(
             text = "下载全部",
             icon = Icons.Outlined.FileDownload,
             onClick = onDownloadAll
-        )
-        JussiMenuItem(
-            text = "多选操作",
-            icon = Icons.Outlined.Checklist,
-            onClick = onEnterMultiSelect
         )
         JussiMenuDivider()
         if (isOwnPlaylist) {
