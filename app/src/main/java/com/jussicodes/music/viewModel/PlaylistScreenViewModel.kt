@@ -254,7 +254,7 @@ class PlaylistScreenViewModel @Inject constructor(
                 val res = com.rcmiku.ncmapi.api.account.AccountApi.playlistManipulate(
                     pid,
                     songIds,
-                    com.rcmiku.ncmapi.model.PlayManipulateType.DEL
+                    com.rcmiku.ncmapi.api.account.PlayManipulateType.DEL
                 )
                 res.isSuccess
             }
