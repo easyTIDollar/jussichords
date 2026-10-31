@@ -66,7 +66,7 @@ app/src/main/java/com/jussicodes/music/
 ├── ui/                          # Compose 界面层（探索、我的、播放页、评论、消息、设置等）
 ├── playback/                    # Media3 音频播放服务与状态控制
 ├── lyric/                       # 歌词解析、实时滚动与桌面悬浮歌词服务
-├── lx/                          # 落雪脚本音源解析引擎与 WebView 安全沙箱
+├── lx/                          # 洛雪脚本音源解析引擎与 WebView 安全沙箱
 ├── data/                        # 仓储实现、DataStore 本地存储、缓存管理
 └── viewModel/                   # 界面状态驱动与业务 ViewModel
 
@@ -127,7 +127,7 @@ ncmapi/src/main/java/com/rcmiku/ncmapi/
 - [NEORUAA/MeiloX](https://github.com/NEORUAA/MeiloX) Apple Music 网易云音乐客户端
 - [NeteaseCloudMusicApi](https://github.com/binaryify/NeteaseCloudMusicApi) - API
 - [api-enhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced) - 增强接口与加密逻辑参考
-- [LX Music (落雪音乐)](https://github.com/lyswhut/lx-music-desktop) - 优秀的开源音乐播放器与脚本音源生态
+- [LX Music (洛雪音乐)](https://github.com/lyswhut/lx-music-desktop) - 优秀的开源音乐播放器与脚本音源生态
 - [Jetpack Compose](https://developer.android.com/jetpack/compose) - Android 现代化声明式 UI 工具包
 
 ---
