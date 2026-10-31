@@ -337,6 +337,8 @@ object DownloadManager {
         _serviceEvents.tryEmit(Unit)
 
         val sLevel = when (task.quality) {
+            "jymaster" -> SongLevel.JYMASTER
+            "dolby" -> SongLevel.DOLBY
             "hires" -> SongLevel.HIRES
             "lossless" -> SongLevel.LOSSLESS
             "exhigh" -> SongLevel.EXHIGH
@@ -345,30 +347,38 @@ object DownloadManager {
 
         var downloadUrl: String? = task.preloadUrl?.takeIf { it.isNotBlank() }
 
-        // 1. 优先标准接口请求（VIP账号有完整权限，或免费歌曲直接获取对应音质）
+        // 1. 若无预加载直链，优先请求对应音质
         if (downloadUrl.isNullOrBlank()) {
-            val resp = runCatching {
+            val officialResp = runCatching {
                 PlayerApi.songPlayUrlV1(task.songId.toString(), sLevel).getOrNull()?.data?.firstOrNull()
             }.getOrNull()
-            val u = resp?.url?.takeIf { it.isNotBlank() }
-            if (u != null && resp?.isTrialClip() != true && !u.contains("musicrep-ts", ignoreCase = true)) {
-                downloadUrl = u
-            }
-        }
+            val officialUrl = officialResp?.url?.takeIf { it.isNotBlank() }
+            val officialIsTrial = officialResp?.isTrialClip() == true || officialUrl?.contains("musicrep-ts", ignoreCase = true) == true
+            val officialLevelStr = officialResp?.level?.lowercase()
+            val officialMatchesLevel = officialLevelStr != null && officialLevelStr == sLevel.value
 
-        // 2. 若官方未获取到完整音频（VIP歌曲），尝试配置的第三方解灰音源
-        if (downloadUrl.isNullOrBlank()) {
-            val unblockResp = runCatching {
-                PlayerApi.songPlayUrlV1("${task.songId}?fee=1", sLevel).getOrNull()?.data?.firstOrNull()
-            }.getOrNull()
-            val unblockU = unblockResp?.url?.takeIf { it.isNotBlank() }
-            if (unblockU != null && unblockResp?.isTrialClip() != true && !unblockU.contains("musicrep-ts", ignoreCase = true)) {
-                downloadUrl = unblockU
+            // 官方直链未发生降档时直接采信（VIP账号或免VIP开放高档位）
+            if (officialUrl != null && !officialIsTrial && (sLevel == SongLevel.STANDARD || officialMatchesLevel)) {
+                downloadUrl = officialUrl
+            } else {
+                // 官方被降级（非VIP返回128k或试听切片），优先交给配置的第三方音源 / LX 脚本解灰
+                val unblockResp = runCatching {
+                    PlayerApi.songPlayUrlV1("${task.songId}?fee=1", sLevel).getOrNull()?.data?.firstOrNull()
+                }.getOrNull()
+                val unblockU = unblockResp?.url?.takeIf { it.isNotBlank() }
+                val unblockIsTrial = unblockResp?.isTrialClip() == true || unblockU?.contains("musicrep-ts", ignoreCase = true) == true
+
+                if (unblockU != null && !unblockIsTrial) {
+                    downloadUrl = unblockU
+                } else if (officialUrl != null && !officialIsTrial) {
+                    // 第三方音源未命中，退避使用官方可用直链
+                    downloadUrl = officialUrl
+                }
             }
         }
 
         if (downloadUrl == null) {
-            val errorReason = if (task.quality in setOf("lossless", "hires", "exhigh")) {
+            val errorReason = if (task.quality in setOf("lossless", "hires", "exhigh", "jymaster", "dolby")) {
                 "此音质需要 VIP 账号或该歌曲暂无可下载音源"
             } else {
                 "当前歌曲暂无可用音频下载直链"
@@ -462,7 +472,12 @@ object DownloadManager {
                 val durationSec = (task.durationMs / 1000).coerceAtLeast(1)
                 val kbps = ((downloaded * 8) / durationSec / 1000).toInt()
                 val actualQualityText = if (isFlac) {
-                    if (kbps > 1500) "FLAC Hi-Res" else "FLAC 无损"
+                    when (task.quality) {
+                        "jymaster" -> "母带 FLAC"
+                        "dolby" -> "杜比 FLAC"
+                        "hires" -> "FLAC Hi-Res"
+                        else -> if (kbps > 1500) "FLAC Hi-Res" else "FLAC 无损"
+                    }
                 } else {
                     when {
                         kbps >= 280 -> "MP3 320K"

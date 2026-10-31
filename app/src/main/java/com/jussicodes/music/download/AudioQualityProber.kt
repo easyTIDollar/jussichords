@@ -184,21 +184,31 @@ object AudioQualityProber {
         val (label, desc) = PROBE_LEVELS.firstOrNull { it.first == level }?.second ?: (level.value to "")
 
         var resolvedUrl: String? = null
-        val resp = runCatching {
+        var resp: com.rcmiku.ncmapi.api.player.SongUrl? = null
+
+        val officialResp = runCatching {
             PlayerApi.songPlayUrlV1(songId.toString(), level).getOrNull()?.data?.firstOrNull()
         }.getOrNull()
-        val u = resp?.url?.takeIf { it.isNotBlank() }
-        if (u != null && resp?.isTrialClip() != true && !u.contains("musicrep-ts", ignoreCase = true)) {
-            resolvedUrl = u
-        }
+        val officialU = officialResp?.url?.takeIf { it.isNotBlank() }
+        val officialIsTrial = officialResp?.isTrialClip() == true || officialU?.contains("musicrep-ts", ignoreCase = true) == true
+        val officialLevelStr = officialResp?.level?.lowercase()
+        val officialMatchesLevel = officialLevelStr != null && officialLevelStr == level.value
 
-        if (resolvedUrl.isNullOrBlank()) {
+        if (officialU != null && !officialIsTrial && (level == SongLevel.STANDARD || officialMatchesLevel)) {
+            resolvedUrl = officialU
+            resp = officialResp
+        } else {
             val unblockResp = runCatching {
                 PlayerApi.songPlayUrlV1("$songId?fee=1", level).getOrNull()?.data?.firstOrNull()
             }.getOrNull()
             val unblockU = unblockResp?.url?.takeIf { it.isNotBlank() }
-            if (unblockU != null && unblockResp?.isTrialClip() != true && !unblockU.contains("musicrep-ts", ignoreCase = true)) {
+            val unblockIsTrial = unblockResp?.isTrialClip() == true || unblockU?.contains("musicrep-ts", ignoreCase = true) == true
+            if (unblockU != null && !unblockIsTrial) {
                 resolvedUrl = unblockU
+                resp = unblockResp
+            } else if (officialU != null && !officialIsTrial) {
+                resolvedUrl = officialU
+                resp = officialResp
             }
         }
 
