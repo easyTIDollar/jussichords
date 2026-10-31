@@ -81,13 +81,11 @@ fun AudioQualityProbeDialog(
             if (resolvedDuration <= 0) resolvedDuration = meta.durationMs
         }
 
-        // 非基准测试模式下按歌曲元数据过滤曲库未收录的高阶档位，避免盲探制造假报警
-        val levelFilter = if (mode == ProbeDialogMode.BENCHMARK) null else meta?.availableLevels
-
+        // 统一所有模式（体检、升级、重试），全量交由当前音源进行真实探测，不再因官方元数据误杀第三方源
         AudioQualityProber.probeAll(
             songId = songId,
             durationMs = resolvedDuration,
-            availableLevels = levelFilter
+            availableLevels = null
         ) { updatedItem ->
             probeResults = probeResults + (updatedItem.level to updatedItem)
             // 自动选中最高可用的真实匹配档位
@@ -266,8 +264,8 @@ fun AudioQualityProbeDialog(
                                                 "请求 $levelLabel · 实际降为 $act"
                                             }
                                             ProbeItemStatus.ENCRYPTED_SHELL -> "私有加密格式，无法保存"
-                                            ProbeItemStatus.UNAVAILABLE -> "无可用直链 / 试听限制"
-                                            ProbeItemStatus.NOT_IN_LIBRARY -> "曲库未收录该格式"
+                                            ProbeItemStatus.UNAVAILABLE -> "当前音源未提供此档位"
+                                            ProbeItemStatus.NOT_IN_LIBRARY -> "当前音源未提供此档位"
                                         }
                                         Text(
                                             text = descText,
