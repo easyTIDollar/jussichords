@@ -768,6 +768,21 @@ object DownloadManager {
     fun openDownloadFolder(context: Context) {
         val appContext = context.applicationContext
         scope.launch(Dispatchers.Main) {
+            val defaultDir = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+                "Jussichords"
+            )
+            if (!defaultDir.exists()) {
+                defaultDir.mkdirs()
+            }
+
+            // 1. 复制路径到剪贴板兜底
+            runCatching {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                val clip = android.content.ClipData.newPlainText("Jussichords Music", defaultDir.absolutePath)
+                cm?.setPrimaryClip(clip)
+            }
+
             val customUriStr = appContext.dataStore.data.first()[downloadCustomDirUriKey].orEmpty()
             if (customUriStr.isNotBlank()) {
                 val opened = runCatching {
@@ -779,74 +794,73 @@ object DownloadManager {
                     context.startActivity(intent)
                     true
                 }.getOrDefault(false)
-                if (opened) return@launch
-            }
-
-            val defaultDir = File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
-                "Jussichords"
-            )
-            if (!defaultDir.exists()) {
-                defaultDir.mkdirs()
-            }
-
-            // 复制路径到剪贴板兜底
-            runCatching {
-                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                val clip = android.content.ClipData.newPlainText("Jussichords Music", defaultDir.absolutePath)
-                cm?.setPrimaryClip(clip)
-            }
-
-            // 优先尝试调起系统文件管理器（MIUI/华为/OPPO/vivo/AOSP/Pixel）
-            val candidates = listOf(
-                Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(Uri.parse("content://com.android.externalstorage.documents/document/primary%3AMusic%2FJussichords"), "vnd.android.document/directory")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                },
-                Intent(Intent.ACTION_VIEW).apply {
-                    val uri = androidx.core.content.FileProvider.getUriForFile(
-                        context,
-                        "${context.packageName}.fileprovider",
-                        defaultDir
-                    )
-                    setDataAndType(uri, "*/*")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                },
-                Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                },
-                // 常见国产定制机文件管理器的独立 Intent
-                Intent().apply {
-                    setClassName("com.android.fileexplorer", "com.android.fileexplorer.FileExplorerTabActivity")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                },
-                Intent().apply {
-                    setClassName("com.huawei.hidisk", "com.huawei.hidisk.view.activity.FileManagerTabActivity")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                },
-                Intent().apply {
-                    setClassName("com.coloros.filemanager", "com.coloros.filemanager.MainPageActivity")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                },
-                Intent().apply {
-                    setClassName("com.google.android.apps.nbu.files", "com.google.android.apps.nbu.files.home.HomeActivity")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-            )
-
-            var openedAny = false
-            for (intent in candidates) {
-                val ok = runCatching {
-                    context.startActivity(intent)
-                    true
-                }.getOrDefault(false)
-                if (ok) {
-                    openedAny = true
-                    break
+                if (opened) {
+                    Toast.makeText(context, "已打开下载目录 (路径已复制)", Toast.LENGTH_SHORT).show()
+                    return@launch
                 }
             }
 
-            if (!openedAny) {
+            // 2. 优先通过包名唤起主流厂商及常用文件管理器
+            val knownFileManagerPkgs = listOf(
+                "com.android.fileexplorer",               // 小米 / 红米 / HyperOS / MIUI
+                "com.coloros.filemanager",                // OPPO / OnePlus / Realme
+                "com.vivo.filemanager",                   // vivo / iQOO
+                "com.huawei.hidisk",                      // 华为
+                "com.hihonor.filemanager",                // 荣耀
+                "com.sec.android.app.myfiles",            // 三星
+                "com.google.android.apps.nbu.files",      // Google Files
+                "com.android.documentsui",                // AOSP 原生文件系统
+                "bin.mt.plus",                            // MT 管理器
+                "ru.zdevs.zarchiver"                      // ZArchiver
+            )
+
+            var launched = false
+            val pm = context.packageManager
+            for (pkg in knownFileManagerPkgs) {
+                val launchIntent = pm.getLaunchIntentForPackage(pkg)
+                if (launchIntent != null) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    val ok = runCatching {
+                        context.startActivity(launchIntent)
+                        true
+                    }.getOrDefault(false)
+                    if (ok) {
+                        launched = true
+                        break
+                    }
+                }
+            }
+
+            // 3. 兜底尝试通过 SAF 协议或系统 Downloads 视图查看
+            if (!launched) {
+                val fallbackIntents = listOf(
+                    Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(
+                            Uri.parse("content://com.android.externalstorage.documents/document/primary%3AMusic%2FJussichords"),
+                            "vnd.android.document/directory"
+                        )
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    },
+                    Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                )
+
+                for (intent in fallbackIntents) {
+                    val ok = runCatching {
+                        context.startActivity(intent)
+                        true
+                    }.getOrDefault(false)
+                    if (ok) {
+                        launched = true
+                        break
+                    }
+                }
+            }
+
+            if (launched) {
+                Toast.makeText(context, "已打开文件管理器，目录已复制：\n${defaultDir.absolutePath}", Toast.LENGTH_SHORT).show()
+            } else {
                 Toast.makeText(context, "下载目录: ${defaultDir.absolutePath} (已复制)", Toast.LENGTH_LONG).show()
             }
         }

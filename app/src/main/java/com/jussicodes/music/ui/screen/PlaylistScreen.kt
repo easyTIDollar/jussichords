@@ -9,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContentScope
@@ -200,6 +201,12 @@ fun PlaylistScreen(
     var selectionMode by rememberSaveable { mutableStateOf(false) }
     var selectedSongIds by remember { mutableStateOf(setOf<Long>()) }
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+
+    // 处于多选模式下手势返回退出多选状态
+    BackHandler(enabled = selectionMode) {
+        selectionMode = false
+        selectedSongIds = emptySet()
+    }
     var pendingDownloadSongs by remember { mutableStateOf<List<Song>?>(null) }
     var openDownloadQualityDialog by rememberSaveable { mutableStateOf(false) }
     val downloadQuality by rememberPreference(downloadQualityKey, "ask")

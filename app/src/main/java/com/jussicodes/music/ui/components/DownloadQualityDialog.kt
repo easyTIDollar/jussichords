@@ -64,7 +64,7 @@ fun DownloadQualityDialog(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                     Text(
-                        text = "根据多选音源随缘下载高音质音频",
+                        text = "不保证多选LX音源下载高音质音频可用性",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)

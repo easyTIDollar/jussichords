@@ -516,6 +516,7 @@ private fun DownloadedListSection(
                     isRefreshing = true
                     try {
                         val removed = DownloadStore.verifyAndSyncLocalFiles(context)
+                        kotlinx.coroutines.delay(600)
                         if (removed > 0) {
                             Toast.makeText(context, "已清理 $removed 首失效歌曲", Toast.LENGTH_SHORT).show()
                         } else {
@@ -694,6 +695,7 @@ private fun DownloadedListSection(
                 isRefreshing = true
                 try {
                     val removed = DownloadStore.verifyAndSyncLocalFiles(context)
+                    kotlinx.coroutines.delay(600)
                     if (removed > 0) {
                         Toast.makeText(context, "已清理 $removed 首失效歌曲", Toast.LENGTH_SHORT).show()
                     } else {
