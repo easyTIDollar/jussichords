@@ -26,8 +26,16 @@ enum class ProbeItemStatus {
     AVAILABLE,
     DOWNGRADED,
     ENCRYPTED_SHELL,
-    UNAVAILABLE
+    UNAVAILABLE,
+    NOT_IN_LIBRARY
 }
+
+data class SongMeta(
+    val name: String,
+    val artists: String,
+    val durationMs: Long,
+    val availableLevels: Set<SongLevel> = emptySet()
+)
 
 data class AudioQualityProbeItem(
     val level: SongLevel,
@@ -71,9 +79,9 @@ object AudioQualityProber {
     }
 
     /**
-     * 取歌曲元信息（歌名、歌手、时长），用于体检基准曲或单曲探测
+     * 取歌曲元信息（歌名、歌手、时长、以及曲库声明支持的音质集合）
      */
-    suspend fun fetchSongMeta(songId: Long): Triple<String, String, Long>? = withContext(Dispatchers.IO) {
+    suspend fun fetchSongMeta(songId: Long): SongMeta? = withContext(Dispatchers.IO) {
         runCatching {
             apiGet<JsonElement>("/song/detail/batch", mapOf("c" to "[{\"id\":$songId}]"))
                 .getOrNull()
@@ -81,9 +89,55 @@ object AudioQualityProber {
                 ?.let { runCatching { json.decodeFromString<Song>(it.toString()) }.getOrNull() }
                 ?.let { song ->
                     val artists = song.ar.joinToString("/") { it.name }
-                    Triple(song.name, artists, song.dt)
+                    SongMeta(
+                        name = song.name,
+                        artists = artists,
+                        durationMs = song.dt,
+                        availableLevels = determineAvailableLevels(song)
+                    )
                 }
         }.getOrNull()
+    }
+
+    /**
+     * 根据网易云歌曲元数据（sq/hr/jm/db/h/m/l 及 privilege.maxBrLevel）前置推导客观收录的音质档位
+     * 避免对歌曲根本不存在的高阶档位发起无效网络请求并误判降档
+     */
+    fun determineAvailableLevels(song: Song?): Set<SongLevel> {
+        if (song == null) return SongLevel.entries.toSet()
+        val set = mutableSetOf<SongLevel>()
+        set.add(SongLevel.STANDARD)
+        if (song.h != null || (song.privilege?.maxbr ?: 0) >= 320000) {
+            set.add(SongLevel.EXHIGH)
+        }
+        if (song.m != null || (song.privilege?.maxbr ?: 0) >= 192000) {
+            set.add(SongLevel.HIGHER)
+        }
+        val maxLevel = song.privilege?.maxBrLevel?.lowercase()
+        val hasSq = song.sq != null || (song.privilege?.maxbr ?: 0) >= 999000 ||
+                maxLevel in listOf("lossless", "hires", "jymaster", "sky", "dolby", "jyeffect")
+        if (hasSq) {
+            set.add(SongLevel.LOSSLESS)
+        }
+        val hasHr = song.hr != null || maxLevel in listOf("hires", "jymaster", "sky", "dolby")
+        if (hasHr) {
+            set.add(SongLevel.HIRES)
+        }
+        val hasJm = song.jm != null || maxLevel == "jymaster"
+        if (hasJm) {
+            set.add(SongLevel.JYMASTER)
+        }
+        val hasDb = song.db != null || maxLevel == "dolby"
+        if (hasDb) {
+            set.add(SongLevel.DOLBY)
+        }
+        if (maxLevel == "sky") {
+            set.add(SongLevel.SKY)
+        }
+        if (hasSq || maxLevel == "jyeffect") {
+            set.add(SongLevel.JYEFFECT)
+        }
+        return set
     }
 
     /**
@@ -183,47 +237,44 @@ object AudioQualityProber {
 
         var actualLevel = level
         var qualityMatched = true
-        val isFlacUrl = cleanUrl.endsWith(".flac")
-        val isMp3Url = cleanUrl.endsWith(".mp3")
-        val approxBitrate = if (fileSize > 0 && durationMs > 0) {
-            (fileSize * 8) / (durationMs / 1000)
-        } else {
-            -1L
-        }
+        val returnedLevelStr = resp?.level?.lowercase()
+        val returnedLevel = SongLevel.entries.firstOrNull { it.value.equals(returnedLevelStr, ignoreCase = true) }
 
-        when (level) {
-            SongLevel.JYMASTER, SongLevel.DOLBY, SongLevel.SKY, SongLevel.JYEFFECT -> {
-                if (isMp3Url || (approxBitrate in 1..384_000)) {
-                    qualityMatched = false
-                    actualLevel = if (approxBitrate in 1..192_000) SongLevel.STANDARD else SongLevel.EXHIGH
-                } else if (approxBitrate in 1..900_000) {
-                    qualityMatched = false
-                    actualLevel = SongLevel.LOSSLESS
-                }
-            }
-            SongLevel.HIRES -> {
-                if (isMp3Url || (approxBitrate in 1..384_000)) {
-                    qualityMatched = false
-                    actualLevel = if (approxBitrate in 1..192_000) SongLevel.STANDARD else SongLevel.EXHIGH
-                } else if (!isFlacUrl && approxBitrate in 1..900_000) {
-                    qualityMatched = false
-                    actualLevel = SongLevel.LOSSLESS
-                }
-            }
-            SongLevel.LOSSLESS -> {
-                if (isMp3Url || (approxBitrate in 1..384_000)) {
-                    qualityMatched = false
-                    actualLevel = if (approxBitrate in 1..192_000) SongLevel.STANDARD else SongLevel.EXHIGH
-                }
-            }
-            SongLevel.EXHIGH -> {
-                if (approxBitrate in 1..192_000) {
-                    qualityMatched = false
-                    actualLevel = SongLevel.STANDARD
-                }
-            }
-            else -> {
+        if (returnedLevel != null) {
+            // 优先采信网易云服务端返回的真实协商档位
+            if (returnedLevel != level) {
+                actualLevel = returnedLevel
+                qualityMatched = false
+            } else {
+                actualLevel = level
                 qualityMatched = true
+            }
+        } else {
+            // 第三方解灰源 / LX 脚本（未返回服务端 level 字段），按扩展名与基础码率做异常兜底
+            val isMp3Url = cleanUrl.endsWith(".mp3")
+            val approxBitrate = if (fileSize > 0 && durationMs > 0) {
+                (fileSize * 8) / (durationMs / 1000)
+            } else {
+                -1L
+            }
+
+            when (level) {
+                SongLevel.JYMASTER, SongLevel.DOLBY, SongLevel.SKY, SongLevel.JYEFFECT, SongLevel.HIRES, SongLevel.LOSSLESS -> {
+                    // 请求无损以上档位，却返回了普通 MP3 或码率极低
+                    if (isMp3Url || (approxBitrate in 1..350_000)) {
+                        qualityMatched = false
+                        actualLevel = if (approxBitrate in 1..192_000) SongLevel.STANDARD else SongLevel.EXHIGH
+                    }
+                }
+                SongLevel.EXHIGH -> {
+                    if (approxBitrate in 1..192_000) {
+                        qualityMatched = false
+                        actualLevel = SongLevel.STANDARD
+                    }
+                }
+                else -> {
+                    qualityMatched = true
+                }
             }
         }
 
@@ -243,15 +294,31 @@ object AudioQualityProber {
 
     /**
      * 限制最大 3 个 Worker 并发探测所有档位，逐步回调 UI 局部刷新
+     * availableLevels 非空时仅对曲库实际收录的档位发起真探测，其余直接标记未收录
      */
     suspend fun probeAll(
         songId: Long,
         durationMs: Long,
+        availableLevels: Set<SongLevel>? = null,
         onItemUpdate: (AudioQualityProbeItem) -> Unit
     ) = coroutineScope {
         val semaphore = Semaphore(3)
         PROBE_LEVELS.map { (lvl, pair) ->
             async {
+                if (availableLevels != null && lvl !in availableLevels) {
+                    onItemUpdate(
+                        AudioQualityProbeItem(
+                            level = lvl,
+                            label = pair.first,
+                            description = pair.second,
+                            status = ProbeItemStatus.NOT_IN_LIBRARY,
+                            qualityMatched = true,
+                            errorReason = "曲库未收录"
+                        )
+                    )
+                    return@async
+                }
+
                 semaphore.withPermit {
                     onItemUpdate(
                         AudioQualityProbeItem(

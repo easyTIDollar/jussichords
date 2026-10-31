@@ -72,16 +72,23 @@ fun AudioQualityProbeDialog(
     var resolvedDuration by remember { mutableStateOf(durationMs) }
 
     LaunchedEffect(songId) {
-        // 如果是体检模式且未传入完整信息，尝试异步获取歌曲真实元数据
-        if (mode == ProbeDialogMode.BENCHMARK) {
-            AudioQualityProber.fetchSongMeta(songId)?.let { (name, artists, dt) ->
-                resolvedTitle = name
-                resolvedSubtitle = "$artists · ID: $songId"
-                if (resolvedDuration <= 0) resolvedDuration = dt
+        val meta = AudioQualityProber.fetchSongMeta(songId)
+        if (meta != null) {
+            if (mode == ProbeDialogMode.BENCHMARK) {
+                resolvedTitle = meta.name
+                resolvedSubtitle = "${meta.artists} · ID: $songId"
             }
+            if (resolvedDuration <= 0) resolvedDuration = meta.durationMs
         }
 
-        AudioQualityProber.probeAll(songId, resolvedDuration) { updatedItem ->
+        // 非基准测试模式下按歌曲元数据过滤曲库未收录的高阶档位，避免盲探制造假报警
+        val levelFilter = if (mode == ProbeDialogMode.BENCHMARK) null else meta?.availableLevels
+
+        AudioQualityProber.probeAll(
+            songId = songId,
+            durationMs = resolvedDuration,
+            availableLevels = levelFilter
+        ) { updatedItem ->
             probeResults = probeResults + (updatedItem.level to updatedItem)
             // 自动选中最高可用的真实匹配档位
             if (selectedLevel == null && (updatedItem.status == ProbeItemStatus.AVAILABLE || updatedItem.status == ProbeItemStatus.DOWNGRADED)) {
@@ -183,10 +190,10 @@ fun AudioQualityProbeDialog(
                             val isSelectable = (status == ProbeItemStatus.AVAILABLE || status == ProbeItemStatus.DOWNGRADED)
                             val isSelected = (selectedLevel == level)
 
-                            val containerColor = if (isSelected) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            val containerColor = when {
+                                isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                                status == ProbeItemStatus.NOT_IN_LIBRARY -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                             }
                             val borderStroke = if (isSelected) {
                                 BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
@@ -260,6 +267,7 @@ fun AudioQualityProbeDialog(
                                             }
                                             ProbeItemStatus.ENCRYPTED_SHELL -> "私有加密格式，无法保存"
                                             ProbeItemStatus.UNAVAILABLE -> "无可用直链 / 试听限制"
+                                            ProbeItemStatus.NOT_IN_LIBRARY -> "曲库未收录该格式"
                                         }
                                         Text(
                                             text = descText,
@@ -267,7 +275,7 @@ fun AudioQualityProbeDialog(
                                             color = when (status) {
                                                 ProbeItemStatus.DOWNGRADED -> MaterialTheme.colorScheme.error
                                                 ProbeItemStatus.ENCRYPTED_SHELL -> MaterialTheme.colorScheme.error
-                                                ProbeItemStatus.UNAVAILABLE -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                                ProbeItemStatus.UNAVAILABLE, ProbeItemStatus.NOT_IN_LIBRARY -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                                                 else -> MaterialTheme.colorScheme.onSurfaceVariant
                                             },
                                             maxLines = 1,
@@ -316,6 +324,13 @@ fun AudioQualityProbeDialog(
                                                 text = "未提供",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                            )
+                                        }
+                                        ProbeItemStatus.NOT_IN_LIBRARY -> {
+                                            Text(
+                                                text = "未收录",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                                             )
                                         }
                                     }
