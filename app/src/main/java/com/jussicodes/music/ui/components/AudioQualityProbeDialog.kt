@@ -257,8 +257,6 @@ fun AudioQualityProbeDialog(
                                                     SongLevel.HIRES -> "Hi-Res"
                                                     SongLevel.JYMASTER -> "超清母带"
                                                     SongLevel.DOLBY -> "杜比全景声"
-                                                    SongLevel.SKY -> "沉浸环绕声"
-                                                    SongLevel.JYEFFECT -> "高清臻音"
                                                     null -> "低档位"
                                                 }
                                                 "请求 $levelLabel · 实际降为 $act"

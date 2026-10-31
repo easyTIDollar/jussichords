@@ -178,6 +178,7 @@ fun DownloadScreen(
     var selectedSongIds by remember { mutableStateOf(setOf<Long>()) }
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
     var showMoveToGroupDialog by remember { mutableStateOf(false) }
+    var showBatchUpgradeDialog by remember { mutableStateOf(false) }
 
     // 当切换 tab 或退出多选模式
     val exitSelectionMode = {
@@ -211,6 +212,20 @@ fun DownloadScreen(
                             }
                         }) {
                             Text(if (allSelected) "取消全选" else "全选")
+                        }
+                        IconButton(
+                            onClick = {
+                                if (selectedSongIds.isNotEmpty()) {
+                                    showBatchUpgradeDialog = true
+                                }
+                            },
+                            enabled = selectedSongIds.isNotEmpty()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.HighQuality,
+                                contentDescription = "升级音质",
+                                tint = if (selectedSongIds.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            )
                         }
                         IconButton(
                             onClick = {
@@ -490,6 +505,32 @@ fun DownloadScreen(
                 ) {
                     Text(if (isCreatingNew) "返回列表" else "取消")
                 }
+            }
+        )
+    }
+
+    if (showBatchUpgradeDialog) {
+        DownloadQualityDialog(
+            currentKey = downloadQuality,
+            title = "批量升级 ${selectedSongIds.size} 首歌曲音质",
+            includeAskOption = false,
+            onDismiss = { showBatchUpgradeDialog = false },
+            onQualitySelected = { targetQuality ->
+                showBatchUpgradeDialog = false
+                val count = selectedSongIds.size
+                selectedSongIds.forEach { songId ->
+                    DownloadManager.redownload(
+                        context = context,
+                        songId = songId,
+                        newQuality = targetQuality
+                    )
+                }
+                Toast.makeText(
+                    context,
+                    "已将 $count 首歌曲加入重新下载队列 (${targetQuality})",
+                    Toast.LENGTH_SHORT
+                ).show()
+                exitSelectionMode()
             }
         )
     }
@@ -1355,8 +1396,6 @@ private fun DownloadedSongItem(
                 val badgeText = task.actualQualityText ?: when (task.quality) {
                     "jymaster" -> "母带"
                     "dolby" -> "杜比"
-                    "sky" -> "沉浸声"
-                    "jyeffect" -> "臻音"
                     "hires" -> "Hi-Res"
                     "lossless" -> "FLAC"
                     "exhigh" -> "320K"
@@ -1764,8 +1803,6 @@ private fun DownloadSettingsBottomSheet(
                                                 "hires" -> "Hi-Res (高解析)"
                                                 "jymaster" -> "超清母带 (Master)"
                                                 "dolby" -> "杜比全景声 (Dolby)"
-                                                "sky" -> "沉浸环绕声 (Sky)"
-                                                "jyeffect" -> "高清臻音 (JyEffect)"
                                                 else -> "每次询问"
                                             },
                                             style = MaterialTheme.typography.bodySmall,
@@ -1924,8 +1961,6 @@ private fun DownloadSettingsBottomSheet(
                                     "hires" -> "Hi-Res (高解析)"
                                     "jymaster" -> "超清母带 (Master)"
                                     "dolby" -> "杜比全景声 (Dolby)"
-                                    "sky" -> "沉浸环绕声 (Sky)"
-                                    "jyeffect" -> "高清臻音 (JyEffect)"
                                     else -> "每次下载时询问"
                                 },
                                 style = MaterialTheme.typography.bodyMedium,

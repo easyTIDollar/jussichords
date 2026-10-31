@@ -59,7 +59,7 @@ object LxPluginManager {
     private const val BUILTIN_ASSET = "lx/lx-builtin.js"
     val DEFAULT_QUALITIES = listOf(
         "128k", "320k", "flac", "flac24bit", "hires",
-        "master", "jymaster", "sky", "jyeffect", "dolby", "atmos"
+        "master", "jymaster", "dolby", "atmos"
     )
 
     private suspend fun ensureBuiltinScript(context: Context) {
@@ -300,8 +300,6 @@ object LxPluginManager {
     private fun getQualityCandidates(songLevel: String): List<String> = when (songLevel.lowercase()) {
         "jymaster", "master" -> listOf("master", "jymaster", "flac24bit", "hires")
         "dolby", "atmos", "atmos_plus" -> listOf("atmos_plus", "atmos", "dolby", "flac24bit")
-        "sky" -> listOf("sky", "flac24bit", "hires")
-        "jyeffect" -> listOf("jyeffect", "flac", "320k")
         "hires", "flac24bit" -> listOf("flac24bit", "hires")
         "lossless", "flac" -> listOf("flac", "lossless")
         "higher", "192k" -> listOf("192k", "320k", "exhigh")
