@@ -172,7 +172,13 @@ fun AlbumScreen(
                 pendingDownloadSongs = list
                 openDownloadQualityDialog = true
             } else {
-                DownloadManager.enqueueAlbum(context, list, downloadQuality)
+                DownloadManager.enqueueAlbum(
+                    context = context,
+                    songs = list,
+                    quality = downloadQuality,
+                    albumName = currentAlbum?.name.orEmpty(),
+                    albumArtist = currentAlbum?.artist?.name.orEmpty()
+                )
                 Toast.makeText(context, "已将专辑 ${list.size} 首歌曲加入下载队列", Toast.LENGTH_SHORT).show()
             }
         }
@@ -603,7 +609,13 @@ fun AlbumScreen(
             },
             onQualitySelected = { q ->
                 pendingDownloadSongs?.let { list ->
-                    DownloadManager.enqueueAlbum(context, list, q)
+                    DownloadManager.enqueueAlbum(
+                        context = context,
+                        songs = list,
+                        quality = q,
+                        albumName = currentAlbum?.name.orEmpty(),
+                        albumArtist = currentAlbum?.artist?.name.orEmpty()
+                    )
                     Toast.makeText(context, "已将专辑 ${list.size} 首歌曲加入下载队列", Toast.LENGTH_SHORT).show()
                 }
                 openDownloadQualityDialog = false

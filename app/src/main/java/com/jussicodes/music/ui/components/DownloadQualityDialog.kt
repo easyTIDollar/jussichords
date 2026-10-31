@@ -27,25 +27,12 @@ data class DownloadQualityOption(
     val description: String
 )
 
-fun getAvailableQualityOptions(): List<DownloadQualityOption> {
-    val supported = runCatching {
-        com.jussicodes.music.lx.LxPluginManager.getSupportedWyQualities()
-    }.getOrDefault(setOf("128k", "320k", "flac", "flac24bit", "hires"))
-
-    val options = mutableListOf<DownloadQualityOption>()
-    options.add(DownloadQualityOption("standard", "标准", "128 kbps · MP3 · 体积最小"))
-
-    if (supported.any { it.equals("320k", true) || it.equals("exhigh", true) }) {
-        options.add(DownloadQualityOption("exhigh", "极高", "320 kbps · MP3 · 高保真"))
-    }
-    if (supported.any { it.equals("flac", true) || it.equals("lossless", true) }) {
-        options.add(DownloadQualityOption("lossless", "无损", "16bit / 44.1kHz · FLAC · CD音质"))
-    }
-    if (supported.any { it.equals("flac24bit", true) || it.equals("hires", true) || it.equals("master", true) }) {
-        options.add(DownloadQualityOption("hires", "Hi-Res", "24bit / ≥48kHz · FLAC · 母带解析"))
-    }
-    return options
-}
+val DOWNLOAD_QUALITY_OPTIONS = listOf(
+    DownloadQualityOption("standard", "标准", "128 kbps · MP3 · 免费畅听"),
+    DownloadQualityOption("exhigh", "极高", "320 kbps · MP3 · 高保真 (部分歌曲需VIP)"),
+    DownloadQualityOption("lossless", "无损", "16bit / 44.1kHz · FLAC · CD音质 (需VIP)"),
+    DownloadQualityOption("hires", "Hi-Res", "24bit / ≥48kHz · FLAC · 母带解析 (需黑胶VIP)")
+)
 
 @Composable
 fun DownloadQualityDialog(
@@ -55,11 +42,10 @@ fun DownloadQualityDialog(
     onDismiss: () -> Unit,
     onQualitySelected: (String) -> Unit
 ) {
-    val baseOptions = androidx.compose.runtime.remember { getAvailableQualityOptions() }
     val options = if (includeAskOption) {
-        listOf(DownloadQualityOption("ask", "每次下载时询问", "下载前弹出音质选择面板")) + baseOptions
+        listOf(DownloadQualityOption("ask", "每次下载时询问", "下载前弹出音质选择面板")) + DOWNLOAD_QUALITY_OPTIONS
     } else {
-        baseOptions
+        DOWNLOAD_QUALITY_OPTIONS
     }
 
     ResponsiveDialogWindow(onDismissRequest = onDismiss) {

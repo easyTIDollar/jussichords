@@ -64,11 +64,23 @@ object DownloadManager {
 
     private var loopRunning = false
 
-    fun enqueue(context: Context, song: Song, quality: String) {
-        enqueueBatch(context, listOf(song), quality)
+    fun enqueue(
+        context: Context,
+        song: Song,
+        quality: String,
+        sourceName: String = "",
+        sourceType: String = "single"
+    ) {
+        enqueueBatch(context, listOf(song), quality, sourceName, sourceType)
     }
 
-    fun enqueueBatch(context: Context, songs: List<Song>, quality: String) {
+    fun enqueueBatch(
+        context: Context,
+        songs: List<Song>,
+        quality: String,
+        sourceName: String = "",
+        sourceType: String = if (sourceName.isNotBlank()) "playlist" else "single"
+    ) {
         val appContext = context.applicationContext
         scope.launch {
             for (song in songs) {
@@ -88,7 +100,9 @@ object DownloadManager {
                     durationMs = song.dt,
                     quality = quality,
                     status = DownloadStatus.PENDING,
-                    isAlbumFolder = false
+                    isAlbumFolder = false,
+                    sourceName = sourceName,
+                    sourceType = sourceType
                 )
                 DownloadStore.upsertTask(appContext, task)
             }
@@ -97,28 +111,42 @@ object DownloadManager {
     }
 
     /**
-     * 专供整张专辑下载：根据专辑分文件夹
+     * 专供整张专辑下载：统一专辑文件夹名与专辑名，避免先行单曲导致被拆分到不同文件夹
      */
-    fun enqueueAlbum(context: Context, songs: List<Song>, quality: String) {
+    fun enqueueAlbum(
+        context: Context,
+        songs: List<Song>,
+        quality: String,
+        albumName: String,
+        albumArtist: String
+    ) {
         val appContext = context.applicationContext
+        val cleanAlbum = albumName.trim()
+        val cleanArtist = albumArtist.trim()
+        val unifiedFolder = sanitizeFileName(
+            if (cleanArtist.isNotBlank()) "$cleanArtist - $cleanAlbum" else cleanAlbum
+        )
         scope.launch {
             for (song in songs) {
                 if (DownloadStore.getCompletedPlayableUri(appContext, song.id) != null) {
                     continue
                 }
-                val artistStr = song.ar.joinToString("/") { it.name }
+                val artistStr = song.ar.joinToString("/") { it.name }.ifBlank { cleanArtist }
                 val task = DownloadTask(
                     songId = song.id,
                     title = song.name,
                     artist = artistStr,
-                    album = song.al?.name.orEmpty(),
+                    album = cleanAlbum, // 强制统一为当前大专辑名，抹平先行单曲自带的假专辑名
                     artistId = song.ar.firstOrNull()?.id ?: 0L,
                     albumId = song.al?.id ?: 0L,
                     coverUrl = song.al?.picUrl.orEmpty(),
                     durationMs = song.dt,
                     quality = quality,
                     status = DownloadStatus.PENDING,
-                    isAlbumFolder = true
+                    isAlbumFolder = true,
+                    groupFolder = unifiedFolder,
+                    sourceName = cleanAlbum,
+                    sourceType = "album"
                 )
                 DownloadStore.upsertTask(appContext, task)
             }
@@ -275,74 +303,46 @@ object DownloadManager {
         DownloadStore.markStatus(context, task.songId, DownloadStatus.RESOLVING)
         _serviceEvents.tryEmit(Unit)
 
-        // 候选音质顺降（高音质没有就顺降到可用音质，确保 VIP 歌不因缺 hires 而下不了）
-        val candidateLevels = when (task.quality) {
-            "hires" -> listOf("hires", "lossless", "exhigh", "standard")
-            "lossless" -> listOf("lossless", "exhigh", "standard")
-            "exhigh" -> listOf("exhigh", "standard")
-            else -> listOf("standard")
+        val sLevel = when (task.quality) {
+            "hires" -> SongLevel.HIRES
+            "lossless" -> SongLevel.LOSSLESS
+            "exhigh" -> SongLevel.EXHIGH
+            else -> SongLevel.STANDARD
         }
 
         var downloadUrl: String? = null
 
-        // 1. 优先直接走洛雪音源插件
-        for (lvl in candidateLevels) {
-            val url = runCatching {
-                com.jussicodes.music.lx.LxPluginManager.resolveUrl(task.songId.toString(), lvl)
-            }.getOrNull()
-            if (!url.isNullOrBlank() && !url.contains("musicrep-ts", ignoreCase = true)) {
-                downloadUrl = url
-                android.util.Log.i(TAG, "Download resolved via LX plugin: songId=${task.songId} quality=$lvl url=$url")
-                break
-            }
+        // 1. 优先标准接口请求（VIP账号有完整权限，或免费歌曲直接获取对应音质）
+        val resp = runCatching {
+            PlayerApi.songPlayUrlV1(task.songId.toString(), sLevel).getOrNull()?.data?.firstOrNull()
+        }.getOrNull()
+        val u = resp?.url?.takeIf { it.isNotBlank() }
+        if (u != null && resp?.isTrialClip() != true && !u.contains("musicrep-ts", ignoreCase = true)) {
+            downloadUrl = u
         }
 
-        // 2. 若 LX 未命中，走第三方解灰（显式传 fee=1 强制开启第三方解析）
+        // 2. 若官方未获取到完整音频（VIP歌曲），尝试配置的第三方解灰音源
         if (downloadUrl.isNullOrBlank()) {
-            for (lvl in candidateLevels) {
-                val sLevel = when (lvl) {
-                    "standard" -> SongLevel.STANDARD
-                    "higher" -> SongLevel.HIGHER
-                    "exhigh" -> SongLevel.EXHIGH
-                    "hires" -> SongLevel.HIRES
-                    else -> SongLevel.LOSSLESS
-                }
-                val resp = runCatching {
-                    PlayerApi.songPlayUrlV1("${task.songId}?fee=1", sLevel).getOrNull()?.data?.firstOrNull()
-                }.getOrNull()
-                val u = resp?.url?.takeIf { it.isNotBlank() }
-                if (u != null && resp.isTrialClip() != true && !u.contains("musicrep-ts", ignoreCase = true)) {
-                    downloadUrl = u
-                    android.util.Log.i(TAG, "Download resolved via unblock: songId=${task.songId} quality=$lvl url=$u")
-                    break
-                }
-            }
-        }
-
-        // 3. 最终官方兜底（若账号有 VIP 则可下，否则只拿试听会被拦截）
-        if (downloadUrl.isNullOrBlank()) {
-            val sLevel = when (task.quality) {
-                "standard" -> SongLevel.STANDARD
-                "higher" -> SongLevel.HIGHER
-                "exhigh" -> SongLevel.EXHIGH
-                "hires" -> SongLevel.HIRES
-                else -> SongLevel.LOSSLESS
-            }
-            val resp = runCatching {
-                PlayerApi.songPlayUrlV1(task.songId.toString(), sLevel).getOrNull()?.data?.firstOrNull()
+            val unblockResp = runCatching {
+                PlayerApi.songPlayUrlV1("${task.songId}?fee=1", sLevel).getOrNull()?.data?.firstOrNull()
             }.getOrNull()
-            val u = resp?.url?.takeIf { it.isNotBlank() }
-            if (u != null && resp.isTrialClip() != true && !u.contains("musicrep-ts", ignoreCase = true)) {
-                downloadUrl = u
+            val unblockU = unblockResp?.url?.takeIf { it.isNotBlank() }
+            if (unblockU != null && unblockResp?.isTrialClip() != true && !unblockU.contains("musicrep-ts", ignoreCase = true)) {
+                downloadUrl = unblockU
             }
         }
 
         if (downloadUrl == null) {
+            val errorReason = if (task.quality in setOf("lossless", "hires", "exhigh")) {
+                "此音质需要 VIP 账号或该歌曲暂无可下载音源"
+            } else {
+                "当前歌曲暂无可用音频下载直链"
+            }
             DownloadStore.markStatus(
                 context,
                 task.songId,
                 DownloadStatus.FAILED,
-                errorMsg = "当前音源未能获取到完整可下载音频"
+                errorMsg = errorReason
             )
             return
         }
@@ -474,13 +474,12 @@ object DownloadManager {
                 val ext = if (isFlac) "flac" else "mp3"
                 val mimeType = if (isFlac) "audio/flac" else "audio/mpeg"
                 val cleanTitle = sanitizeFileName("${task.artist} - ${task.title}")
-                val fileName = "$cleanTitle.$ext"
 
-                val subDirName = if (task.isAlbumFolder && task.album.isNotBlank()) {
-                    sanitizeFileName(if (task.artist.isNotBlank()) "${task.artist} - ${task.album}" else task.album)
+                val subDirName = if (task.isAlbumFolder) {
+                    task.groupFolder ?: if (task.album.isNotBlank()) sanitizeFileName(if (task.artist.isNotBlank()) "${task.artist} - ${task.album}" else task.album) else null
                 } else null
 
-                val target = prepareOutputStream(context, fileName, mimeType, subDirName)
+                val target = prepareOutputStream(context, task.songId, cleanTitle, ext, mimeType, subDirName)
                 if (target == null) {
                     tempAudioFile.delete()
                     DownloadStore.markStatus(context, task.songId, DownloadStatus.FAILED, errorMsg = "创建目标存储文件失败")
@@ -537,7 +536,9 @@ object DownloadManager {
 
     private suspend fun prepareOutputStream(
         context: Context,
-        fileName: String,
+        songId: Long,
+        cleanTitle: String,
+        ext: String,
         mimeType: String,
         subDirName: String? = null
     ): OutputTarget? {
@@ -556,7 +557,14 @@ object DownloadManager {
                     } else {
                         treeDir
                     }
-                    val docFile = targetDir.createFile(mimeType, fileName)
+                    val fileName = "$cleanTitle.$ext"
+                    val existingFile = targetDir.findFile(fileName)
+                    val finalName = if (existingFile != null && DownloadStore.getCompletedTask(songId)?.fileUri != existingFile.uri.toString()) {
+                        "${cleanTitle}_$songId.$ext"
+                    } else {
+                        fileName
+                    }
+                    val docFile = targetDir.findFile(finalName) ?: targetDir.createFile(mimeType, finalName)
                     if (docFile != null) {
                         val stream = context.contentResolver.openOutputStream(docFile.uri)
                         if (stream != null) {
@@ -581,8 +589,14 @@ object DownloadManager {
             if (!targetDir.exists()) {
                 targetDir.mkdirs()
             }
-            val file = File(targetDir, fileName)
-            OutputTarget(FileOutputStream(file), file.absolutePath, Uri.fromFile(file).toString())
+            val primaryFile = File(targetDir, "$cleanTitle.$ext")
+            val completed = DownloadStore.getCompletedTask(songId)
+            val finalFile = if (primaryFile.exists() && completed?.filePath != primaryFile.absolutePath) {
+                File(targetDir, "${cleanTitle}_$songId.$ext")
+            } else {
+                primaryFile
+            }
+            OutputTarget(FileOutputStream(finalFile), finalFile.absolutePath, Uri.fromFile(finalFile).toString())
         }.getOrNull()
     }
 

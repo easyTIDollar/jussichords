@@ -47,12 +47,19 @@ import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.material.icons.outlined.QueueMusic
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -72,6 +79,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.rememberModalBottomSheetState
+import com.jussicodes.music.ui.components.SwipableTabPager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -139,7 +147,6 @@ fun DownloadScreen(
         tasks.filter { it.status != DownloadStatus.COMPLETED }
     }
 
-    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showSettingsSheet by rememberSaveable { mutableStateOf(false) }
 
     // 多选模式状态
@@ -224,40 +231,27 @@ fun DownloadScreen(
             }
         }
     ) { innerPadding ->
-        Column(
+        val tabTitles = listOf(
+            if (completedTasks.isNotEmpty()) "已下载 (${completedTasks.size})" else "已下载",
+            if (activeTasks.isNotEmpty()) "下载中 (${activeTasks.size})" else "下载中"
+        )
+        val pagerState = rememberPagerState(initialPage = 0, pageCount = { tabTitles.size })
+
+        LaunchedEffect(pagerState.currentPage) {
+            if (pagerState.currentPage != 0) {
+                exitSelectionMode()
+            }
+        }
+
+        SwipableTabPager(
+            titles = tabTitles,
+            pagerState = pagerState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-        ) {
-            PrimaryTabRow(selectedTabIndex = selectedTab) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = {
-                        if (selectedTab != 0) exitSelectionMode()
-                        selectedTab = 0
-                    },
-                    text = {
-                        Text(
-                            text = if (completedTasks.isNotEmpty()) "已下载 (${completedTasks.size})" else "已下载"
-                        )
-                    }
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = {
-                        if (selectedTab != 1) exitSelectionMode()
-                        selectedTab = 1
-                    },
-                    text = {
-                        Text(
-                            text = if (activeTasks.isNotEmpty()) "下载中 (${activeTasks.size})" else "下载中"
-                        )
-                    }
-                )
-            }
-
-            if (selectedTab == 0) {
-                DownloadedListSection(
+        ) { page ->
+            when (page) {
+                0 -> DownloadedListSection(
                     completedTasks = completedTasks,
                     isLandscape = isLandscape,
                     isSelectionMode = isSelectionMode,
@@ -279,8 +273,7 @@ fun DownloadScreen(
                         DownloadManager.deleteDownloaded(context, songId, deleteFile)
                     }
                 )
-            } else {
-                DownloadingListSection(
+                1 -> DownloadingListSection(
                     activeTasks = activeTasks,
                     isLandscape = isLandscape,
                     onPause = { DownloadManager.pause(context, it) },
@@ -416,6 +409,27 @@ private fun DownloadedListSection(
         mediaController?.playMediaAtId(completedTasks.first().songId)
     }
 
+    val playGroupAction: (List<DownloadTask>, String) -> Unit = { list, groupTitle ->
+        if (list.isNotEmpty()) {
+            val songs = list.map { task ->
+                Song(
+                    id = task.songId,
+                    name = task.title,
+                    ar = listOf(Artist(id = task.artistId, name = task.artist)),
+                    al = com.rcmiku.ncmapi.model.SongAlbum(id = task.albumId, name = task.album, picUrl = task.coverUrl),
+                    dt = task.durationMs
+                )
+            }
+            mediaController?.setPlaylist(
+                songs,
+                sourceId = 20261L,
+                sourceName = groupTitle,
+                sourceType = "download"
+            )
+            mediaController?.playMediaAtId(list.first().songId)
+        }
+    }
+
     val onItemClick: (DownloadTask) -> Unit = { task ->
         if (isSelectionMode) {
             onToggleSelect(task.songId)
@@ -438,6 +452,54 @@ private fun DownloadedListSection(
             mediaController?.playMediaAtId(task.songId)
         }
     }
+
+    // 分组模型与计算
+    val albumGroups = remember(completedTasks) {
+        completedTasks.groupBy { task ->
+            task.groupFolder?.takeIf { it.isNotBlank() }
+                ?: if (task.album.isNotBlank()) {
+                    if (task.artist.isNotBlank()) "${task.artist} - ${task.album}" else task.album
+                } else "其他单曲"
+        }.map { (name, songs) ->
+            val first = songs.first()
+            val groupBytes = songs.sumOf { it.totalBytes }
+            val artistStr = if (name == "其他单曲") "" else first.artist
+            val subtitle = buildString {
+                if (artistStr.isNotBlank()) append("$artistStr · ")
+                append("${songs.size} 首歌曲")
+                if (groupBytes > 0) append(" · ${formatBytes(groupBytes)}")
+            }
+            DownloadGroupItem(
+                key = name,
+                title = if (name == "其他单曲") "其他单曲" else (first.album.ifBlank { name }),
+                subtitle = subtitle,
+                coverUrl = songs.firstOrNull { it.coverUrl.isNotBlank() }?.coverUrl.orEmpty(),
+                tasks = songs
+            )
+        }.sortedByDescending { it.tasks.size }
+    }
+
+    val playlistGroups = remember(completedTasks) {
+        completedTasks.groupBy { task ->
+            task.sourceName.takeIf { it.isNotBlank() } ?: "单曲下载"
+        }.map { (name, songs) ->
+            val groupBytes = songs.sumOf { it.totalBytes }
+            val subtitle = buildString {
+                append("${songs.size} 首歌曲")
+                if (groupBytes > 0) append(" · ${formatBytes(groupBytes)}")
+            }
+            DownloadGroupItem(
+                key = name,
+                title = name,
+                subtitle = subtitle,
+                coverUrl = songs.firstOrNull { it.coverUrl.isNotBlank() }?.coverUrl.orEmpty(),
+                tasks = songs
+            )
+        }.sortedByDescending { it.tasks.size }
+    }
+
+    var groupFilterIndex by rememberSaveable { mutableIntStateOf(0) } // 0: 全部, 1: 专辑, 2: 歌单
+    var expandedGroupKeys by remember { mutableStateOf(setOf<String>()) }
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -463,26 +525,104 @@ private fun DownloadedListSection(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)
             ) {
                 item(span = { GridItemSpan(2) }) {
-                    DownloadedHeaderCard(
-                        taskCount = completedTasks.size,
-                        totalBytes = totalBytes,
-                        onPlayAll = playAllAction
-                    )
+                    Column {
+                        DownloadedHeaderCard(
+                            taskCount = completedTasks.size,
+                            totalBytes = totalBytes,
+                            onPlayAll = playAllAction
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = groupFilterIndex == 0,
+                                onClick = { groupFilterIndex = 0 },
+                                label = { Text("全部 (${completedTasks.size})") }
+                            )
+                            FilterChip(
+                                selected = groupFilterIndex == 1,
+                                onClick = { groupFilterIndex = 1 },
+                                label = { Text("专辑 (${albumGroups.size})") }
+                            )
+                            FilterChip(
+                                selected = groupFilterIndex == 2,
+                                onClick = { groupFilterIndex = 2 },
+                                label = { Text("歌单 (${playlistGroups.size})") }
+                            )
+                        }
+                    }
                 }
 
-                items(completedTasks, key = { it.songId }) { task ->
-                    DownloadedSongItem(
-                        task = task,
-                        isSelectionMode = isSelectionMode,
-                        isSelected = task.songId in selectedSongIds,
-                        onClick = { onItemClick(task) },
-                        onLongClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onEnterSelection(task.songId)
-                        },
-                        onDeleteClick = { pendingDeleteTask = task },
-                        onShareClick = { shareDownloadedFile(context, task) }
-                    )
+                when (groupFilterIndex) {
+                    0 -> {
+                        items(completedTasks, key = { it.songId }) { task ->
+                            DownloadedSongItem(
+                                task = task,
+                                isSelectionMode = isSelectionMode,
+                                isSelected = task.songId in selectedSongIds,
+                                onClick = { onItemClick(task) },
+                                onLongClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onEnterSelection(task.songId)
+                                },
+                                onDeleteClick = { pendingDeleteTask = task },
+                                onShareClick = { shareDownloadedFile(context, task) }
+                            )
+                        }
+                    }
+                    1 -> {
+                        items(albumGroups, key = { it.key }, span = { GridItemSpan(2) }) { group ->
+                            DownloadedGroupCard(
+                                group = group,
+                                isExpanded = group.key in expandedGroupKeys,
+                                onToggleExpand = {
+                                    expandedGroupKeys = if (group.key in expandedGroupKeys) {
+                                        expandedGroupKeys - group.key
+                                    } else {
+                                        expandedGroupKeys + group.key
+                                    }
+                                },
+                                onPlayAll = { playGroupAction(group.tasks, group.title) },
+                                isSelectionMode = isSelectionMode,
+                                selectedSongIds = selectedSongIds,
+                                onItemClick = onItemClick,
+                                onLongClick = { songId ->
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onEnterSelection(songId)
+                                },
+                                onDeleteClick = { pendingDeleteTask = it },
+                                onShareClick = { shareDownloadedFile(context, it) }
+                            )
+                        }
+                    }
+                    2 -> {
+                        items(playlistGroups, key = { it.key }, span = { GridItemSpan(2) }) { group ->
+                            DownloadedGroupCard(
+                                group = group,
+                                isExpanded = group.key in expandedGroupKeys,
+                                onToggleExpand = {
+                                    expandedGroupKeys = if (group.key in expandedGroupKeys) {
+                                        expandedGroupKeys - group.key
+                                    } else {
+                                        expandedGroupKeys + group.key
+                                    }
+                                },
+                                onPlayAll = { playGroupAction(group.tasks, group.title) },
+                                isSelectionMode = isSelectionMode,
+                                selectedSongIds = selectedSongIds,
+                                onItemClick = onItemClick,
+                                onLongClick = { songId ->
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onEnterSelection(songId)
+                                },
+                                onDeleteClick = { pendingDeleteTask = it },
+                                onShareClick = { shareDownloadedFile(context, it) }
+                            )
+                        }
+                    }
                 }
 
                 item(span = { GridItemSpan(2) }) {
@@ -495,26 +635,104 @@ private fun DownloadedListSection(
                 modifier = Modifier.fillMaxSize()
             ) {
                 item {
-                    DownloadedHeaderCard(
-                        taskCount = completedTasks.size,
-                        totalBytes = totalBytes,
-                        onPlayAll = playAllAction
-                    )
+                    Column {
+                        DownloadedHeaderCard(
+                            taskCount = completedTasks.size,
+                            totalBytes = totalBytes,
+                            onPlayAll = playAllAction
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = groupFilterIndex == 0,
+                                onClick = { groupFilterIndex = 0 },
+                                label = { Text("全部 (${completedTasks.size})") }
+                            )
+                            FilterChip(
+                                selected = groupFilterIndex == 1,
+                                onClick = { groupFilterIndex = 1 },
+                                label = { Text("专辑 (${albumGroups.size})") }
+                            )
+                            FilterChip(
+                                selected = groupFilterIndex == 2,
+                                onClick = { groupFilterIndex = 2 },
+                                label = { Text("歌单 (${playlistGroups.size})") }
+                            )
+                        }
+                    }
                 }
 
-                items(completedTasks, key = { it.songId }) { task ->
-                    DownloadedSongItem(
-                        task = task,
-                        isSelectionMode = isSelectionMode,
-                        isSelected = task.songId in selectedSongIds,
-                        onClick = { onItemClick(task) },
-                        onLongClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onEnterSelection(task.songId)
-                        },
-                        onDeleteClick = { pendingDeleteTask = task },
-                        onShareClick = { shareDownloadedFile(context, task) }
-                    )
+                when (groupFilterIndex) {
+                    0 -> {
+                        items(completedTasks, key = { it.songId }) { task ->
+                            DownloadedSongItem(
+                                task = task,
+                                isSelectionMode = isSelectionMode,
+                                isSelected = task.songId in selectedSongIds,
+                                onClick = { onItemClick(task) },
+                                onLongClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onEnterSelection(task.songId)
+                                },
+                                onDeleteClick = { pendingDeleteTask = task },
+                                onShareClick = { shareDownloadedFile(context, task) }
+                            )
+                        }
+                    }
+                    1 -> {
+                        items(albumGroups, key = { it.key }) { group ->
+                            DownloadedGroupCard(
+                                group = group,
+                                isExpanded = group.key in expandedGroupKeys,
+                                onToggleExpand = {
+                                    expandedGroupKeys = if (group.key in expandedGroupKeys) {
+                                        expandedGroupKeys - group.key
+                                    } else {
+                                        expandedGroupKeys + group.key
+                                    }
+                                },
+                                onPlayAll = { playGroupAction(group.tasks, group.title) },
+                                isSelectionMode = isSelectionMode,
+                                selectedSongIds = selectedSongIds,
+                                onItemClick = onItemClick,
+                                onLongClick = { songId ->
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onEnterSelection(songId)
+                                },
+                                onDeleteClick = { pendingDeleteTask = it },
+                                onShareClick = { shareDownloadedFile(context, it) }
+                            )
+                        }
+                    }
+                    2 -> {
+                        items(playlistGroups, key = { it.key }) { group ->
+                            DownloadedGroupCard(
+                                group = group,
+                                isExpanded = group.key in expandedGroupKeys,
+                                onToggleExpand = {
+                                    expandedGroupKeys = if (group.key in expandedGroupKeys) {
+                                        expandedGroupKeys - group.key
+                                    } else {
+                                        expandedGroupKeys + group.key
+                                    }
+                                },
+                                onPlayAll = { playGroupAction(group.tasks, group.title) },
+                                isSelectionMode = isSelectionMode,
+                                selectedSongIds = selectedSongIds,
+                                onItemClick = onItemClick,
+                                onLongClick = { songId ->
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onEnterSelection(songId)
+                                },
+                                onDeleteClick = { pendingDeleteTask = it },
+                                onShareClick = { shareDownloadedFile(context, it) }
+                            )
+                        }
+                    }
                 }
 
                 item {
@@ -1299,5 +1517,124 @@ private fun shareDownloadedFile(context: Context, task: DownloadTask) {
         context.startActivity(Intent.createChooser(shareIntent, "分享歌曲文件"))
     }.onFailure {
         Toast.makeText(context, "无法分享该文件: ${it.localizedMessage}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+data class DownloadGroupItem(
+    val key: String,
+    val title: String,
+    val subtitle: String,
+    val coverUrl: String,
+    val tasks: List<DownloadTask>
+)
+
+@Composable
+private fun DownloadedGroupCard(
+    group: DownloadGroupItem,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onPlayAll: () -> Unit,
+    isSelectionMode: Boolean,
+    selectedSongIds: Set<Long>,
+    onItemClick: (DownloadTask) -> Unit,
+    onLongClick: (Long) -> Unit,
+    onDeleteClick: (DownloadTask) -> Unit,
+    onShareClick: (DownloadTask) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        ),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggleExpand)
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (group.coverUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = group.coverUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.secondaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.LibraryMusic,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+
+                Spacer(Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = group.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = group.subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                IconButton(onClick = onPlayAll) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "播放全组",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "折叠" else "展开",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (isExpanded) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                )
+                group.tasks.forEach { songTask ->
+                    DownloadedSongItem(
+                        task = songTask,
+                        isSelectionMode = isSelectionMode,
+                        isSelected = songTask.songId in selectedSongIds,
+                        onClick = { onItemClick(songTask) },
+                        onLongClick = { onLongClick(songTask.songId) },
+                        onDeleteClick = { onDeleteClick(songTask) },
+                        onShareClick = { onShareClick(songTask) }
+                    )
+                }
+            }
+        }
     }
 }

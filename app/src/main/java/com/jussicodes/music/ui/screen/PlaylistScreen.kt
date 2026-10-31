@@ -203,11 +203,18 @@ fun PlaylistScreen(
 
     val triggerDownloadSongs: (List<Song>) -> Unit = { list ->
         if (list.isNotEmpty()) {
+            val plName = playlistInfoState?.name.orEmpty()
             if (downloadQuality == "ask") {
                 pendingDownloadSongs = list
                 openDownloadQualityDialog = true
             } else {
-                DownloadManager.enqueueBatch(context, list, downloadQuality)
+                DownloadManager.enqueueBatch(
+                    context = context,
+                    songs = list,
+                    quality = downloadQuality,
+                    sourceName = plName,
+                    sourceType = "playlist"
+                )
                 Toast.makeText(context, "已将 ${list.size} 首歌加入下载队列", Toast.LENGTH_SHORT).show()
                 selectionMode = false
                 selectedSongIds = emptySet()
@@ -871,13 +878,20 @@ fun PlaylistScreen(
     }
 
     if (openDownloadQualityDialog && !pendingDownloadSongs.isNullOrEmpty()) {
+        val plName = playlistInfoState?.name.orEmpty()
         DownloadQualityDialog(
             currentKey = "lossless",
             onDismiss = { openDownloadQualityDialog = false },
             onQualitySelected = { q ->
                 openDownloadQualityDialog = false
                 val list = pendingDownloadSongs ?: emptyList()
-                DownloadManager.enqueueBatch(context, list, q)
+                DownloadManager.enqueueBatch(
+                    context = context,
+                    songs = list,
+                    quality = q,
+                    sourceName = plName,
+                    sourceType = "playlist"
+                )
                 Toast.makeText(context, "已将 ${list.size} 首歌加入下载队列", Toast.LENGTH_SHORT).show()
                 selectionMode = false
                 selectedSongIds = emptySet()

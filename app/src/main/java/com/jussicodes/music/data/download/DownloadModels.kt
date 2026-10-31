@@ -33,6 +33,9 @@ data class DownloadTask(
     val mimeType: String = "audio/mpeg",
     val actualQualityText: String? = null, // 真实下载到的格式与码率，如 "FLAC 无损"、"MP3 320K"
     val isAlbumFolder: Boolean = false,    // 仅整张专辑下载时分专辑文件夹
+    val groupFolder: String? = null,       // 强制统一的文件夹名，避免先行单曲专辑名不同被拆成多个文件夹
+    val sourceName: String = "",           // 来源名称（歌单名 / 专辑名）
+    val sourceType: String = "",           // 来源类型：album, playlist, single
     val errorMsg: String? = null,
     val createTime: Long = System.currentTimeMillis(),
     val finishTime: Long? = null
