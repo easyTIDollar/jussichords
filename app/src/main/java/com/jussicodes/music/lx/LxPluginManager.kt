@@ -298,12 +298,12 @@ object LxPluginManager {
     }.toString()
 
     private fun getQualityCandidates(songLevel: String): List<String> = when (songLevel.lowercase()) {
-        "jymaster", "master" -> listOf("master", "jymaster", "flac24bit", "hires")
-        "dolby", "atmos", "atmos_plus" -> listOf("atmos_plus", "atmos", "dolby", "flac24bit")
-        "hires", "flac24bit" -> listOf("flac24bit", "hires")
-        "lossless", "flac" -> listOf("flac", "lossless")
-        "higher", "192k" -> listOf("192k", "320k", "exhigh")
-        "exhigh", "320k" -> listOf("320k", "exhigh")
+        "jymaster", "master" -> listOf("master", "jymaster", "flac24bit", "hires", "flac", "lossless", "320k", "128k")
+        "dolby", "atmos", "atmos_plus" -> listOf("atmos_plus", "atmos", "dolby", "flac24bit", "hires", "flac", "lossless", "320k")
+        "hires", "flac24bit" -> listOf("flac24bit", "hires", "flac", "lossless", "320k", "128k")
+        "lossless", "flac" -> listOf("flac", "lossless", "320k", "128k")
+        "higher", "192k" -> listOf("192k", "320k", "exhigh", "128k")
+        "exhigh", "320k" -> listOf("320k", "exhigh", "192k", "128k")
         else -> listOf("128k", "standard")
     }
 

@@ -5,6 +5,7 @@ import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.api.player.PlayerApi
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.Song
+import com.rcmiku.ncmapi.model.SongUrl
 import com.rcmiku.ncmapi.utils.json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -184,7 +185,7 @@ object AudioQualityProber {
         val (label, desc) = PROBE_LEVELS.firstOrNull { it.first == level }?.second ?: (level.value to "")
 
         var resolvedUrl: String? = null
-        var resp: com.rcmiku.ncmapi.api.player.SongUrl? = null
+        var resp: SongUrl? = null
 
         val officialResp = runCatching {
             PlayerApi.songPlayUrlV1(songId.toString(), level).getOrNull()?.data?.firstOrNull()
