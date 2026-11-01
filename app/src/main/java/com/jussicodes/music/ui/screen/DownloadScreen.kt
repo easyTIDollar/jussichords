@@ -138,7 +138,6 @@ import com.jussicodes.music.data.download.DownloadStatus
 import com.jussicodes.music.data.download.DownloadStore
 import com.jussicodes.music.data.download.DownloadTask
 import com.jussicodes.music.download.DownloadManager
-import com.jussicodes.music.download.DailyDownloadQuotaManager
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.components.DownloadQualityDialog
@@ -1730,104 +1729,37 @@ private fun DownloadedHeaderCard(
     totalBytes: Long,
     onPlayAll: () -> Unit
 ) {
-    val context = LocalContext.current
-    val quota by DailyDownloadQuotaManager.quotaState.collectAsState()
-
-    LaunchedEffect(Unit) {
-        DailyDownloadQuotaManager.checkAndRefresh(context)
-    }
-
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // 每日限额说明与进度展示卡片
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 10.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            ),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "今日下载配额：${quota.used} / ${quota.limit} 首",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (quota.isExhausted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = if (quota.isExhausted) "今日已达上限" else "剩余 ${quota.remaining} 首",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (quota.isExhausted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Spacer(Modifier.height(6.dp))
-
-                LinearProgressIndicator(
-                    progress = { quota.progress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
-                    color = if (quota.isExhausted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-
-                Spacer(Modifier.height(6.dp))
-
-                Text(
-                    text = "为了避免音源被滥用以及维护LX生态，强制限制每个用户每天只能下载60首歌（每天 0 点刷新额度）",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 16.sp
-                )
-            }
+        Column {
+            Text(
+                text = "已下载 $taskCount 首歌曲",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "占用空间: ${formatBytes(totalBytes)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        FilledTonalButton(
+            onClick = onPlayAll,
+            modifier = Modifier.height(38.dp)
         ) {
-            Column {
-                Text(
-                    text = "已下载 $taskCount 首歌曲",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "占用空间: ${formatBytes(totalBytes)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            FilledTonalButton(
-                onClick = onPlayAll,
-                modifier = Modifier.height(38.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(4.dp))
-                Text("全部播放")
-            }
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(4.dp))
+            Text("全部播放")
         }
     }
 }
@@ -1969,6 +1901,40 @@ private fun DownloadedSongItem(
 }
 
 @Composable
+private fun DownloadingNoticeCard(modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.CloudDownload,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = "音源不保证可用性，不要盲目追求高音质下载，禁止滥用音源",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 16.sp
+            )
+        }
+    }
+}
+
+@Composable
 private fun DownloadingListSection(
     activeTasks: List<DownloadTask>,
     isLandscape: Boolean,
@@ -1980,25 +1946,29 @@ private fun DownloadingListSection(
     onRetryWithProbe: (DownloadTask) -> Unit = {}
 ) {
     if (activeTasks.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    imageVector = Icons.Outlined.Check,
-                    contentDescription = null,
-                    modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                )
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = "没有正在下载的任务",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+        Column(modifier = Modifier.fillMaxSize()) {
+            DownloadingNoticeCard()
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Outlined.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        text = "没有正在下载的任务",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
         return
@@ -2058,25 +2028,31 @@ private fun DownloadingHeaderRow(
     onPauseAll: () -> Unit,
     onResumeAll: () -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 16.dp, vertical = 6.dp)
     ) {
-        Text(
-            text = "下载队列 ($count)",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold
-        )
-        Row {
-            OutlinedButton(onClick = onPauseAll) {
-                Text("全部暂停")
-            }
-            Spacer(Modifier.width(8.dp))
-            FilledTonalButton(onClick = onResumeAll) {
-                Text("全部开始")
+        DownloadingNoticeCard(modifier = Modifier.padding(bottom = 6.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "下载队列 ($count)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Row {
+                OutlinedButton(onClick = onPauseAll) {
+                    Text("全部暂停")
+                }
+                Spacer(Modifier.width(8.dp))
+                FilledTonalButton(onClick = onResumeAll) {
+                    Text("全部开始")
+                }
             }
         }
     }

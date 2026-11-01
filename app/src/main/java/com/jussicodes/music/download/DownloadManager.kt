@@ -90,12 +90,7 @@ object DownloadManager {
             }
             if (newSongs.isEmpty()) return@launch
 
-            // 硬性限额检查：每日 60 首
-            val allowedCount = DailyDownloadQuotaManager.tryConsume(appContext, newSongs.size)
-            if (allowedCount <= 0) return@launch
-
-            val songsToEnqueue = newSongs.take(allowedCount)
-            for (song in songsToEnqueue) {
+            for (song in newSongs) {
                 val artistStr = song.ar.joinToString("/") { it.name }
                 val task = DownloadTask(
                     songId = song.id,
@@ -141,12 +136,7 @@ object DownloadManager {
             }
             if (newSongs.isEmpty()) return@launch
 
-            // 硬性限额检查：每日 60 首
-            val allowedCount = DailyDownloadQuotaManager.tryConsume(appContext, newSongs.size)
-            if (allowedCount <= 0) return@launch
-
-            val songsToEnqueue = newSongs.take(allowedCount)
-            for (song in songsToEnqueue) {
+            for (song in newSongs) {
                 val artistStr = song.ar.joinToString("/") { it.name }.ifBlank { cleanArtist }
                 val task = DownloadTask(
                     songId = song.id,
