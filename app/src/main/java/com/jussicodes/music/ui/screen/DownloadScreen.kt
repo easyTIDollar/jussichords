@@ -116,6 +116,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -1792,7 +1793,7 @@ private fun DownloadedHeaderCard(
                     text = "为了避免音源被滥用以及维护LX生态，强制限制每个用户每天只能下载60首歌（每天 0 点刷新额度）",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 1.25.em
+                    lineHeight = 16.sp
                 )
             }
         }
