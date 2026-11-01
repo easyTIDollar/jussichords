@@ -27,6 +27,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -44,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -56,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog as ComposeDialog
 import androidx.compose.ui.unit.dp
@@ -90,6 +94,7 @@ fun LxPluginScreen(navController: NavHostController) {
     var urlDialogVisible by remember { mutableStateOf(false) }
     var onlineListVisible by remember { mutableStateOf(false) }
     var batchDeleteConfirm by remember { mutableStateOf(false) }
+    var testingPlugin by remember { mutableStateOf<LxPluginItem?>(null) }
 
     // ---- 列表顺序（长按拖动）与多选 ----
     val listState = rememberLazyListState()
@@ -334,7 +339,8 @@ fun LxPluginScreen(navController: NavHostController) {
                                 selected + item.id
                             }
                         },
-                        onDelete = { if (item.id != LxPluginManager.BUILTIN_ID) removingId = item.id }
+                        onDelete = { if (item.id != LxPluginManager.BUILTIN_ID) removingId = item.id },
+                        onTest = { testingPlugin = item }
                     )
                 }
             }
@@ -422,6 +428,13 @@ fun LxPluginScreen(navController: NavHostController) {
             }
         )
     }
+
+    testingPlugin?.let { plugin ->
+        ScriptTestDialog(
+            plugin = plugin,
+            onDismiss = { testingPlugin = null }
+        )
+    }
 }
 
 @Composable
@@ -434,7 +447,8 @@ private fun LxPluginRow(
     modifier: Modifier = Modifier,
     onToggle: (Boolean) -> Unit,
     onSelectToggle: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onTest: () -> Unit,
 ) {
     Card(
         modifier = if (selectionMode) modifier.clickable(onClick = onSelectToggle) else modifier,
@@ -511,6 +525,15 @@ private fun LxPluginRow(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                TextButton(
+                    onClick = onTest
+                ) {
+                    Text(
+                        text = "测试解析",
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
                 TextButton(
                     enabled = !isBuiltin,
                     onClick = onDelete
@@ -754,6 +777,205 @@ private fun OnlineSourceRow(
                 TextButton(onClick = {}, enabled = false) { Text("已安装") }
             } else {
                 TextButton(onClick = onInstall) { Text("安装") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScriptTestDialog(
+    plugin: LxPluginItem,
+    onDismiss: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var isTesting by remember { mutableStateOf(true) }
+    var result by remember { mutableStateOf<com.jussicodes.music.lx.TestResult?>(null) }
+    var mediaPlayer by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
+    var isPlaying by remember { mutableStateOf(false) }
+
+    fun runTest() {
+        isTesting = true
+        result = null
+        mediaPlayer?.runCatching {
+            stop()
+            release()
+        }
+        mediaPlayer = null
+        isPlaying = false
+        scope.launch {
+            val res = LxPluginManager.testPlugin(plugin.id)
+            result = res
+            isTesting = false
+        }
+    }
+
+    LaunchedEffect(plugin.id) {
+        runTest()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            mediaPlayer?.runCatching {
+                stop()
+                release()
+            }
+            mediaPlayer = null
+        }
+    }
+
+    ComposeDialog(onDismissRequest = {
+        mediaPlayer?.runCatching {
+            stop()
+            release()
+        }
+        mediaPlayer = null
+        onDismiss()
+    }) {
+        ScaledDialogContent {
+            Card(
+                shape = MaterialTheme.shapes.extraLarge,
+                modifier = Modifier.fillMaxWidth().padding(16.dp)
+            ) {
+                Column(Modifier.padding(24.dp)) {
+                    Text(
+                        text = "音源解析测试",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "测试目标: ${plugin.name} · 基准单曲 ID: 2644776561",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(16.dp))
+
+                    if (isTesting) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
+                            Text(
+                                text = "正在调用沙盒解析并探测直链...",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    } else {
+                        val res = result
+                        if (res != null) {
+                            val isSuccess = res.success
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSuccess) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                    else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = if (isSuccess) Icons.Filled.CheckCircle else Icons.Filled.Cancel,
+                                            contentDescription = null,
+                                            tint = if (isSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = if (isSuccess) "解析成功" else "解析失败",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Text(
+                                        text = res.message,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "耗时: ${res.costMs}ms",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        if (res.quality != null) {
+                                            Text(
+                                                text = "音质: ${res.quality}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 试听播放控件
+                            if (isSuccess && !res.url.isNullOrBlank()) {
+                                Spacer(Modifier.height(12.dp))
+                                OutlinedButton(
+                                    onClick = {
+                                        if (isPlaying) {
+                                            mediaPlayer?.pause()
+                                            isPlaying = false
+                                        } else {
+                                            if (mediaPlayer == null) {
+                                                mediaPlayer = android.media.MediaPlayer().apply {
+                                                    setDataSource(res.url)
+                                                    setOnPreparedListener {
+                                                        start()
+                                                        isPlaying = true
+                                                    }
+                                                    setOnCompletionListener {
+                                                        isPlaying = false
+                                                    }
+                                                    setOnErrorListener { _, _, _ ->
+                                                        isPlaying = false
+                                                        true
+                                                    }
+                                                    prepareAsync()
+                                                }
+                                            } else {
+                                                mediaPlayer?.start()
+                                                isPlaying = true
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(if (isPlaying) "⏸ 暂停试听" else "▶ 播放试听")
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            enabled = !isTesting,
+                            onClick = { runTest() }
+                        ) {
+                            Text("重新测试")
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            onClick = {
+                                mediaPlayer?.runCatching {
+                                    stop()
+                                    release()
+                                }
+                                mediaPlayer = null
+                                onDismiss()
+                            }
+                        ) {
+                            Text("关闭")
+                        }
+                    }
+                }
             }
         }
     }

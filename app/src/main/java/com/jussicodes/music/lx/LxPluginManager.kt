@@ -26,6 +26,16 @@ sealed interface ImportResult {
     data class Failure(val message: String) : ImportResult
 }
 
+data class TestResult(
+    val success: Boolean,
+    val url: String? = null,
+    val quality: String? = null,
+    val costMs: Long = 0,
+    val isTrial: Boolean = false,
+    val httpCode: Int? = null,
+    val message: String = ""
+)
+
 /**
  * LX 脚本的编排层（移植 Melodia LxPluginManager）：导入校验、增删、启停、解析。
  * 依赖 [LxPluginStore]（持久化）与 [LxPluginEngine]（沙盒），二者都在 Application 里单例化。
@@ -273,6 +283,124 @@ object LxPluginManager {
                 "total=${System.currentTimeMillis() - startedAt}ms"
         )
         return null
+    }
+
+    const val TEST_SONG_ID = "2644776561"
+
+    suspend fun testPlugin(
+        pluginId: String,
+        songId: String = TEST_SONG_ID
+    ): TestResult = withContext(Dispatchers.IO) {
+        val startedAt = System.currentTimeMillis()
+        val plugin = LxPluginStore.snapshot().firstOrNull { it.id == pluginId }
+        if (plugin == null) {
+            return@withContext TestResult(
+                success = false,
+                costMs = 0,
+                message = "脚本不存在或已被删除"
+            )
+        }
+
+        // 尝试获取元信息，拿不到则使用基准兜底
+        val song = fetchSong(songId)
+        val musicInfo = if (song != null) {
+            buildMusicInfo(songId, song)
+        } else {
+            buildJsonObject {
+                put("id", songId)
+                put("songmid", songId)
+                put("name", "基准测试歌曲")
+                put("singer", "测试歌手")
+                put("albumName", "测试专辑")
+                put("interval", "03:30")
+            }.toString()
+        }
+
+        val testQualities = listOf("320k", "flac", "128k")
+        var matchedUrl: String? = null
+        var matchedQuality: String? = null
+        var parseCost = 0L
+
+        for (q in testQualities) {
+            val t0 = System.currentTimeMillis()
+            val url = runCatching { engine?.resolveUrl(pluginId, musicInfo, q) }.getOrNull()
+            val stepCost = System.currentTimeMillis() - t0
+            parseCost += stepCost
+            if (!url.isNullOrBlank()) {
+                matchedUrl = url
+                matchedQuality = q
+                break
+            }
+        }
+
+        if (matchedUrl.isNullOrBlank()) {
+            return@withContext TestResult(
+                success = false,
+                costMs = parseCost,
+                message = "脚本未解析到可用的音频直链 (测试音质: 320k/flac/128k)"
+            )
+        }
+
+        if (matchedUrl.contains("musicrep-ts", ignoreCase = true)) {
+            return@withContext TestResult(
+                success = false,
+                url = matchedUrl,
+                quality = matchedQuality,
+                costMs = parseCost,
+                isTrial = true,
+                message = "脚本降级返回了官方 30 秒试听截断片段 (非完整歌曲)"
+            )
+        }
+
+        // 进行直链可用性探测
+        var httpCode: Int? = null
+        var isHttpOk = false
+        runCatching {
+            val probeClient = OkHttpClient.Builder()
+                .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+                .followRedirects(true)
+                .build()
+            val req = okhttp3.Request.Builder()
+                .url(matchedUrl)
+                .header("Range", "bytes=0-1024")
+                .header("User-Agent", "Mozilla/5.0")
+                .get()
+                .build()
+            probeClient.newCall(req).execute().use { resp ->
+                httpCode = resp.code
+                isHttpOk = resp.isSuccessful || resp.code == 206 || resp.code == 200
+            }
+        }
+
+        val totalCost = System.currentTimeMillis() - startedAt
+        if (isHttpOk) {
+            TestResult(
+                success = true,
+                url = matchedUrl,
+                quality = matchedQuality,
+                costMs = totalCost,
+                httpCode = httpCode,
+                message = "解析成功，直链连接正常 (HTTP $httpCode)"
+            )
+        } else if (httpCode != null) {
+            TestResult(
+                success = false,
+                url = matchedUrl,
+                quality = matchedQuality,
+                costMs = totalCost,
+                httpCode = httpCode,
+                message = "已解析出直链，但音频服务器返回错误 (HTTP $httpCode)"
+            )
+        } else {
+            TestResult(
+                success = true,
+                url = matchedUrl,
+                quality = matchedQuality,
+                costMs = totalCost,
+                message = "解析成功并获得音频直链 (直链网络探测超时)"
+            )
+        }
     }
 
     /** 取歌曲元信息；拿不到就不试解析（脚本要靠歌名/歌手/时长匹配，不拿空壳去撞）。 */
