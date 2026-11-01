@@ -682,12 +682,19 @@ private fun DownloadedListSection(
                     isRefreshing = true
                     try {
                         val removed = DownloadStore.verifyAndSyncLocalFiles(context)
-                        kotlinx.coroutines.delay(600)
-                        if (removed > 0) {
-                            Toast.makeText(context, "已清理 $removed 首失效歌曲", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(context, "本地文件校验完毕", Toast.LENGTH_SHORT).show()
+                        val (extAdded, extRemoved) = ExternalPlaylistStore.refreshAllPlaylists(context)
+                        kotlinx.coroutines.delay(400)
+                        val msg = when {
+                            extAdded > 0 || extRemoved > 0 || removed > 0 -> {
+                                val parts = mutableListOf<String>()
+                                if (extAdded > 0) parts.add("外部新增 $extAdded 首")
+                                if (extRemoved > 0) parts.add("外部清理 $extRemoved 首")
+                                if (removed > 0) parts.add("清理已删下载 $removed 首")
+                                "刷新完成：" + parts.joinToString("，")
+                            }
+                            else -> "刷新完成：本地文件状态全部正常"
                         }
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     } finally {
                         isRefreshing = false
                     }
@@ -745,17 +752,24 @@ private fun DownloadedListSection(
         return
     }
 
+    fun taskToSong(t: DownloadTask): Song {
+        val cover = com.jussicodes.music.data.offline.OfflineMusicMetadataManager.getOfflineCover(
+            context,
+            t.songId,
+            t.coverUrl
+        )?.toString() ?: t.coverUrl
+        return Song(
+            id = t.songId,
+            name = t.title,
+            ar = listOf(Artist(id = t.artistId, name = t.artist)),
+            al = com.rcmiku.ncmapi.model.SongAlbum(id = t.albumId, name = t.album, picUrl = cover),
+            dt = t.durationMs
+        )
+    }
+
     val playAllAction: () -> Unit = {
         if (completedTasks.isNotEmpty()) {
-            val songs = completedTasks.map { task ->
-                Song(
-                    id = task.songId,
-                    name = task.title,
-                    ar = listOf(Artist(id = task.artistId, name = task.artist)),
-                    al = com.rcmiku.ncmapi.model.SongAlbum(id = task.albumId, name = task.album, picUrl = task.coverUrl),
-                    dt = task.durationMs
-                )
-            }
+            val songs = completedTasks.map { taskToSong(it) }
             mediaController?.setPlaylist(
                 songs,
                 sourceId = 20261L,
@@ -806,15 +820,7 @@ private fun DownloadedListSection(
 
     val playGroupAction: (List<DownloadTask>, String) -> Unit = { list, groupTitle ->
         if (list.isNotEmpty()) {
-            val songs = list.map { task ->
-                Song(
-                    id = task.songId,
-                    name = task.title,
-                    ar = listOf(Artist(id = task.artistId, name = task.artist)),
-                    al = com.rcmiku.ncmapi.model.SongAlbum(id = task.albumId, name = task.album, picUrl = task.coverUrl),
-                    dt = task.durationMs
-                )
-            }
+            val songs = list.map { taskToSong(it) }
             mediaController?.setPlaylist(
                 songs,
                 sourceId = 20261L,
@@ -829,15 +835,7 @@ private fun DownloadedListSection(
         if (isSelectionMode) {
             onToggleSelect(task.songId)
         } else {
-            val songs = completedTasks.map { t ->
-                Song(
-                    id = t.songId,
-                    name = t.title,
-                    ar = listOf(Artist(id = t.artistId, name = t.artist)),
-                    al = com.rcmiku.ncmapi.model.SongAlbum(id = t.albumId, name = t.album, picUrl = t.coverUrl),
-                    dt = t.durationMs
-                )
-            }
+            val songs = completedTasks.map { taskToSong(it) }
             mediaController?.setPlaylist(
                 songs,
                 sourceId = 20261L,
@@ -911,12 +909,19 @@ private fun DownloadedListSection(
                 isRefreshing = true
                 try {
                     val removed = DownloadStore.verifyAndSyncLocalFiles(context)
-                    kotlinx.coroutines.delay(600)
-                    if (removed > 0) {
-                        Toast.makeText(context, "已清理 $removed 首失效歌曲", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "已校验，本地文件全部正常", Toast.LENGTH_SHORT).show()
+                    val (extAdded, extRemoved) = ExternalPlaylistStore.refreshAllPlaylists(context)
+                    kotlinx.coroutines.delay(400)
+                    val msg = when {
+                        extAdded > 0 || extRemoved > 0 || removed > 0 -> {
+                            val parts = mutableListOf<String>()
+                            if (extAdded > 0) parts.add("外部新增 $extAdded 首")
+                            if (extRemoved > 0) parts.add("外部清理 $extRemoved 首")
+                            if (removed > 0) parts.add("清理已删下载 $removed 首")
+                            "刷新完成：" + parts.joinToString("，")
+                        }
+                        else -> "刷新完成：本地文件状态全部正常"
                     }
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 } finally {
                     isRefreshing = false
                 }
@@ -1782,8 +1787,16 @@ private fun DownloadedSongItem(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        val itemContext = LocalContext.current
+        val offlineCover = remember(task.songId, task.coverUrl) {
+            com.jussicodes.music.data.offline.OfflineMusicMetadataManager.getOfflineCover(
+                itemContext,
+                task.songId,
+                task.coverUrl
+            )
+        }
         AsyncImage(
-            model = task.coverUrl,
+            model = offlineCover,
             contentDescription = null,
             modifier = Modifier
                 .size(48.dp)

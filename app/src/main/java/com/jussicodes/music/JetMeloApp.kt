@@ -69,11 +69,18 @@ private data class AudioSync(
 @HiltAndroidApp
 class JetMeloApp : Application(), SingletonImageLoader.Factory {
 
+    companion object {
+        lateinit var instance: JetMeloApp
+            private set
+        val context: android.content.Context get() = instance.applicationContext
+    }
+
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @androidx.annotation.OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
+        instance = this
         AppVisibilityTracker.register(this)
         ExplorePreloader.init(this)
         PinnedAlbumStore.init(this)

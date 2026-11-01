@@ -78,15 +78,59 @@ data class YrcWord(val time: Long, val duration: Long, val text: String)
 data class YrcLine(val time: Long, val duration: Long, val text: String, val words: List<YrcWord>)
 
 fun String.parseLrc(): List<LrcLine> {
-    val regex = """\[(\d+):(\d+)\.(\d{2,3})]\s*(.*)""".toRegex()
-    return this.lines().mapNotNull { it ->
-        regex.matchEntire(it)?.destructured?.let { (min, sec, ms, text) ->
-            val time = min.toLong() * 60 * 1000 + sec.toLong() * 1000 + ms.toLong().let {
-                if (ms.length == 2) it * 10 else it
+    if (this.isBlank()) return emptyList()
+
+    // 匹配 [mm:ss], [mm:ss.xx], [mm:ss.xxx], [mm:ss:xx], [mm:ss,xx]
+    val timeTagRegex = """\[(\d{1,3}):(\d{2})(?:[.:,](\d{1,3}))?]""".toRegex()
+    // 去除行内可能残留的逐字时间戳标签，例如 <00:12.34> 或 <120>
+    val inlineTagRegex = """<[^>]+>""".toRegex()
+
+    val result = mutableListOf<LrcLine>()
+    var offsetMs = 0L
+
+    for (rawLine in this.lines()) {
+        val line = rawLine.trim().removePrefix("\uFEFF")
+        if (line.isBlank()) continue
+
+        // 支持 [offset:+/-xxx] 偏移标签
+        if (line.startsWith("[offset:", ignoreCase = true)) {
+            val offsetVal = line.substringAfter(':').substringBefore(']').trim().toLongOrNull()
+            if (offsetVal != null) {
+                offsetMs = offsetVal
             }
-            LrcLine(time, text)
+            continue
+        }
+
+        // 过滤头部元数据标签，如 [ti:], [ar:], [al:], [by:], [re:], [ve:] 等
+        if (line.matches("""^\[[a-zA-Z]{1,10}:.*]""".toRegex())) {
+            continue
+        }
+
+        // 提取该行开头的全部时间戳（支持单行多时间戳，如 [01:23.45][02:34.56]歌词）
+        val tagMatches = timeTagRegex.findAll(line).toList()
+        if (tagMatches.isEmpty()) continue
+
+        // 歌词正文：截取最后一个时间戳之后的部分，并剥离逐字内联时间戳 <...>
+        val lastMatch = tagMatches.last()
+        val rawText = line.substring(lastMatch.range.last + 1).trim()
+        val cleanText = inlineTagRegex.replace(rawText, "").trim()
+
+        for (match in tagMatches) {
+            val (minStr, secStr, msStr) = match.destructured
+            val min = minStr.toLongOrNull() ?: continue
+            val sec = secStr.toLongOrNull() ?: continue
+            val ms = when (msStr.length) {
+                0 -> 0L
+                1 -> msStr.toLong() * 100L
+                2 -> msStr.toLong() * 10L
+                else -> msStr.take(3).toLong()
+            }
+            val time = (min * 60 * 1000L + sec * 1000L + ms + offsetMs).coerceAtLeast(0L)
+            result.add(LrcLine(time, cleanText))
         }
     }
+
+    return result.sortedBy { it.time }
 }
 
 fun String.parseYrc(): List<YrcLine> {

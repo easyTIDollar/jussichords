@@ -112,6 +112,38 @@ object ExternalPlaylistStore {
     }
 
     /**
+     * 重新扫描所有已导入的外部歌单文件夹，自动识别增删的音频、歌词与封面。
+     * 返回 Pair(总新增歌曲数, 总移除歌曲数)。
+     */
+    suspend fun refreshAllPlaylists(context: Context): Pair<Int, Int> = mutex.withLock {
+        val appContext = context.applicationContext
+        val current = _playlists.value.toMutableList()
+        var totalAdded = 0
+        var totalRemoved = 0
+
+        for (i in current.indices) {
+            val oldPlaylist = current[i]
+            val treeUri = runCatching { Uri.parse(oldPlaylist.treeUri) }.getOrNull() ?: continue
+            val newScannedSongs = ExternalAudioScanner.scanFolder(
+                appContext,
+                treeUri,
+                oldPlaylist.folderPathName
+            )
+            val oldSongUris = oldPlaylist.songs.map { it.fileUri }.toSet()
+            val newSongUris = newScannedSongs.map { it.fileUri }.toSet()
+
+            totalAdded += newSongUris.count { it !in oldSongUris }
+            totalRemoved += oldSongUris.count { it !in newSongUris }
+
+            current[i] = oldPlaylist.copy(songs = newScannedSongs)
+        }
+
+        _playlists.value = current
+        save(appContext, current)
+        Pair(totalAdded, totalRemoved)
+    }
+
+    /**
      * 重新扫描指定歌单文件夹，自动识别增删的音频、歌词与封面。
      * 返回 Pair(新增歌曲数, 移除歌曲数)。
      */

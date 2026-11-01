@@ -33,7 +33,13 @@ class LyricViewModel @Inject constructor() : ViewModel() {
         }
 
         viewModelScope.launch {
-            val localLyric = com.jussicodes.music.data.external.ExternalPlaylistStore.getLyric(musicId)
+            val localLyric = runCatching {
+                com.jussicodes.music.data.offline.OfflineMusicMetadataManager.getOfflineLyric(
+                    com.jussicodes.music.JetMeloApp.context,
+                    musicId
+                )
+            }.getOrNull()
+
             if (localLyric != null) {
                 if (currentMusicId == musicId) {
                     lyricCache[musicId] = localLyric

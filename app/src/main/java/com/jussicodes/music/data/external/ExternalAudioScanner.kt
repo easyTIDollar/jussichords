@@ -5,11 +5,11 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
+import com.jussicodes.music.data.offline.OfflineMusicMetadataManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
 import java.nio.charset.Charset
 
 object ExternalAudioScanner {
@@ -17,15 +17,19 @@ object ExternalAudioScanner {
     private const val TAG = "ExternalAudioScanner"
 
     private val AUDIO_EXTENSIONS = setOf(
-        "mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "wma", "ape"
+        "mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "wma", "ape", "dsf", "dff"
     )
 
     private val IMAGE_EXTENSIONS = setOf(
         "jpg", "jpeg", "png", "webp"
     )
 
+    private val GENERIC_COVER_NAMES = setOf(
+        "cover", "folder", "album", "front", "artwork"
+    )
+
     /**
-     * 扫描指定 SAF 文件夹，自动识别音频文件、同名/通用歌词、内嵌/外挂封面。
+     * 递归/平铺扫描指定 SAF 文件夹，识别全部音频文件、同名/通用歌词、内嵌/外挂封面。
      */
     suspend fun scanFolder(
         context: Context,
@@ -33,49 +37,58 @@ object ExternalAudioScanner {
         folderName: String
     ): List<ExternalSong> = withContext(Dispatchers.IO) {
         val rootDir = DocumentFile.fromTreeUri(context, treeUri) ?: return@withContext emptyList()
-        val allFiles = runCatching { rootDir.listFiles() }.getOrNull() ?: return@withContext emptyList()
 
-        // 1. 分类文件
         val audioDocs = mutableListOf<DocumentFile>()
         val lrcMap = mutableMapOf<String, DocumentFile>() // lowerBaseName -> doc
         val imageMap = mutableMapOf<String, DocumentFile>() // lowerBaseName -> doc
         var genericCoverDoc: DocumentFile? = null
 
-        val genericCoverNames = setOf("cover", "folder", "album", "front", "artwork")
+        // 递归遍历文件，深度最多 3 层
+        fun collectFiles(dir: DocumentFile, depth: Int) {
+            if (depth > 3) return
+            val list = runCatching { dir.listFiles() }.getOrNull() ?: return
+            for (doc in list) {
+                if (doc.isDirectory) {
+                    collectFiles(doc, depth + 1)
+                } else {
+                    val name = doc.name ?: continue
+                    val ext = name.substringAfterLast('.', "").lowercase()
+                    val baseName = name.substringBeforeLast('.').lowercase()
+                    val strippedBase = cleanFileNameForMatch(baseName)
 
-        for (doc in allFiles) {
-            val name = doc.name ?: continue
-            if (doc.isDirectory) continue
-            val ext = name.substringAfterLast('.', "").lowercase()
-            val baseName = name.substringBeforeLast('.').lowercase()
-
-            when {
-                ext in AUDIO_EXTENSIONS -> audioDocs.add(doc)
-                ext == "lrc" -> lrcMap[baseName] = doc
-                ext in IMAGE_EXTENSIONS -> {
-                    imageMap[baseName] = doc
-                    if (baseName in genericCoverNames && genericCoverDoc == null) {
-                        genericCoverDoc = doc
+                    when {
+                        ext in AUDIO_EXTENSIONS -> audioDocs.add(doc)
+                        ext == "lrc" -> {
+                            lrcMap[baseName] = doc
+                            lrcMap[strippedBase] = doc
+                        }
+                        ext in IMAGE_EXTENSIONS -> {
+                            imageMap[baseName] = doc
+                            imageMap[strippedBase] = doc
+                            if (baseName in GENERIC_COVER_NAMES && genericCoverDoc == null) {
+                                genericCoverDoc = doc
+                            }
+                        }
                     }
                 }
             }
         }
 
+        collectFiles(rootDir, 0)
+
         if (audioDocs.isEmpty()) {
             return@withContext emptyList()
         }
 
-        // 封面缓存目录
         val coverDir = File(context.filesDir, "external_covers").apply { mkdirs() }
-
         val resultSongs = mutableListOf<ExternalSong>()
 
-        // 2. 逐一提取音频元数据
         for (doc in audioDocs) {
             val fileName = doc.name ?: continue
             val fileUri = doc.uri
             val baseName = fileName.substringBeforeLast('.')
             val lowerBaseName = baseName.lowercase()
+            val strippedBase = cleanFileNameForMatch(lowerBaseName)
             val ext = fileName.substringAfterLast('.', "").lowercase()
 
             val songId = generateStableId(treeUri.toString(), fileName)
@@ -88,8 +101,9 @@ object ExternalAudioScanner {
             var parsedAlbum: String? = null
             var durationMs = 0L
             var coverUri: String? = null
+            var embeddedLyric: String? = null
 
-            // 使用 MediaMetadataRetriever 提取内嵌元数据
+            // 提取内嵌元数据、内嵌封面与内嵌歌词
             val retriever = MediaMetadataRetriever()
             try {
                 retriever.setDataSource(context, fileUri)
@@ -108,15 +122,20 @@ object ExternalAudioScanner {
                         coverUri = Uri.fromFile(coverFile).toString()
                     }
                 }
+
+                // 提取内嵌歌词 (Android P+)
+                embeddedLyric = runCatching {
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_LYRIC)?.trim()
+                }.getOrNull()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to retrieve metadata for $fileName: ${e.message}")
             } finally {
                 runCatching { retriever.release() }
             }
 
-            // 若无内嵌封面，尝试从同目录下查找同名封面或通用封面
+            // 若无内嵌封面，尝试从同目录下查找同名封面或通用封面 (cover/folder/album)
             if (coverUri == null) {
-                val matchedImg = imageMap[lowerBaseName] ?: genericCoverDoc
+                val matchedImg = imageMap[lowerBaseName] ?: imageMap[strippedBase] ?: genericCoverDoc
                 if (matchedImg != null) {
                     val coverFile = File(coverDir, "${kotlin.math.abs(songId)}_ext.jpg")
                     runCatching {
@@ -130,14 +149,17 @@ object ExternalAudioScanner {
                 }
             }
 
-            // 识别歌词：优先找同目录下同名 .lrc
+            // 识别歌词：优先找同目录同名或模糊匹配的 .lrc，次选内嵌歌词
             var lyricText: String? = null
-            val lrcDoc = lrcMap[lowerBaseName]
+            val lrcDoc = lrcMap[lowerBaseName] ?: lrcMap[strippedBase]
             if (lrcDoc != null) {
                 lyricText = readLrcSafely(context, lrcDoc.uri)
             }
+            if (lyricText.isNullOrBlank()) {
+                lyricText = embeddedLyric
+            }
 
-            // 歌名与歌手保底解析（智能从文件名提取）
+            // 智能从文件名拆分歌手与歌名保底
             val (fallbackArtist, fallbackTitle) = splitArtistAndTitle(baseName)
             val finalTitle = parsedTitle?.takeIf { it.isNotBlank() } ?: fallbackTitle
             val finalArtist = parsedArtist?.takeIf { it.isNotBlank() } ?: (fallbackArtist ?: "未知歌手")
@@ -161,7 +183,6 @@ object ExternalAudioScanner {
             )
         }
 
-        // 默认按歌名排序
         resultSongs.sortedBy { it.title.lowercase() }
     }
 
@@ -178,12 +199,15 @@ object ExternalAudioScanner {
         return -1_000_000_000L - safePositive
     }
 
+    private fun cleanFileNameForMatch(name: String): String {
+        return name.replaceFirst(Regex("""^\d+[\s._-]+"""), "").trim().lowercase()
+    }
+
     /**
      * 智能从文件名拆分歌手与歌名。
-     * 支持："歌手 - 歌名"、"歌手-歌名"、"序号. 歌手 - 歌名" 等格式。
+     * 支持："歌手 - 歌名"、"序号. 歌手 - 歌名" 等格式。
      */
     private fun splitArtistAndTitle(baseName: String): Pair<String?, String> {
-        // 清除开头的序号，如 "01. "、"1 - "
         val cleaned = baseName.replaceFirst(Regex("""^\d+[\s._-]+"""), "").trim()
         val parts = cleaned.split(Regex("""\s*[-–—]\s*"""), limit = 2)
         return if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
@@ -201,11 +225,17 @@ object ExternalAudioScanner {
             val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
             if (bytes.isEmpty()) return null
 
-            // 优先尝试 UTF-8 解码
-            val utf8Str = String(bytes, Charsets.UTF_8)
-            // 若包含过多乱码字符 \uFFFD，回退到 GBK
-            if (utf8Str.count { it == '\uFFFD' } > 2) {
-                runCatching { String(bytes, Charset.forName("GBK")) }.getOrNull() ?: utf8Str
+            // 检查 UTF-8 BOM
+            val offset = if (bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()) 3 else 0
+            val utf8Str = String(bytes, offset, bytes.size - offset, Charsets.UTF_8)
+
+            // 若包含过多乱码字符 \uFFFD，回退到 GBK / GB18030
+            if (utf8Str.count { it == '\uFFFD' } > 1) {
+                runCatching {
+                    String(bytes, offset, bytes.size - offset, Charset.forName("GB18030"))
+                }.getOrNull() ?: runCatching {
+                    String(bytes, offset, bytes.size - offset, Charset.forName("GBK"))
+                }.getOrNull() ?: utf8Str
             } else {
                 utf8Str
             }

@@ -527,6 +527,22 @@ object DownloadManager {
                     coverBytes = coverBytes
                 )
 
+                // 离线冗余落盘：将独立歌词与独立封面写入本地私有目录，确保完全断网下秒开
+                if (!lyricsText.isNullOrBlank()) {
+                    com.jussicodes.music.data.offline.OfflineMusicMetadataManager.saveDownloadedLyric(
+                        context,
+                        task.songId,
+                        lyricsText
+                    )
+                }
+                if (coverBytes != null && coverBytes.isNotEmpty()) {
+                    com.jussicodes.music.data.offline.OfflineMusicMetadataManager.saveDownloadedCover(
+                        context,
+                        task.songId,
+                        coverBytes
+                    )
+                }
+
                 // 6. 确定最终文件名与目标存储
                 val ext = if (isFlac) "flac" else "mp3"
                 val mimeType = if (isFlac) "audio/flac" else "audio/mpeg"
