@@ -74,9 +74,7 @@ fun TopBar(
                     BadgedBox(
                         badge = {
                             if (activeDownloadCount > 0) {
-                                Badge {
-                                    Text(if (activeDownloadCount > 99) "99+" else activeDownloadCount.toString())
-                                }
+                                Badge()
                             }
                         }
                     ) {

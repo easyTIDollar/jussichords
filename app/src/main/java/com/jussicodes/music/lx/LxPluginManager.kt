@@ -26,13 +26,22 @@ sealed interface ImportResult {
     data class Failure(val message: String) : ImportResult
 }
 
-data class TestResult(
+data class QualityTestResult(
+    val quality: String,
     val success: Boolean,
     val url: String? = null,
-    val quality: String? = null,
     val costMs: Long = 0,
     val isTrial: Boolean = false,
     val httpCode: Int? = null,
+    val message: String = ""
+)
+
+data class TestResult(
+    val success: Boolean,
+    val bestUrl: String? = null,
+    val bestQuality: String? = null,
+    val costMs: Long = 0,
+    val qualityResults: List<QualityTestResult> = emptyList(),
     val message: String = ""
 )
 
@@ -301,7 +310,6 @@ object LxPluginManager {
             )
         }
 
-        // 尝试获取元信息，拿不到则使用基准兜底
         val song = fetchSong(songId)
         val musicInfo = if (song != null) {
             buildMusicInfo(songId, song)
@@ -316,91 +324,103 @@ object LxPluginManager {
             }.toString()
         }
 
-        val testQualities = listOf("320k", "flac", "128k")
-        var matchedUrl: String? = null
-        var matchedQuality: String? = null
-        var parseCost = 0L
+        val testQualities = listOf("jymaster", "hires", "flac", "lossless", "320k", "128k")
+        val qualityResults = mutableListOf<QualityTestResult>()
+
+        val probeClient = OkHttpClient.Builder()
+            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
 
         for (q in testQualities) {
             val t0 = System.currentTimeMillis()
             val url = runCatching { engine?.resolveUrl(pluginId, musicInfo, q) }.getOrNull()
             val stepCost = System.currentTimeMillis() - t0
-            parseCost += stepCost
-            if (!url.isNullOrBlank()) {
-                matchedUrl = url
-                matchedQuality = q
-                break
+
+            if (url.isNullOrBlank()) {
+                qualityResults.add(
+                    QualityTestResult(
+                        quality = q,
+                        success = false,
+                        costMs = stepCost,
+                        message = "未命中"
+                    )
+                )
+                continue
             }
-        }
 
-        if (matchedUrl.isNullOrBlank()) {
-            return@withContext TestResult(
-                success = false,
-                costMs = parseCost,
-                message = "脚本未解析到可用的音频直链 (测试音质: 320k/flac/128k)"
-            )
-        }
+            if (url.contains("musicrep-ts", ignoreCase = true)) {
+                qualityResults.add(
+                    QualityTestResult(
+                        quality = q,
+                        success = false,
+                        url = url,
+                        costMs = stepCost,
+                        isTrial = true,
+                        message = "返回试听链 (30s)"
+                    )
+                )
+                continue
+            }
 
-        if (matchedUrl.contains("musicrep-ts", ignoreCase = true)) {
-            return@withContext TestResult(
-                success = false,
-                url = matchedUrl,
-                quality = matchedQuality,
-                costMs = parseCost,
-                isTrial = true,
-                message = "脚本降级返回了官方 30 秒试听截断片段 (非完整歌曲)"
-            )
-        }
+            // HTTP 探测
+            var httpCode: Int? = null
+            var isHttpOk = false
+            runCatching {
+                val req = okhttp3.Request.Builder()
+                    .url(url)
+                    .header("Range", "bytes=0-1024")
+                    .header("User-Agent", "Mozilla/5.0")
+                    .get()
+                    .build()
+                probeClient.newCall(req).execute().use { resp ->
+                    httpCode = resp.code
+                    isHttpOk = resp.isSuccessful || resp.code == 206 || resp.code == 200
+                }
+            }
 
-        // 进行直链可用性探测
-        var httpCode: Int? = null
-        var isHttpOk = false
-        runCatching {
-            val probeClient = OkHttpClient.Builder()
-                .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-                .followRedirects(true)
-                .build()
-            val req = okhttp3.Request.Builder()
-                .url(matchedUrl)
-                .header("Range", "bytes=0-1024")
-                .header("User-Agent", "Mozilla/5.0")
-                .get()
-                .build()
-            probeClient.newCall(req).execute().use { resp ->
-                httpCode = resp.code
-                isHttpOk = resp.isSuccessful || resp.code == 206 || resp.code == 200
+            if (isHttpOk) {
+                qualityResults.add(
+                    QualityTestResult(
+                        quality = q,
+                        success = true,
+                        url = url,
+                        costMs = stepCost,
+                        httpCode = httpCode,
+                        message = "成功 (HTTP $httpCode)"
+                    )
+                )
+            } else {
+                qualityResults.add(
+                    QualityTestResult(
+                        quality = q,
+                        success = false,
+                        url = url,
+                        costMs = stepCost,
+                        httpCode = httpCode,
+                        message = "直链异常 (HTTP ${httpCode ?: "超时"})"
+                    )
+                )
             }
         }
 
         val totalCost = System.currentTimeMillis() - startedAt
-        if (isHttpOk) {
-            TestResult(
-                success = true,
-                url = matchedUrl,
-                quality = matchedQuality,
-                costMs = totalCost,
-                httpCode = httpCode,
-                message = "解析成功，直链连接正常 (HTTP $httpCode)"
-            )
-        } else if (httpCode != null) {
-            TestResult(
-                success = false,
-                url = matchedUrl,
-                quality = matchedQuality,
-                costMs = totalCost,
-                httpCode = httpCode,
-                message = "已解析出直链，但音频服务器返回错误 (HTTP $httpCode)"
-            )
-        } else {
-            TestResult(
-                success = true,
-                url = matchedUrl,
-                quality = matchedQuality,
-                costMs = totalCost,
-                message = "解析成功并获得音频直链 (直链网络探测超时)"
-            )
-        }
+        val successfulItems = qualityResults.filter { it.success }
+        val best = successfulItems.firstOrNull()
+
+        TestResult(
+            success = successfulItems.isNotEmpty(),
+            bestUrl = best?.url,
+            bestQuality = best?.quality,
+            costMs = totalCost,
+            qualityResults = qualityResults,
+            message = if (successfulItems.isNotEmpty()) {
+                "成功测出 ${successfulItems.size} 个可用音质档位"
+            } else {
+                "所有测试档位均未解析到可用直链"
+            }
+        )
     }
 
     /** 取歌曲元信息；拿不到就不试解析（脚本要靠歌名/歌手/时长匹配，不拿空壳去撞）。 */

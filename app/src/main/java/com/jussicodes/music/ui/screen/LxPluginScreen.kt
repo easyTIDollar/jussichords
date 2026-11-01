@@ -790,18 +790,10 @@ private fun ScriptTestDialog(
     val scope = rememberCoroutineScope()
     var isTesting by remember { mutableStateOf(true) }
     var result by remember { mutableStateOf<com.jussicodes.music.lx.TestResult?>(null) }
-    var mediaPlayer by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
-    var isPlaying by remember { mutableStateOf(false) }
 
     fun runTest() {
         isTesting = true
         result = null
-        mediaPlayer?.runCatching {
-            stop()
-            release()
-        }
-        mediaPlayer = null
-        isPlaying = false
         scope.launch {
             val res = LxPluginManager.testPlugin(plugin.id)
             result = res
@@ -813,24 +805,7 @@ private fun ScriptTestDialog(
         runTest()
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            mediaPlayer?.runCatching {
-                stop()
-                release()
-            }
-            mediaPlayer = null
-        }
-    }
-
-    ComposeDialog(onDismissRequest = {
-        mediaPlayer?.runCatching {
-            stop()
-            release()
-        }
-        mediaPlayer = null
-        onDismiss()
-    }) {
+    ComposeDialog(onDismissRequest = onDismiss) {
         ScaledDialogContent {
             Card(
                 shape = MaterialTheme.shapes.extraLarge,
@@ -838,7 +813,7 @@ private fun ScriptTestDialog(
             ) {
                 Column(Modifier.padding(24.dp)) {
                     Text(
-                        text = "音源解析测试",
+                        text = "音源多档位解析测试",
                         style = MaterialTheme.typography.titleMedium
                     )
                     Spacer(Modifier.height(4.dp))
@@ -857,95 +832,68 @@ private fun ScriptTestDialog(
                         ) {
                             CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
                             Text(
-                                text = "正在调用沙盒解析并探测直链...",
+                                text = "正在全面测试多个音质档位...",
                                 style = MaterialTheme.typography.bodyMedium
                             )
                         }
                     } else {
                         val res = result
                         if (res != null) {
-                            val isSuccess = res.success
-                            Card(
-                                shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (isSuccess) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                                    else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
-                                ),
-                                modifier = Modifier.fillMaxWidth()
+                            Text(
+                                text = res.message,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (res.success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                            )
+                            Spacer(Modifier.height(8.dp))
+
+                            // 各档位详情列表
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = if (isSuccess) Icons.Filled.CheckCircle else Icons.Filled.Cancel,
-                                            contentDescription = null,
-                                            tint = if (isSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Spacer(Modifier.width(8.dp))
-                                        Text(
-                                            text = if (isSuccess) "解析成功" else "解析失败",
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    Text(
-                                        text = res.message,
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
+                                res.qualityResults.forEach { qr ->
                                     Row(
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Text(
-                                            text = "耗时: ${res.costMs}ms",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        if (res.quality != null) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (qr.success) Icons.Filled.CheckCircle else Icons.Filled.Cancel,
+                                                contentDescription = null,
+                                                tint = if (qr.success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(16.dp)
+                                            )
                                             Text(
-                                                text = "音质: ${res.quality}",
+                                                text = qr.quality.uppercase(),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = qr.message,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = if (qr.success) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                text = "${qr.costMs}ms",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     }
-                                }
-                            }
-
-                            // 试听播放控件
-                            if (isSuccess && !res.url.isNullOrBlank()) {
-                                Spacer(Modifier.height(12.dp))
-                                OutlinedButton(
-                                    onClick = {
-                                        if (isPlaying) {
-                                            mediaPlayer?.pause()
-                                            isPlaying = false
-                                        } else {
-                                            if (mediaPlayer == null) {
-                                                mediaPlayer = android.media.MediaPlayer().apply {
-                                                    setDataSource(res.url)
-                                                    setOnPreparedListener {
-                                                        start()
-                                                        isPlaying = true
-                                                    }
-                                                    setOnCompletionListener {
-                                                        isPlaying = false
-                                                    }
-                                                    setOnErrorListener { _, _, _ ->
-                                                        isPlaying = false
-                                                        true
-                                                    }
-                                                    prepareAsync()
-                                                }
-                                            } else {
-                                                mediaPlayer?.start()
-                                                isPlaying = true
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(if (isPlaying) "⏸ 暂停试听" else "▶ 播放试听")
                                 }
                             }
                         }
@@ -963,14 +911,7 @@ private fun ScriptTestDialog(
                         }
                         Spacer(Modifier.width(8.dp))
                         TextButton(
-                            onClick = {
-                                mediaPlayer?.runCatching {
-                                    stop()
-                                    release()
-                                }
-                                mediaPlayer = null
-                                onDismiss()
-                            }
+                            onClick = onDismiss
                         ) {
                             Text("关闭")
                         }
