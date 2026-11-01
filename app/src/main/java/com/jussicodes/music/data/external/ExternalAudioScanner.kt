@@ -123,9 +123,9 @@ object ExternalAudioScanner {
                     }
                 }
 
-                // 提取内嵌歌词 (Android P+)
+                // 提取内嵌歌词 (1000 为常用歌词元数据键值)
                 embeddedLyric = runCatching {
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_LYRIC)?.trim()
+                    retriever.extractMetadata(1000)?.trim()
                 }.getOrNull()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to retrieve metadata for $fileName: ${e.message}")

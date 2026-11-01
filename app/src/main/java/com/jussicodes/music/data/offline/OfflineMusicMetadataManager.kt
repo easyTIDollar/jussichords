@@ -129,7 +129,7 @@ object OfflineMusicMetadataManager {
                 } else {
                     return@runCatching null
                 }
-                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_LYRIC)?.trim()
+                retriever.extractMetadata(1000)?.trim()
             } finally {
                 runCatching { retriever.release() }
             }

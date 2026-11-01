@@ -68,7 +68,7 @@ object ExternalPlaylistStore {
         return LyricResponse(lrc = LyricContent(lyric = lrc))
     }
 
-    private fun findSongById(songId: Long): ExternalSong? {
+    fun findSongById(songId: Long): ExternalSong? {
         for (pl in _playlists.value) {
             val s = pl.songs.firstOrNull { it.id == songId }
             if (s != null) return s
