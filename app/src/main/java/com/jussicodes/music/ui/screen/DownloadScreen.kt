@@ -137,6 +137,7 @@ import com.jussicodes.music.data.download.DownloadStatus
 import com.jussicodes.music.data.download.DownloadStore
 import com.jussicodes.music.data.download.DownloadTask
 import com.jussicodes.music.download.DownloadManager
+import com.jussicodes.music.download.DailyDownloadQuotaManager
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.components.DownloadQualityDialog
@@ -642,11 +643,6 @@ private fun DownloadedListSection(
     var renameTargetExternalPlaylist by remember { mutableStateOf<ExternalPlaylist?>(null) }
     var renameExternalPlaylistInput by remember { mutableStateOf("") }
     var deleteTargetExternalPlaylist by remember { mutableStateOf<ExternalPlaylist?>(null) }
-    var embedTargetPlaylist by remember { mutableStateOf<ExternalPlaylist?>(null) }
-    var embedLyricsChecked by remember { mutableStateOf(true) }
-    var embedCoversChecked by remember { mutableStateOf(true) }
-    var isEmbedding by remember { mutableStateOf(false) }
-    var embedProgressText by remember { mutableStateOf("") }
 
     val externalFolderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -658,7 +654,7 @@ private fun DownloadedListSection(
                     runCatching {
                         context.contentResolver.takePersistableUriPermission(
                             treeUri,
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
                         )
                     }
                     val doc = DocumentFile.fromTreeUri(context, treeUri)
@@ -821,19 +817,6 @@ private fun DownloadedListSection(
                 else -> "刷新完成：本地文件无变动"
             }
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    val onSongEmbedAction: (ExternalPlaylist, ExternalSong) -> Unit = { pl, song ->
-        coroutineScope.launch {
-            Toast.makeText(context, "正在为「${song.title}」写入内嵌元数据...", Toast.LENGTH_SHORT).show()
-            val ok = com.jussicodes.music.data.external.ExternalMetadataEmbedder.embedSong(context, song)
-            if (ok) {
-                ExternalPlaylistStore.refreshPlaylist(context, pl.id)
-                Toast.makeText(context, "内嵌成功！歌词与封面已永久写入音频文件", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "内嵌失败：仅支持 MP3 与 FLAC 且需文件可写", Toast.LENGTH_LONG).show()
-            }
         }
     }
 
@@ -1219,9 +1202,6 @@ private fun DownloadedListSection(
                                     onDelete = {
                                         deleteTargetExternalPlaylist = pl
                                     },
-                                    onEmbedMetadata = {
-                                        embedTargetPlaylist = pl
-                                    },
                                     onSongClick = { song ->
                                         playExternalSongAction(pl, song)
                                     },
@@ -1230,9 +1210,6 @@ private fun DownloadedListSection(
                                             ExternalPlaylistStore.removeSong(context, pl.id, song.id)
                                             Toast.makeText(context, "已从歌单中移除「${song.title}」", Toast.LENGTH_SHORT).show()
                                         }
-                                    },
-                                    onSongEmbed = { song ->
-                                        onSongEmbedAction(pl, song)
                                     }
                                 )
                             }
@@ -1506,9 +1483,6 @@ private fun DownloadedListSection(
                                     onDelete = {
                                         deleteTargetExternalPlaylist = pl
                                     },
-                                    onEmbedMetadata = {
-                                        embedTargetPlaylist = pl
-                                    },
                                     onSongClick = { song ->
                                         playExternalSongAction(pl, song)
                                     },
@@ -1517,9 +1491,6 @@ private fun DownloadedListSection(
                                             ExternalPlaylistStore.removeSong(context, pl.id, song.id)
                                             Toast.makeText(context, "已从歌单中移除「${song.title}」", Toast.LENGTH_SHORT).show()
                                         }
-                                    },
-                                    onSongEmbed = { song ->
-                                        onSongEmbedAction(pl, song)
                                     }
                                 )
                             }
@@ -1750,107 +1721,6 @@ private fun DownloadedListSection(
             }
         )
     }
-
-    embedTargetPlaylist?.let { targetPl ->
-        AlertDialog(
-            onDismissRequest = {
-                if (!isEmbedding) embedTargetPlaylist = null
-            },
-            title = {
-                Text(if (isEmbedding) "正在内嵌元数据..." else "内嵌歌词与封面到音频")
-            },
-            text = {
-                Column {
-                    if (isEmbedding) {
-                        Text(
-                            text = embedProgressText.ifBlank { "正在写入音频标签，请稍候..." },
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-                    } else {
-                        Text(
-                            text = "将「${targetPl.name}」中识别到的独立 .lrc 歌词与封面图片永久嵌入写入音频文件内部（支持 MP3、FLAC）。写入后即使将单曲文件发送给他人，也能直接自带歌词和封面。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { embedLyricsChecked = !embedLyricsChecked }
-                                .padding(vertical = 4.dp)
-                        ) {
-                            Checkbox(
-                                checked = embedLyricsChecked,
-                                onCheckedChange = { embedLyricsChecked = it }
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("内嵌识别到的 LRC 歌词", style = MaterialTheme.typography.bodyMedium)
-                        }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { embedCoversChecked = !embedCoversChecked }
-                                .padding(vertical = 4.dp)
-                        ) {
-                            Checkbox(
-                                checked = embedCoversChecked,
-                                onCheckedChange = { embedCoversChecked = it }
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text("内嵌识别到的封面图片", style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                if (!isEmbedding) {
-                    Button(
-                        enabled = embedLyricsChecked || embedCoversChecked,
-                        onClick = {
-                            coroutineScope.launch {
-                                isEmbedding = true
-                                try {
-                                    val (success, fail) = com.jussicodes.music.data.external.ExternalMetadataEmbedder.embedPlaylist(
-                                        context = context,
-                                        playlist = targetPl,
-                                        embedLyric = embedLyricsChecked,
-                                        embedCover = embedCoversChecked,
-                                        onProgress = { cur, tot, title ->
-                                            embedProgressText = "正在处理 ($cur/$tot)：$title"
-                                        }
-                                    )
-                                    val msg = if (success > 0) {
-                                        "内嵌完成：成功 $success 首${if (fail > 0) "，跳过/失败 $fail 首" else ""}"
-                                    } else {
-                                        "未找到支持的音频文件（仅支持 MP3 与 FLAC）"
-                                    }
-                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "内嵌失败：${e.message}", Toast.LENGTH_SHORT).show()
-                                } finally {
-                                    isEmbedding = false
-                                    embedTargetPlaylist = null
-                                }
-                            }
-                        }
-                    ) {
-                        Text("开始内嵌")
-                    }
-                }
-            },
-            dismissButton = {
-                if (!isEmbedding) {
-                    TextButton(onClick = { embedTargetPlaylist = null }) {
-                        Text("取消")
-                    }
-                }
-            }
-        )
-    }
 }
 
 @Composable
@@ -1859,37 +1729,104 @@ private fun DownloadedHeaderCard(
     totalBytes: Long,
     onPlayAll: () -> Unit
 ) {
-    Row(
+    val context = LocalContext.current
+    val quota by DailyDownloadQuotaManager.quotaState.collectAsState()
+
+    LaunchedEffect(Unit) {
+        DailyDownloadQuotaManager.checkAndRefresh(context)
+    }
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 16.dp, vertical = 6.dp)
     ) {
-        Column {
-            Text(
-                text = "已下载 $taskCount 首歌曲",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = "占用空间: ${formatBytes(totalBytes)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        // 每日限额说明与进度展示卡片
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 10.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "今日下载配额：${quota.used} / ${quota.limit} 首",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (quota.isExhausted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = if (quota.isExhausted) "今日已达上限" else "剩余 ${quota.remaining} 首",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (quota.isExhausted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(Modifier.height(6.dp))
+
+                LinearProgressIndicator(
+                    progress = { quota.progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = if (quota.isExhausted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+
+                Spacer(Modifier.height(6.dp))
+
+                Text(
+                    text = "为了避免音源被滥用以及维护LX生态，强制限制每个用户每天只能下载60首歌（每天 0 点刷新额度）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 1.25.em
+                )
+            }
         }
 
-        FilledTonalButton(
-            onClick = onPlayAll,
-            modifier = Modifier.height(38.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(Modifier.width(4.dp))
-            Text("全部播放")
+            Column {
+                Text(
+                    text = "已下载 $taskCount 首歌曲",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "占用空间: ${formatBytes(totalBytes)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            FilledTonalButton(
+                onClick = onPlayAll,
+                modifier = Modifier.height(38.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("全部播放")
+            }
         }
     }
 }
@@ -2875,10 +2812,8 @@ private fun ExternalPlaylistCard(
     onRefresh: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
-    onEmbedMetadata: () -> Unit,
     onSongClick: (ExternalSong) -> Unit,
-    onSongDelete: (ExternalSong) -> Unit,
-    onSongEmbed: (ExternalSong) -> Unit
+    onSongDelete: (ExternalSong) -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -2976,14 +2911,6 @@ private fun ExternalPlaylistCard(
                             }
                         )
                         JussiMenuItem(
-                            text = "内嵌歌词与封面到音频",
-                            icon = Icons.Outlined.Folder,
-                            onClick = {
-                                menuExpanded = false
-                                onEmbedMetadata()
-                            }
-                        )
-                        JussiMenuItem(
                             text = "重命名歌单",
                             icon = Icons.Outlined.Edit,
                             onClick = {
@@ -3035,8 +2962,7 @@ private fun ExternalPlaylistCard(
                             index = index + 1,
                             song = song,
                             onClick = { onSongClick(song) },
-                            onDelete = { onSongDelete(song) },
-                            onEmbed = { onSongEmbed(song) }
+                            onDelete = { onSongDelete(song) }
                         )
                     }
                 }
@@ -3050,8 +2976,7 @@ private fun ExternalSongItem(
     index: Int,
     song: ExternalSong,
     onClick: () -> Unit,
-    onDelete: () -> Unit,
-    onEmbed: () -> Unit
+    onDelete: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -3137,16 +3062,6 @@ private fun ExternalSongItem(
                 expanded = menuExpanded,
                 onDismissRequest = { menuExpanded = false }
             ) {
-                if (com.jussicodes.music.data.external.ExternalMetadataEmbedder.hasEmbeddableMetadata(song)) {
-                    JussiMenuItem(
-                        text = "内嵌歌词与封面到此文件",
-                        icon = Icons.Outlined.Folder,
-                        onClick = {
-                            menuExpanded = false
-                            onEmbed()
-                        }
-                    )
-                }
                 JussiMenuItem(
                     text = "从歌单中移除",
                     icon = Icons.Outlined.Delete,

@@ -44,48 +44,6 @@ object AudioTagWriter {
         }.getOrDefault(false)
     }
 
-    /**
-     * 通过 SAF Uri 写入元数据：先安全拷入缓存临时文件，内嵌成功后写回目标 Uri。
-     */
-    fun embedMetadataToUri(
-        context: android.content.Context,
-        fileUri: android.net.Uri,
-        title: String,
-        artist: String,
-        album: String,
-        lyrics: String? = null,
-        coverBytes: ByteArray? = null
-    ): Boolean {
-        val tempFile = File(context.cacheDir, "embed_temp_${System.currentTimeMillis()}_${(0..9999).random()}.tmp")
-        return try {
-            val copied = context.contentResolver.openInputStream(fileUri)?.use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    input.copyTo(output)
-                }
-            } ?: 0L
-
-            if (copied <= 128L) return false
-
-            val success = embedMetadata(tempFile, title, artist, album, lyrics, coverBytes)
-            if (success && tempFile.length() > 128L) {
-                context.contentResolver.openOutputStream(fileUri, "wt")?.use { output ->
-                    FileInputStream(tempFile).use { input ->
-                        input.copyTo(output)
-                    }
-                    output.flush()
-                } ?: return false
-                true
-            } else {
-                false
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "embedMetadataToUri failed: ${e.message}", e)
-            false
-        } finally {
-            runCatching { tempFile.delete() }
-        }
-    }
-
     // =========================================================================
     // MP3 (ID3v2.3) 实现
     // =========================================================================

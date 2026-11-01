@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.jussicodes.music.utils.dataStore
+import com.jussicodes.music.utils.splitBilingualLrc
 import com.rcmiku.ncmapi.model.LyricContent
 import com.rcmiku.ncmapi.model.LyricResponse
 import com.rcmiku.ncmapi.utils.json
@@ -65,7 +66,11 @@ object ExternalPlaylistStore {
     fun getLyric(songId: Long): LyricResponse? {
         val song = findSongById(songId) ?: return null
         val lrc = song.lyricText?.takeIf { it.isNotBlank() } ?: return null
-        return LyricResponse(lrc = LyricContent(lyric = lrc))
+        val (orig, trans) = splitBilingualLrc(lrc)
+        return LyricResponse(
+            lrc = LyricContent(lyric = orig),
+            tlyric = trans?.let { LyricContent(lyric = it) }
+        )
     }
 
     fun findSongById(songId: Long): ExternalSong? {

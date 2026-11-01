@@ -312,13 +312,21 @@ class DesktopLyricService : Service() {
                     }
 
                     !lyricResponse.lrc?.lyric.isNullOrBlank() -> {
-                        lyricResponse.lrc?.lyric?.parseLrc().orEmpty().map { line ->
-                            DesktopLyricLine(
-                                time = line.time,
-                                text = line.text,
-                                translation = findTranslationText(line.time, translationMap, translationLines)
-                            )
+                        val parsed = lyricResponse.lrc?.lyric?.parseLrc().orEmpty()
+                        val list = mutableListOf<DesktopLyricLine>()
+                        var i = 0
+                        while (i < parsed.size) {
+                            val cur = parsed[i]
+                            val nxt = parsed.getOrNull(i + 1)
+                            if (nxt != null && kotlin.math.abs(nxt.time - cur.time) <= 300 && cur.text.isNotBlank() && nxt.text.isNotBlank()) {
+                                list.add(DesktopLyricLine(cur.time, cur.text, nxt.text))
+                                i += 2
+                            } else {
+                                list.add(DesktopLyricLine(cur.time, cur.text, findTranslationText(cur.time, translationMap, translationLines)))
+                                i++
+                            }
                         }
+                        list
                     }
 
                     else -> emptyList()

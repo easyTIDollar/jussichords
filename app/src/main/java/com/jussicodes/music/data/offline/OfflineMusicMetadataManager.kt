@@ -6,6 +6,7 @@ import android.net.Uri
 import android.util.Log
 import com.jussicodes.music.data.download.DownloadStore
 import com.jussicodes.music.data.external.ExternalPlaylistStore
+import com.jussicodes.music.utils.splitBilingualLrc
 import com.rcmiku.ncmapi.model.LyricContent
 import com.rcmiku.ncmapi.model.LyricResponse
 import java.io.File
@@ -64,7 +65,11 @@ object OfflineMusicMetadataManager {
         if (lyricFile.exists() && lyricFile.length() > 0) {
             val text = runCatching { lyricFile.readText(Charsets.UTF_8) }.getOrNull()
             if (!text.isNullOrBlank()) {
-                return LyricResponse(lrc = LyricContent(lyric = text))
+                val (orig, trans) = splitBilingualLrc(text)
+                return LyricResponse(
+                    lrc = LyricContent(lyric = orig),
+                    tlyric = trans?.let { LyricContent(lyric = it) }
+                )
             }
         }
 
@@ -74,7 +79,11 @@ object OfflineMusicMetadataManager {
         if (!extractedLyric.isNullOrBlank()) {
             // 提取成功后自动存入缓存，后续秒开
             saveDownloadedLyric(context, songId, extractedLyric)
-            return LyricResponse(lrc = LyricContent(lyric = extractedLyric))
+            val (orig, trans) = splitBilingualLrc(extractedLyric)
+            return LyricResponse(
+                lrc = LyricContent(lyric = orig),
+                tlyric = trans?.let { LyricContent(lyric = it) }
+            )
         }
 
         return null

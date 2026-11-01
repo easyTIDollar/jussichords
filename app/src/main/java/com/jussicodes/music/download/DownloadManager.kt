@@ -84,11 +84,18 @@ object DownloadManager {
     ) {
         val appContext = context.applicationContext
         scope.launch {
-            for (song in songs) {
-                // 如果已经有相同的成功任务且本地文件仍在，跳过
-                if (DownloadStore.getCompletedPlayableUri(appContext, song.id) != null) {
-                    continue
-                }
+            // 过滤本地已存在的歌曲
+            val newSongs = songs.filter { song ->
+                DownloadStore.getCompletedPlayableUri(appContext, song.id) == null
+            }
+            if (newSongs.isEmpty()) return@launch
+
+            // 硬性限额检查：每日 60 首
+            val allowedCount = DailyDownloadQuotaManager.tryConsume(appContext, newSongs.size)
+            if (allowedCount <= 0) return@launch
+
+            val songsToEnqueue = newSongs.take(allowedCount)
+            for (song in songsToEnqueue) {
                 val artistStr = song.ar.joinToString("/") { it.name }
                 val task = DownloadTask(
                     songId = song.id,
@@ -128,10 +135,18 @@ object DownloadManager {
             if (cleanArtist.isNotBlank()) "$cleanArtist - $cleanAlbum" else cleanAlbum
         )
         scope.launch {
-            for (song in songs) {
-                if (DownloadStore.getCompletedPlayableUri(appContext, song.id) != null) {
-                    continue
-                }
+            // 过滤本地已存在的歌曲
+            val newSongs = songs.filter { song ->
+                DownloadStore.getCompletedPlayableUri(appContext, song.id) == null
+            }
+            if (newSongs.isEmpty()) return@launch
+
+            // 硬性限额检查：每日 60 首
+            val allowedCount = DailyDownloadQuotaManager.tryConsume(appContext, newSongs.size)
+            if (allowedCount <= 0) return@launch
+
+            val songsToEnqueue = newSongs.take(allowedCount)
+            for (song in songsToEnqueue) {
                 val artistStr = song.ar.joinToString("/") { it.name }.ifBlank { cleanArtist }
                 val task = DownloadTask(
                     songId = song.id,
