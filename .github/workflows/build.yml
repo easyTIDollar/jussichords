@@ -2,6 +2,9 @@ name: Build & Release jussichords APK
 run-name: release:${{ github.ref_name }}
 on:
   push:
+    branches:
+      - canary-dev
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
