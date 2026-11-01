@@ -34,7 +34,8 @@ object ExternalAudioScanner {
     suspend fun scanFolder(
         context: Context,
         treeUri: Uri,
-        folderName: String
+        folderName: String,
+        onProgress: ((current: Int, total: Int, name: String) -> Unit)? = null
     ): List<ExternalSong> = withContext(Dispatchers.IO) {
         val rootDir = DocumentFile.fromTreeUri(context, treeUri) ?: return@withContext emptyList()
 
@@ -80,11 +81,16 @@ object ExternalAudioScanner {
             return@withContext emptyList()
         }
 
-        val coverDir = File(context.filesDir, "external_covers").apply { mkdirs() }
+        val coverDir = File(context.filesDir, "external_covers").apply {
+            mkdirs()
+            runCatching { File(this, ".nomedia").createNewFile() }
+        }
         val resultSongs = mutableListOf<ExternalSong>()
+        val totalCount = audioDocs.size
 
-        for (doc in audioDocs) {
+        for ((idx, doc) in audioDocs.withIndex()) {
             val fileName = doc.name ?: continue
+            onProgress?.invoke(idx + 1, totalCount, fileName)
             val fileUri = doc.uri
             val baseName = fileName.substringBeforeLast('.')
             val lowerBaseName = baseName.lowercase()

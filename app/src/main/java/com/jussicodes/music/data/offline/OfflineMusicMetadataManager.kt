@@ -23,10 +23,16 @@ object OfflineMusicMetadataManager {
     private const val TAG = "OfflineMetaManager"
 
     private fun getLyricCacheDir(context: Context): File =
-        File(context.filesDir, "download_lyrics").apply { mkdirs() }
+        File(context.filesDir, "download_lyrics").apply {
+            mkdirs()
+            runCatching { File(this, ".nomedia").createNewFile() }
+        }
 
     private fun getCoverCacheDir(context: Context): File =
-        File(context.filesDir, "download_covers").apply { mkdirs() }
+        File(context.filesDir, "download_covers").apply {
+            mkdirs()
+            runCatching { File(this, ".nomedia").createNewFile() }
+        }
 
     /**
      * 保存下载完成的歌词文本到本地独立文件

@@ -88,8 +88,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -126,6 +131,7 @@ import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.constants.MiniPlayerHeight
+import com.jussicodes.music.constants.downloadConcurrencyKey
 import com.jussicodes.music.constants.downloadCoverKey
 import com.jussicodes.music.constants.downloadCustomDirNameKey
 import com.jussicodes.music.constants.downloadCustomDirUriKey
@@ -189,15 +195,24 @@ fun DownloadScreen(
     var showMoveToGroupDialog by remember { mutableStateOf(false) }
     var showBatchUpgradeDialog by remember { mutableStateOf(false) }
 
+    // 搜索状态
+    var isSearchActive by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+
     // 当切换 tab 或退出多选模式
     val exitSelectionMode = {
         isSelectionMode = false
         selectedSongIds = emptySet()
     }
 
-    // 当处于多选模式时，拦截系统返回键/手势返回，仅退出多选而非返回上一页
-    BackHandler(enabled = isSelectionMode) {
-        exitSelectionMode()
+    // 当处于多选或搜索模式时，拦截系统返回键/手势返回，仅退出多选/搜索而非返回上一页
+    BackHandler(enabled = isSelectionMode || isSearchActive) {
+        if (isSelectionMode) {
+            exitSelectionMode()
+        } else if (isSearchActive) {
+            isSearchActive = false
+            searchQuery = ""
+        }
     }
 
     Scaffold(
@@ -268,6 +283,47 @@ fun DownloadScreen(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant
                     )
                 )
+            } else if (isSearchActive) {
+                // 搜索顶部栏
+                TopAppBar(
+                    title = {
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("搜索已下载歌曲、歌手、专辑...", style = MaterialTheme.typography.bodyMedium) },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            ),
+                            textStyle = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            isSearchActive = false
+                            searchQuery = ""
+                        }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "退出搜索"
+                            )
+                        }
+                    },
+                    actions = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Clear,
+                                    contentDescription = "清空"
+                                )
+                            }
+                        }
+                    }
+                )
             } else {
                 // 常规顶部栏
                 TopAppBar(
@@ -281,6 +337,12 @@ fun DownloadScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = { isSearchActive = true }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Search,
+                                contentDescription = "搜索已下载歌曲"
+                            )
+                        }
                         IconButton(onClick = { DownloadManager.openDownloadFolder(context) }) {
                             Icon(
                                 imageVector = Icons.Outlined.Folder,
@@ -323,6 +385,7 @@ fun DownloadScreen(
                     isLandscape = isLandscape,
                     isSelectionMode = isSelectionMode,
                     selectedSongIds = selectedSongIds,
+                    searchQuery = searchQuery,
                     onToggleSelect = { songId ->
                         selectedSongIds = if (songId in selectedSongIds) {
                             val next = selectedSongIds - songId
@@ -619,6 +682,7 @@ private fun DownloadedListSection(
     isLandscape: Boolean,
     isSelectionMode: Boolean,
     selectedSongIds: Set<Long>,
+    searchQuery: String = "",
     onToggleSelect: (Long) -> Unit,
     onEnterSelection: (Long) -> Unit,
     onDelete: (Long, Boolean) -> Unit,
@@ -632,12 +696,46 @@ private fun DownloadedListSection(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullToRefreshState = rememberPullToRefreshState()
 
-    val totalBytes = remember(completedTasks) {
-        completedTasks.sumOf { it.totalBytes }
-    }
-
     val externalPlaylists by ExternalPlaylistStore.playlists.collectAsState()
     var isImportingExternal by remember { mutableStateOf(false) }
+    var importProgressStatus by remember { mutableStateOf<String?>(null) }
+
+    // 搜索实时过滤
+    val effectiveCompletedTasks = remember(completedTasks, searchQuery) {
+        if (searchQuery.isBlank()) {
+            completedTasks
+        } else {
+            val q = searchQuery.trim().lowercase()
+            completedTasks.filter {
+                it.title.lowercase().contains(q) ||
+                it.artist.lowercase().contains(q) ||
+                it.album.lowercase().contains(q)
+            }
+        }
+    }
+
+    val effectiveExternalPlaylists = remember(externalPlaylists, searchQuery) {
+        if (searchQuery.isBlank()) {
+            externalPlaylists
+        } else {
+            val q = searchQuery.trim().lowercase()
+            externalPlaylists.mapNotNull { pl ->
+                val matching = pl.songs.filter { s ->
+                    s.title.lowercase().contains(q) ||
+                    s.artist.lowercase().contains(q) ||
+                    s.album.lowercase().contains(q)
+                }
+                if (matching.isNotEmpty() || pl.name.lowercase().contains(q)) {
+                    pl.copy(songs = matching)
+                } else null
+            }
+        }
+    }
+
+    val totalBytes = remember(effectiveCompletedTasks) {
+        effectiveCompletedTasks.sumOf { it.totalBytes }
+    }
+
     var groupFilterIndex by rememberSaveable { mutableIntStateOf(0) } // 0: 全部, 1: 专辑, 2: 分组, 3: 外部歌单
     var expandedExternalPlaylistIds by remember { mutableStateOf(setOf<String>()) }
     var renameTargetExternalPlaylist by remember { mutableStateOf<ExternalPlaylist?>(null) }
@@ -650,6 +748,7 @@ private fun DownloadedListSection(
         if (treeUri != null) {
             coroutineScope.launch {
                 isImportingExternal = true
+                importProgressStatus = "准备开始扫描..."
                 try {
                     runCatching {
                         context.contentResolver.takePersistableUriPermission(
@@ -659,7 +758,9 @@ private fun DownloadedListSection(
                     }
                     val doc = DocumentFile.fromTreeUri(context, treeUri)
                     val folderName = doc?.name?.ifBlank { "外部歌单" } ?: "外部歌单"
-                    val pl = ExternalPlaylistStore.importFolder(context, treeUri, folderName)
+                    val pl = ExternalPlaylistStore.importFolder(context, treeUri, folderName) { current, total, name ->
+                        importProgressStatus = "($current/$total) $name"
+                    }
                     if (pl.songs.isNotEmpty()) {
                         Toast.makeText(context, "成功导入「$folderName」，共识别到 ${pl.songs.size} 首歌曲", Toast.LENGTH_SHORT).show()
                     } else {
@@ -671,9 +772,66 @@ private fun DownloadedListSection(
                     Toast.makeText(context, "导入失败：${e.message}", Toast.LENGTH_SHORT).show()
                 } finally {
                     isImportingExternal = false
+                    importProgressStatus = null
                 }
             }
         }
+    }
+
+    if (isImportingExternal) {
+        Dialog(onDismissRequest = {}) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(40.dp))
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        text = "正在扫描导入外部音频...",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (importProgressStatus != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = importProgressStatus.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (searchQuery.isNotBlank() && effectiveCompletedTasks.isEmpty() && effectiveExternalPlaylists.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize().padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Outlined.Search,
+                    contentDescription = null,
+                    modifier = Modifier.size(56.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "未找到与 \"$searchQuery\" 相关的歌曲",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        return
     }
 
     if (completedTasks.isEmpty() && externalPlaylists.isEmpty() && groupFilterIndex != 3) {
@@ -770,15 +928,15 @@ private fun DownloadedListSection(
     }
 
     val playAllAction: () -> Unit = {
-        if (completedTasks.isNotEmpty()) {
-            val songs = completedTasks.map { taskToSong(it) }
+        if (effectiveCompletedTasks.isNotEmpty()) {
+            val songs = effectiveCompletedTasks.map { taskToSong(it) }
             mediaController?.setPlaylist(
                 songs,
                 sourceId = 20261L,
                 sourceName = "已下载歌曲",
                 sourceType = "download"
             )
-            mediaController?.playMediaAtId(completedTasks.first().songId)
+            mediaController?.playMediaAtId(effectiveCompletedTasks.first().songId)
         }
     }
 
@@ -837,7 +995,7 @@ private fun DownloadedListSection(
         if (isSelectionMode) {
             onToggleSelect(task.songId)
         } else {
-            val songs = completedTasks.map { taskToSong(it) }
+            val songs = effectiveCompletedTasks.map { taskToSong(it) }
             mediaController?.setPlaylist(
                 songs,
                 sourceId = 20261L,
@@ -849,8 +1007,8 @@ private fun DownloadedListSection(
     }
 
     // 分组模型与计算：只有在专辑页下载整张专辑的歌曲（isAlbumFolder == true）才进入专辑分组！
-    val albumGroups = remember(completedTasks) {
-        completedTasks.filter { it.isAlbumFolder }.groupBy { task ->
+    val albumGroups = remember(effectiveCompletedTasks) {
+        effectiveCompletedTasks.filter { it.isAlbumFolder }.groupBy { task ->
             task.groupFolder?.takeIf { it.isNotBlank() } ?: task.album.ifBlank { "未知专辑" }
         }.map { (name, songs) ->
             val first = songs.first()
@@ -875,13 +1033,13 @@ private fun DownloadedListSection(
     val customGroupNames: Set<String> = remember(customGroupsRaw) {
         customGroupsRaw.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
     }
-    val allCustomGroupNames = remember(customGroupNames, completedTasks) {
-        val fromTasks = completedTasks.mapNotNull { it.customGroup?.takeIf { g -> g.isNotBlank() } }.toSet()
+    val allCustomGroupNames = remember(customGroupNames, effectiveCompletedTasks) {
+        val fromTasks = effectiveCompletedTasks.mapNotNull { it.customGroup?.takeIf { g -> g.isNotBlank() } }.toSet()
         (customGroupNames + fromTasks).toList().sorted()
     }
-    val customGroups = remember(allCustomGroupNames, completedTasks) {
+    val customGroups = remember(allCustomGroupNames, effectiveCompletedTasks) {
         allCustomGroupNames.map { name ->
-            val songs = completedTasks.filter { it.customGroup == name }
+            val songs = effectiveCompletedTasks.filter { it.customGroup == name }
             val groupBytes = songs.sumOf { it.totalBytes }
             val subtitle = buildString {
                 append("${songs.size} 首歌曲")
@@ -948,7 +1106,7 @@ private fun DownloadedListSection(
                 item(span = { GridItemSpan(2) }) {
                     Column {
                         DownloadedHeaderCard(
-                            taskCount = completedTasks.size,
+                            taskCount = effectiveCompletedTasks.size,
                             totalBytes = totalBytes,
                             onPlayAll = playAllAction
                         )
@@ -962,7 +1120,7 @@ private fun DownloadedListSection(
                             FilterChip(
                                 selected = groupFilterIndex == 0,
                                 onClick = { groupFilterIndex = 0 },
-                                label = { Text("全部 (${completedTasks.size})") }
+                                label = { Text("全部 (${effectiveCompletedTasks.size})") }
                             )
                             FilterChip(
                                 selected = groupFilterIndex == 1,
@@ -977,7 +1135,7 @@ private fun DownloadedListSection(
                             FilterChip(
                                 selected = groupFilterIndex == 3,
                                 onClick = { groupFilterIndex = 3 },
-                                label = { Text("外部歌单 (${externalPlaylists.size})") }
+                                label = { Text("外部歌单 (${effectiveExternalPlaylists.size})") }
                             )
                         }
                     }
@@ -985,7 +1143,7 @@ private fun DownloadedListSection(
 
                 when (groupFilterIndex) {
                     0 -> {
-                        items(completedTasks, key = { it.songId }) { task ->
+                        items(effectiveCompletedTasks, key = { it.songId }) { task ->
                             DownloadedSongItem(
                                 task = task,
                                 isSelectionMode = isSelectionMode,
@@ -1168,7 +1326,7 @@ private fun DownloadedListSection(
                             }
                         }
 
-                        if (externalPlaylists.isEmpty()) {
+                        if (effectiveExternalPlaylists.isEmpty()) {
                             item(span = { GridItemSpan(2) }) {
                                 Box(
                                     modifier = Modifier.fillMaxWidth().padding(32.dp),
@@ -1182,7 +1340,7 @@ private fun DownloadedListSection(
                                 }
                             }
                         } else {
-                            items(externalPlaylists, key = { it.id }, span = { GridItemSpan(2) }) { pl ->
+                            items(effectiveExternalPlaylists, key = { it.id }, span = { GridItemSpan(2) }) { pl ->
                                 ExternalPlaylistCard(
                                     playlist = pl,
                                     isExpanded = pl.id in expandedExternalPlaylistIds,
@@ -1229,7 +1387,7 @@ private fun DownloadedListSection(
                 item {
                     Column {
                         DownloadedHeaderCard(
-                            taskCount = completedTasks.size,
+                            taskCount = effectiveCompletedTasks.size,
                             totalBytes = totalBytes,
                             onPlayAll = playAllAction
                         )
@@ -1243,7 +1401,7 @@ private fun DownloadedListSection(
                             FilterChip(
                                 selected = groupFilterIndex == 0,
                                 onClick = { groupFilterIndex = 0 },
-                                label = { Text("全部 (${completedTasks.size})") }
+                                label = { Text("全部 (${effectiveCompletedTasks.size})") }
                             )
                             FilterChip(
                                 selected = groupFilterIndex == 1,
@@ -1258,7 +1416,7 @@ private fun DownloadedListSection(
                             FilterChip(
                                 selected = groupFilterIndex == 3,
                                 onClick = { groupFilterIndex = 3 },
-                                label = { Text("外部歌单 (${externalPlaylists.size})") }
+                                label = { Text("外部歌单 (${effectiveExternalPlaylists.size})") }
                             )
                         }
                     }
@@ -1266,7 +1424,7 @@ private fun DownloadedListSection(
 
                 when (groupFilterIndex) {
                     0 -> {
-                        items(completedTasks, key = { it.songId }) { task ->
+                        items(effectiveCompletedTasks, key = { it.songId }) { task ->
                             DownloadedSongItem(
                                 task = task,
                                 isSelectionMode = isSelectionMode,
@@ -1449,7 +1607,7 @@ private fun DownloadedListSection(
                             }
                         }
 
-                        if (externalPlaylists.isEmpty()) {
+                        if (effectiveExternalPlaylists.isEmpty()) {
                             item {
                                 Box(
                                     modifier = Modifier.fillMaxWidth().padding(32.dp),
@@ -1463,7 +1621,7 @@ private fun DownloadedListSection(
                                 }
                             }
                         } else {
-                            items(externalPlaylists, key = { it.id }) { pl ->
+                            items(effectiveExternalPlaylists, key = { it.id }) { pl ->
                                 ExternalPlaylistCard(
                                     playlist = pl,
                                     isExpanded = pl.id in expandedExternalPlaylistIds,
@@ -2189,6 +2347,7 @@ private fun DownloadSettingsBottomSheet(
     var downloadCover by rememberPreference(downloadCoverKey, true)
     var downloadCustomDirUri by rememberPreference(downloadCustomDirUriKey, "")
     var downloadCustomDirName by rememberPreference(downloadCustomDirNameKey, "")
+    var downloadConcurrency by rememberPreference(downloadConcurrencyKey, 2)
 
     var showQualityPicker by remember { mutableStateOf(false) }
 
@@ -2317,6 +2476,34 @@ private fun DownloadSettingsBottomSheet(
                                         Spacer(Modifier.width(8.dp))
                                         OutlinedButton(onClick = { DownloadManager.openDownloadFolder(context) }) {
                                             Text("查看")
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(Modifier.height(12.dp))
+
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("同时下载数: $downloadConcurrency", style = MaterialTheme.typography.titleSmall)
+                                        Row {
+                                            listOf(1, 2, 3, 4).forEach { count ->
+                                                FilterChip(
+                                                    selected = downloadConcurrency == count,
+                                                    onClick = { downloadConcurrency = count },
+                                                    label = { Text("$count") },
+                                                    modifier = Modifier.padding(horizontal = 2.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -2487,6 +2674,38 @@ private fun DownloadSettingsBottomSheet(
                                     Toast.makeText(context, "已恢复为默认存储目录", Toast.LENGTH_SHORT).show()
                                 }) {
                                     Text("恢复默认")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // 并发任务数
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("同时下载任务数", style = MaterialTheme.typography.titleMedium)
+                                Text("当前: $downloadConcurrency 个并发任务", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Row {
+                                listOf(1, 2, 3, 4).forEach { count ->
+                                    FilterChip(
+                                        selected = downloadConcurrency == count,
+                                        onClick = { downloadConcurrency = count },
+                                        label = { Text("$count") },
+                                        modifier = Modifier.padding(horizontal = 2.dp)
+                                    )
                                 }
                             }
                         }

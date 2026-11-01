@@ -87,10 +87,11 @@ object ExternalPlaylistStore {
     suspend fun importFolder(
         context: Context,
         treeUri: Uri,
-        folderName: String
+        folderName: String,
+        onProgress: ((current: Int, total: Int, name: String) -> Unit)? = null
     ): ExternalPlaylist = mutex.withLock {
         val appContext = context.applicationContext
-        val scannedSongs = ExternalAudioScanner.scanFolder(appContext, treeUri, folderName)
+        val scannedSongs = ExternalAudioScanner.scanFolder(appContext, treeUri, folderName, onProgress)
 
         val playlistId = UUID.randomUUID().toString()
         val newPlaylist = ExternalPlaylist(
