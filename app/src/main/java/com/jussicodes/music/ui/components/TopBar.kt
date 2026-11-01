@@ -5,6 +5,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -13,12 +15,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavHostController
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.floatingNavBarEnabledKey
+import com.jussicodes.music.data.download.DownloadStatus
+import com.jussicodes.music.data.download.DownloadStore
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.utils.rememberPreference
 
@@ -33,6 +38,10 @@ fun TopBar(
     contentColor: Color? = null,
 ) {
     val floatingNavBarEnabled by rememberPreference(floatingNavBarEnabledKey, true)
+    val tasks by DownloadStore.tasks.collectAsState()
+    val activeDownloadCount = tasks.count {
+        it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.RESOLVING || it.status == DownloadStatus.PENDING
+    }
 
     TopAppBar(
         title = { Text(stringResource(titleRes)) },
@@ -62,10 +71,20 @@ fun TopBar(
                 IconButton(onClick = {
                     navController.navigate(Screen.DownloadManager.route)
                 }) {
-                    Icon(
-                        imageVector = Icons.Outlined.FileDownload,
-                        contentDescription = "下载管理"
-                    )
+                    BadgedBox(
+                        badge = {
+                            if (activeDownloadCount > 0) {
+                                Badge {
+                                    Text(if (activeDownloadCount > 99) "99+" else activeDownloadCount.toString())
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.FileDownload,
+                            contentDescription = "下载管理"
+                        )
+                    }
                 }
             } else {
                 IconButton(onClick = {

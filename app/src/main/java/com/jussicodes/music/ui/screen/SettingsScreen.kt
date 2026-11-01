@@ -104,7 +104,6 @@ import com.jussicodes.music.constants.desktopLyricFontSizeKey
 import com.jussicodes.music.constants.desktopLyricLockedKey
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.audioSourceKey
-import com.jussicodes.music.constants.directSourceKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.resolveAllSongsKey
 import com.jussicodes.music.constants.ncmCookieKey
@@ -166,13 +165,11 @@ import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.AudioSources
-import com.rcmiku.ncmapi.api.LocalSources
 import com.rcmiku.ncmapi.api.player.PlayerApi
 import com.jussicodes.music.lx.AudioSourceSwitcher
 import com.jussicodes.music.ui.components.AudioSourceSelector
 import com.jussicodes.music.ui.components.CacheManagerDialog
 import com.jussicodes.music.ui.components.cacheSubtitle
-import com.jussicodes.music.ui.components.LocalSourceDialog
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.utils.json
 import com.rcmiku.ncmapi.utils.parseCookieString
@@ -206,24 +203,21 @@ fun SettingsScreen(
     var playerBackgroundBlurEnabled by rememberPreference(playerBackgroundBlurEnabledKey, true)
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
-    // 音源三选一（LX / 内置直连 / 代理）。旧选择由 JetMeloApp 里的一次性迁移清掉，
-    // 这里不做重置——否则每次进设置页都会把用户的选择打回 LX。
+    // 音源选择（LX / 代理）。
     var audioSource by rememberPreference(audioSourceKey, AudioSources.DEFAULT)
-    // 「直连音源」档位下的六源单选（音源设置里的子设置）。
-    var directSource by rememberPreference(directSourceKey, LocalSources.AUTO)
-    var resolveAllSongs by rememberPreference(resolveAllSongsKey, false)
-    LaunchedEffect(directSource) {
-        PlayerApi.DirectSourceSettings.SOURCE = directSource
+    LaunchedEffect(audioSource) {
+        if (audioSource == AudioSources.DIRECT) {
+            audioSource = AudioSources.DEFAULT
+        }
     }
-    // 三行子设置各自报「当前正在使用谁」，按 audioSource 档位走：
-    // LX 档位说脚本名，直连/代理档位说「当前正在使用 LX源」（或直连源名/服务器）。
+    var resolveAllSongs by rememberPreference(resolveAllSongsKey, false)
+    // 两行子设置各自报「当前正在使用谁」，按 audioSource 档位走：
     val lxPlugins by com.jussicodes.music.lx.LxPluginManager.plugins.collectAsState(initial = emptyList())
     val enabledLxScripts = lxPlugins.filter { it.isEnabled }
     // 当前真正负责解析的脚本名：LX 档位取列表首个启用项（PlayerApi 也是按顺序轮询）
     val activeLxScriptName = enabledLxScripts.firstOrNull()?.name
     val inUseLabel = when (audioSource) {
         AudioSources.LX -> "LX源"
-        AudioSources.DIRECT -> LocalSources.fromKey(directSource)?.label ?: "直连源"
         else -> apiBaseUrl.ifBlank { "API代理服务器" }
     }
     val lxScriptSummary = when {
@@ -235,11 +229,6 @@ fun SettingsScreen(
         }
         enabledLxScripts.isNotEmpty() -> "当前正在使用 ${activeLxScriptName ?: "LX源"}"
         else -> "当前正在使用 $inUseLabel"
-    }
-    val directSourceSummary = if (audioSource == AudioSources.DIRECT) {
-        LocalSources.fromKey(directSource)?.label ?: directSource
-    } else {
-        "当前正在使用 $inUseLabel"
     }
     val apiServerSummary = if (audioSource == AudioSources.PROXY) {
         apiBaseUrl.ifBlank { "未设置" }
@@ -348,7 +337,6 @@ fun SettingsScreen(
     }
     var showQualityDialog by remember { mutableStateOf(false) }
     var showUnblockSourceDialog by remember { mutableStateOf(false) }
-    var showDirectSourceDialog by remember { mutableStateOf(false) }
     var showCacheDialog by remember { mutableStateOf(false) }
 
     val downloadTasks by DownloadStore.tasks.collectAsState()
@@ -393,7 +381,7 @@ fun SettingsScreen(
             // rememberPreference 是异步写盘，延迟一下让 DataStore 先落定，
             // 否则 JetMeloApp 的 collect 可能用旧值把 ncmapi 全局变量覆盖回去。
             kotlinx.coroutines.delay(150)
-            AudioSourceSwitcher.apply(audioSource, directSource)
+            AudioSourceSwitcher.apply(audioSource)
         }
     }
     var showCookieDialog by remember { mutableStateOf(false) }
@@ -724,7 +712,7 @@ fun SettingsScreen(
 
     val advancedGroup = SettingGroupData(
         name = "音源设置",
-        note = "三种音源只生效一个；切换后立即用新音源重新解析当前播放的歌",
+        note = "两种音源只生效一个；切换后立即用新音源重新解析当前播放的歌",
         header = {
             AudioSourceSelector(
                 currentSource = audioSource,
@@ -763,12 +751,6 @@ fun SettingsScreen(
                 subtitle = lxScriptSummary,
                 imageVector = Script,
                 onClick = { navController.navigate(Screen.LxPlugins.route) }
-            ),
-            SettingItemData(
-                title = "直连源",
-                subtitle = directSourceSummary,
-                imageVector = MusicNote,
-                onClick = { showDirectSourceDialog = true }
             ),
             SettingItemData(
                 title = stringResource(R.string.api_server),
@@ -1039,18 +1021,6 @@ fun SettingsScreen(
             currentSource = unblockSource,
             onDismiss = { showUnblockSourceDialog = false },
             onSourceSelected = { unblockSource = it }
-        )
-    }
-
-    if (showDirectSourceDialog) {
-        LocalSourceDialog(
-            currentSource = directSource,
-            onDismiss = { showDirectSourceDialog = false },
-            onSourceSelected = { selected ->
-                directSource = selected
-                showDirectSourceDialog = false
-                reloadCurrentSong()
-            }
         )
     }
 

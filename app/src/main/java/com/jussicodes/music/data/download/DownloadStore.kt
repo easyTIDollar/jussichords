@@ -28,6 +28,17 @@ object DownloadStore {
     private val _tasks = MutableStateFlow<List<DownloadTask>>(emptyList())
     val tasks: StateFlow<List<DownloadTask>> = _tasks.asStateFlow()
 
+    private val _downloadedSongIds = MutableStateFlow<Set<Long>>(emptySet())
+    val downloadedSongIds: StateFlow<Set<Long>> = _downloadedSongIds.asStateFlow()
+
+    private fun updateTasks(newTasks: List<DownloadTask>) {
+        _tasks.value = newTasks
+        _downloadedSongIds.value = newTasks.asSequence()
+            .filter { it.status == DownloadStatus.COMPLETED }
+            .map { it.songId }
+            .toSet()
+    }
+
     @Volatile
     private var initialized = false
 
@@ -49,7 +60,7 @@ object DownloadStore {
                                 task
                             }
                         }
-                        _tasks.value = sanitized
+                        updateTasks(sanitized)
                     }
                 }
                 initialized = true
@@ -62,7 +73,7 @@ object DownloadStore {
     }
 
     fun isSongDownloaded(songId: Long): Boolean {
-        return _tasks.value.any { it.songId == songId && it.status == DownloadStatus.COMPLETED }
+        return _downloadedSongIds.value.contains(songId)
     }
 
     fun getCompletedTask(songId: Long): DownloadTask? {
@@ -106,7 +117,7 @@ object DownloadStore {
             } else {
                 current.add(0, task)
             }
-            _tasks.value = current
+            updateTasks(current)
             save(appContext, current)
         }
     }
@@ -163,7 +174,7 @@ object DownloadStore {
                     speedText = "",
                     finishTime = if (status == DownloadStatus.COMPLETED) System.currentTimeMillis() else old.finishTime
                 )
-                _tasks.value = current
+                updateTasks(current)
                 save(appContext, current)
             }
         }
@@ -173,7 +184,7 @@ object DownloadStore {
         val appContext = context.applicationContext
         mutex.withLock {
             val current = _tasks.value.filterNot { it.songId == songId }
-            _tasks.value = current
+            updateTasks(current)
             save(appContext, current)
         }
     }
@@ -182,7 +193,7 @@ object DownloadStore {
         val appContext = context.applicationContext
         mutex.withLock {
             val current = _tasks.value.filterNot { it.songId in songIds }
-            _tasks.value = current
+            updateTasks(current)
             save(appContext, current)
         }
     }
@@ -228,7 +239,7 @@ object DownloadStore {
                     preloadSize = preloadSize
                 )
                 current[index] = updated
-                _tasks.value = current
+                updateTasks(current)
                 save(appContext, current)
                 updated
             } else {
@@ -262,7 +273,7 @@ object DownloadStore {
                     preloadSize = preloadSize
                 )
                 current[index] = updated
-                _tasks.value = current
+                updateTasks(current)
                 save(appContext, current)
                 updated
             } else {
@@ -294,7 +305,7 @@ object DownloadStore {
                     )
                 }
             }
-            _tasks.value = current
+            updateTasks(current)
             save(appContext, current)
         }
     }
@@ -322,7 +333,7 @@ object DownloadStore {
                     )
                 }
             }
-            _tasks.value = current
+            updateTasks(current)
             save(appContext, current)
         }
     }
@@ -349,7 +360,7 @@ object DownloadStore {
                     )
                 }
             }
-            _tasks.value = current
+            updateTasks(current)
             save(appContext, current)
         }
     }
@@ -383,7 +394,7 @@ object DownloadStore {
             }
             val removedCount = current.size - valid.size
             if (removedCount > 0) {
-                _tasks.value = valid
+                updateTasks(valid)
                 save(appContext, valid)
             }
             removedCount
