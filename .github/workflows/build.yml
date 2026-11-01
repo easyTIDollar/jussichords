@@ -20,7 +20,7 @@ jobs:
     permissions:
       contents: write
     env:
-      BUILD_TYPE: ${{ inputs.build_type || 'release' }}
+      BUILD_TYPE: ${{ inputs.build_type || (github.ref_name == 'canary-dev' && 'canary' || 'release') }}
       APP_VERSION: ''
     steps:
       # 拉取仓库（需要完整历史 + tag：更新说明按「上一个版本 → 本次构建」的提交差异生成）
