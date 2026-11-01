@@ -1311,7 +1311,7 @@ private fun DownloadedListSection(
                                         fontWeight = FontWeight.SemiBold
                                     )
                                     Text(
-                                        text = "自动识别音频、同名/内嵌歌词与封面，打造本地播放器",
+                                        text = "可识别单文件或独立音频与封面",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -1592,7 +1592,7 @@ private fun DownloadedListSection(
                                         fontWeight = FontWeight.SemiBold
                                     )
                                     Text(
-                                        text = "自动识别音频、同名/内嵌歌词与封面，打造本地播放器",
+                                        text = "可识别单文件或独立音频与封面",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
