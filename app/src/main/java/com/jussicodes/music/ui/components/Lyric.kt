@@ -124,17 +124,39 @@ fun Lyric(
     val lrcLine = lyric?.lrc?.lyric?.parseLrc()
     val yrcLine = lyric?.yrc?.lyric?.parseYrc()
     val translationLines = lyric?.tlyric?.lyric?.parseLrc().orEmpty()
-    val hasTranslation = translationLines.any { it.text.isNotBlank() }
-    val hasWordLyric = !yrcLine.isNullOrEmpty()
     val translationMap = remember(translationLines) {
         translationLines
             .filter { it.text.isNotBlank() }
             .associate { it.time to it.text }
     }
+    // 智能配对双语歌词（兼顾接口 tlyric 与单文件内连续相同时间戳的原文/译文行）
+    val lrcItems = remember(lrcLine, translationLines) {
+        if (lrcLine == null) return@remember null
+        val items = mutableListOf<Triple<Long, String, String?>>()
+        var i = 0
+        while (i < lrcLine.size) {
+            val cur = lrcLine[i]
+            val nxt = lrcLine.getOrNull(i + 1)
+            if (nxt != null && kotlin.math.abs(nxt.time - cur.time) <= 300 && cur.text.isNotBlank() && nxt.text.isNotBlank()) {
+                items.add(Triple(cur.time, cur.text, nxt.text))
+                i += 2
+            } else {
+                val trans = translationMap[cur.time]
+                    ?: translationLines.minByOrNull { kotlin.math.abs(it.time - cur.time) }
+                        ?.takeIf { kotlin.math.abs(it.time - cur.time) <= 800 }
+                        ?.text
+                items.add(Triple(cur.time, cur.text, trans))
+                i++
+            }
+        }
+        items
+    }
+    val hasTranslation = translationLines.any { it.text.isNotBlank() } || (lrcItems?.any { !it.third.isNullOrBlank() } == true)
+    val hasWordLyric = !yrcLine.isNullOrEmpty()
     val displayLines = if (showWordLyric && !yrcLine.isNullOrEmpty()) {
         yrcLine.map { it.time to it.text }
     } else {
-        lrcLine?.map { it.time to it.text }
+        lrcItems?.map { it.first to it.second } ?: lrcLine?.map { it.time to it.text }
     }
 
     LaunchedEffect(currentMediaId, mediaMetadata.title) {
@@ -351,7 +373,9 @@ fun Lyric(
                     ) { index ->
                         val isCurrent = index == currentIndex
                         val currentText = lrcLines[index].second.isNotEmpty()
-                        val translation = translationMap[lrcLines[index].first]
+                        val matchedItem = lrcItems?.getOrNull(index)
+                        val translation = matchedItem?.third
+                            ?: translationMap[lrcLines[index].first]
                             ?: translationLines.minByOrNull { abs(it.time - lrcLines[index].first) }
                                 ?.takeIf { abs(it.time - lrcLines[index].first) <= 800 }
                                 ?.text
@@ -401,8 +425,8 @@ fun Lyric(
                                 if (showTranslation && !translation.isNullOrBlank()) {
                                     Text(
                                         text = translation,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontWeight = FontWeight.Medium,
+                                        color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
                                         fontSize = if (landscape) 14.sp else 16.sp,
                                         lineHeight = 1.2.em,
                                         modifier = Modifier.padding(top = 4.dp)

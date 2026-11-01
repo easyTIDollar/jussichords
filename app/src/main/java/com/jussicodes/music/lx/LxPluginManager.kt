@@ -26,6 +26,25 @@ sealed interface ImportResult {
     data class Failure(val message: String) : ImportResult
 }
 
+data class QualityTestResult(
+    val quality: String,
+    val success: Boolean,
+    val url: String? = null,
+    val costMs: Long = 0,
+    val isTrial: Boolean = false,
+    val httpCode: Int? = null,
+    val message: String = ""
+)
+
+data class TestResult(
+    val success: Boolean,
+    val bestUrl: String? = null,
+    val bestQuality: String? = null,
+    val costMs: Long = 0,
+    val qualityResults: List<QualityTestResult> = emptyList(),
+    val message: String = ""
+)
+
 /**
  * LX 脚本的编排层（移植 Melodia LxPluginManager）：导入校验、增删、启停、解析。
  * 依赖 [LxPluginStore]（持久化）与 [LxPluginEngine]（沙盒），二者都在 Application 里单例化。
@@ -57,23 +76,36 @@ object LxPluginManager {
      */
     const val BUILTIN_ID = "builtin-lx-yuanningxi"
     private const val BUILTIN_ASSET = "lx/lx-builtin.js"
+    val DEFAULT_QUALITIES = listOf(
+        "128k", "320k", "flac", "flac24bit", "hires",
+        "master", "jymaster", "dolby", "atmos"
+    )
 
     private suspend fun ensureBuiltinScript(context: Context) {
         // 注意：这里必须用 snapshot()（等磁盘读完）判断，不能用 latest.value 空镜像，
         // 否则启动瞬间读到空列表 → 把整份脚本列表覆盖成只剩内置脚本（用户脚本全丢）。
-        if (LxPluginStore.snapshot().any { it.id == BUILTIN_ID }) return
         val script = runCatching {
             context.assets.open(BUILTIN_ASSET).bufferedReader().use { it.readText() }
         }.getOrNull() ?: return
         LxPluginStore.update { list ->
-            if (list.any { it.id == BUILTIN_ID }) list
-            else list + LxPluginItem(
-                id = BUILTIN_ID,
-                name = "玉宁熙 Pro（内置）",
-                rawScript = script,
-                isEnabled = true,
-                wyQualities = listOf("128k", "320k", "flac", "flac24bit", "hires")
-            )
+            val existing = list.firstOrNull { it.id == BUILTIN_ID }
+            if (existing != null) {
+                if (existing.wyQualities.size <= 5) {
+                    list.map {
+                        if (it.id == BUILTIN_ID) it.copy(wyQualities = DEFAULT_QUALITIES) else it
+                    }
+                } else {
+                    list
+                }
+            } else {
+                list + LxPluginItem(
+                    id = BUILTIN_ID,
+                    name = "玉宁熙 Pro（内置）",
+                    rawScript = script,
+                    isEnabled = true,
+                    wyQualities = DEFAULT_QUALITIES
+                )
+            }
         }
     }
 
@@ -262,6 +294,135 @@ object LxPluginManager {
         return null
     }
 
+    const val TEST_SONG_ID = "2644776561"
+
+    suspend fun testPlugin(
+        pluginId: String,
+        songId: String = TEST_SONG_ID
+    ): TestResult = withContext(Dispatchers.IO) {
+        val startedAt = System.currentTimeMillis()
+        val plugin = LxPluginStore.snapshot().firstOrNull { it.id == pluginId }
+        if (plugin == null) {
+            return@withContext TestResult(
+                success = false,
+                costMs = 0,
+                message = "脚本不存在或已被删除"
+            )
+        }
+
+        val song = fetchSong(songId)
+        val musicInfo = if (song != null) {
+            buildMusicInfo(songId, song)
+        } else {
+            buildJsonObject {
+                put("id", songId)
+                put("songmid", songId)
+                put("name", "基准测试歌曲")
+                put("singer", "测试歌手")
+                put("albumName", "测试专辑")
+                put("interval", "03:30")
+            }.toString()
+        }
+
+        val testQualities = listOf("jymaster", "hires", "flac", "lossless", "320k", "128k")
+        val qualityResults = mutableListOf<QualityTestResult>()
+
+        val probeClient = OkHttpClient.Builder()
+            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
+
+        for (q in testQualities) {
+            val t0 = System.currentTimeMillis()
+            val url = runCatching { engine?.resolveUrl(pluginId, musicInfo, q) }.getOrNull()
+            val stepCost = System.currentTimeMillis() - t0
+
+            if (url.isNullOrBlank()) {
+                qualityResults.add(
+                    QualityTestResult(
+                        quality = q,
+                        success = false,
+                        costMs = stepCost,
+                        message = "未命中"
+                    )
+                )
+                continue
+            }
+
+            if (url.contains("musicrep-ts", ignoreCase = true)) {
+                qualityResults.add(
+                    QualityTestResult(
+                        quality = q,
+                        success = false,
+                        url = url,
+                        costMs = stepCost,
+                        isTrial = true,
+                        message = "返回试听链 (30s)"
+                    )
+                )
+                continue
+            }
+
+            // HTTP 探测
+            var httpCode: Int? = null
+            var isHttpOk = false
+            runCatching {
+                val req = okhttp3.Request.Builder()
+                    .url(url)
+                    .header("Range", "bytes=0-1024")
+                    .header("User-Agent", "Mozilla/5.0")
+                    .get()
+                    .build()
+                probeClient.newCall(req).execute().use { resp ->
+                    httpCode = resp.code
+                    isHttpOk = resp.isSuccessful || resp.code == 206 || resp.code == 200
+                }
+            }
+
+            if (isHttpOk) {
+                qualityResults.add(
+                    QualityTestResult(
+                        quality = q,
+                        success = true,
+                        url = url,
+                        costMs = stepCost,
+                        httpCode = httpCode,
+                        message = "成功 (HTTP $httpCode)"
+                    )
+                )
+            } else {
+                qualityResults.add(
+                    QualityTestResult(
+                        quality = q,
+                        success = false,
+                        url = url,
+                        costMs = stepCost,
+                        httpCode = httpCode,
+                        message = "直链异常 (HTTP ${httpCode ?: "超时"})"
+                    )
+                )
+            }
+        }
+
+        val totalCost = System.currentTimeMillis() - startedAt
+        val successfulItems = qualityResults.filter { it.success }
+        val best = successfulItems.firstOrNull()
+
+        TestResult(
+            success = successfulItems.isNotEmpty(),
+            bestUrl = best?.url,
+            bestQuality = best?.quality,
+            costMs = totalCost,
+            qualityResults = qualityResults,
+            message = if (successfulItems.isNotEmpty()) {
+                "成功测出 ${successfulItems.size} 个可用音质档位"
+            } else {
+                "所有测试档位均未解析到可用直链"
+            }
+        )
+    }
+
     /** 取歌曲元信息；拿不到就不试解析（脚本要靠歌名/歌手/时长匹配，不拿空壳去撞）。 */
     private suspend fun fetchSong(songId: String): Song? = withContext(Dispatchers.IO) {
         runCatching {
@@ -285,9 +446,12 @@ object LxPluginManager {
     }.toString()
 
     private fun getQualityCandidates(songLevel: String): List<String> = when (songLevel.lowercase()) {
-        "hires", "flac24bit", "jymaster", "sky", "jyeffect", "dolby" -> listOf("flac24bit", "hires", "master")
-        "lossless", "flac" -> listOf("flac", "lossless")
-        "exhigh", "320k" -> listOf("320k", "exhigh")
+        "jymaster", "master" -> listOf("master", "jymaster", "flac24bit", "hires", "flac", "lossless", "320k", "128k")
+        "dolby", "atmos", "atmos_plus" -> listOf("atmos_plus", "atmos", "dolby", "flac24bit", "hires", "flac", "lossless", "320k")
+        "hires", "flac24bit" -> listOf("flac24bit", "hires", "flac", "lossless", "320k", "128k")
+        "lossless", "flac" -> listOf("flac", "lossless", "320k", "128k")
+        "higher", "192k" -> listOf("192k", "320k", "exhigh", "128k")
+        "exhigh", "320k" -> listOf("320k", "exhigh", "192k", "128k")
         else -> listOf("128k", "standard")
     }
 

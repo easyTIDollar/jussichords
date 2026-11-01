@@ -69,7 +69,7 @@ android {
         }
         register("canary") {
             applicationIdSuffix = ".canary"
-            // CI 通过 -PCANARY_VERSION_SUFFIX=-canary.<UTC 年月日-时分秒> 注入唯一后缀（见 build.yml），默认 -canary
+            // CI 通过 -PCANARY_VERSION_SUFFIX=-canary.<UTC 月日-时分秒> 注入唯一后缀（见 build.yml），默认 -canary
             versionNameSuffix = (findProperty("CANARY_VERSION_SUFFIX") as? String) ?: "-canary"
             isMinifyEnabled = true
             isShrinkResources = true
@@ -163,7 +163,7 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.core)
-    // 官方服务器样式图标 Icons.Outlined.Dns (core 里没有 Dns/Lan/Storage)
+    // 官方服务器样式图标 Icons.Outlined.Dns（core 里没有 Dns/Lan/Storage，只有 core 的 ~60 个）
     implementation(libs.androidx.material.icons.extended)
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation(libs.androidx.navigation.compose)

@@ -30,7 +30,14 @@ data class Song(
     val mv: Long = 0,
     val alia: List<String> = emptyList(),
     val fee: Int = 0,
-    val privilege: SongPrivilege? = null
+    val privilege: SongPrivilege? = null,
+    val h: JsonElement? = null,
+    val m: JsonElement? = null,
+    val l: JsonElement? = null,
+    val sq: JsonElement? = null,
+    val hr: JsonElement? = null,
+    val jm: JsonElement? = null,
+    val db: JsonElement? = null
 )
 
 @Serializable
@@ -39,7 +46,8 @@ data class SongPrivilege(
     val pl: Int = 0,
     val dl: Int = 0,
     val fl: Int = 0,
-    val maxbr: Int = 0
+    val maxbr: Int = 0,
+    val maxBrLevel: String? = null
 )
 
 @Serializable

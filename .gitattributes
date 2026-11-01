@@ -1,0 +1,15 @@
+# 统一所有文本文件的行尾为 LF（Unix 换行）
+* text=auto eol=lf
+
+# Windows 批处理文件保留 CRLF
+*.bat text eol=crlf
+
+# 二进制文件不转换换行
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.jks binary
+*.jar binary
+*.keystore binary
+*.so binary

@@ -39,5 +39,7 @@ data class DownloadTask(
     val sourceType: String = "",           // 来源类型：album, playlist, single
     val errorMsg: String? = null,
     val createTime: Long = System.currentTimeMillis(),
-    val finishTime: Long? = null
+    val finishTime: Long? = null,
+    val preloadUrl: String? = null,
+    val preloadSize: Long? = null
 )

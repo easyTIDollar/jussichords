@@ -181,6 +181,15 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
     val songId = uri.toResolveKey()
     val idLong = songId.substringBefore("?").toLongOrNull()
     if (context != null && idLong != null) {
+        val externalPlayable = com.jussicodes.music.data.external.ExternalPlaylistStore.getPlayableUri(context, idLong)
+        if (externalPlayable != null) {
+            android.util.Log.i("PlayerApi", "Hit external playlist audio for songId=$songId uri=$externalPlayable")
+            return externalPlayable
+        } else if (idLong < 0) {
+            // 外部歌曲但物理文件已不存在或无权限，直接终止，不请求网易云
+            android.util.Log.w("PlayerApi", "External audio file not found or inaccessible for songId=$songId")
+            return null
+        }
         val localPlayable = com.jussicodes.music.data.download.DownloadStore.getCompletedPlayableUri(context, idLong)
         if (localPlayable != null) {
             android.util.Log.i("PlayerApi", "Hit local downloaded audio for songId=$songId uri=$localPlayable")

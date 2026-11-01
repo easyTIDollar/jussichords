@@ -69,11 +69,18 @@ private data class AudioSync(
 @HiltAndroidApp
 class JetMeloApp : Application(), SingletonImageLoader.Factory {
 
+    companion object {
+        lateinit var instance: JetMeloApp
+            private set
+        val context: android.content.Context get() = instance.applicationContext
+    }
+
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @androidx.annotation.OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
+        instance = this
         AppVisibilityTracker.register(this)
         ExplorePreloader.init(this)
         PinnedAlbumStore.init(this)
@@ -85,6 +92,7 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         HomeUserInfoStore.init(this)
         MsgSessionCache.init(this)
         com.jussicodes.music.data.download.DownloadStore.init(this)
+        com.jussicodes.music.data.external.ExternalPlaylistStore.init(this)
         UserAgentProvider.init(UserAgentUtil.DEFAULT_USER_AGENT)
         // LX 脚本音源：脚本列表（DataStore）+ 沙盒引擎在进程级单例，ncmapi 侧只留桥。
         com.jussicodes.music.lx.LxPluginStore.attach(this)

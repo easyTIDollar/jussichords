@@ -33,6 +33,20 @@ class LyricViewModel @Inject constructor() : ViewModel() {
         }
 
         viewModelScope.launch {
+            val localLyric = runCatching {
+                com.jussicodes.music.data.offline.OfflineMusicMetadataManager.getOfflineLyric(
+                    com.jussicodes.music.JetMeloApp.context,
+                    musicId
+                )
+            }.getOrNull()
+
+            if (localLyric != null) {
+                if (currentMusicId == musicId) {
+                    lyricCache[musicId] = localLyric
+                    _lyric.value = localLyric
+                }
+                return@launch
+            }
             val response = PlayerApi.songLyric(musicId).getOrNull()
             if (currentMusicId == musicId) {
                 lyricCache[musicId] = response

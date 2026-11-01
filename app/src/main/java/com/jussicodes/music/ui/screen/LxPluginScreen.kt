@@ -27,6 +27,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -44,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -56,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog as ComposeDialog
 import androidx.compose.ui.unit.dp
@@ -90,6 +94,7 @@ fun LxPluginScreen(navController: NavHostController) {
     var urlDialogVisible by remember { mutableStateOf(false) }
     var onlineListVisible by remember { mutableStateOf(false) }
     var batchDeleteConfirm by remember { mutableStateOf(false) }
+    var testingPlugin by remember { mutableStateOf<LxPluginItem?>(null) }
 
     // ---- 列表顺序（长按拖动）与多选 ----
     val listState = rememberLazyListState()
@@ -334,7 +339,8 @@ fun LxPluginScreen(navController: NavHostController) {
                                 selected + item.id
                             }
                         },
-                        onDelete = { if (item.id != LxPluginManager.BUILTIN_ID) removingId = item.id }
+                        onDelete = { if (item.id != LxPluginManager.BUILTIN_ID) removingId = item.id },
+                        onTest = { testingPlugin = item }
                     )
                 }
             }
@@ -422,6 +428,13 @@ fun LxPluginScreen(navController: NavHostController) {
             }
         )
     }
+
+    testingPlugin?.let { plugin ->
+        ScriptTestDialog(
+            plugin = plugin,
+            onDismiss = { testingPlugin = null }
+        )
+    }
 }
 
 @Composable
@@ -434,7 +447,8 @@ private fun LxPluginRow(
     modifier: Modifier = Modifier,
     onToggle: (Boolean) -> Unit,
     onSelectToggle: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onTest: () -> Unit,
 ) {
     Card(
         modifier = if (selectionMode) modifier.clickable(onClick = onSelectToggle) else modifier,
@@ -511,6 +525,15 @@ private fun LxPluginRow(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                TextButton(
+                    onClick = onTest
+                ) {
+                    Text(
+                        text = "测试解析",
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
                 TextButton(
                     enabled = !isBuiltin,
                     onClick = onDelete
@@ -754,6 +777,146 @@ private fun OnlineSourceRow(
                 TextButton(onClick = {}, enabled = false) { Text("已安装") }
             } else {
                 TextButton(onClick = onInstall) { Text("安装") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScriptTestDialog(
+    plugin: LxPluginItem,
+    onDismiss: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var isTesting by remember { mutableStateOf(true) }
+    var result by remember { mutableStateOf<com.jussicodes.music.lx.TestResult?>(null) }
+
+    fun runTest() {
+        isTesting = true
+        result = null
+        scope.launch {
+            val res = LxPluginManager.testPlugin(plugin.id)
+            result = res
+            isTesting = false
+        }
+    }
+
+    LaunchedEffect(plugin.id) {
+        runTest()
+    }
+
+    ComposeDialog(onDismissRequest = onDismiss) {
+        ScaledDialogContent {
+            Card(
+                shape = MaterialTheme.shapes.extraLarge,
+                modifier = Modifier.fillMaxWidth().padding(16.dp)
+            ) {
+                Column(Modifier.padding(24.dp)) {
+                    Text(
+                        text = "音源多档位解析测试",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "测试目标: ${plugin.name} · 基准单曲 ID: 2644776561",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(16.dp))
+
+                    if (isTesting) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
+                            Text(
+                                text = "正在全面测试多个音质档位...",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    } else {
+                        val res = result
+                        if (res != null) {
+                            Text(
+                                text = res.message,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (res.success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                            )
+                            Spacer(Modifier.height(8.dp))
+
+                            // 各档位详情列表
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                res.qualityResults.forEach { qr ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (qr.success) Icons.Filled.CheckCircle else Icons.Filled.Cancel,
+                                                contentDescription = null,
+                                                tint = if (qr.success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                text = qr.quality.uppercase(),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = qr.message,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = if (qr.success) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                text = "${qr.costMs}ms",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            enabled = !isTesting,
+                            onClick = { runTest() }
+                        ) {
+                            Text("重新测试")
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            onClick = onDismiss
+                        ) {
+                            Text("关闭")
+                        }
+                    }
+                }
             }
         }
     }

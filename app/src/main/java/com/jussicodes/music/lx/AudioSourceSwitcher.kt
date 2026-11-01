@@ -15,7 +15,7 @@ import com.rcmiku.ncmapi.api.player.PlayerApi
  */
 object AudioSourceSwitcher {
 
-    fun apply(audioSource: String, directSource: String) {
+    fun apply(audioSource: String, directSource: String = "") {
         AudioSourceSettings.SELECTED = audioSource
         val direct = LocalSources.fromKey(directSource)?.value ?: LocalSources.AUTO
         PlayerApi.DirectSourceSettings.SOURCE = direct

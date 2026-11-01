@@ -28,6 +28,17 @@ object DownloadStore {
     private val _tasks = MutableStateFlow<List<DownloadTask>>(emptyList())
     val tasks: StateFlow<List<DownloadTask>> = _tasks.asStateFlow()
 
+    private val _downloadedSongIds = MutableStateFlow<Set<Long>>(emptySet())
+    val downloadedSongIds: StateFlow<Set<Long>> = _downloadedSongIds.asStateFlow()
+
+    private fun updateTasks(newTasks: List<DownloadTask>) {
+        _tasks.value = newTasks
+        _downloadedSongIds.value = newTasks.asSequence()
+            .filter { it.status == DownloadStatus.COMPLETED }
+            .map { it.songId }
+            .toSet()
+    }
+
     @Volatile
     private var initialized = false
 
@@ -49,7 +60,7 @@ object DownloadStore {
                                 task
                             }
                         }
-                        _tasks.value = sanitized
+                        updateTasks(sanitized)
                     }
                 }
                 initialized = true
@@ -62,7 +73,7 @@ object DownloadStore {
     }
 
     fun isSongDownloaded(songId: Long): Boolean {
-        return _tasks.value.any { it.songId == songId && it.status == DownloadStatus.COMPLETED }
+        return _downloadedSongIds.value.contains(songId)
     }
 
     fun getCompletedTask(songId: Long): DownloadTask? {
@@ -106,7 +117,7 @@ object DownloadStore {
             } else {
                 current.add(0, task)
             }
-            _tasks.value = current
+            updateTasks(current)
             save(appContext, current)
         }
     }
@@ -163,7 +174,7 @@ object DownloadStore {
                     speedText = "",
                     finishTime = if (status == DownloadStatus.COMPLETED) System.currentTimeMillis() else old.finishTime
                 )
-                _tasks.value = current
+                updateTasks(current)
                 save(appContext, current)
             }
         }
@@ -173,7 +184,7 @@ object DownloadStore {
         val appContext = context.applicationContext
         mutex.withLock {
             val current = _tasks.value.filterNot { it.songId == songId }
-            _tasks.value = current
+            updateTasks(current)
             save(appContext, current)
         }
     }
@@ -182,8 +193,92 @@ object DownloadStore {
         val appContext = context.applicationContext
         mutex.withLock {
             val current = _tasks.value.filterNot { it.songId in songIds }
-            _tasks.value = current
+            updateTasks(current)
             save(appContext, current)
+        }
+    }
+
+    suspend fun resetForRedownload(
+        context: Context,
+        songId: Long,
+        newQuality: String,
+        preloadUrl: String? = null,
+        preloadSize: Long? = null
+    ): DownloadTask? {
+        val appContext = context.applicationContext
+        return mutex.withLock {
+            val current = _tasks.value.toMutableList()
+            val index = current.indexOfFirst { it.songId == songId }
+            if (index >= 0) {
+                val old = current[index]
+                runCatching {
+                    if (!old.filePath.isNullOrBlank()) {
+                        val f = File(old.filePath)
+                        if (f.exists()) f.delete()
+                    }
+                    if (!old.fileUri.isNullOrBlank()) {
+                        val uri = Uri.parse(old.fileUri)
+                        if (uri.scheme == "content") {
+                            appContext.contentResolver.delete(uri, null, null)
+                        }
+                    }
+                }
+                val updated = old.copy(
+                    quality = newQuality,
+                    status = DownloadStatus.PENDING,
+                    progress = 0f,
+                    speedText = "",
+                    downloadedBytes = 0L,
+                    totalBytes = preloadSize ?: 0L,
+                    filePath = null,
+                    fileUri = null,
+                    actualQualityText = null,
+                    errorMsg = null,
+                    finishTime = null,
+                    preloadUrl = preloadUrl,
+                    preloadSize = preloadSize
+                )
+                current[index] = updated
+                updateTasks(current)
+                save(appContext, current)
+                updated
+            } else {
+                null
+            }
+        }
+    }
+
+    suspend fun resetForRetry(
+        context: Context,
+        songId: Long,
+        newQuality: String,
+        preloadUrl: String? = null,
+        preloadSize: Long? = null
+    ): DownloadTask? {
+        val appContext = context.applicationContext
+        return mutex.withLock {
+            val current = _tasks.value.toMutableList()
+            val index = current.indexOfFirst { it.songId == songId }
+            if (index >= 0) {
+                val old = current[index]
+                val updated = old.copy(
+                    quality = newQuality,
+                    status = DownloadStatus.PENDING,
+                    progress = 0f,
+                    speedText = "",
+                    downloadedBytes = 0L,
+                    totalBytes = preloadSize ?: 0L,
+                    errorMsg = null,
+                    preloadUrl = preloadUrl,
+                    preloadSize = preloadSize
+                )
+                current[index] = updated
+                updateTasks(current)
+                save(appContext, current)
+                updated
+            } else {
+                null
+            }
         }
     }
 
@@ -210,7 +305,7 @@ object DownloadStore {
                     )
                 }
             }
-            _tasks.value = current
+            updateTasks(current)
             save(appContext, current)
         }
     }
@@ -238,7 +333,7 @@ object DownloadStore {
                     )
                 }
             }
-            _tasks.value = current
+            updateTasks(current)
             save(appContext, current)
         }
     }
@@ -265,7 +360,7 @@ object DownloadStore {
                     )
                 }
             }
-            _tasks.value = current
+            updateTasks(current)
             save(appContext, current)
         }
     }
@@ -299,7 +394,7 @@ object DownloadStore {
             }
             val removedCount = current.size - valid.size
             if (removedCount > 0) {
-                _tasks.value = valid
+                updateTasks(valid)
                 save(appContext, valid)
             }
             removedCount

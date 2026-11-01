@@ -100,5 +100,6 @@ val downloadCoverKey = booleanPreferencesKey("downloadCover")
 val downloadCustomDirUriKey = stringPreferencesKey("downloadCustomDirUri")
 val downloadCustomDirNameKey = stringPreferencesKey("downloadCustomDirName")
 val downloadCustomGroupsKey = stringPreferencesKey("downloadCustomGroups")
+val downloadConcurrencyKey = intPreferencesKey("downloadConcurrency")
 
 

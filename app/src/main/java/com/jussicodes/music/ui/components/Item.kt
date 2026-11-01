@@ -24,10 +24,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +54,7 @@ import com.jussicodes.music.constants.GridThumbnailHeight
 import com.jussicodes.music.constants.ListItemHeight
 import com.jussicodes.music.constants.ListThumbnailSize
 import com.jussicodes.music.constants.ThumbnailCornerRadius
+import com.jussicodes.music.data.download.DownloadStore
 import com.jussicodes.music.ui.icons.FavoriteFill
 import com.jussicodes.music.ui.icons.Payment
 import com.jussicodes.music.ui.icons.Vip
@@ -411,7 +416,20 @@ fun SongListItem(
     albumIndex: Int? = null,
     songIndex: Int? = null,
     showLikedIcon: Boolean = false,
+    isDownloaded: Boolean? = null,
     badges: @Composable RowScope.() -> Unit = {
+        val downloadedSongIds by DownloadStore.downloadedSongIds.collectAsState()
+        val downloaded = isDownloaded ?: downloadedSongIds.contains(song.id)
+        if (downloaded) {
+            Icon(
+                imageVector = Icons.Filled.CheckCircle,
+                contentDescription = "已下载",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .size(16.dp)
+                    .padding(end = 3.dp)
+            )
+        }
         if (showLikedIcon) {
             Icon(
                 imageVector = FavoriteFill,

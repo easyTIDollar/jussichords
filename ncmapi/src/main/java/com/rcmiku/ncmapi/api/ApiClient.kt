@@ -359,14 +359,14 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
                 "tv" to 0, "lv" to 0, "rv" to 0, "kv" to 0, "yv" to 0, "ytv" to 0, "yrv" to 0
             )
         )
-        "/song/url/v1" -> eapi(
-            "/api/song/enhance/player/url/v1",
-            mapOf(
+        "/song/url/v1" -> {
+            val params = mutableMapOf<String, Any>(
                 "ids" to ("[" + str("id") + "]"),
-                "level" to (str("level").ifBlank { "standard" }),
-                "encodeType" to "flac"
+                "level" to (str("level").ifBlank { "standard" })
             )
-        )
+            str("encodeType").takeIf { it.isNotBlank() }?.let { params["encodeType"] = it }
+            eapi("/api/song/enhance/player/url/v1", params)
+        }
         // 排行榜
         "/toplist" -> eapi("/api/toplist", emptyMap())
         // 账号 / 云盘 / 收藏

@@ -49,16 +49,22 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Tune
+import com.jussicodes.music.ui.components.AudioQualityProbeDialog
+import com.jussicodes.music.ui.components.ProbeDialogMode
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.QueueMusic
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -69,6 +75,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -81,8 +88,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -109,6 +121,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -118,6 +131,7 @@ import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.constants.MiniPlayerHeight
+import com.jussicodes.music.constants.downloadConcurrencyKey
 import com.jussicodes.music.constants.downloadCoverKey
 import com.jussicodes.music.constants.downloadCustomDirNameKey
 import com.jussicodes.music.constants.downloadCustomDirUriKey
@@ -138,6 +152,12 @@ import com.jussicodes.music.ui.components.JussiMenuItem
 import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.model.Artist
 import com.rcmiku.ncmapi.model.Song
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.outlined.FolderOpen
+import com.jussicodes.music.data.external.ExternalPlaylist
+import com.jussicodes.music.data.external.ExternalPlaylistStore
+import com.jussicodes.music.data.external.ExternalSong
+import com.jussicodes.music.utils.makeTimeString
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -159,6 +179,10 @@ fun DownloadScreen(
     }
 
     var showSettingsSheet by rememberSaveable { mutableStateOf(false) }
+    var downloadQuality by rememberPreference(downloadQualityKey, "ask")
+    var probeTask by remember { mutableStateOf<DownloadTask?>(null) }
+    var probeDialogMode by remember { mutableStateOf(ProbeDialogMode.UPGRADE) }
+    var showBenchmarkProbe by remember { mutableStateOf(false) }
     var customGroupsRaw by rememberPreference(downloadCustomGroupsKey, "")
     val customGroupNames: Set<String> = remember(customGroupsRaw) {
         customGroupsRaw.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
@@ -169,6 +193,11 @@ fun DownloadScreen(
     var selectedSongIds by remember { mutableStateOf(setOf<Long>()) }
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
     var showMoveToGroupDialog by remember { mutableStateOf(false) }
+    var showBatchUpgradeDialog by remember { mutableStateOf(false) }
+
+    // 搜索状态
+    var isSearchActive by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
 
     // 当切换 tab 或退出多选模式
     val exitSelectionMode = {
@@ -176,9 +205,14 @@ fun DownloadScreen(
         selectedSongIds = emptySet()
     }
 
-    // 当处于多选模式时，拦截系统返回键/手势返回，仅退出多选而非返回上一页
-    BackHandler(enabled = isSelectionMode) {
-        exitSelectionMode()
+    // 当处于多选或搜索模式时，拦截系统返回键/手势返回，仅退出多选/搜索而非返回上一页
+    BackHandler(enabled = isSelectionMode || isSearchActive) {
+        if (isSelectionMode) {
+            exitSelectionMode()
+        } else if (isSearchActive) {
+            isSearchActive = false
+            searchQuery = ""
+        }
     }
 
     Scaffold(
@@ -202,6 +236,20 @@ fun DownloadScreen(
                             }
                         }) {
                             Text(if (allSelected) "取消全选" else "全选")
+                        }
+                        IconButton(
+                            onClick = {
+                                if (selectedSongIds.isNotEmpty()) {
+                                    showBatchUpgradeDialog = true
+                                }
+                            },
+                            enabled = selectedSongIds.isNotEmpty()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.HighQuality,
+                                contentDescription = "升级音质",
+                                tint = if (selectedSongIds.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            )
                         }
                         IconButton(
                             onClick = {
@@ -235,6 +283,47 @@ fun DownloadScreen(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant
                     )
                 )
+            } else if (isSearchActive) {
+                // 搜索顶部栏
+                TopAppBar(
+                    title = {
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("搜索已下载歌曲、歌手、专辑...", style = MaterialTheme.typography.bodyMedium) },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            ),
+                            textStyle = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            isSearchActive = false
+                            searchQuery = ""
+                        }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "退出搜索"
+                            )
+                        }
+                    },
+                    actions = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Clear,
+                                    contentDescription = "清空"
+                                )
+                            }
+                        }
+                    }
+                )
             } else {
                 // 常规顶部栏
                 TopAppBar(
@@ -248,6 +337,12 @@ fun DownloadScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = { isSearchActive = true }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Search,
+                                contentDescription = "搜索已下载歌曲"
+                            )
+                        }
                         IconButton(onClick = { DownloadManager.openDownloadFolder(context) }) {
                             Icon(
                                 imageVector = Icons.Outlined.Folder,
@@ -290,6 +385,7 @@ fun DownloadScreen(
                     isLandscape = isLandscape,
                     isSelectionMode = isSelectionMode,
                     selectedSongIds = selectedSongIds,
+                    searchQuery = searchQuery,
                     onToggleSelect = { songId ->
                         selectedSongIds = if (songId in selectedSongIds) {
                             val next = selectedSongIds - songId
@@ -305,6 +401,10 @@ fun DownloadScreen(
                     },
                     onDelete = { songId, deleteFile ->
                         DownloadManager.deleteDownloaded(context, songId, deleteFile)
+                    },
+                    onProbeQuality = { task ->
+                        probeTask = task
+                        probeDialogMode = ProbeDialogMode.UPGRADE
                     }
                 )
                 1 -> DownloadingListSection(
@@ -314,7 +414,11 @@ fun DownloadScreen(
                     onResume = { DownloadManager.resume(context, it) },
                     onCancel = { DownloadManager.cancel(context, it) },
                     onPauseAll = { DownloadManager.pauseAll(context) },
-                    onResumeAll = { DownloadManager.resumeAll(context) }
+                    onResumeAll = { DownloadManager.resumeAll(context) },
+                    onRetryWithProbe = { task ->
+                        probeTask = task
+                        probeDialogMode = ProbeDialogMode.RETRY_FAILED
+                    }
                 )
             }
         }
@@ -477,10 +581,96 @@ fun DownloadScreen(
         )
     }
 
+    if (showBatchUpgradeDialog) {
+        DownloadQualityDialog(
+            currentKey = downloadQuality,
+            title = "批量升级 ${selectedSongIds.size} 首歌曲音质",
+            includeAskOption = false,
+            onDismiss = { showBatchUpgradeDialog = false },
+            onQualitySelected = { targetQuality ->
+                showBatchUpgradeDialog = false
+                val count = selectedSongIds.size
+                selectedSongIds.forEach { songId ->
+                    DownloadManager.redownload(
+                        context = context,
+                        songId = songId,
+                        newQuality = targetQuality
+                    )
+                }
+                Toast.makeText(
+                    context,
+                    "已将 $count 首歌曲加入重新下载队列 (${targetQuality})",
+                    Toast.LENGTH_SHORT
+                ).show()
+                exitSelectionMode()
+            }
+        )
+    }
+
     if (showSettingsSheet) {
         DownloadSettingsBottomSheet(
             isLandscape = isLandscape,
-            onDismiss = { showSettingsSheet = false }
+            onDismiss = { showSettingsSheet = false },
+            onOpenBenchmarkProbe = {
+                showSettingsSheet = false
+                showBenchmarkProbe = true
+            }
+        )
+    }
+
+    if (showBenchmarkProbe) {
+        AudioQualityProbeDialog(
+            mode = ProbeDialogMode.BENCHMARK,
+            songId = 2644774041L,
+            title = "音源下载能力体检",
+            subtitle = "基准曲目 · ID: 2644774041",
+            durationMs = 0L,
+            currentQualityKey = downloadQuality,
+            onDismiss = { showBenchmarkProbe = false },
+            onConfirm = { selectedLevel, _, _ ->
+                downloadQuality = selectedLevel.value
+                showBenchmarkProbe = false
+                Toast.makeText(context, "已将默认下载音质设置为: ${selectedLevel.value}", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    probeTask?.let { task ->
+        AudioQualityProbeDialog(
+            mode = probeDialogMode,
+            songId = task.songId,
+            title = task.title,
+            subtitle = task.artist,
+            durationMs = task.durationMs,
+            currentQualityKey = if (probeDialogMode == ProbeDialogMode.UPGRADE) {
+                task.actualQualityText ?: task.quality
+            } else {
+                task.quality
+            },
+            onDismiss = { probeTask = null },
+            onConfirm = { selectedLevel, preloadUrl, preloadSize ->
+                val levelKey = selectedLevel.value
+                if (probeDialogMode == ProbeDialogMode.UPGRADE) {
+                    DownloadManager.redownload(
+                        context = context,
+                        songId = task.songId,
+                        newQuality = levelKey,
+                        preloadUrl = preloadUrl,
+                        preloadSize = preloadSize
+                    )
+                    Toast.makeText(context, "已开始重新下载: ${task.title} ($levelKey)", Toast.LENGTH_SHORT).show()
+                } else if (probeDialogMode == ProbeDialogMode.RETRY_FAILED) {
+                    DownloadManager.retryWithQuality(
+                        context = context,
+                        songId = task.songId,
+                        newQuality = levelKey,
+                        preloadUrl = preloadUrl,
+                        preloadSize = preloadSize
+                    )
+                    Toast.makeText(context, "已使用 $levelKey 重试: ${task.title}", Toast.LENGTH_SHORT).show()
+                }
+                probeTask = null
+            }
         )
     }
 }
@@ -492,9 +682,11 @@ private fun DownloadedListSection(
     isLandscape: Boolean,
     isSelectionMode: Boolean,
     selectedSongIds: Set<Long>,
+    searchQuery: String = "",
     onToggleSelect: (Long) -> Unit,
     onEnterSelection: (Long) -> Unit,
-    onDelete: (Long, Boolean) -> Unit
+    onDelete: (Long, Boolean) -> Unit,
+    onProbeQuality: (DownloadTask) -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -504,11 +696,145 @@ private fun DownloadedListSection(
     var isRefreshing by remember { mutableStateOf(false) }
     val pullToRefreshState = rememberPullToRefreshState()
 
-    val totalBytes = remember(completedTasks) {
-        completedTasks.sumOf { it.totalBytes }
+    val externalPlaylists by ExternalPlaylistStore.playlists.collectAsState()
+    var isImportingExternal by remember { mutableStateOf(false) }
+    var importProgressStatus by remember { mutableStateOf<String?>(null) }
+
+    // 搜索实时过滤
+    val effectiveCompletedTasks = remember(completedTasks, searchQuery) {
+        if (searchQuery.isBlank()) {
+            completedTasks
+        } else {
+            val q = searchQuery.trim().lowercase()
+            completedTasks.filter {
+                it.title.lowercase().contains(q) ||
+                it.artist.lowercase().contains(q) ||
+                it.album.lowercase().contains(q)
+            }
+        }
     }
 
-    if (completedTasks.isEmpty()) {
+    val effectiveExternalPlaylists = remember(externalPlaylists, searchQuery) {
+        if (searchQuery.isBlank()) {
+            externalPlaylists
+        } else {
+            val q = searchQuery.trim().lowercase()
+            externalPlaylists.mapNotNull { pl ->
+                val matching = pl.songs.filter { s ->
+                    s.title.lowercase().contains(q) ||
+                    s.artist.lowercase().contains(q) ||
+                    s.album.lowercase().contains(q)
+                }
+                if (matching.isNotEmpty() || pl.name.lowercase().contains(q)) {
+                    pl.copy(songs = matching)
+                } else null
+            }
+        }
+    }
+
+    val totalBytes = remember(effectiveCompletedTasks) {
+        effectiveCompletedTasks.sumOf { it.totalBytes }
+    }
+
+    var groupFilterIndex by rememberSaveable { mutableIntStateOf(0) } // 0: 全部, 1: 专辑, 2: 分组, 3: 外部歌单
+    var expandedExternalPlaylistIds by remember { mutableStateOf(setOf<String>()) }
+    var renameTargetExternalPlaylist by remember { mutableStateOf<ExternalPlaylist?>(null) }
+    var renameExternalPlaylistInput by remember { mutableStateOf("") }
+    var deleteTargetExternalPlaylist by remember { mutableStateOf<ExternalPlaylist?>(null) }
+
+    val externalFolderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { treeUri ->
+        if (treeUri != null) {
+            coroutineScope.launch {
+                isImportingExternal = true
+                importProgressStatus = "准备开始扫描..."
+                try {
+                    runCatching {
+                        context.contentResolver.takePersistableUriPermission(
+                            treeUri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    }
+                    val doc = DocumentFile.fromTreeUri(context, treeUri)
+                    val folderName = doc?.name?.ifBlank { "外部歌单" } ?: "外部歌单"
+                    val pl = ExternalPlaylistStore.importFolder(context, treeUri, folderName) { current, total, name ->
+                        importProgressStatus = "($current/$total) $name"
+                    }
+                    if (pl.songs.isNotEmpty()) {
+                        Toast.makeText(context, "成功导入「$folderName」，共识别到 ${pl.songs.size} 首歌曲", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "导入「$folderName」成功，但未识别到音频文件", Toast.LENGTH_LONG).show()
+                    }
+                    groupFilterIndex = 3
+                    expandedExternalPlaylistIds = expandedExternalPlaylistIds + pl.id
+                } catch (e: Exception) {
+                    Toast.makeText(context, "导入失败：${e.message}", Toast.LENGTH_SHORT).show()
+                } finally {
+                    isImportingExternal = false
+                    importProgressStatus = null
+                }
+            }
+        }
+    }
+
+    if (isImportingExternal) {
+        Dialog(onDismissRequest = {}) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(40.dp))
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        text = "正在扫描导入外部音频...",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (importProgressStatus != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = importProgressStatus.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (searchQuery.isNotBlank() && effectiveCompletedTasks.isEmpty() && effectiveExternalPlaylists.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize().padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Outlined.Search,
+                    contentDescription = null,
+                    modifier = Modifier.size(56.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "未找到与 \"$searchQuery\" 相关的歌曲",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        return
+    }
+
+    if (completedTasks.isEmpty() && externalPlaylists.isEmpty() && groupFilterIndex != 3) {
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
@@ -516,12 +842,19 @@ private fun DownloadedListSection(
                     isRefreshing = true
                     try {
                         val removed = DownloadStore.verifyAndSyncLocalFiles(context)
-                        kotlinx.coroutines.delay(600)
-                        if (removed > 0) {
-                            Toast.makeText(context, "已清理 $removed 首失效歌曲", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(context, "本地文件校验完毕", Toast.LENGTH_SHORT).show()
+                        val (extAdded, extRemoved) = ExternalPlaylistStore.refreshAllPlaylists(context)
+                        kotlinx.coroutines.delay(400)
+                        val msg = when {
+                            extAdded > 0 || extRemoved > 0 || removed > 0 -> {
+                                val parts = mutableListOf<String>()
+                                if (extAdded > 0) parts.add("外部新增 $extAdded 首")
+                                if (extRemoved > 0) parts.add("外部清理 $extRemoved 首")
+                                if (removed > 0) parts.add("清理已删下载 $removed 首")
+                                "刷新完成：" + parts.joinToString("，")
+                            }
+                            else -> "刷新完成：本地文件状态全部正常"
                         }
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                     } finally {
                         isRefreshing = false
                     }
@@ -562,42 +895,92 @@ private fun DownloadedListSection(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
+                    Spacer(Modifier.height(16.dp))
+                    FilledTonalButton(
+                        onClick = {
+                            groupFilterIndex = 3
+                            externalFolderPicker.launch(null)
+                        }
+                    ) {
+                        Icon(Icons.Outlined.CreateNewFolder, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("导入外部歌单 (打造本地播放器)")
+                    }
                 }
             }
         }
         return
     }
 
-    val playAllAction: () -> Unit = {
-        val songs = completedTasks.map { task ->
-            Song(
-                id = task.songId,
-                name = task.title,
-                ar = listOf(Artist(id = task.artistId, name = task.artist)),
-                al = com.rcmiku.ncmapi.model.SongAlbum(id = task.albumId, name = task.album, picUrl = task.coverUrl),
-                dt = task.durationMs
-            )
-        }
-        mediaController?.setPlaylist(
-            songs,
-            sourceId = 20261L,
-            sourceName = "已下载歌曲",
-            sourceType = "download"
+    fun taskToSong(t: DownloadTask): Song {
+        val cover = com.jussicodes.music.data.offline.OfflineMusicMetadataManager.getOfflineCover(
+            context,
+            t.songId,
+            t.coverUrl
+        )?.toString() ?: t.coverUrl
+        return Song(
+            id = t.songId,
+            name = t.title,
+            ar = listOf(Artist(id = t.artistId, name = t.artist)),
+            al = com.rcmiku.ncmapi.model.SongAlbum(id = t.albumId, name = t.album, picUrl = cover),
+            dt = t.durationMs
         )
-        mediaController?.playMediaAtId(completedTasks.first().songId)
+    }
+
+    val playAllAction: () -> Unit = {
+        if (effectiveCompletedTasks.isNotEmpty()) {
+            val songs = effectiveCompletedTasks.map { taskToSong(it) }
+            mediaController?.setPlaylist(
+                songs,
+                sourceId = 20261L,
+                sourceName = "已下载歌曲",
+                sourceType = "download"
+            )
+            mediaController?.playMediaAtId(effectiveCompletedTasks.first().songId)
+        }
+    }
+
+    val playExternalPlaylistAction: (ExternalPlaylist) -> Unit = { pl ->
+        if (pl.songs.isNotEmpty()) {
+            val songs = pl.songs.map { it.toSong(pl.name) }
+            mediaController?.setPlaylist(
+                songs = songs,
+                sourceId = 20263L,
+                sourceName = pl.name,
+                sourceType = "external"
+            )
+            mediaController?.playMediaAtId(pl.songs.first().id)
+        }
+    }
+
+    val playExternalSongAction: (ExternalPlaylist, ExternalSong) -> Unit = { pl, s ->
+        val songs = pl.songs.map { it.toSong(pl.name) }
+        mediaController?.setPlaylist(
+            songs = songs,
+            sourceId = 20263L,
+            sourceName = pl.name,
+            sourceType = "external"
+        )
+        mediaController?.playMediaAtId(s.id)
+    }
+
+    val refreshExternalPlaylistAction: (ExternalPlaylist) -> Unit = { pl ->
+        coroutineScope.launch {
+            Toast.makeText(context, "正在重新扫描「${pl.name}」...", Toast.LENGTH_SHORT).show()
+            val (added, removed) = ExternalPlaylistStore.refreshPlaylist(context, pl.id)
+            val msg = when {
+                added > 0 && removed > 0 -> "刷新完成：新增 $added 首，移除 $removed 首"
+                added > 0 -> "刷新完成：新增 $added 首歌曲"
+                removed > 0 -> "刷新完成：已清理 $removed 首失效歌曲"
+                else -> "刷新完成：本地文件无变动"
+            }
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        }
     }
 
     val playGroupAction: (List<DownloadTask>, String) -> Unit = { list, groupTitle ->
         if (list.isNotEmpty()) {
-            val songs = list.map { task ->
-                Song(
-                    id = task.songId,
-                    name = task.title,
-                    ar = listOf(Artist(id = task.artistId, name = task.artist)),
-                    al = com.rcmiku.ncmapi.model.SongAlbum(id = task.albumId, name = task.album, picUrl = task.coverUrl),
-                    dt = task.durationMs
-                )
-            }
+            val songs = list.map { taskToSong(it) }
             mediaController?.setPlaylist(
                 songs,
                 sourceId = 20261L,
@@ -612,15 +995,7 @@ private fun DownloadedListSection(
         if (isSelectionMode) {
             onToggleSelect(task.songId)
         } else {
-            val songs = completedTasks.map { t ->
-                Song(
-                    id = t.songId,
-                    name = t.title,
-                    ar = listOf(Artist(id = t.artistId, name = t.artist)),
-                    al = com.rcmiku.ncmapi.model.SongAlbum(id = t.albumId, name = t.album, picUrl = t.coverUrl),
-                    dt = t.durationMs
-                )
-            }
+            val songs = effectiveCompletedTasks.map { taskToSong(it) }
             mediaController?.setPlaylist(
                 songs,
                 sourceId = 20261L,
@@ -632,8 +1007,8 @@ private fun DownloadedListSection(
     }
 
     // 分组模型与计算：只有在专辑页下载整张专辑的歌曲（isAlbumFolder == true）才进入专辑分组！
-    val albumGroups = remember(completedTasks) {
-        completedTasks.filter { it.isAlbumFolder }.groupBy { task ->
+    val albumGroups = remember(effectiveCompletedTasks) {
+        effectiveCompletedTasks.filter { it.isAlbumFolder }.groupBy { task ->
             task.groupFolder?.takeIf { it.isNotBlank() } ?: task.album.ifBlank { "未知专辑" }
         }.map { (name, songs) ->
             val first = songs.first()
@@ -658,13 +1033,13 @@ private fun DownloadedListSection(
     val customGroupNames: Set<String> = remember(customGroupsRaw) {
         customGroupsRaw.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
     }
-    val allCustomGroupNames = remember(customGroupNames, completedTasks) {
-        val fromTasks = completedTasks.mapNotNull { it.customGroup?.takeIf { g -> g.isNotBlank() } }.toSet()
+    val allCustomGroupNames = remember(customGroupNames, effectiveCompletedTasks) {
+        val fromTasks = effectiveCompletedTasks.mapNotNull { it.customGroup?.takeIf { g -> g.isNotBlank() } }.toSet()
         (customGroupNames + fromTasks).toList().sorted()
     }
-    val customGroups = remember(allCustomGroupNames, completedTasks) {
+    val customGroups = remember(allCustomGroupNames, effectiveCompletedTasks) {
         allCustomGroupNames.map { name ->
-            val songs = completedTasks.filter { it.customGroup == name }
+            val songs = effectiveCompletedTasks.filter { it.customGroup == name }
             val groupBytes = songs.sumOf { it.totalBytes }
             val subtitle = buildString {
                 append("${songs.size} 首歌曲")
@@ -680,7 +1055,6 @@ private fun DownloadedListSection(
         }
     }
 
-    var groupFilterIndex by rememberSaveable { mutableIntStateOf(0) } // 0: 全部, 1: 专辑, 2: 分组
     var expandedGroupKeys by remember { mutableStateOf(setOf<String>()) }
     var showCreateGroupDialog by remember { mutableStateOf(false) }
     var renameTargetGroup by remember { mutableStateOf<String?>(null) }
@@ -695,12 +1069,19 @@ private fun DownloadedListSection(
                 isRefreshing = true
                 try {
                     val removed = DownloadStore.verifyAndSyncLocalFiles(context)
-                    kotlinx.coroutines.delay(600)
-                    if (removed > 0) {
-                        Toast.makeText(context, "已清理 $removed 首失效歌曲", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "已校验，本地文件全部正常", Toast.LENGTH_SHORT).show()
+                    val (extAdded, extRemoved) = ExternalPlaylistStore.refreshAllPlaylists(context)
+                    kotlinx.coroutines.delay(400)
+                    val msg = when {
+                        extAdded > 0 || extRemoved > 0 || removed > 0 -> {
+                            val parts = mutableListOf<String>()
+                            if (extAdded > 0) parts.add("外部新增 $extAdded 首")
+                            if (extRemoved > 0) parts.add("外部清理 $extRemoved 首")
+                            if (removed > 0) parts.add("清理已删下载 $removed 首")
+                            "刷新完成：" + parts.joinToString("，")
+                        }
+                        else -> "刷新完成：本地文件状态全部正常"
                     }
+                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                 } finally {
                     isRefreshing = false
                 }
@@ -725,20 +1106,21 @@ private fun DownloadedListSection(
                 item(span = { GridItemSpan(2) }) {
                     Column {
                         DownloadedHeaderCard(
-                            taskCount = completedTasks.size,
+                            taskCount = effectiveCompletedTasks.size,
                             totalBytes = totalBytes,
                             onPlayAll = playAllAction
                         )
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = 4.dp)
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             FilterChip(
                                 selected = groupFilterIndex == 0,
                                 onClick = { groupFilterIndex = 0 },
-                                label = { Text("全部 (${completedTasks.size})") }
+                                label = { Text("全部 (${effectiveCompletedTasks.size})") }
                             )
                             FilterChip(
                                 selected = groupFilterIndex == 1,
@@ -750,13 +1132,18 @@ private fun DownloadedListSection(
                                 onClick = { groupFilterIndex = 2 },
                                 label = { Text("分组 (${customGroups.size})") }
                             )
+                            FilterChip(
+                                selected = groupFilterIndex == 3,
+                                onClick = { groupFilterIndex = 3 },
+                                label = { Text("外部歌单 (${effectiveExternalPlaylists.size})") }
+                            )
                         }
                     }
                 }
 
                 when (groupFilterIndex) {
                     0 -> {
-                        items(completedTasks, key = { it.songId }) { task ->
+                        items(effectiveCompletedTasks, key = { it.songId }) { task ->
                             DownloadedSongItem(
                                 task = task,
                                 isSelectionMode = isSelectionMode,
@@ -767,7 +1154,8 @@ private fun DownloadedListSection(
                                     onEnterSelection(task.songId)
                                 },
                                 onDeleteClick = { pendingDeleteTask = task },
-                                onShareClick = { shareDownloadedFile(context, task) }
+                                onShareClick = { shareDownloadedFile(context, task) },
+                                onProbeQualityClick = { onProbeQuality(task) }
                             )
                         }
                     }
@@ -792,7 +1180,8 @@ private fun DownloadedListSection(
                                     onEnterSelection(songId)
                                 },
                                 onDeleteClick = { pendingDeleteTask = it },
-                                onShareClick = { shareDownloadedFile(context, it) }
+                                onShareClick = { shareDownloadedFile(context, it) },
+                                onProbeQualityClick = onProbeQuality
                             )
                         }
                     }
@@ -818,6 +1207,32 @@ private fun DownloadedListSection(
                                     text = "新建分组 (同步本地文件夹)",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        item(span = { GridItemSpan(2) }) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
+                                    .clickable { externalFolderPicker.launch(null) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.CreateNewFolder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "导入外部歌单 (自动识别音频、歌词与封面)",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.secondary,
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
@@ -858,12 +1273,101 @@ private fun DownloadedListSection(
                                     },
                                     onDeleteClick = { pendingDeleteTask = it },
                                     onShareClick = { shareDownloadedFile(context, it) },
+                                    onProbeQualityClick = onProbeQuality,
                                     onRenameGroup = {
                                         renameTargetGroup = group.title
                                         renameInput = group.title
                                     },
                                     onDeleteGroup = {
                                         deleteTargetGroup = group.title
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    3 -> {
+                        item(span = { GridItemSpan(2) }) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                                    .clickable { externalFolderPicker.launch(null) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.CreateNewFolder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "导入外部文件夹歌单",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "可识别单文件或独立音频与封面",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (isImportingExternal) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+
+                        if (effectiveExternalPlaylists.isEmpty()) {
+                            item(span = { GridItemSpan(2) }) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "暂无导入的外部歌单，点击上方导入手机中的任意音乐文件夹",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            items(effectiveExternalPlaylists, key = { it.id }, span = { GridItemSpan(2) }) { pl ->
+                                ExternalPlaylistCard(
+                                    playlist = pl,
+                                    isExpanded = pl.id in expandedExternalPlaylistIds,
+                                    onToggleExpand = {
+                                        expandedExternalPlaylistIds = if (pl.id in expandedExternalPlaylistIds) {
+                                            expandedExternalPlaylistIds - pl.id
+                                        } else {
+                                            expandedExternalPlaylistIds + pl.id
+                                        }
+                                    },
+                                    onPlayAll = { playExternalPlaylistAction(pl) },
+                                    onRefresh = { refreshExternalPlaylistAction(pl) },
+                                    onRename = {
+                                        renameTargetExternalPlaylist = pl
+                                        renameExternalPlaylistInput = pl.name
+                                    },
+                                    onDelete = {
+                                        deleteTargetExternalPlaylist = pl
+                                    },
+                                    onSongClick = { song ->
+                                        playExternalSongAction(pl, song)
+                                    },
+                                    onSongDelete = { song ->
+                                        coroutineScope.launch {
+                                            ExternalPlaylistStore.removeSong(context, pl.id, song.id)
+                                            Toast.makeText(context, "已从歌单中移除「${song.title}」", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 )
                             }
@@ -883,20 +1387,21 @@ private fun DownloadedListSection(
                 item {
                     Column {
                         DownloadedHeaderCard(
-                            taskCount = completedTasks.size,
+                            taskCount = effectiveCompletedTasks.size,
                             totalBytes = totalBytes,
                             onPlayAll = playAllAction
                         )
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             FilterChip(
                                 selected = groupFilterIndex == 0,
                                 onClick = { groupFilterIndex = 0 },
-                                label = { Text("全部 (${completedTasks.size})") }
+                                label = { Text("全部 (${effectiveCompletedTasks.size})") }
                             )
                             FilterChip(
                                 selected = groupFilterIndex == 1,
@@ -908,13 +1413,18 @@ private fun DownloadedListSection(
                                 onClick = { groupFilterIndex = 2 },
                                 label = { Text("分组 (${customGroups.size})") }
                             )
+                            FilterChip(
+                                selected = groupFilterIndex == 3,
+                                onClick = { groupFilterIndex = 3 },
+                                label = { Text("外部歌单 (${effectiveExternalPlaylists.size})") }
+                            )
                         }
                     }
                 }
 
                 when (groupFilterIndex) {
                     0 -> {
-                        items(completedTasks, key = { it.songId }) { task ->
+                        items(effectiveCompletedTasks, key = { it.songId }) { task ->
                             DownloadedSongItem(
                                 task = task,
                                 isSelectionMode = isSelectionMode,
@@ -925,7 +1435,8 @@ private fun DownloadedListSection(
                                     onEnterSelection(task.songId)
                                 },
                                 onDeleteClick = { pendingDeleteTask = task },
-                                onShareClick = { shareDownloadedFile(context, task) }
+                                onShareClick = { shareDownloadedFile(context, task) },
+                                onProbeQualityClick = { onProbeQuality(task) }
                             )
                         }
                     }
@@ -950,7 +1461,8 @@ private fun DownloadedListSection(
                                     onEnterSelection(songId)
                                 },
                                 onDeleteClick = { pendingDeleteTask = it },
-                                onShareClick = { shareDownloadedFile(context, it) }
+                                onShareClick = { shareDownloadedFile(context, it) },
+                                onProbeQualityClick = onProbeQuality
                             )
                         }
                     }
@@ -976,6 +1488,32 @@ private fun DownloadedListSection(
                                     text = "新建分组 (同步本地文件夹)",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
+                                    .clickable { externalFolderPicker.launch(null) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.CreateNewFolder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "导入外部歌单 (自动识别音频、歌词与封面)",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.secondary,
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
@@ -1016,12 +1554,101 @@ private fun DownloadedListSection(
                                     },
                                     onDeleteClick = { pendingDeleteTask = it },
                                     onShareClick = { shareDownloadedFile(context, it) },
+                                    onProbeQualityClick = onProbeQuality,
                                     onRenameGroup = {
                                         renameTargetGroup = group.title
                                         renameInput = group.title
                                     },
                                     onDeleteGroup = {
                                         deleteTargetGroup = group.title
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    3 -> {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                                    .clickable { externalFolderPicker.launch(null) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.CreateNewFolder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "导入外部文件夹歌单",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "可识别单文件或独立音频与封面",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (isImportingExternal) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+
+                        if (effectiveExternalPlaylists.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "暂无导入的外部歌单，点击上方导入手机中的任意音乐文件夹",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            items(effectiveExternalPlaylists, key = { it.id }) { pl ->
+                                ExternalPlaylistCard(
+                                    playlist = pl,
+                                    isExpanded = pl.id in expandedExternalPlaylistIds,
+                                    onToggleExpand = {
+                                        expandedExternalPlaylistIds = if (pl.id in expandedExternalPlaylistIds) {
+                                            expandedExternalPlaylistIds - pl.id
+                                        } else {
+                                            expandedExternalPlaylistIds + pl.id
+                                        }
+                                    },
+                                    onPlayAll = { playExternalPlaylistAction(pl) },
+                                    onRefresh = { refreshExternalPlaylistAction(pl) },
+                                    onRename = {
+                                        renameTargetExternalPlaylist = pl
+                                        renameExternalPlaylistInput = pl.name
+                                    },
+                                    onDelete = {
+                                        deleteTargetExternalPlaylist = pl
+                                    },
+                                    onSongClick = { song ->
+                                        playExternalSongAction(pl, song)
+                                    },
+                                    onSongDelete = { song ->
+                                        coroutineScope.launch {
+                                            ExternalPlaylistStore.removeSong(context, pl.id, song.id)
+                                            Toast.makeText(context, "已从歌单中移除「${song.title}」", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 )
                             }
@@ -1180,6 +1807,78 @@ private fun DownloadedListSection(
             }
         )
     }
+
+    renameTargetExternalPlaylist?.let { targetPl ->
+        AlertDialog(
+            onDismissRequest = { renameTargetExternalPlaylist = null },
+            title = { Text("重命名外部歌单") },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "原文件夹：${targetPl.folderPathName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = renameExternalPlaylistInput,
+                        onValueChange = { renameExternalPlaylistInput = it },
+                        label = { Text("歌单名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val newName = renameExternalPlaylistInput.trim()
+                        if (newName.isNotBlank() && newName != targetPl.name) {
+                            coroutineScope.launch {
+                                ExternalPlaylistStore.renamePlaylist(context, targetPl.id, newName)
+                                Toast.makeText(context, "歌单已重命名为「$newName」", Toast.LENGTH_SHORT).show()
+                                renameTargetExternalPlaylist = null
+                            }
+                        }
+                    },
+                    enabled = renameExternalPlaylistInput.trim().isNotBlank() && renameExternalPlaylistInput.trim() != targetPl.name
+                ) {
+                    Text("保存")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTargetExternalPlaylist = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    deleteTargetExternalPlaylist?.let { targetPl ->
+        AlertDialog(
+            onDismissRequest = { deleteTargetExternalPlaylist = null },
+            title = { Text("移除外部歌单「${targetPl.name}」") },
+            text = { Text("仅从 App 外部歌单列表中解绑移除，不会删除手机中的音乐、歌词与封面文件。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            ExternalPlaylistStore.deletePlaylist(context, targetPl.id)
+                            Toast.makeText(context, "歌单「${targetPl.name}」已移除", Toast.LENGTH_SHORT).show()
+                            deleteTargetExternalPlaylist = null
+                        }
+                    }
+                ) {
+                    Text("移除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTargetExternalPlaylist = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -1232,7 +1931,8 @@ private fun DownloadedSongItem(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDeleteClick: () -> Unit,
-    onShareClick: () -> Unit
+    onShareClick: () -> Unit,
+    onProbeQualityClick: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -1247,8 +1947,16 @@ private fun DownloadedSongItem(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        val itemContext = LocalContext.current
+        val offlineCover = remember(task.songId, task.coverUrl) {
+            com.jussicodes.music.data.offline.OfflineMusicMetadataManager.getOfflineCover(
+                itemContext,
+                task.songId,
+                task.coverUrl
+            )
+        }
         AsyncImage(
-            model = task.coverUrl,
+            model = offlineCover,
             contentDescription = null,
             modifier = Modifier
                 .size(48.dp)
@@ -1268,6 +1976,8 @@ private fun DownloadedSongItem(
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val badgeText = task.actualQualityText ?: when (task.quality) {
+                    "jymaster" -> "母带"
+                    "dolby" -> "杜比"
                     "hires" -> "Hi-Res"
                     "lossless" -> "FLAC"
                     "exhigh" -> "320K"
@@ -1318,6 +2028,14 @@ private fun DownloadedSongItem(
                     onDismissRequest = { menuExpanded = false }
                 ) {
                     JussiMenuItem(
+                        text = "音质体检 / 升级",
+                        icon = Icons.Outlined.HighQuality,
+                        onClick = {
+                            menuExpanded = false
+                            onProbeQualityClick()
+                        }
+                    )
+                    JussiMenuItem(
                         text = "分享音频文件",
                         icon = Icons.Outlined.Share,
                         onClick = {
@@ -1341,6 +2059,40 @@ private fun DownloadedSongItem(
 }
 
 @Composable
+private fun DownloadingNoticeCard(modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.CloudDownload,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = "音源不保证可用性，不要盲目追求高音质下载，禁止滥用音源",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 16.sp
+            )
+        }
+    }
+}
+
+@Composable
 private fun DownloadingListSection(
     activeTasks: List<DownloadTask>,
     isLandscape: Boolean,
@@ -1348,28 +2100,33 @@ private fun DownloadingListSection(
     onResume: (Long) -> Unit,
     onCancel: (Long) -> Unit,
     onPauseAll: () -> Unit,
-    onResumeAll: () -> Unit
+    onResumeAll: () -> Unit,
+    onRetryWithProbe: (DownloadTask) -> Unit = {}
 ) {
     if (activeTasks.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    imageVector = Icons.Outlined.Check,
-                    contentDescription = null,
-                    modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                )
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = "没有正在下载的任务",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+        Column(modifier = Modifier.fillMaxSize()) {
+            DownloadingNoticeCard()
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Outlined.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        text = "没有正在下载的任务",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
         return
@@ -1389,7 +2146,8 @@ private fun DownloadingListSection(
                     task = task,
                     onPause = { onPause(task.songId) },
                     onResume = { onResume(task.songId) },
-                    onCancel = { onCancel(task.songId) }
+                    onCancel = { onCancel(task.songId) },
+                    onRetryWithProbe = { onRetryWithProbe(task) }
                 )
             }
 
@@ -1410,7 +2168,8 @@ private fun DownloadingListSection(
                     task = task,
                     onPause = { onPause(task.songId) },
                     onResume = { onResume(task.songId) },
-                    onCancel = { onCancel(task.songId) }
+                    onCancel = { onCancel(task.songId) },
+                    onRetryWithProbe = { onRetryWithProbe(task) }
                 )
             }
 
@@ -1427,25 +2186,31 @@ private fun DownloadingHeaderRow(
     onPauseAll: () -> Unit,
     onResumeAll: () -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 16.dp, vertical = 6.dp)
     ) {
-        Text(
-            text = "下载队列 ($count)",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold
-        )
-        Row {
-            OutlinedButton(onClick = onPauseAll) {
-                Text("全部暂停")
-            }
-            Spacer(Modifier.width(8.dp))
-            FilledTonalButton(onClick = onResumeAll) {
-                Text("全部开始")
+        DownloadingNoticeCard(modifier = Modifier.padding(bottom = 6.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "下载队列 ($count)",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Row {
+                OutlinedButton(onClick = onPauseAll) {
+                    Text("全部暂停")
+                }
+                Spacer(Modifier.width(8.dp))
+                FilledTonalButton(onClick = onResumeAll) {
+                    Text("全部开始")
+                }
             }
         }
     }
@@ -1456,7 +2221,8 @@ private fun DownloadingSongItem(
     task: DownloadTask,
     onPause: () -> Unit,
     onResume: () -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    onRetryWithProbe: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -1500,6 +2266,16 @@ private fun DownloadingSongItem(
                 style = MaterialTheme.typography.bodySmall,
                 color = if (task.status == DownloadStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (task.status == DownloadStatus.FAILED) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "换档重试 ›",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable { onRetryWithProbe() }.padding(vertical = 2.dp)
+                )
+            }
 
             Spacer(Modifier.height(4.dp))
             if (task.status == DownloadStatus.DOWNLOADING || task.status == DownloadStatus.PAUSED) {
@@ -1523,6 +2299,15 @@ private fun DownloadingSongItem(
         Spacer(Modifier.width(12.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
+            if (task.status == DownloadStatus.FAILED) {
+                IconButton(onClick = onRetryWithProbe) {
+                    Icon(
+                        imageVector = Icons.Outlined.Tune,
+                        contentDescription = "换档重试",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
             when (task.status) {
                 DownloadStatus.DOWNLOADING, DownloadStatus.RESOLVING -> {
                     IconButton(onClick = onPause) {
@@ -1550,7 +2335,8 @@ private fun DownloadingSongItem(
 @Composable
 private fun DownloadSettingsBottomSheet(
     isLandscape: Boolean,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onOpenBenchmarkProbe: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -1561,6 +2347,7 @@ private fun DownloadSettingsBottomSheet(
     var downloadCover by rememberPreference(downloadCoverKey, true)
     var downloadCustomDirUri by rememberPreference(downloadCustomDirUriKey, "")
     var downloadCustomDirName by rememberPreference(downloadCustomDirNameKey, "")
+    var downloadConcurrency by rememberPreference(downloadConcurrencyKey, 2)
 
     var showQualityPicker by remember { mutableStateOf(false) }
 
@@ -1640,15 +2427,28 @@ private fun DownloadSettingsBottomSheet(
                                                 "standard" -> "标准 (128 kbps)"
                                                 "exhigh" -> "极高 (320 kbps)"
                                                 "lossless" -> "无损 (FLAC)"
-                                                "hires" -> "Hi-Res (母带)"
+                                                "hires" -> "Hi-Res (高解析)"
+                                                "jymaster" -> "超清母带 (Master)"
+                                                "dolby" -> "杜比全景声 (Dolby)"
                                                 else -> "每次询问"
                                             },
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.primary
                                         )
                                     }
-                                    TextButton(onClick = { showQualityPicker = true }) {
-                                        Text("更改")
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        TextButton(onClick = onOpenBenchmarkProbe) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Speed,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("音源体检")
+                                        }
+                                        TextButton(onClick = { showQualityPicker = true }) {
+                                            Text("更改")
+                                        }
                                     }
                                 }
                             }
@@ -1676,6 +2476,34 @@ private fun DownloadSettingsBottomSheet(
                                         Spacer(Modifier.width(8.dp))
                                         OutlinedButton(onClick = { DownloadManager.openDownloadFolder(context) }) {
                                             Text("查看")
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(Modifier.height(12.dp))
+
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("同时下载数: $downloadConcurrency", style = MaterialTheme.typography.titleSmall)
+                                        Row {
+                                            listOf(1, 2, 3, 4).forEach { count ->
+                                                FilterChip(
+                                                    selected = downloadConcurrency == count,
+                                                    onClick = { downloadConcurrency = count },
+                                                    label = { Text("$count") },
+                                                    modifier = Modifier.padding(horizontal = 2.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -1785,15 +2613,28 @@ private fun DownloadSettingsBottomSheet(
                                     "standard" -> "标准 (128 kbps)"
                                     "exhigh" -> "极高 (320 kbps)"
                                     "lossless" -> "无损 (FLAC)"
-                                    "hires" -> "Hi-Res (母带)"
+                                    "hires" -> "Hi-Res (高解析)"
+                                    "jymaster" -> "超清母带 (Master)"
+                                    "dolby" -> "杜比全景声 (Dolby)"
                                     else -> "每次下载时询问"
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
-                        TextButton(onClick = { showQualityPicker = true }) {
-                            Text("更改")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = onOpenBenchmarkProbe) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Speed,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text("音源体检")
+                            }
+                            TextButton(onClick = { showQualityPicker = true }) {
+                                Text("更改")
+                            }
                         }
                     }
                 }
@@ -1833,6 +2674,38 @@ private fun DownloadSettingsBottomSheet(
                                     Toast.makeText(context, "已恢复为默认存储目录", Toast.LENGTH_SHORT).show()
                                 }) {
                                     Text("恢复默认")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // 并发任务数
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("同时下载任务数", style = MaterialTheme.typography.titleMedium)
+                                Text("当前: $downloadConcurrency 个并发任务", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Row {
+                                listOf(1, 2, 3, 4).forEach { count ->
+                                    FilterChip(
+                                        selected = downloadConcurrency == count,
+                                        onClick = { downloadConcurrency = count },
+                                        label = { Text("$count") },
+                                        modifier = Modifier.padding(horizontal = 2.dp)
+                                    )
                                 }
                             }
                         }
@@ -1989,7 +2862,8 @@ private fun DownloadedGroupCard(
     onDeleteClick: (DownloadTask) -> Unit,
     onShareClick: (DownloadTask) -> Unit,
     onRenameGroup: (() -> Unit)? = null,
-    onDeleteGroup: (() -> Unit)? = null
+    onDeleteGroup: (() -> Unit)? = null,
+    onProbeQualityClick: (DownloadTask) -> Unit = {}
 ) {
     Card(
         modifier = Modifier
@@ -2116,9 +2990,283 @@ private fun DownloadedGroupCard(
                         onClick = { onItemClick(songTask) },
                         onLongClick = { onLongClick(songTask.songId) },
                         onDeleteClick = { onDeleteClick(songTask) },
-                        onShareClick = { onShareClick(songTask) }
+                        onShareClick = { onShareClick(songTask) },
+                        onProbeQualityClick = { onProbeQualityClick(songTask) }
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExternalPlaylistCard(
+    playlist: ExternalPlaylist,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onPlayAll: () -> Unit,
+    onRefresh: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    onSongClick: (ExternalSong) -> Unit,
+    onSongDelete: (ExternalSong) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        ),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggleExpand)
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (playlist.coverUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = playlist.coverUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.secondaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.FolderOpen,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+
+                Spacer(Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = playlist.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "${playlist.songs.size} 首歌曲 · ${formatBytes(playlist.totalBytes)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                IconButton(onClick = onPlayAll) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "播放全组",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                IconButton(onClick = onRefresh) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "刷新扫描",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                var menuExpanded by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "更多操作")
+                    }
+                    JussiDropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        JussiMenuItem(
+                            text = "刷新扫描文件夹",
+                            icon = Icons.Default.Refresh,
+                            onClick = {
+                                menuExpanded = false
+                                onRefresh()
+                            }
+                        )
+                        JussiMenuItem(
+                            text = "重命名歌单",
+                            icon = Icons.Outlined.Edit,
+                            onClick = {
+                                menuExpanded = false
+                                onRename()
+                            }
+                        )
+                        JussiMenuItem(
+                            text = "移除外部歌单",
+                            icon = Icons.Outlined.Delete,
+                            destructive = true,
+                            onClick = {
+                                menuExpanded = false
+                                onDelete()
+                            }
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "折叠" else "展开",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (isExpanded) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                )
+
+                if (playlist.songs.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "文件夹中未发现音频文件，点击右上角刷新重新扫描",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    playlist.songs.forEachIndexed { index, song ->
+                        ExternalSongItem(
+                            index = index + 1,
+                            song = song,
+                            onClick = { onSongClick(song) },
+                            onDelete = { onSongDelete(song) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExternalSongItem(
+    index: Int,
+    song: ExternalSong,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (!song.coverUri.isNullOrBlank()) {
+            AsyncImage(
+                model = song.coverUri,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(6.dp)),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "$index",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = song.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (!song.lyricText.isNullOrBlank()) {
+                    Spacer(Modifier.width(6.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = "词",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(2.dp))
+            val extTag = song.fileName.substringAfterLast('.', "").uppercase()
+            Text(
+                text = "${song.artist} · ${if (song.album.isNotBlank()) "${song.album} · " else ""}${if (extTag.isNotBlank()) "$extTag · " else ""}${makeTimeString(song.durationMs)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Box {
+            IconButton(onClick = { menuExpanded = true }) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "更多",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            JussiDropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false }
+            ) {
+                JussiMenuItem(
+                    text = "从歌单中移除",
+                    icon = Icons.Outlined.Delete,
+                    destructive = true,
+                    onClick = {
+                        menuExpanded = false
+                        onDelete()
+                    }
+                )
             }
         }
     }
