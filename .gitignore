@@ -38,7 +38,6 @@ proguard-project.txt
 .idea
 .kotlin/
 release.jks
+canary-keystore.jks
 参考/
 参考2/
-
-main 待更新.md
