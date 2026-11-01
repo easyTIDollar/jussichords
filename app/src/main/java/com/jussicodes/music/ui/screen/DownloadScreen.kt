@@ -143,6 +143,12 @@ import com.jussicodes.music.ui.components.JussiMenuItem
 import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.model.Artist
 import com.rcmiku.ncmapi.model.Song
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.outlined.FolderOpen
+import com.jussicodes.music.data.external.ExternalPlaylist
+import com.jussicodes.music.data.external.ExternalPlaylistStore
+import com.jussicodes.music.data.external.ExternalSong
+import com.jussicodes.music.utils.makeTimeString
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -627,7 +633,47 @@ private fun DownloadedListSection(
         completedTasks.sumOf { it.totalBytes }
     }
 
-    if (completedTasks.isEmpty()) {
+    val externalPlaylists by ExternalPlaylistStore.playlists.collectAsState()
+    var isImportingExternal by remember { mutableStateOf(false) }
+    var groupFilterIndex by rememberSaveable { mutableIntStateOf(0) } // 0: 全部, 1: 专辑, 2: 分组, 3: 外部歌单
+    var expandedExternalPlaylistIds by remember { mutableStateOf(setOf<String>()) }
+    var renameTargetExternalPlaylist by remember { mutableStateOf<ExternalPlaylist?>(null) }
+    var renameExternalPlaylistInput by remember { mutableStateOf("") }
+    var deleteTargetExternalPlaylist by remember { mutableStateOf<ExternalPlaylist?>(null) }
+
+    val externalFolderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { treeUri ->
+        if (treeUri != null) {
+            coroutineScope.launch {
+                isImportingExternal = true
+                try {
+                    runCatching {
+                        context.contentResolver.takePersistableUriPermission(
+                            treeUri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    }
+                    val doc = DocumentFile.fromTreeUri(context, treeUri)
+                    val folderName = doc?.name?.ifBlank { "外部歌单" } ?: "外部歌单"
+                    val pl = ExternalPlaylistStore.importFolder(context, treeUri, folderName)
+                    if (pl.songs.isNotEmpty()) {
+                        Toast.makeText(context, "成功导入「$folderName」，共识别到 ${pl.songs.size} 首歌曲", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "导入「$folderName」成功，但未识别到音频文件", Toast.LENGTH_LONG).show()
+                    }
+                    groupFilterIndex = 3
+                    expandedExternalPlaylistIds = expandedExternalPlaylistIds + pl.id
+                } catch (e: Exception) {
+                    Toast.makeText(context, "导入失败：${e.message}", Toast.LENGTH_SHORT).show()
+                } finally {
+                    isImportingExternal = false
+                }
+            }
+        }
+    }
+
+    if (completedTasks.isEmpty() && externalPlaylists.isEmpty() && groupFilterIndex != 3) {
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
@@ -681,6 +727,17 @@ private fun DownloadedListSection(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
+                    Spacer(Modifier.height(16.dp))
+                    FilledTonalButton(
+                        onClick = {
+                            groupFilterIndex = 3
+                            externalFolderPicker.launch(null)
+                        }
+                    ) {
+                        Icon(Icons.Outlined.CreateNewFolder, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("导入外部歌单 (打造本地播放器)")
+                    }
                 }
             }
         }
@@ -688,22 +745,62 @@ private fun DownloadedListSection(
     }
 
     val playAllAction: () -> Unit = {
-        val songs = completedTasks.map { task ->
-            Song(
-                id = task.songId,
-                name = task.title,
-                ar = listOf(Artist(id = task.artistId, name = task.artist)),
-                al = com.rcmiku.ncmapi.model.SongAlbum(id = task.albumId, name = task.album, picUrl = task.coverUrl),
-                dt = task.durationMs
+        if (completedTasks.isNotEmpty()) {
+            val songs = completedTasks.map { task ->
+                Song(
+                    id = task.songId,
+                    name = task.title,
+                    ar = listOf(Artist(id = task.artistId, name = task.artist)),
+                    al = com.rcmiku.ncmapi.model.SongAlbum(id = task.albumId, name = task.album, picUrl = task.coverUrl),
+                    dt = task.durationMs
+                )
+            }
+            mediaController?.setPlaylist(
+                songs,
+                sourceId = 20261L,
+                sourceName = "已下载歌曲",
+                sourceType = "download"
             )
+            mediaController?.playMediaAtId(completedTasks.first().songId)
         }
+    }
+
+    val playExternalPlaylistAction: (ExternalPlaylist) -> Unit = { pl ->
+        if (pl.songs.isNotEmpty()) {
+            val songs = pl.songs.map { it.toSong(pl.name) }
+            mediaController?.setPlaylist(
+                songs = songs,
+                sourceId = 20263L,
+                sourceName = pl.name,
+                sourceType = "external"
+            )
+            mediaController?.playMediaAtId(pl.songs.first().id)
+        }
+    }
+
+    val playExternalSongAction: (ExternalPlaylist, ExternalSong) -> Unit = { pl, s ->
+        val songs = pl.songs.map { it.toSong(pl.name) }
         mediaController?.setPlaylist(
-            songs,
-            sourceId = 20261L,
-            sourceName = "已下载歌曲",
-            sourceType = "download"
+            songs = songs,
+            sourceId = 20263L,
+            sourceName = pl.name,
+            sourceType = "external"
         )
-        mediaController?.playMediaAtId(completedTasks.first().songId)
+        mediaController?.playMediaAtId(s.id)
+    }
+
+    val refreshExternalPlaylistAction: (ExternalPlaylist) -> Unit = { pl ->
+        coroutineScope.launch {
+            Toast.makeText(context, "正在重新扫描「${pl.name}」...", Toast.LENGTH_SHORT).show()
+            val (added, removed) = ExternalPlaylistStore.refreshPlaylist(context, pl.id)
+            val msg = when {
+                added > 0 && removed > 0 -> "刷新完成：新增 $added 首，移除 $removed 首"
+                added > 0 -> "刷新完成：新增 $added 首歌曲"
+                removed > 0 -> "刷新完成：已清理 $removed 首失效歌曲"
+                else -> "刷新完成：本地文件无变动"
+            }
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        }
     }
 
     val playGroupAction: (List<DownloadTask>, String) -> Unit = { list, groupTitle ->
@@ -799,7 +896,6 @@ private fun DownloadedListSection(
         }
     }
 
-    var groupFilterIndex by rememberSaveable { mutableIntStateOf(0) } // 0: 全部, 1: 专辑, 2: 分组
     var expandedGroupKeys by remember { mutableStateOf(setOf<String>()) }
     var showCreateGroupDialog by remember { mutableStateOf(false) }
     var renameTargetGroup by remember { mutableStateOf<String?>(null) }
@@ -851,7 +947,8 @@ private fun DownloadedListSection(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = 4.dp)
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             FilterChip(
@@ -868,6 +965,11 @@ private fun DownloadedListSection(
                                 selected = groupFilterIndex == 2,
                                 onClick = { groupFilterIndex = 2 },
                                 label = { Text("分组 (${customGroups.size})") }
+                            )
+                            FilterChip(
+                                selected = groupFilterIndex == 3,
+                                onClick = { groupFilterIndex = 3 },
+                                label = { Text("外部歌单 (${externalPlaylists.size})") }
                             )
                         }
                     }
@@ -944,6 +1046,32 @@ private fun DownloadedListSection(
                             }
                         }
 
+                        item(span = { GridItemSpan(2) }) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
+                                    .clickable { externalFolderPicker.launch(null) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.CreateNewFolder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "导入外部歌单 (自动识别音频、歌词与封面)",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
                         if (customGroups.isEmpty()) {
                             item(span = { GridItemSpan(2) }) {
                                 Box(
@@ -991,6 +1119,94 @@ private fun DownloadedListSection(
                             }
                         }
                     }
+                    3 -> {
+                        item(span = { GridItemSpan(2) }) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                                    .clickable { externalFolderPicker.launch(null) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.CreateNewFolder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "导入外部文件夹歌单",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "自动识别音频、同名/内嵌歌词与封面，打造本地播放器",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (isImportingExternal) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+
+                        if (externalPlaylists.isEmpty()) {
+                            item(span = { GridItemSpan(2) }) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "暂无导入的外部歌单，点击上方导入手机中的任意音乐文件夹",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            items(externalPlaylists, key = { it.id }, span = { GridItemSpan(2) }) { pl ->
+                                ExternalPlaylistCard(
+                                    playlist = pl,
+                                    isExpanded = pl.id in expandedExternalPlaylistIds,
+                                    onToggleExpand = {
+                                        expandedExternalPlaylistIds = if (pl.id in expandedExternalPlaylistIds) {
+                                            expandedExternalPlaylistIds - pl.id
+                                        } else {
+                                            expandedExternalPlaylistIds + pl.id
+                                        }
+                                    },
+                                    onPlayAll = { playExternalPlaylistAction(pl) },
+                                    onRefresh = { refreshExternalPlaylistAction(pl) },
+                                    onRename = {
+                                        renameTargetExternalPlaylist = pl
+                                        renameExternalPlaylistInput = pl.name
+                                    },
+                                    onDelete = {
+                                        deleteTargetExternalPlaylist = pl
+                                    },
+                                    onSongClick = { song ->
+                                        playExternalSongAction(pl, song)
+                                    },
+                                    onSongDelete = { song ->
+                                        coroutineScope.launch {
+                                            ExternalPlaylistStore.removeSong(context, pl.id, song.id)
+                                            Toast.makeText(context, "已从歌单中移除「${song.title}」", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
 
                 item(span = { GridItemSpan(2) }) {
@@ -1012,7 +1228,8 @@ private fun DownloadedListSection(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             FilterChip(
@@ -1029,6 +1246,11 @@ private fun DownloadedListSection(
                                 selected = groupFilterIndex == 2,
                                 onClick = { groupFilterIndex = 2 },
                                 label = { Text("分组 (${customGroups.size})") }
+                            )
+                            FilterChip(
+                                selected = groupFilterIndex == 3,
+                                onClick = { groupFilterIndex = 3 },
+                                label = { Text("外部歌单 (${externalPlaylists.size})") }
                             )
                         }
                     }
@@ -1105,6 +1327,32 @@ private fun DownloadedListSection(
                             }
                         }
 
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
+                                    .clickable { externalFolderPicker.launch(null) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.CreateNewFolder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "导入外部歌单 (自动识别音频、歌词与封面)",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
                         if (customGroups.isEmpty()) {
                             item {
                                 Box(
@@ -1147,6 +1395,94 @@ private fun DownloadedListSection(
                                     },
                                     onDeleteGroup = {
                                         deleteTargetGroup = group.title
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    3 -> {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                                    .clickable { externalFolderPicker.launch(null) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.CreateNewFolder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "导入外部文件夹歌单",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "自动识别音频、同名/内嵌歌词与封面，打造本地播放器",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (isImportingExternal) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+
+                        if (externalPlaylists.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "暂无导入的外部歌单，点击上方导入手机中的任意音乐文件夹",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            items(externalPlaylists, key = { it.id }) { pl ->
+                                ExternalPlaylistCard(
+                                    playlist = pl,
+                                    isExpanded = pl.id in expandedExternalPlaylistIds,
+                                    onToggleExpand = {
+                                        expandedExternalPlaylistIds = if (pl.id in expandedExternalPlaylistIds) {
+                                            expandedExternalPlaylistIds - pl.id
+                                        } else {
+                                            expandedExternalPlaylistIds + pl.id
+                                        }
+                                    },
+                                    onPlayAll = { playExternalPlaylistAction(pl) },
+                                    onRefresh = { refreshExternalPlaylistAction(pl) },
+                                    onRename = {
+                                        renameTargetExternalPlaylist = pl
+                                        renameExternalPlaylistInput = pl.name
+                                    },
+                                    onDelete = {
+                                        deleteTargetExternalPlaylist = pl
+                                    },
+                                    onSongClick = { song ->
+                                        playExternalSongAction(pl, song)
+                                    },
+                                    onSongDelete = { song ->
+                                        coroutineScope.launch {
+                                            ExternalPlaylistStore.removeSong(context, pl.id, song.id)
+                                            Toast.makeText(context, "已从歌单中移除「${song.title}」", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 )
                             }
@@ -1300,6 +1636,78 @@ private fun DownloadedListSection(
             },
             dismissButton = {
                 TextButton(onClick = { deleteTargetGroup = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    renameTargetExternalPlaylist?.let { targetPl ->
+        AlertDialog(
+            onDismissRequest = { renameTargetExternalPlaylist = null },
+            title = { Text("重命名外部歌单") },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "原文件夹：${targetPl.folderPathName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = renameExternalPlaylistInput,
+                        onValueChange = { renameExternalPlaylistInput = it },
+                        label = { Text("歌单名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val newName = renameExternalPlaylistInput.trim()
+                        if (newName.isNotBlank() && newName != targetPl.name) {
+                            coroutineScope.launch {
+                                ExternalPlaylistStore.renamePlaylist(context, targetPl.id, newName)
+                                Toast.makeText(context, "歌单已重命名为「$newName」", Toast.LENGTH_SHORT).show()
+                                renameTargetExternalPlaylist = null
+                            }
+                        }
+                    },
+                    enabled = renameExternalPlaylistInput.trim().isNotBlank() && renameExternalPlaylistInput.trim() != targetPl.name
+                ) {
+                    Text("保存")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTargetExternalPlaylist = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    deleteTargetExternalPlaylist?.let { targetPl ->
+        AlertDialog(
+            onDismissRequest = { deleteTargetExternalPlaylist = null },
+            title = { Text("移除外部歌单「${targetPl.name}」") },
+            text = { Text("仅从 App 外部歌单列表中解绑移除，不会删除手机中的音乐、歌词与封面文件。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            ExternalPlaylistStore.deletePlaylist(context, targetPl.id)
+                            Toast.makeText(context, "歌单「${targetPl.name}」已移除", Toast.LENGTH_SHORT).show()
+                            deleteTargetExternalPlaylist = null
+                        }
+                    }
+                ) {
+                    Text("移除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTargetExternalPlaylist = null }) {
                     Text("取消")
                 }
             }
@@ -2307,6 +2715,279 @@ private fun DownloadedGroupCard(
                         onProbeQualityClick = { onProbeQualityClick(songTask) }
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExternalPlaylistCard(
+    playlist: ExternalPlaylist,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onPlayAll: () -> Unit,
+    onRefresh: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    onSongClick: (ExternalSong) -> Unit,
+    onSongDelete: (ExternalSong) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        ),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggleExpand)
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (playlist.coverUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = playlist.coverUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.secondaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.FolderOpen,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
+
+                Spacer(Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = playlist.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "${playlist.songs.size} 首歌曲 · ${formatBytes(playlist.totalBytes)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                IconButton(onClick = onPlayAll) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "播放全组",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                IconButton(onClick = onRefresh) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "刷新扫描",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                var menuExpanded by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "更多操作")
+                    }
+                    JussiDropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        JussiMenuItem(
+                            text = "刷新扫描文件夹",
+                            icon = Icons.Default.Refresh,
+                            onClick = {
+                                menuExpanded = false
+                                onRefresh()
+                            }
+                        )
+                        JussiMenuItem(
+                            text = "重命名歌单",
+                            icon = Icons.Outlined.Edit,
+                            onClick = {
+                                menuExpanded = false
+                                onRename()
+                            }
+                        )
+                        JussiMenuItem(
+                            text = "移除外部歌单",
+                            icon = Icons.Outlined.Delete,
+                            destructive = true,
+                            onClick = {
+                                menuExpanded = false
+                                onDelete()
+                            }
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "折叠" else "展开",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (isExpanded) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                )
+
+                if (playlist.songs.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "文件夹中未发现音频文件，点击右上角刷新重新扫描",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    playlist.songs.forEachIndexed { index, song ->
+                        ExternalSongItem(
+                            index = index + 1,
+                            song = song,
+                            onClick = { onSongClick(song) },
+                            onDelete = { onSongDelete(song) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExternalSongItem(
+    index: Int,
+    song: ExternalSong,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (!song.coverUri.isNullOrBlank()) {
+            AsyncImage(
+                model = song.coverUri,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(6.dp)),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "$index",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(Modifier.width(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = song.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (!song.lyricText.isNullOrBlank()) {
+                    Spacer(Modifier.width(6.dp))
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = "词",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(2.dp))
+            val extTag = song.fileName.substringAfterLast('.', "").uppercase()
+            Text(
+                text = "${song.artist} · ${if (song.album.isNotBlank()) "${song.album} · " else ""}${if (extTag.isNotBlank()) "$extTag · " else ""}${makeTimeString(song.durationMs)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Box {
+            IconButton(onClick = { menuExpanded = true }) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "更多",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            JussiDropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false }
+            ) {
+                JussiMenuItem(
+                    text = "从歌单中移除",
+                    icon = Icons.Outlined.Delete,
+                    destructive = true,
+                    onClick = {
+                        menuExpanded = false
+                        onDelete()
+                    }
+                )
             }
         }
     }

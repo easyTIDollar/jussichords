@@ -292,7 +292,10 @@ class DesktopLyricService : Service() {
         )
 
         serviceScope.launch(Dispatchers.IO) {
-            val response = mediaId.toLongOrNull()?.let { PlayerApi.songLyric(it).getOrNull() }
+            val response = mediaId.toLongOrNull()?.let { id ->
+                com.jussicodes.music.data.external.ExternalPlaylistStore.getLyric(id)
+                    ?: PlayerApi.songLyric(id).getOrNull()
+            }
             val parsedLines = response?.let { lyricResponse ->
                 val translationLines = lyricResponse.tlyric?.lyric?.parseLrc().orEmpty()
                 val translationMap = translationLines

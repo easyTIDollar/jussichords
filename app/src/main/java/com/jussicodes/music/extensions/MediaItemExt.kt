@@ -181,6 +181,11 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
     val songId = uri.toResolveKey()
     val idLong = songId.substringBefore("?").toLongOrNull()
     if (context != null && idLong != null) {
+        val externalPlayable = com.jussicodes.music.data.external.ExternalPlaylistStore.getPlayableUri(context, idLong)
+        if (externalPlayable != null) {
+            android.util.Log.i("PlayerApi", "Hit external playlist audio for songId=$songId uri=$externalPlayable")
+            return externalPlayable
+        }
         val localPlayable = com.jussicodes.music.data.download.DownloadStore.getCompletedPlayableUri(context, idLong)
         if (localPlayable != null) {
             android.util.Log.i("PlayerApi", "Hit local downloaded audio for songId=$songId uri=$localPlayable")

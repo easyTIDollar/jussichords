@@ -849,7 +849,7 @@ fun SettingsScreen(
         )
     )
 
-    val groups = listOf(accountGroup, uiGroup, playbackGroup, downloadGroup, advancedGroup, aboutGroup)
+    val groups = listOf(accountGroup, downloadGroup, uiGroup, playbackGroup, advancedGroup, aboutGroup)
 
     // 搜索：按标题 / 副标题 / 分组名过滤，无结果的分组整组隐藏
     val query = searchQuery.trim().lowercase()
