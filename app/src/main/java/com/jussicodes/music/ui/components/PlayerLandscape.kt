@@ -246,8 +246,8 @@ fun PlayerLandscape(
                                 verticalArrangement = Arrangement.Center,
                             ) {
                                 val context = androidx.compose.ui.platform.LocalContext.current
-                                val currentMediaIdLong = remember(currentSong?.id, currentMediaItem?.mediaId) {
-                                    currentSong?.id ?: currentMediaItem?.mediaId?.toLongOrNull()
+                                val currentMediaIdLong = remember(playerState?.currentMediaItem?.mediaId) {
+                                    playerState?.currentMediaItem?.mediaId?.toLongOrNull()
                                 }
                                 val effectiveArtwork = remember(currentMediaIdLong, mediaMetadata.artworkUri) {
                                     if (currentMediaIdLong != null) {

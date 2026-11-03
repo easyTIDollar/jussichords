@@ -426,8 +426,8 @@ fun Player(
                     }
             ) {
                 val context = LocalContext.current
-                val currentMediaIdLong = remember(currentSong?.id, currentMediaItem?.mediaId) {
-                    currentSong?.id ?: currentMediaItem?.mediaId?.toLongOrNull()
+                val currentMediaIdLong = remember(currentSong?.id, mediaId) {
+                    currentSong?.id ?: mediaId?.toLongOrNull()
                 }
                 val effectiveArtwork = remember(currentMediaIdLong, mediaMetadata.artworkUri) {
                     if (currentMediaIdLong != null) {

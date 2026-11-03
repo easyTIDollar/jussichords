@@ -351,7 +351,7 @@ class PlaybackService : MediaSessionService() {
             // 没有解析记录（本地下载音频文件或外部导入文件）：
             val idLong = songId.substringBefore("?").toLongOrNull()
             val isLocal = idLong != null && (
-                com.jussicodes.music.data.download.DownloadStore.isDownloaded(idLong) ||
+                com.jussicodes.music.data.download.DownloadStore.isSongDownloaded(idLong) ||
                 com.jussicodes.music.data.external.ExternalPlaylistStore.findSongById(idLong) != null
             )
             if (isLocal) {
