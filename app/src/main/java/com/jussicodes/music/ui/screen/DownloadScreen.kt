@@ -1366,7 +1366,7 @@ private fun DownloadedListSection(
                                     onSongDelete = { song ->
                                         coroutineScope.launch {
                                             ExternalPlaylistStore.removeSong(context, pl.id, song.id)
-                                            Toast.makeText(context, "已从歌单中移除「${song.title}」", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "已从歌单中移除《${song.title}》", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 )
@@ -1647,7 +1647,7 @@ private fun DownloadedListSection(
                                     onSongDelete = { song ->
                                         coroutineScope.launch {
                                             ExternalPlaylistStore.removeSong(context, pl.id, song.id)
-                                            Toast.makeText(context, "已从歌单中移除「${song.title}」", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "已从歌单中移除《${song.title}》", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 )

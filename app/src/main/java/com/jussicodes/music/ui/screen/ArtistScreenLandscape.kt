@@ -185,9 +185,7 @@ fun ArtistLandscapeBody(
                 )
                 Spacer(Modifier.size(ButtonDefaults.IconSpacing))
                 Text(
-                    text = stringResource(
-                        if (isSubscribed) R.string.library_add_check else R.string.library_add
-                    ),
+                    text = if (isSubscribed) "已关注" else "关注",
                     maxLines = 1
                 )
             }
