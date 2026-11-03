@@ -1719,6 +1719,7 @@ private fun DownloadedListSection(
             }
         }
     }
+}
 
     pendingDeleteTask?.let { task ->
         AlertDialog(
