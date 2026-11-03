@@ -401,8 +401,9 @@ fun MiniMediaInfo(
             }
         ) {
             val context = androidx.compose.ui.platform.LocalContext.current
-            val currentMediaIdLong = remember(currentMediaItem?.mediaId) {
-                currentMediaItem?.mediaId?.toLongOrNull()
+            val playerState = LocalPlayerState.current
+            val currentMediaIdLong = remember(playerState?.currentMediaItem?.mediaId) {
+                playerState?.currentMediaItem?.mediaId?.toLongOrNull()
             }
             val effectiveArtwork = remember(currentMediaIdLong, mediaMetadata.artworkUri) {
                 if (currentMediaIdLong != null) {
