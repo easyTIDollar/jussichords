@@ -362,9 +362,9 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
         "/song/url/v1" -> {
             val params = mutableMapOf<String, Any>(
                 "ids" to ("[" + str("id") + "]"),
-                "level" to (str("level").ifBlank { "standard" })
+                "level" to (str("level").ifBlank { "standard" }),
+                "encodeType" to (str("encodeType").ifBlank { "flac" })
             )
-            str("encodeType").takeIf { it.isNotBlank() }?.let { params["encodeType"] = it }
             eapi("/api/song/enhance/player/url/v1", params)
         }
         // 排行榜
