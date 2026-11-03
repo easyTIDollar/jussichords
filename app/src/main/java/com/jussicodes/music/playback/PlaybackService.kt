@@ -897,7 +897,7 @@ class PlaybackService : MediaSessionService() {
                     if (!result && !enabled) {
                         Toast.makeText(
                             applicationContext,
-                            "Please grant overlay permission",
+                            "请授予悬浮窗权限以显示桌面歌词",
                             Toast.LENGTH_SHORT
                         ).show()
                     }
