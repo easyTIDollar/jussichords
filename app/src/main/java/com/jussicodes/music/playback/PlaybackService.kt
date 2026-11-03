@@ -348,8 +348,22 @@ class PlaybackService : MediaSessionService() {
         val item = player.currentMediaItem ?: return
         val songId = item.mediaId.takeIf { it.isNotBlank() } ?: return
         val observation = ResolveGuard.observe(songId) ?: run {
-            // 没有解析记录（本地文件等）：交回原有错误处理。
-            giveUpOnNetworkError()
+            // 没有解析记录（本地下载音频文件或外部导入文件）：
+            val idLong = songId.substringBefore("?").toLongOrNull()
+            val isLocal = idLong != null && (
+                com.jussicodes.music.data.download.DownloadStore.isDownloaded(idLong) ||
+                com.jussicodes.music.data.external.ExternalPlaylistStore.findSongById(idLong) != null
+            )
+            if (isLocal) {
+                Toast.makeText(this, "本地音频文件无法读取或已损坏", Toast.LENGTH_SHORT).show()
+                if (dataStore.get(autoSkipNextOnErrorKey, false) && player.hasNextMediaItem()) {
+                    player.seekToNext()
+                    player.prepare()
+                    player.play()
+                }
+            } else {
+                giveUpOnNetworkError()
+            }
             return
         }
         verifiedUrl = null

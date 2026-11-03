@@ -400,8 +400,23 @@ fun MiniMediaInfo(
                 }
             }
         ) {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val currentMediaIdLong = remember(currentMediaItem?.mediaId) {
+                currentMediaItem?.mediaId?.toLongOrNull()
+            }
+            val effectiveArtwork = remember(currentMediaIdLong, mediaMetadata.artworkUri) {
+                if (currentMediaIdLong != null) {
+                    com.jussicodes.music.data.offline.OfflineMusicMetadataManager.getOfflineCover(
+                        context,
+                        currentMediaIdLong,
+                        mediaMetadata.artworkUri?.toString()
+                    )
+                } else {
+                    mediaMetadata.artworkUri
+                }
+            }
             AsyncImage(
-                model = mediaMetadata.artworkUri,
+                model = effectiveArtwork,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = imageModifier

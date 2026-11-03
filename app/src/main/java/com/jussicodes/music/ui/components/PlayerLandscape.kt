@@ -245,8 +245,23 @@ fun PlayerLandscape(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center,
                             ) {
+                                val context = androidx.compose.ui.platform.LocalContext.current
+                                val currentMediaIdLong = remember(currentSong?.id, currentMediaItem?.mediaId) {
+                                    currentSong?.id ?: currentMediaItem?.mediaId?.toLongOrNull()
+                                }
+                                val effectiveArtwork = remember(currentMediaIdLong, mediaMetadata.artworkUri) {
+                                    if (currentMediaIdLong != null) {
+                                        com.jussicodes.music.data.offline.OfflineMusicMetadataManager.getOfflineCover(
+                                            context,
+                                            currentMediaIdLong,
+                                            mediaMetadata.artworkUri?.toString()
+                                        )
+                                    } else {
+                                        mediaMetadata.artworkUri
+                                    }
+                                }
                                 AsyncImage(
-                                    model = mediaMetadata.artworkUri,
+                                    model = effectiveArtwork,
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
