@@ -34,8 +34,8 @@ object ApiServerErrorNotifier {
         main.post {
             Toast.makeText(
                 context.applicationContext,
-                "API 服务器不可用，请到「设置 → API 服务器」更换服务器",
-                Toast.LENGTH_LONG
+                "网络连接异常，请检查网络后重试",
+                Toast.LENGTH_SHORT
             ).show()
         }
     }
