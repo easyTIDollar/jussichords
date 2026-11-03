@@ -270,7 +270,7 @@ class ArtistScreenViewModel @Inject constructor(
                     refreshFollowStats()
                     Toast.makeText(
                         context,
-                        it.message ?: "歌手收藏失败，请稍后重试",
+                        it.message ?: if (nextSubscribed) "关注歌手失败，请稍后重试" else "取消关注失败，请稍后重试",
                         Toast.LENGTH_SHORT
                     ).show()
                 }

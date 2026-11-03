@@ -393,7 +393,7 @@ fun ArtistScreen(
                             enabled = !isArtistSubUpdating && artistHeadInfoState != null,
                             modifier = Modifier.padding(start = 8.dp)
                         ) {
-                            Text(text = if (isArtistSubscribed) "取消收藏" else "收藏")
+                            Text(text = if (isArtistSubscribed) "已关注" else "关注")
                         }
                     }
                 }
