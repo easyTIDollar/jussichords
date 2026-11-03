@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jussicodes.music.constants.libraryPlaylistRefreshTokenKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
+import com.jussicodes.music.data.offline.PlaylistSnapshotStore
 import com.jussicodes.music.utils.FavoriteSongSyncBus
 import com.jussicodes.music.utils.PlaylistCollectionSyncBus
 import com.jussicodes.music.utils.PlaylistCoverSyncBus
@@ -50,16 +51,30 @@ class PlaylistScreenViewModel @Inject constructor(
         _playlistInfo.asStateFlow()
 
     init {
+        // 优先恢复本地持久化快照：秒开展示，断网/离线状态下列表完全可用
+        playlistId?.let { id ->
+            PlaylistSnapshotStore.getSnapshot(context, id)?.let { cached ->
+                _playlistDetail.value = cached
+            }
+            PlaylistSnapshotStore.getInfoSnapshot(context, id)?.let { cachedInfo ->
+                _playlistInfo.value = cachedInfo
+            }
+        }
+
         viewModelScope.launch {
             if (noCache)
                 fetchWithObserver()
             else
                 playlistId?.let {
                     limit?.let {
-                        _playlistDetail.value = PlaylistApi.playlistDetail(
+                        val result = PlaylistApi.playlistDetail(
                             id = playlistId,
                             limit = limit,
                         ).getOrNull()
+                        if (result != null) {
+                            _playlistDetail.value = result
+                            PlaylistSnapshotStore.saveSnapshot(context, playlistId, result)
+                        }
                     }
                     fetchPlaylistInfo()
                 }
@@ -73,11 +88,17 @@ class PlaylistScreenViewModel @Inject constructor(
         viewModelScope.launch {
             context.favoriteSongIdsDatastore.data.distinctUntilChanged().collectLatest { favoriteSongs ->
                 favoriteSongIds = favoriteSongs.songIdsList
-                playlistId?.let {
-                    _playlistDetail.value = PlaylistApi.playlistV6Detail(
-                        id = playlistId,
-                    ).getOrNull()?.let { response ->
-                        FavoriteSongSyncBus.mergeInto(response, favoriteSongIds)
+                playlistId?.let { id ->
+                    val remote = PlaylistApi.playlistV6Detail(id = id).getOrNull()
+                    if (remote != null) {
+                        val merged = FavoriteSongSyncBus.mergeInto(remote, favoriteSongIds)
+                        _playlistDetail.value = merged
+                        PlaylistSnapshotStore.saveSnapshot(context, id, merged)
+                    } else {
+                        // 离线/网络失败：利用本地快照合并当前已喜欢状态
+                        _playlistDetail.value?.let { current ->
+                            _playlistDetail.value = FavoriteSongSyncBus.mergeInto(current, favoriteSongIds)
+                        }
                     }
                 }
             }
@@ -97,10 +118,12 @@ class PlaylistScreenViewModel @Inject constructor(
     private fun fetchPlaylistInfo() {
         viewModelScope.launch {
             playlistId?.let { currentPlaylistId ->
-                _playlistInfo.value = PlaylistApi.playlistInfo(currentPlaylistId).getOrNull()?.let { info ->
-                    PlaylistCollectionSyncBus.overrideFor(currentPlaylistId)?.let { subscribed ->
+                PlaylistApi.playlistInfo(currentPlaylistId).getOrNull()?.let { info ->
+                    val finalInfo = PlaylistCollectionSyncBus.overrideFor(currentPlaylistId)?.let { subscribed ->
                         info.copy(subscribed = subscribed)
                     } ?: info
+                    _playlistInfo.value = finalInfo
+                    PlaylistSnapshotStore.saveInfoSnapshot(context, currentPlaylistId, finalInfo)
                 }
             }
         }
@@ -269,8 +292,11 @@ class PlaylistScreenViewModel @Inject constructor(
 
     private fun refreshPlaylistDetail() {
         viewModelScope.launch {
-            playlistId?.let {
-                _playlistDetail.value = PlaylistApi.playlistV6Detail(it).getOrNull()
+            playlistId?.let { id ->
+                PlaylistApi.playlistV6Detail(id).getOrNull()?.let { detail ->
+                    _playlistDetail.value = detail
+                    PlaylistSnapshotStore.saveSnapshot(context, id, detail)
+                }
             }
         }
     }

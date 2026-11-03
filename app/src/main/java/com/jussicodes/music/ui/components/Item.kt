@@ -468,8 +468,16 @@ fun SongListItem(
     subtitle = song.ar.joinToString("/") { it.name },
     badges = badges,
     thumbnailContent = {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val effectiveThumbnail = androidx.compose.runtime.remember(song.id, song.al.picUrl) {
+            com.jussicodes.music.data.offline.OfflineMusicMetadataManager.getOfflineCover(
+                context,
+                song.id,
+                song.al.picUrl.toCoverImageUrl(CoverImageSize.LIST)?.toString()
+            )
+        }
         ItemThumbnail(
-            thumbnailUrl = song.al.picUrl.toCoverImageUrl(CoverImageSize.LIST),
+            thumbnailUrl = effectiveThumbnail,
             cacheKey = song.al.pic.toString(),
             albumIndex = albumIndex,
             isActive = isActive,
@@ -576,7 +584,7 @@ fun MediaItemListItem(
 
 @Composable
 fun ItemThumbnail(
-    thumbnailUrl: String?,
+    thumbnailUrl: Any?,
     cacheKey: String?,
     isActive: Boolean,
     isPlaying: Boolean,

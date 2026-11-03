@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +29,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -35,6 +37,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -737,6 +740,36 @@ private fun DownloadedListSection(
     }
 
     var groupFilterIndex by rememberSaveable { mutableIntStateOf(0) } // 0: 全部, 1: 专辑, 2: 分组, 3: 外部歌单
+    var currentSortMode by rememberSaveable { mutableStateOf(DownloadSortMode.TIME_DESC) }
+
+    val collator = remember { java.text.Collator.getInstance(java.util.Locale.CHINESE) }
+    val sortedCompletedTasks = remember(effectiveCompletedTasks, currentSortMode) {
+        when (currentSortMode) {
+            DownloadSortMode.TIME_DESC -> effectiveCompletedTasks.sortedByDescending { it.createTime }
+            DownloadSortMode.TITLE_ASC -> effectiveCompletedTasks.sortedWith { a, b -> collator.compare(a.title, b.title) }
+            DownloadSortMode.ARTIST_ASC -> effectiveCompletedTasks.sortedWith { a, b -> collator.compare(a.artist, b.artist) }
+            DownloadSortMode.SIZE_DESC -> effectiveCompletedTasks.sortedByDescending { it.totalBytes }
+        }
+    }
+
+    val letterToTaskIndex = remember(sortedCompletedTasks, currentSortMode) {
+        val map = mutableMapOf<String, Int>()
+        if (currentSortMode == DownloadSortMode.TITLE_ASC || currentSortMode == DownloadSortMode.ARTIST_ASC) {
+            sortedCompletedTasks.forEachIndexed { index, task ->
+                val text = if (currentSortMode == DownloadSortMode.TITLE_ASC) task.title else task.artist
+                val initial = com.jussicodes.music.utils.PinyinUtils.getInitial(text)
+                if (!map.containsKey(initial)) {
+                    map[initial] = index + 1 // +1 for header card in LazyColumn
+                }
+            }
+        }
+        map
+    }
+    val availableLetters = remember(letterToTaskIndex) {
+        letterToTaskIndex.keys.toList().sortedWith { a, b ->
+            if (a == "#") 1 else if (b == "#") -1 else a.compareTo(b)
+        }
+    }
     var expandedExternalPlaylistIds by remember { mutableStateOf(setOf<String>()) }
     var renameTargetExternalPlaylist by remember { mutableStateOf<ExternalPlaylist?>(null) }
     var renameExternalPlaylistInput by remember { mutableStateOf("") }
@@ -928,15 +961,15 @@ private fun DownloadedListSection(
     }
 
     val playAllAction: () -> Unit = {
-        if (effectiveCompletedTasks.isNotEmpty()) {
-            val songs = effectiveCompletedTasks.map { taskToSong(it) }
+        if (sortedCompletedTasks.isNotEmpty()) {
+            val songs = sortedCompletedTasks.map { taskToSong(it) }
             mediaController?.setPlaylist(
                 songs,
                 sourceId = 20261L,
                 sourceName = "已下载歌曲",
                 sourceType = "download"
             )
-            mediaController?.playMediaAtId(effectiveCompletedTasks.first().songId)
+            mediaController?.playMediaAtId(sortedCompletedTasks.first().songId)
         }
     }
 
@@ -995,7 +1028,7 @@ private fun DownloadedListSection(
         if (isSelectionMode) {
             onToggleSelect(task.songId)
         } else {
-            val songs = effectiveCompletedTasks.map { taskToSong(it) }
+            val songs = sortedCompletedTasks.map { taskToSong(it) }
             mediaController?.setPlaylist(
                 songs,
                 sourceId = 20261L,
@@ -1108,7 +1141,9 @@ private fun DownloadedListSection(
                         DownloadedHeaderCard(
                             taskCount = effectiveCompletedTasks.size,
                             totalBytes = totalBytes,
-                            onPlayAll = playAllAction
+                            onPlayAll = playAllAction,
+                            sortMode = if (groupFilterIndex == 0) currentSortMode else null,
+                            onSortModeChange = { currentSortMode = it }
                         )
                         Row(
                             modifier = Modifier
@@ -1143,7 +1178,7 @@ private fun DownloadedListSection(
 
                 when (groupFilterIndex) {
                     0 -> {
-                        items(effectiveCompletedTasks, key = { it.songId }) { task ->
+                        items(sortedCompletedTasks, key = { it.songId }) { task ->
                             DownloadedSongItem(
                                 task = task,
                                 isSelectionMode = isSelectionMode,
@@ -1381,50 +1416,55 @@ private fun DownloadedListSection(
             }
         } else {
             // 竖屏单列流式布局
-            LazyColumn(
-                modifier = Modifier.fillMaxSize()
-            ) {
-                item {
-                    Column {
-                        DownloadedHeaderCard(
-                            taskCount = effectiveCompletedTasks.size,
-                            totalBytes = totalBytes,
-                            onPlayAll = playAllAction
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp)
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            FilterChip(
-                                selected = groupFilterIndex == 0,
-                                onClick = { groupFilterIndex = 0 },
-                                label = { Text("全部 (${effectiveCompletedTasks.size})") }
+            val verticalListState = rememberLazyListState()
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = verticalListState,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    item {
+                        Column {
+                            DownloadedHeaderCard(
+                                taskCount = effectiveCompletedTasks.size,
+                                totalBytes = totalBytes,
+                                onPlayAll = playAllAction,
+                                sortMode = if (groupFilterIndex == 0) currentSortMode else null,
+                                onSortModeChange = { currentSortMode = it }
                             )
-                            FilterChip(
-                                selected = groupFilterIndex == 1,
-                                onClick = { groupFilterIndex = 1 },
-                                label = { Text("专辑 (${albumGroups.size})") }
-                            )
-                            FilterChip(
-                                selected = groupFilterIndex == 2,
-                                onClick = { groupFilterIndex = 2 },
-                                label = { Text("分组 (${customGroups.size})") }
-                            )
-                            FilterChip(
-                                selected = groupFilterIndex == 3,
-                                onClick = { groupFilterIndex = 3 },
-                                label = { Text("外部歌单 (${effectiveExternalPlaylists.size})") }
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilterChip(
+                                    selected = groupFilterIndex == 0,
+                                    onClick = { groupFilterIndex = 0 },
+                                    label = { Text("全部 (${effectiveCompletedTasks.size})") }
+                                )
+                                FilterChip(
+                                    selected = groupFilterIndex == 1,
+                                    onClick = { groupFilterIndex = 1 },
+                                    label = { Text("专辑 (${albumGroups.size})") }
+                                )
+                                FilterChip(
+                                    selected = groupFilterIndex == 2,
+                                    onClick = { groupFilterIndex = 2 },
+                                    label = { Text("分组 (${customGroups.size})") }
+                                )
+                                FilterChip(
+                                    selected = groupFilterIndex == 3,
+                                    onClick = { groupFilterIndex = 3 },
+                                    label = { Text("外部歌单 (${effectiveExternalPlaylists.size})") }
+                                )
+                            }
                         }
                     }
-                }
 
-                when (groupFilterIndex) {
-                    0 -> {
-                        items(effectiveCompletedTasks, key = { it.songId }) { task ->
+                    when (groupFilterIndex) {
+                        0 -> {
+                            items(sortedCompletedTasks, key = { it.songId }) { task ->
                             DownloadedSongItem(
                                 task = task,
                                 isSelectionMode = isSelectionMode,
@@ -1660,6 +1700,23 @@ private fun DownloadedListSection(
                     Spacer(Modifier.height(MiniPlayerHeight + 16.dp))
                 }
             }
+
+            if (groupFilterIndex == 0 && availableLetters.size > 1) {
+                FastAlphabetIndexBar(
+                    letters = availableLetters,
+                    onLetterSelected = { letter ->
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        letterToTaskIndex[letter]?.let { targetIdx ->
+                            coroutineScope.launch {
+                                verticalListState.scrollToItem(targetIdx)
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 4.dp)
+                )
+            }
         }
     }
 
@@ -1881,12 +1938,53 @@ private fun DownloadedListSection(
     }
 }
 
+enum class DownloadSortMode(val label: String) {
+    TIME_DESC("下载时间"),
+    TITLE_ASC("歌曲名 A-Z"),
+    ARTIST_ASC("歌手名 A-Z"),
+    SIZE_DESC("文件大小")
+}
+
+@Composable
+private fun FastAlphabetIndexBar(
+    letters: List<String>,
+    onLetterSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
+                shape = RoundedCornerShape(12.dp)
+            )
+            .padding(vertical = 4.dp, horizontal = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        letters.forEach { letter ->
+            Text(
+                text = letter,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .clickable { onLetterSelected(letter) }
+                    .padding(vertical = 1.dp, horizontal = 4.dp)
+            )
+        }
+    }
+}
+
 @Composable
 private fun DownloadedHeaderCard(
     taskCount: Int,
     totalBytes: Long,
-    onPlayAll: () -> Unit
+    onPlayAll: () -> Unit,
+    sortMode: DownloadSortMode? = null,
+    onSortModeChange: ((DownloadSortMode) -> Unit)? = null
 ) {
+    var sortMenuExpanded by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1907,17 +2005,52 @@ private fun DownloadedHeaderCard(
             )
         }
 
-        FilledTonalButton(
-            onClick = onPlayAll,
-            modifier = Modifier.height(38.dp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(Modifier.width(4.dp))
-            Text("全部播放")
+            if (sortMode != null && onSortModeChange != null) {
+                Box {
+                    OutlinedButton(
+                        onClick = { sortMenuExpanded = true },
+                        modifier = Modifier.height(38.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                    ) {
+                        Text(
+                            text = sortMode.label,
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                    JussiDropdownMenu(
+                        expanded = sortMenuExpanded,
+                        onDismissRequest = { sortMenuExpanded = false }
+                    ) {
+                        DownloadSortMode.entries.forEach { mode ->
+                            JussiMenuItem(
+                                text = mode.label,
+                                selected = (mode == sortMode),
+                                onClick = {
+                                    onSortModeChange(mode)
+                                    sortMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            FilledTonalButton(
+                onClick = onPlayAll,
+                modifier = Modifier.height(38.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("全部播放")
+            }
         }
     }
 }
