@@ -9,6 +9,9 @@ import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -166,7 +169,12 @@ fun Lyric(
         autoScrollEnabled = true
         programmaticScroll = false
         currentMediaId?.toLongOrNull()?.let {
-            lyricViewModel.fetchLyric(it)
+            lyricViewModel.fetchLyric(
+                musicId = it,
+                title = mediaMetadata.title?.toString(),
+                artist = mediaMetadata.artist?.toString(),
+                durationMs = mediaController?.duration?.takeIf { d -> d > 0 } ?: 0L
+            )
         }
         // 换歌：列表回到第一句顶部，避免停在新歌的随机位置。
         listState.scrollToItem(0, 0)
@@ -325,16 +333,42 @@ fun Lyric(
                     }
                 }
 
-                // 仅在「活动歌词索引变化」时触发一次定位。position 每次心跳都变，
-                // 这里靠 index != currentIndex 收敛，避免重复位移。
+                // 仅在「活动歌词索引变化」时触发一次定位。
+                // 播放中采用 50ms 高频心跳监听播放器实际进度，解决外部 1000ms 刷新导致的严重换行卡顿与瞬移；
+                // 暂停/拖动时使用外部 position 驱动同步。
+                LaunchedEffect(lrcLines, mediaController?.isPlaying) {
+                    val isPlaying = mediaController?.isPlaying == true
+                    if (!isPlaying) {
+                        val index = lrcLines.indexOfLast { it.first <= position }.coerceAtLeast(0)
+                        if (index != currentIndex) {
+                            currentIndex = index
+                            if (autoScrollEnabled) {
+                                coroutineScope.launch { scrollToCurrent(index) }
+                            }
+                        }
+                        return@LaunchedEffect
+                    }
+                    while (true) {
+                        val currentPlayTime = mediaController?.currentPosition ?: position
+                        val index = lrcLines.indexOfLast { it.first <= currentPlayTime }.coerceAtLeast(0)
+                        if (index != currentIndex) {
+                            currentIndex = index
+                            if (autoScrollEnabled) {
+                                coroutineScope.launch { scrollToCurrent(index) }
+                            }
+                        }
+                        kotlinx.coroutines.delay(50L)
+                    }
+                }
+
                 LaunchedEffect(position) {
-                    // indexOfLast 找不到匹配时返回 -1（当前时间早于第一句歌词），
-                    // 夹到 0：既避免 -1 传进 scrollToItem，也保证第一句有高亮。
-                    val index = lrcLines.indexOfLast { it.first <= position }.coerceAtLeast(0)
-                    if (index != currentIndex) {
-                        currentIndex = index
-                        if (autoScrollEnabled) {
-                            coroutineScope.launch { scrollToCurrent(index) }
+                    if (mediaController?.isPlaying != true) {
+                        val index = lrcLines.indexOfLast { it.first <= position }.coerceAtLeast(0)
+                        if (index != currentIndex) {
+                            currentIndex = index
+                            if (autoScrollEnabled) {
+                                coroutineScope.launch { scrollToCurrent(index) }
+                            }
                         }
                     }
                 }
@@ -382,6 +416,13 @@ fun Lyric(
                                 ?.takeIf { abs(it.time - lrcLines[index].first) <= 800 }
                                 ?.text
 
+                        val targetAlpha = if (isCurrent) 1f else 0.45f
+                        val rowAlpha by animateFloatAsState(
+                            targetValue = targetAlpha,
+                            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+                            label = "lyric_row_alpha"
+                        )
+
                         if (currentText)
                             Column(
                                 modifier = Modifier
@@ -396,7 +437,7 @@ fun Lyric(
                                         }
                                     }
                                     .padding(vertical = if (landscape) 6.dp else 8.dp, horizontal = 4.dp)
-                                    .alpha(if (isCurrent) 1f else 0.45f)
+                                    .alpha(rowAlpha)
                             ) {
                                 val currentYrc = if (showWordLyric && !yrcLine.isNullOrEmpty()) yrcLine.getOrNull(index) else null
                                 if (showWordLyric && isCurrent && currentYrc != null && currentYrc.words.isNotEmpty()) {
