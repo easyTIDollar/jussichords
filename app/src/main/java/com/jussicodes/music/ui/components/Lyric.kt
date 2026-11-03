@@ -70,6 +70,8 @@ import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaItemHeight
 import com.jussicodes.music.constants.lyricTranslationEnabledKey
 import com.jussicodes.music.constants.wordLyricEnabledKey
+import com.jussicodes.music.lyric.model.WordInfo
+import com.jussicodes.music.lyric.ui.KaraokeLyricRow
 import com.jussicodes.music.utils.parseLrc
 import com.jussicodes.music.utils.parseYrc
 import com.jussicodes.music.utils.rememberPreference
@@ -396,32 +398,42 @@ fun Lyric(
                                     .padding(vertical = if (landscape) 6.dp else 8.dp, horizontal = 4.dp)
                                     .alpha(if (isCurrent) 1f else 0.45f)
                             ) {
-                                Text(
-                                    text = if (showWordLyric && isCurrent && !yrcLine.isNullOrEmpty()) {
-                                        val yrc = yrcLine.getOrNull(index)
-                                        val activeEnd = yrc?.words
-                                            ?.indexOfLast { position >= it.time }
-                                            ?.plus(1) ?: 0
-                                        buildAnnotatedString {
-                                            yrc?.words?.forEachIndexed { wordIndex, word ->
-                                                val style = if (wordIndex < activeEnd) {
-                                                    SpanStyle(color = MaterialTheme.colorScheme.onSurface)
-                                                } else {
-                                                    SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                }
-                                                withStyle(style) {
-                                                    append(word.text)
-                                                }
-                                            } ?: append(lrcLines[index].second)
+                                val currentYrc = if (showWordLyric && !yrcLine.isNullOrEmpty()) yrcLine.getOrNull(index) else null
+                                if (showWordLyric && isCurrent && currentYrc != null && currentYrc.words.isNotEmpty()) {
+                                    val wordInfos = remember(currentYrc) {
+                                        currentYrc.words.map { word ->
+                                            val startOffset = if (word.time >= currentYrc.time) word.time - currentYrc.time else word.time
+                                            WordInfo(
+                                                text = word.text,
+                                                startOffsetMs = startOffset.coerceAtLeast(0),
+                                                durationMs = word.duration.coerceAtLeast(0)
+                                            )
                                         }
-                                    } else {
-                                        buildAnnotatedString { append(lrcLines[index].second) }
-                                    },
-                                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = if (landscape) 21.sp else 24.sp,
-                                    lineHeight = 1.25.em,
-                                )
+                                    }
+                                    KaraokeLyricRow(
+                                        text = currentYrc.text,
+                                        lineTimeMs = currentYrc.time,
+                                        words = wordInfos,
+                                        currentPositionProvider = {
+                                            mediaController?.currentPosition ?: position
+                                        },
+                                        activeColor = MaterialTheme.colorScheme.primary,
+                                        inactiveColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.65f),
+                                        fontSize = if (landscape) 21.sp else 24.sp,
+                                        lineHeight = if (landscape) (21 * 1.35f).sp else (24 * 1.35f).sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        isPlaying = mediaController?.isPlaying == true,
+                                        isActive = true
+                                    )
+                                } else {
+                                    Text(
+                                        text = lrcLines[index].second,
+                                        color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = if (landscape) 21.sp else 24.sp,
+                                        lineHeight = 1.25.em,
+                                    )
+                                }
                                 if (showTranslation && !translation.isNullOrBlank()) {
                                     Text(
                                         text = translation,
