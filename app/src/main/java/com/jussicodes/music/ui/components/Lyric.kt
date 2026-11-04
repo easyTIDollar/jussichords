@@ -124,7 +124,7 @@ fun Lyric(
     var showWordLyric by rememberPreference(wordLyricEnabledKey, false)
     var lyricSource by rememberPreference(lyricSourceKey, "auto")
     var showSourceDialog by remember { mutableStateOf(false) }
-    var currentIndex by remember { mutableIntStateOf(0) }
+    var currentIndex by remember { mutableIntStateOf(-1) }
     var autoScrollEnabled by remember { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
     // 横屏：记录歌词视口高度，用来把「当前句停留位」折算成 contentPadding，
@@ -172,7 +172,7 @@ fun Lyric(
     }
 
     LaunchedEffect(currentMediaId, mediaMetadata.title, lyricSource) {
-        currentIndex = 0
+        currentIndex = -1
         autoScrollEnabled = true
         programmaticScroll = false
         currentMediaId?.toLongOrNull()?.let {
@@ -388,7 +388,7 @@ fun Lyric(
                 LaunchedEffect(lrcLines, mediaController?.isPlaying) {
                     val isPlaying = mediaController?.isPlaying == true
                     if (!isPlaying) {
-                        val index = lrcLines.indexOfLast { it.first <= position }.coerceAtLeast(0)
+                        val index = lrcLines.indexOfLast { it.first <= position }
                         if (index != currentIndex) {
                             currentIndex = index
                             if (autoScrollEnabled) {
@@ -399,7 +399,7 @@ fun Lyric(
                     }
                     while (true) {
                         val currentPlayTime = mediaController?.currentPosition ?: position
-                        val index = lrcLines.indexOfLast { it.first <= currentPlayTime }.coerceAtLeast(0)
+                        val index = lrcLines.indexOfLast { it.first <= currentPlayTime }
                         if (index != currentIndex) {
                             currentIndex = index
                             if (autoScrollEnabled) {
@@ -412,7 +412,7 @@ fun Lyric(
 
                 LaunchedEffect(position) {
                     if (mediaController?.isPlaying != true) {
-                        val index = lrcLines.indexOfLast { it.first <= position }.coerceAtLeast(0)
+                        val index = lrcLines.indexOfLast { it.first <= position }
                         if (index != currentIndex) {
                             currentIndex = index
                             if (autoScrollEnabled) {

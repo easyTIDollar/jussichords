@@ -7,10 +7,12 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -359,11 +361,20 @@ fun PlayerTransform(
                         SharedTransitionLayout {
                             AnimatedContent(
                                 targetState = fullPlayerSubView,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.surfaceContainer),
                                 transitionSpec = {
                                     fadeIn(
-                                        MotionSpec.panelFadeIn<Float>(delayMillis = MotionDuration.ScreenExit)
+                                        animationSpec = tween(
+                                            durationMillis = MotionDuration.PanelFadeIn,
+                                            easing = MotionEasing.decelerate
+                                        )
                                     ) togetherWith fadeOut(
-                                        MotionSpec.panelFadeOut<Float>()
+                                        animationSpec = tween(
+                                            durationMillis = 150,
+                                            easing = MotionEasing.accelerate
+                                        )
                                     )
                                 }
                             ) { subView ->
