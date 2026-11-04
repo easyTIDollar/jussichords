@@ -79,6 +79,7 @@ val homeBgTextShadowKey = floatPreferencesKey("homeBgTextShadow")
 val lyricSourceKey = stringPreferencesKey("lyric_source")
 val githubDownloadSourceKey = stringPreferencesKey("githubDownloadSource")
 val playerGestureTutorialVersionKey = intPreferencesKey("playerGestureTutorialVersion")
+val playerGestureTutorialDismissedKey = booleanPreferencesKey("player_gesture_tutorial_dismissed")
 val homeTransparentCardKey = booleanPreferencesKey("homeTransparentCard")
 /** 缓存自动清理开关（默认关）。 */
 val cacheAutoCleanEnabledKey = booleanPreferencesKey("cacheAutoCleanEnabled")

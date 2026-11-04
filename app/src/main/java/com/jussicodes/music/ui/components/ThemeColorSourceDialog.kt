@@ -24,7 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -127,80 +126,51 @@ fun ThemeColorSourceDialog(
                             fontWeight = FontWeight.SemiBold,
                         )
 
-                        // 复用音源选择卡片样式（AudioSourceSelector）：三列等高干净小卡片
+                        // 复用音源选择卡片样式：三列精致小卡片，文案简练
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(androidx.compose.foundation.layout.IntrinsicSize.Min),
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             ThemeColorSource.entries.forEach { source ->
                                 val selected = source == currentSource
-                                val tag = when (source) {
-                                    ThemeColorSource.WALLPAPER -> "系统壁纸"
-                                    ThemeColorSource.ARTWORK -> "切歌更新"
-                                    ThemeColorSource.HOME_BG -> "主页背景"
-                                }
                                 val sub = when (source) {
-                                    ThemeColorSource.WALLPAPER -> "Material You"
-                                    ThemeColorSource.ARTWORK -> "提取封面"
-                                    ThemeColorSource.HOME_BG -> "自定义图"
+                                    ThemeColorSource.WALLPAPER -> "系统原色"
+                                    ThemeColorSource.ARTWORK -> "跟随封面"
+                                    ThemeColorSource.HOME_BG -> "提取主页"
                                 }
                                 Column(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .fillMaxHeight()
-                                        .heightIn(min = 84.dp)
+                                        .height(64.dp)
                                         .clip(RoundedCornerShape(12.dp))
                                         .background(
                                             if (selected) MaterialTheme.colorScheme.primaryContainer
                                             else MaterialTheme.colorScheme.surfaceVariant
                                         )
                                         .clickable { onSourceSelected(source) }
-                                        .padding(horizontal = 10.dp, vertical = 10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally,
                                 ) {
                                     Text(
                                         text = source.label,
                                         style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                         color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
                                         else MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1
                                     )
-                                    Text(
-                                        text = tag,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (selected) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.tertiary,
-                                        maxLines = 1
-                                    )
+                                    Spacer(Modifier.height(2.dp))
                                     Text(
                                         text = sub,
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                        color = if (selected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                                         maxLines = 1
                                     )
                                 }
                             }
                         }
-
-                        // 下方动态副标题
-                        val sourceDesc = when (currentSource) {
-                            ThemeColorSource.WALLPAPER -> if (wallpaperColorAvailable) {
-                                "跟随系统壁纸颜色（Material You）"
-                            } else {
-                                "需要 Android 12+；当前使用默认配色"
-                            }
-                            ThemeColorSource.ARTWORK -> "切歌时更新；无封面时自动使用壁纸配色"
-                            ThemeColorSource.HOME_BG -> "从主页背景提取配色；未设置背景时使用默认"
-                        }
-                        Text(
-                            text = sourceDesc,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 4.dp),
-                        )
                     }
 
                     // ==================== 2. 视觉与动效 ====================
@@ -235,11 +205,6 @@ fun ThemeColorSourceDialog(
                                     onCheckedChange = onFloatingNavBarEnabledChange,
                                 )
 
-                                HorizontalDivider(
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.padding(vertical = 4.dp),
-                                )
-
                                 // 上滑背景高斯模糊
                                 DialogSwitchRow(
                                     title = "上滑背景高斯模糊",
@@ -250,11 +215,6 @@ fun ThemeColorSourceDialog(
                                     },
                                     checked = playerBackgroundBlurEnabled,
                                     onCheckedChange = onPlayerBackgroundBlurEnabledChange,
-                                )
-
-                                HorizontalDivider(
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.padding(vertical = 4.dp),
                                 )
 
                                 // 主页透明卡片
@@ -302,11 +262,6 @@ fun ThemeColorSourceDialog(
                                     steps = 3,
                                     onValueChanged = { uiScaleValue = it },
                                     onValueChangeFinished = { commitUiScale() },
-                                )
-
-                                HorizontalDivider(
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.padding(vertical = 2.dp),
                                 )
 
                                 // 字体大小缩放
@@ -399,11 +354,6 @@ fun ThemeColorSourceDialog(
                                         }
                                     }
                                 }
-
-                                HorizontalDivider(
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.padding(vertical = 2.dp),
-                                )
 
                                 // 柔和轮廓/阴影滑块
                                 HomeBgSliderRow(

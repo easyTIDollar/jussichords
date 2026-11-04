@@ -215,9 +215,7 @@ fun ResponsiveDialogWindow(
             val panelWidth = landscapePanelWidth(maxWidth)
             val panelMaxHeight = (maxHeight - 32.dp).coerceAtLeast(160.dp)
 
-            // clip 成和内层 Card 同一套圆角：只给滚动容器 heightIn 的话，内容滚出
-            // 边界时被按矩形裁掉，卡片上下就变成一条直边（用户说的「被裁切成直边」）。
-            // 裁切形状跟 Card 的 extraLarge 对齐后，滚到中途上下仍是圆角。
+            // clip 成和内层 Card 同一套圆角：内容滚出边界时按圆角裁切
             Box(
                 modifier = Modifier
                     .width(panelWidth)
@@ -227,8 +225,7 @@ fun ResponsiveDialogWindow(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = {}
-                    )
-                    .verticalScroll(rememberScrollState()),
+                    ),
                 contentAlignment = Alignment.TopCenter,
             ) {
                 content()
