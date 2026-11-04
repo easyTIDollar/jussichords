@@ -69,7 +69,7 @@ import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.constants.isLandscapePhone
 import com.jussicodes.music.constants.MediaSessionConstants
-import com.jussicodes.music.constants.playerGestureTutorialDismissedKey
+import com.jussicodes.music.utils.PlayerGestureTutorialStore
 import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.Artist
 import com.jussicodes.music.ui.icons.ChevronDown
@@ -157,8 +157,9 @@ fun Player(
     var openComments by rememberSaveable { mutableStateOf(false) }
     var playerLabelMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var coverPreviewUrl by remember { mutableStateOf<Any?>(null) }
-    var tutorialDismissed by rememberPreference(playerGestureTutorialDismissedKey, false)
-    var showGestureTutorial by remember { mutableStateOf(!tutorialDismissed) }
+    var showGestureTutorial by remember {
+        mutableStateOf(!PlayerGestureTutorialStore.isDismissed(context))
+    }
 
     // 一起听会话：歌名行爱心左侧的成员小组件（进房才出现）读的就是这个 StateFlow。
     val listenTogetherState by ListenTogetherSession.state.collectAsState()
@@ -723,12 +724,12 @@ fun Player(
             )
         }
 
-        if (showGestureTutorial && !tutorialDismissed) {
+        if (showGestureTutorial) {
             PlayerGestureTutorialDialog(
                 onDismiss = { showGestureTutorial = false },
                 onNeverShowAgain = {
                     showGestureTutorial = false
-                    tutorialDismissed = true
+                    PlayerGestureTutorialStore.markDismissed(context)
                 }
             )
         }
