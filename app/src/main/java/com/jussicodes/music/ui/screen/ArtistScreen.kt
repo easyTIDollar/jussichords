@@ -172,6 +172,7 @@ fun ArtistScreen(
 
     val candidateSongs = allSongsForQueue ?: artistTopSongState?.songs.orEmpty()
     val filteredSongs = rememberFilteredSongs(candidateSongs, searchQuery)
+    val chunkedSimiArtists = remember(simiArtists) { simiArtists.chunked(2) }
 
     var headerHeightPx by remember { mutableFloatStateOf(0f) }
     var topBarHeightPx by remember { mutableFloatStateOf(0f) }
@@ -518,9 +519,8 @@ fun ArtistScreen(
                                 item(key = "explore-simi-title") {
                                     NavigationTitle(title = "相似歌手")
                                 }
-                                val chunkedSimi = remember(simiArtists) { simiArtists.chunked(2) }
                                 items(
-                                    items = chunkedSimi,
+                                    items = chunkedSimiArtists,
                                     key = { row -> "explore-simi-row-" + row.first().id }
                                 ) { rowArtists ->
                                     Row(
