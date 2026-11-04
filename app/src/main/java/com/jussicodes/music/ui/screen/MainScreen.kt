@@ -57,10 +57,15 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.Image
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -148,6 +153,20 @@ fun MainScreen() {
     var currentPlayMediaId by rememberPreference(currentPlayMediaIdKey, 0)
     var showPlayer by remember { mutableStateOf(false) }
     var miniPlayerDragProgress by remember { mutableFloatStateOf(0f) }
+    val mainContentLayer = rememberGraphicsLayer()
+    var snapshotBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(miniPlayerDragProgress > 0.005f) {
+        if (playerBackgroundBlurEnabled && miniPlayerDragProgress > 0.005f) {
+            if (snapshotBitmap == null) {
+                try {
+                    snapshotBitmap = mainContentLayer.toImageBitmap()
+                } catch (_: Exception) {
+                }
+            }
+        } else if (miniPlayerDragProgress <= 0.005f) {
+            snapshotBitmap = null
+        }
+    }
     var homePage by rememberSaveable { mutableIntStateOf(0) }
     var homePageScroll by remember { mutableFloatStateOf(homePage.toFloat()) }
     val homePagerState = rememberPagerState(initialPage = homePage) { activeNavTabs.size }
@@ -498,18 +517,16 @@ fun MainScreen() {
 
             // Expanded（大屏）左侧竖排导航栏；Compact/Medium 保持底部横条。
             // 两者只在这里分叉：rail 占左侧固定宽度，内容区限宽居中（AdaptiveContent）。
-            // 动态高斯模糊受设置项「上滑背景高斯模糊」控制，默认关闭以减少掉帧。
-            val bgBlurRadius = if (playerBackgroundBlurEnabled && miniPlayerDragProgress > 0.01f) {
-                (miniPlayerDragProgress * 18f).dp
-            } else 0.dp
+            // 主内容区通过 record 捕获到 mainContentLayer，供展开上滑时生成模糊快照，自身零高斯模糊与零重组。
             Row(
                 Modifier
                     .fillMaxSize()
-                    .then(
-                        if (playerBackgroundBlurEnabled && miniPlayerDragProgress > 0.01f) {
-                            Modifier.blur(bgBlurRadius)
-                        } else Modifier
-                    )
+                    .drawWithContent {
+                        mainContentLayer.record {
+                            this@drawWithContent.drawContent()
+                        }
+                        drawLayer(mainContentLayer)
+                    }
             ) {
                 if (useNavigationRail && showNavigationBar) {
                     AdaptiveNavigationRail(
@@ -542,6 +559,21 @@ fun MainScreen() {
                         floatingNavBarEnabled = floatingNavBarEnabled
                     )
                 }
+            }
+
+            // 上滑小播放器背景模糊：方案 1（模糊快照淡入）
+            // 在 Draw 阶段消费 alpha，仅对捕获的静态快照进行固定 18.dp 模糊，彻底免去全屏重组与高斯卷积重算。
+            if (playerBackgroundBlurEnabled && snapshotBitmap != null) {
+                Image(
+                    bitmap = snapshotBitmap!!,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(18.dp)
+                        .graphicsLayer {
+                            alpha = miniPlayerDragProgress.coerceIn(0f, 1f)
+                        }
+                )
             }
 
             // 向上滑动播放器时的由浅入深暗色遮罩与景深层次（在 Draw 阶段消费 alpha，完全避免主屏幕重组）
