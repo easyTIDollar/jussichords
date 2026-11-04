@@ -1,8 +1,6 @@
 package com.jussicodes.music.ui.components
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -11,7 +9,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -40,11 +39,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.jussicodes.music.ui.icons.Album
-import com.jussicodes.music.ui.icons.Palette
 import com.jussicodes.music.ui.theme.ThemeColorSource
 import kotlin.math.roundToInt
 
@@ -130,66 +126,60 @@ fun ThemeColorSourceDialog(
                             fontWeight = FontWeight.SemiBold,
                         )
 
-                        // 方案 A：横排 3 列视觉卡片
+                        // 复用音源选择卡片样式（AudioSourceSelector）：三列等高干净小卡片
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(androidx.compose.foundation.layout.IntrinsicSize.Min),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             ThemeColorSource.entries.forEach { source ->
                                 val selected = source == currentSource
-                                val icon: ImageVector = when (source) {
-                                    ThemeColorSource.WALLPAPER -> Palette
-                                    ThemeColorSource.ARTWORK -> Album
-                                    ThemeColorSource.HOME_BG -> Icons.Outlined.AddPhotoAlternate
+                                val tag = when (source) {
+                                    ThemeColorSource.WALLPAPER -> "系统壁纸"
+                                    ThemeColorSource.ARTWORK -> "切歌更新"
+                                    ThemeColorSource.HOME_BG -> "主页背景"
                                 }
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (selected) {
-                                            MaterialTheme.colorScheme.primaryContainer
-                                        } else {
-                                            MaterialTheme.colorScheme.surfaceContainer
-                                        },
-                                    ),
-                                    border = if (selected) {
-                                        BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                                    } else null,
-                                    shape = RoundedCornerShape(16.dp),
+                                val sub = when (source) {
+                                    ThemeColorSource.WALLPAPER -> "Material You"
+                                    ThemeColorSource.ARTWORK -> "提取封面"
+                                    ThemeColorSource.HOME_BG -> "自定义图"
+                                }
+                                Column(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .clickable {
-                                            onSourceSelected(source)
-                                            // 即时生效，不强制关闭弹窗，方便微调其他选项
-                                        },
+                                        .fillMaxHeight()
+                                        .heightIn(min = 84.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            if (selected) MaterialTheme.colorScheme.primaryContainer
+                                            else MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                        .clickable { onSourceSelected(source) }
+                                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 12.dp, horizontal = 4.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = icon,
-                                            contentDescription = null,
-                                            tint = if (selected) {
-                                                MaterialTheme.colorScheme.primary
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurfaceVariant
-                                            },
-                                            modifier = Modifier.size(26.dp),
-                                        )
-                                        Text(
-                                            text = source.label,
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (selected) {
-                                                MaterialTheme.colorScheme.onPrimaryContainer
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurface
-                                            },
-                                            maxLines = 1,
-                                        )
-                                    }
+                                    Text(
+                                        text = source.label,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = tag,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (selected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.tertiary,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = sub,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                        maxLines = 1
+                                    )
                                 }
                             }
                         }

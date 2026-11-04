@@ -291,6 +291,9 @@ fun LibraryScreen(
         },
         typography = MaterialTheme.typography.withShadow(textShadow)
     ) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.material3.LocalContentColor provides (if (bgTextMode == "auto") MaterialTheme.colorScheme.onSurface else bgTextColor)
+    ) {
     Scaffold(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
         topBar = { TopBar(navController = navController, titleRes = R.string.mine, transparent = true, contentColor = bgTextColor) }
@@ -829,6 +832,7 @@ fun LibraryScreen(
             }
         )
     }
+    }
 }
 
 @Composable
@@ -868,7 +872,10 @@ private fun LibraryUserCard(
         } else {
             null
         },
-        colors = CardDefaults.cardColors(containerColor = userCardGlassColor())
+        colors = CardDefaults.cardColors(
+            containerColor = userCardGlassColor(),
+            contentColor = MaterialTheme.colorScheme.onSurface
+        )
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -915,6 +922,7 @@ private fun LibraryUserCard(
                     Text(
                         text = profile.nickname,
                         style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1055,7 +1063,10 @@ private fun FavoritePlaylistCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = transparentCardColor())
+        colors = CardDefaults.cardColors(
+            containerColor = transparentCardColor(),
+            contentColor = MaterialTheme.colorScheme.onSurface
+        )
     ) {
         Box(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(14.dp)) {
             RowCardContent(
@@ -1109,7 +1120,10 @@ private fun PlaylistGroupCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = transparentCardColor())
+        colors = CardDefaults.cardColors(
+            containerColor = transparentCardColor(),
+            contentColor = MaterialTheme.colorScheme.onSurface
+        )
     ) {
         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(text = title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
@@ -1241,7 +1255,13 @@ private fun RowCardContent(
             modifier = Modifier.clip(MaterialTheme.shapes.medium).size(52.dp)
         )
         Column(modifier = Modifier.padding(start = 10.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(text = title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             Text(text = subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         trailingContent?.invoke()

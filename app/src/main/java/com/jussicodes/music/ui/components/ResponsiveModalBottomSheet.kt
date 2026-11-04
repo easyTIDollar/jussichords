@@ -1,6 +1,8 @@
 package com.jussicodes.music.ui.components
 
 import android.content.res.Configuration
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,6 +21,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -64,6 +67,17 @@ fun ResponsiveModalBottomSheet(
                     .safeDrawingPadding(),
                 contentAlignment = Alignment.Center,
             ) {
+                // 背景空白区域点击关闭
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onDismissRequest
+                        )
+                )
+
                 val panelMaxHeight = minOf(360.dp, (maxHeight - 32.dp).coerceAtLeast(160.dp))
 
                 Surface(
@@ -72,6 +86,11 @@ fun ResponsiveModalBottomSheet(
                     modifier = modifier
                         .width(460.dp)
                         .heightIn(max = panelMaxHeight)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {}
+                        )
                 ) {
                     val inner = if (landscapeScrollable) {
                         Modifier.verticalScroll(rememberScrollState())
@@ -84,7 +103,9 @@ fun ResponsiveModalBottomSheet(
                             .padding(horizontal = 22.dp, vertical = 26.dp)
                             .then(inner)
                     ) {
-                        content()
+                        ScaledDialogContent {
+                            content()
+                        }
                     }
                 }
             }
@@ -98,7 +119,9 @@ fun ResponsiveModalBottomSheet(
             containerColor = containerColor,
             scrimColor = scrimColor,
             content = {
-                content()
+                ScaledDialogContent {
+                    content()
+                }
             }
         )
     }

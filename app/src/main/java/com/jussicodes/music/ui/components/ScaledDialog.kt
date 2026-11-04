@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.Density
  */
 object ScaledDialogDensity {
     var scale by mutableFloatStateOf(1f)
-    var fontScale by mutableFloatStateOf(1f)
+    var fontScale by mutableFloatStateOf(0.9f)
 }
 
 /**

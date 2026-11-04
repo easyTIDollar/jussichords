@@ -23,6 +23,7 @@ import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.uiScaleKey
 import com.jussicodes.music.constants.fontScaleKey
+import com.jussicodes.music.constants.playerGestureTutorialVersionKey
 import com.jussicodes.music.data.MsgSessionCache
 import android.Manifest
 import android.content.pm.PackageManager
@@ -33,6 +34,7 @@ import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.playback.PlayerState
 import com.jussicodes.music.playback.state
 import com.jussicodes.music.ui.components.LandscapeStatusBarImmersive
+import com.jussicodes.music.ui.components.PlayerGestureTutorialDialog
 import com.jussicodes.music.ui.components.UpdateDialog
 import com.jussicodes.music.ui.components.formatFileSize
 import com.jussicodes.music.ui.screen.MainScreen
@@ -94,12 +96,20 @@ class MainActivity : ComponentActivity() {
             var downloadProgressText by remember { mutableStateOf<String?>(null) }
             var uiScale by rememberPreference(uiScaleKey, 1f)
             var liveUiScale by remember { mutableFloatStateOf(uiScale) }
-            var fontScale by rememberPreference(fontScaleKey, 1f)
+            var fontScale by rememberPreference(fontScaleKey, 0.9f)
             var liveFontScale by remember { mutableFloatStateOf(fontScale) }
+            var gestureTutorialVersion by rememberPreference(playerGestureTutorialVersionKey, 0)
+            var showGestureTutorial by remember { mutableStateOf(false) }
             var githubDownloadSource by rememberPreference(
                 githubDownloadSourceKey,
                 downloadSources.first().id
             )
+
+            LaunchedEffect(gestureTutorialVersion) {
+                if (gestureTutorialVersion == 0) {
+                    showGestureTutorial = true
+                }
+            }
 
             LaunchedEffect(uiScale, fontScale) {
                 liveUiScale = uiScale
@@ -254,6 +264,14 @@ class MainActivity : ComponentActivity() {
                         // 放在 composition 顶层，任何页面转到横屏都生效。
                         LandscapeStatusBarImmersive()
                         MainScreen()
+                    if (showGestureTutorial) {
+                        PlayerGestureTutorialDialog(
+                            onDismiss = {
+                                showGestureTutorial = false
+                                gestureTutorialVersion = 1
+                            }
+                        )
+                    }
                     pendingUpdateInfo?.let { updateInfo ->
                         UpdateDialog(
                             updateInfo = updateInfo,
@@ -317,7 +335,7 @@ val LocalPlayerState = staticCompositionLocalOf<PlayerState?> {
 data class UiScaleController(
     val scale: Float,
     val setScale: (Float) -> Unit,
-    val fontScale: Float = 1f,
+    val fontScale: Float = 0.9f,
     val setFontScale: (Float) -> Unit = {},
 )
 
@@ -325,7 +343,7 @@ val LocalUiScaleController = staticCompositionLocalOf<UiScaleController> {
     UiScaleController(
         scale = 1f,
         setScale = {},
-        fontScale = 1f,
+        fontScale = 0.9f,
         setFontScale = {},
     )
 }

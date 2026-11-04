@@ -546,9 +546,11 @@ fun Player(
                         Spacer(Modifier.height(24.dp))
 
                     // 进度条与横屏播放页、私人 FM 共用同一套细样式。
+                    val isSongBuffering = playerState?.playbackState == androidx.media3.common.Player.STATE_BUFFERING
                     PlayerProgressSlider(
                         value = (sliderPosition ?: position).toFloat(),
                         valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
+                        isLoading = isSongBuffering,
                         onValueChange = { sliderPosition = it.toLong() },
                         onValueChangeFinished = {
                             sliderPosition?.let {

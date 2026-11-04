@@ -1,6 +1,8 @@
 package com.jussicodes.music.ui.components
 
 import android.content.res.Configuration
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,6 +25,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
@@ -97,6 +100,17 @@ fun ResponsiveAlertDialog(
                 .imePadding(),
             contentAlignment = Alignment.Center,
         ) {
+            // 背景空白区域点击关闭
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismissRequest
+                    )
+            )
+
             val panelWidth = landscapePanelWidth(maxWidth)
             val panelMaxHeight = (maxHeight - 32.dp).coerceAtLeast(160.dp)
 
@@ -106,7 +120,12 @@ fun ResponsiveAlertDialog(
                 tonalElevation = 6.dp,
                 modifier = modifier
                     .width(panelWidth)
-                    .heightIn(max = panelMaxHeight),
+                    .heightIn(max = panelMaxHeight)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    ),
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp)
@@ -182,6 +201,17 @@ fun ResponsiveDialogWindow(
                 .imePadding(),
             contentAlignment = Alignment.Center,
         ) {
+            // 背景空白区域点击关闭
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismissRequest
+                    )
+            )
+
             val panelWidth = landscapePanelWidth(maxWidth)
             val panelMaxHeight = (maxHeight - 32.dp).coerceAtLeast(160.dp)
 
@@ -193,6 +223,11 @@ fun ResponsiveDialogWindow(
                     .width(panelWidth)
                     .heightIn(max = panelMaxHeight)
                     .clip(MaterialTheme.shapes.extraLarge)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    )
                     .verticalScroll(rememberScrollState()),
                 contentAlignment = Alignment.TopCenter,
             ) {

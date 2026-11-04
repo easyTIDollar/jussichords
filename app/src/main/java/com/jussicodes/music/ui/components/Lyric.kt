@@ -12,6 +12,7 @@ import androidx.compose.foundation.basicMarquee
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,12 +27,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Subtitles
 import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -73,6 +77,7 @@ import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaItemHeight
 import com.jussicodes.music.constants.lyricTranslationEnabledKey
 import com.jussicodes.music.constants.wordLyricEnabledKey
+import com.jussicodes.music.constants.lyricSourceKey
 import com.jussicodes.music.lyric.model.WordInfo
 import com.jussicodes.music.lyric.ui.KaraokeLyricRow
 import com.jussicodes.music.utils.parseLrc
@@ -117,6 +122,8 @@ fun Lyric(
     val lyric by lyricViewModel.lyric.collectAsState()
     var showTranslation by rememberPreference(lyricTranslationEnabledKey, false)
     var showWordLyric by rememberPreference(wordLyricEnabledKey, false)
+    var lyricSource by rememberPreference(lyricSourceKey, "auto")
+    var showSourceDialog by remember { mutableStateOf(false) }
     var currentIndex by remember { mutableIntStateOf(0) }
     var autoScrollEnabled by remember { mutableStateOf(true) }
     var menuExpanded by remember { mutableStateOf(false) }
@@ -164,7 +171,7 @@ fun Lyric(
         lrcItems?.map { it.first to it.second } ?: lrcLine?.map { it.time to it.text }
     }
 
-    LaunchedEffect(currentMediaId, mediaMetadata.title) {
+    LaunchedEffect(currentMediaId, mediaMetadata.title, lyricSource) {
         currentIndex = 0
         autoScrollEnabled = true
         programmaticScroll = false
@@ -173,7 +180,8 @@ fun Lyric(
                 musicId = it,
                 title = mediaMetadata.title?.toString(),
                 artist = mediaMetadata.artist?.toString(),
-                durationMs = mediaController?.duration?.takeIf { d -> d > 0 } ?: 0L
+                durationMs = mediaController?.duration?.takeIf { d -> d > 0 } ?: 0L,
+                source = lyricSource
             )
         }
         // 换歌：列表回到第一句顶部，避免停在新歌的随机位置。
@@ -277,8 +285,49 @@ fun Lyric(
                             },
                             onClick = { showWordLyric = !showWordLyric }
                         )
+                        JussiMenuItem(
+                            text = "逐字歌词来源",
+                            icon = Icons.Outlined.Subtitles,
+                            trailing = {
+                                val sourceLabel = when (lyricSource) {
+                                    "ncm" -> "网易云"
+                                    "amll" -> "AMLL"
+                                    "qq" -> "QQ音乐"
+                                    else -> "智能合并"
+                                }
+                                Text(
+                                    text = sourceLabel,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                showSourceDialog = true
+                            }
+                        )
                     }
                 }
+            }
+
+            if (showSourceDialog) {
+                LyricSourceDialog(
+                    currentSource = lyricSource,
+                    onDismiss = { showSourceDialog = false },
+                    onSourceSelected = { newSource ->
+                        lyricSource = newSource
+                        currentMediaId?.toLongOrNull()?.let { id ->
+                            lyricViewModel.switchLyricSource(
+                                source = newSource,
+                                musicId = id,
+                                title = mediaMetadata.title?.toString(),
+                                artist = mediaMetadata.artist?.toString(),
+                                durationMs = mediaController?.duration?.takeIf { d -> d > 0 } ?: 0L
+                            )
+                        }
+                        showSourceDialog = false
+                    }
+                )
             }
 
             displayLines?.let { lrcLines ->
@@ -567,6 +616,86 @@ fun ThreeDotsAnimation(
                     y = centerY
                 )
             )
+        }
+    }
+}
+
+@Composable
+fun LyricSourceDialog(
+    currentSource: String,
+    onDismiss: () -> Unit,
+    onSourceSelected: (String) -> Unit
+) {
+    val options = listOf(
+        Triple("auto", "智能合并", "优先 AMLL 逐字，无则网易云，兜底 QQ 音乐"),
+        Triple("ncm", "网易云官方", "网易云官方原版 YRC 逐字歌词"),
+        Triple("amll", "AMLL 歌词库", "AMLL 社区高精度 TTML 逐字歌词"),
+        Triple("qq", "QQ 音乐", "QQ 音乐曲库匹配 QRC 逐字歌词")
+    )
+    ResponsiveDialogWindow(onDismissRequest = onDismiss) {
+        ScaledDialogContent {
+            Card(
+                shape = MaterialTheme.shapes.extraLarge,
+                modifier = Modifier
+                    .widthIn(max = 400.dp)
+                    .fillMaxWidth()
+                    .padding(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "逐字歌词来源",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    options.forEach { (value, label, desc) ->
+                        val selected = value == currentSource
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                                .clickable { onSourceSelected(value) }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (selected) {
+                                    Text(
+                                        text = "生效中",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                            Text(
+                                text = desc,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -18,7 +18,7 @@ import javax.inject.Inject
 class LyricViewModel @Inject constructor() : ViewModel() {
 
     companion object {
-        private val lyricCache = mutableMapOf<Long, LyricResponse?>()
+        private val lyricCache = mutableMapOf<String, LyricResponse?>()
     }
 
     private var currentMusicId: Long? = null
@@ -30,13 +30,16 @@ class LyricViewModel @Inject constructor() : ViewModel() {
         musicId: Long,
         title: String? = null,
         artist: String? = null,
-        durationMs: Long = 0L
+        durationMs: Long = 0L,
+        source: String = "auto",
+        forceRefresh: Boolean = false
     ) {
-        if (currentMusicId == musicId && _lyric.value != null) return
+        val cacheKey = "${musicId}_$source"
+        if (!forceRefresh && currentMusicId == musicId && _lyric.value != null) return
 
         currentMusicId = musicId
-        if (lyricCache.containsKey(musicId)) {
-            _lyric.value = lyricCache[musicId]
+        if (!forceRefresh && lyricCache.containsKey(cacheKey)) {
+            _lyric.value = lyricCache[cacheKey]
             return
         }
 
@@ -50,47 +53,108 @@ class LyricViewModel @Inject constructor() : ViewModel() {
 
             if (localLyric != null) {
                 if (currentMusicId == musicId) {
-                    lyricCache[musicId] = localLyric
+                    lyricCache[cacheKey] = localLyric
                     _lyric.value = localLyric
                 }
                 return@launch
             }
 
-            // 并发请求网易云官方与 AMLL 歌词库
-            val ncmDeferred = async { PlayerApi.songLyric(musicId).getOrNull() }
-            val amllDeferred = async { AmllLyricsClient.fetch(musicId) }
+            when (source) {
+                "ncm" -> {
+                    val ncmLyric = PlayerApi.songLyric(musicId).getOrNull()
+                    if (currentMusicId == musicId && ncmLyric != null) {
+                        lyricCache[cacheKey] = ncmLyric
+                        _lyric.value = ncmLyric
+                    }
+                }
+                "amll" -> {
+                    val ncmDeferred = async { PlayerApi.songLyric(musicId).getOrNull() }
+                    val amllDeferred = async { AmllLyricsClient.fetch(musicId) }
+                    val ncmLyric = ncmDeferred.await()
+                    val amllLyric = amllDeferred.await()
+                    val result = if (amllLyric != null && !amllLyric.yrc?.lyric.isNullOrBlank()) {
+                        mergeLyricResponse(ncmLyric, amllLyric)
+                    } else {
+                        ncmLyric
+                    }
+                    if (currentMusicId == musicId && result != null) {
+                        lyricCache[cacheKey] = result
+                        _lyric.value = result
+                    }
+                }
+                "qq" -> {
+                    val ncmDeferred = async { PlayerApi.songLyric(musicId).getOrNull() }
+                    val qqDeferred = async {
+                        if (!title.isNullOrBlank()) QqLyricsClient.fetch(title, artist, durationMs) else null
+                    }
+                    val ncmLyric = ncmDeferred.await()
+                    val qqLyric = qqDeferred.await()
+                    val result = if (qqLyric != null && (!qqLyric.yrc?.lyric.isNullOrBlank() || ncmLyric == null)) {
+                        mergeLyricResponse(ncmLyric, qqLyric)
+                    } else {
+                        ncmLyric
+                    }
+                    if (currentMusicId == musicId && result != null) {
+                        lyricCache[cacheKey] = result
+                        _lyric.value = result
+                    }
+                }
+                else -> {
+                    // 并发请求网易云官方与 AMLL 歌词库
+                    val ncmDeferred = async { PlayerApi.songLyric(musicId).getOrNull() }
+                    val amllDeferred = async { AmllLyricsClient.fetch(musicId) }
 
-            val ncmLyric = ncmDeferred.await()
-            if (currentMusicId == musicId && ncmLyric != null) {
-                _lyric.value = ncmLyric
-            }
+                    val ncmLyric = ncmDeferred.await()
+                    if (currentMusicId == musicId && ncmLyric != null) {
+                        _lyric.value = ncmLyric
+                    }
 
-            val amllLyric = amllDeferred.await()
-            if (currentMusicId == musicId && amllLyric != null && !amllLyric.yrc?.lyric.isNullOrBlank()) {
-                val mergedAmll = mergeLyricResponse(ncmLyric, amllLyric)
-                lyricCache[musicId] = mergedAmll
-                _lyric.value = mergedAmll
-                return@launch
-            }
+                    val amllLyric = amllDeferred.await()
+                    if (currentMusicId == musicId && amllLyric != null && !amllLyric.yrc?.lyric.isNullOrBlank()) {
+                        val mergedAmll = mergeLyricResponse(ncmLyric, amllLyric)
+                        lyricCache[cacheKey] = mergedAmll
+                        _lyric.value = mergedAmll
+                        return@launch
+                    }
 
-            // 若 AMLL 与 网易官方均无逐字歌词，且有歌曲元数据，尝试 QQ 音乐歌词源
-            val hasNcmYrc = !ncmLyric?.yrc?.lyric.isNullOrBlank()
-            if (!hasNcmYrc && !title.isNullOrBlank()) {
-                val qqLyric = QqLyricsClient.fetch(title, artist, durationMs)
-                if (currentMusicId == musicId && qqLyric != null && (!qqLyric.yrc?.lyric.isNullOrBlank() || ncmLyric == null)) {
-                    val mergedQq = mergeLyricResponse(ncmLyric, qqLyric)
-                    lyricCache[musicId] = mergedQq
-                    _lyric.value = mergedQq
-                    return@launch
+                    // 若 AMLL 与 网易官方均无逐字歌词，且有歌曲元数据，尝试 QQ 音乐歌词源
+                    val hasNcmYrc = !ncmLyric?.yrc?.lyric.isNullOrBlank()
+                    if (!hasNcmYrc && !title.isNullOrBlank()) {
+                        val qqLyric = QqLyricsClient.fetch(title, artist, durationMs)
+                        if (currentMusicId == musicId && qqLyric != null && (!qqLyric.yrc?.lyric.isNullOrBlank() || ncmLyric == null)) {
+                            val mergedQq = mergeLyricResponse(ncmLyric, qqLyric)
+                            lyricCache[cacheKey] = mergedQq
+                            _lyric.value = mergedQq
+                            return@launch
+                        }
+                    }
+
+                    // 最终落位网易歌词（若无逐字则至少有普通 LRC）
+                    if (currentMusicId == musicId && ncmLyric != null) {
+                        lyricCache[cacheKey] = ncmLyric
+                        _lyric.value = ncmLyric
+                    }
                 }
             }
-
-            // 最终落位网易歌词（若无逐字则至少有普通 LRC）
-            if (currentMusicId == musicId && ncmLyric != null) {
-                lyricCache[musicId] = ncmLyric
-                _lyric.value = ncmLyric
-            }
         }
+    }
+
+    fun switchLyricSource(
+        source: String,
+        musicId: Long,
+        title: String? = null,
+        artist: String? = null,
+        durationMs: Long = 0L
+    ) {
+        currentMusicId = null
+        fetchLyric(
+            musicId = musicId,
+            title = title,
+            artist = artist,
+            durationMs = durationMs,
+            source = source,
+            forceRefresh = true
+        )
     }
 
     private fun mergeLyricResponse(base: LyricResponse?, overlay: LyricResponse?): LyricResponse? {

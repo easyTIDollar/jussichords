@@ -150,6 +150,9 @@ fun ExploreScreen(
         },
         typography = MaterialTheme.typography.withShadow(textShadow)
     ) {
+    CompositionLocalProvider(
+        androidx.compose.material3.LocalContentColor provides (if (bgTextMode == "auto") MaterialTheme.colorScheme.onSurface else bgTextColor)
+    ) {
     Scaffold(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
         topBar = {
@@ -299,6 +302,7 @@ fun ExploreScreen(
                     }
                 }
             }
+    }
     }
     }
 
