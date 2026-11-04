@@ -56,8 +56,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
@@ -269,9 +267,9 @@ fun LibraryScreen(
         if (bgTextShadow > 0.05f) {
             val lum = 0.299f * bgTextColor.red + 0.587f * bgTextColor.green + 0.114f * bgTextColor.blue
             val shadowColor = if (lum > 0.5f) {
-                Color.Black.copy(alpha = 0.85f)
+                androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.85f)
             } else {
-                Color.White.copy(alpha = 0.85f)
+                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f)
             }
             Shadow(
                 color = shadowColor,
