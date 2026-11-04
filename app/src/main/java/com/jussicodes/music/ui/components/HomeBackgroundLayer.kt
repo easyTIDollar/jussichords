@@ -93,7 +93,7 @@ fun HomeBackgroundLayer(
             model = file,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            filterQuality = FilterQuality.High,
+            filterQuality = FilterQuality.Low,
             onState = { state ->
                 if (state is AsyncImagePainter.State.Success) {
                     val size = state.painter.intrinsicSize
