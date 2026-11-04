@@ -92,20 +92,13 @@ class ArtistScreenViewModel @Inject constructor(
     private val _artistFollowStats = MutableStateFlow<ArtistFollowCountData?>(null)
     val artistFollowStats: StateFlow<ArtistFollowCountData?> = _artistFollowStats.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     init {
         viewModelScope.launch {
-            artistId?.let {
-                val headInfo = ArtistApi.artistHeadInfo(it).getOrNull()
-                _artistHeadInfo.value = headInfo
-                val followStats = ArtistApi.artistFollowCount(it).getOrNull()?.data
-                _artistFollowStats.value = followStats
-                _isArtistSubscribed.value = ArtistCollectionSyncBus.overrideFor(it)
-                    ?: followStats?.followed
-                    ?: (headInfo?.data?.user?.followed == true)
-                val topSong = ArtistApi.artistTopSong(it).getOrNull()
-                _artistTopSong.value = topSong
-                refreshLikedSongs(topSong?.songs?.map { song -> song.id }.orEmpty())
-                _simiArtists.value = ArtistApi.simiArtist(it).getOrNull()?.artists.orEmpty()
+            artistId?.let { id ->
+                loadArtistData(id)
             }
         }
         viewModelScope.launch {
@@ -121,6 +114,39 @@ class ArtistScreenViewModel @Inject constructor(
                 _likedSongIds.update { current ->
                     if (event.liked) current + event.song.id else current - event.song.id
                 }
+            }
+        }
+    }
+
+    private suspend fun loadArtistData(id: Long) {
+        val headInfo = ArtistApi.artistHeadInfo(id).getOrNull()
+        if (headInfo != null) _artistHeadInfo.value = headInfo
+        val followStats = ArtistApi.artistFollowCount(id).getOrNull()?.data
+        if (followStats != null) {
+            _artistFollowStats.value = followStats
+            _isArtistSubscribed.value = ArtistCollectionSyncBus.overrideFor(id)
+                ?: followStats.followed
+                ?: (headInfo?.data?.user?.followed == true)
+        }
+        val topSong = ArtistApi.artistTopSong(id).getOrNull()
+        if (topSong != null) {
+            _artistTopSong.value = topSong
+            refreshLikedSongs(topSong.songs.map { song -> song.id })
+        }
+        _simiArtists.value = ArtistApi.simiArtist(id).getOrNull()?.artists.orEmpty()
+    }
+
+    fun refresh() {
+        val id = artistId ?: return
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                loadArtistData(id)
+                if (_songMode.value == "all" || _allSongsForQueue.value != null) {
+                    loadAllSongsForQueue()
+                }
+            } finally {
+                _isRefreshing.value = false
             }
         }
     }
