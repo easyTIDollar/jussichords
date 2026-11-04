@@ -1146,26 +1146,36 @@ private fun PlaylistGroupCard(
                 modifier = Modifier.heightIn(max = (orderedPlaylists.size * 66).dp)
             ) {
                 itemsIndexed(orderedPlaylists, key = { _, playlist -> playlist.id }) { index, playlist ->
-                    ReorderableItem(reorderableState, key = playlist.id, enabled = reorderEnabled) {
+                    if (reorderEnabled) {
+                        ReorderableItem(reorderableState, key = playlist.id, enabled = true) {
+                            LibraryPlaylistRow(
+                                playlist = playlist,
+                                coverVersion = coverVersions[playlist.id] ?: 0L,
+                                menuItems = menuItems,
+                                reorderEnabled = true,
+                                dragModifier = Modifier.longPressDraggableHandle(
+                                    onDragStarted = {
+                                        ViewCompat.performHapticFeedback(
+                                            view,
+                                            HapticFeedbackConstantsCompat.GESTURE_START
+                                        )
+                                    },
+                                    onDragStopped = {
+                                        ViewCompat.performHapticFeedback(
+                                            view,
+                                            HapticFeedbackConstantsCompat.GESTURE_END
+                                        )
+                                    }
+                                ),
+                                onClick = { onPlaylistClick(playlist) }
+                            )
+                        }
+                    } else {
                         LibraryPlaylistRow(
                             playlist = playlist,
                             coverVersion = coverVersions[playlist.id] ?: 0L,
                             menuItems = menuItems,
-                            reorderEnabled = reorderEnabled,
-                            dragModifier = Modifier.longPressDraggableHandle(
-                                onDragStarted = {
-                                    ViewCompat.performHapticFeedback(
-                                        view,
-                                        HapticFeedbackConstantsCompat.GESTURE_START
-                                    )
-                                },
-                                onDragStopped = {
-                                    ViewCompat.performHapticFeedback(
-                                        view,
-                                        HapticFeedbackConstantsCompat.GESTURE_END
-                                    )
-                                }
-                            ),
+                            reorderEnabled = false,
                             onClick = { onPlaylistClick(playlist) }
                         )
                     }
@@ -1222,20 +1232,22 @@ private fun LibraryPlaylistRow(
                             contentDescription = stringResource(R.string.more)
                         )
                     }
-                    JussiDropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false }
-                    ) {
-                        menuItems.forEach { item ->
-                            JussiMenuItem(
-                                text = item.text,
-                                icon = item.icon,
-                                destructive = item.destructive,
-                                onClick = {
-                                    menuExpanded = false
-                                    item.onClick(playlist)
-                                }
-                            )
+                    if (menuExpanded) {
+                        JussiDropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false }
+                        ) {
+                            menuItems.forEach { item ->
+                                JussiMenuItem(
+                                    text = item.text,
+                                    icon = item.icon,
+                                    destructive = item.destructive,
+                                    onClick = {
+                                        menuExpanded = false
+                                        item.onClick(playlist)
+                                    }
+                                )
+                            }
                         }
                     }
                 }

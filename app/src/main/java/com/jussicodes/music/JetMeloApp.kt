@@ -108,16 +108,14 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
             delay(4000)
             com.jussicodes.music.lx.LxPluginManager.warmUp()
         }
-        // Fill the explore flows from disk cache immediately, so the explore
-        // tab renders content on first frame even while the cookie config
-        // and network fetch are still in flight.
-        applicationScope.launch { ExplorePreloader.loadCache() }
-        applicationScope.launch { PinnedAlbumStore.loadCache() }
-        // 一次性迁移（合并单次读写，避免并发抢占 DataStore 事务锁）：
-        // 1. 音源选择一律回到内置 LX 音源，清掉旧键。
-        // 2. 清除非内置 API 服务器。
+        // 关键路径优化：单次读取 DataStore 根快照，顺序注入 Explore/PinnedAlbum/HomeUserInfo 各 Store，
+        // 彻底消除启动阶段多协程并发 .first() 产生的 DataStore 锁排队与 I/O 阻塞。
         applicationScope.launch {
             val prefs = dataStore.data.first()
+            ExplorePreloader.loadCache(prefs)
+            PinnedAlbumStore.loadCache(prefs)
+            HomeUserInfoStore.applySnapshot(prefs)
+
             val needAudioSourceMigration = prefs[audioSourceKey] == null
             val alreadyCleaned = prefs[apiServerListCleanedKey] ?: false
             if (needAudioSourceMigration || !alreadyCleaned) {

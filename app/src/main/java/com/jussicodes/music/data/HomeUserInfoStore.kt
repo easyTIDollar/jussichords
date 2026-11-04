@@ -47,9 +47,14 @@ object HomeUserInfoStore {
         store = app.dataStore
         scope.launch {
             val prefs = app.dataStore.data.first()
-            _userInfo.value = decode(prefs[libraryUserInfoCacheKey])
-            _userDetail.value = decode(prefs[libraryUserDetailCacheKey])
+            applySnapshot(prefs)
         }
+    }
+
+    /** 用传入的快照直接灌入，避免重复读盘。 */
+    fun applySnapshot(prefs: Preferences) {
+        _userInfo.value = decode(prefs[libraryUserInfoCacheKey])
+        _userDetail.value = decode(prefs[libraryUserDetailCacheKey])
     }
 
     /** 网络刷新成功后回写（内存 + 落盘）。 */
