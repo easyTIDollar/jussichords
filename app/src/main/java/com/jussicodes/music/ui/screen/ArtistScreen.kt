@@ -521,7 +521,7 @@ fun ArtistScreen(
                                 val chunkedSimi = remember(simiArtists) { simiArtists.chunked(2) }
                                 items(
                                     items = chunkedSimi,
-                                    key = { row -> "explore-simi-row-${row.joinToString(\"-\") { it.id.toString() }}" }
+                                    key = { row -> "explore-simi-row-" + row.first().id }
                                 ) { rowArtists ->
                                     Row(
                                         modifier = Modifier
