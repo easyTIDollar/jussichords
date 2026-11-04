@@ -92,10 +92,10 @@ class MainActivity : ComponentActivity() {
             var isDownloadingUpdate by remember { mutableStateOf(false) }
             var downloadProgress by remember { mutableStateOf<Float?>(0f) }
             var downloadProgressText by remember { mutableStateOf<String?>(null) }
-            var uiScale by rememberPreference(uiScaleKey, 1f)
-            var liveUiScale by remember { mutableFloatStateOf(uiScale) }
-            var fontScale by rememberPreference(fontScaleKey, 0.9f)
-            var liveFontScale by remember { mutableFloatStateOf(fontScale) }
+            var uiScale by rememberPreference(uiScaleKey, com.jussicodes.music.ui.components.ScaledDialogDensity.scale)
+            var liveUiScale by remember { mutableFloatStateOf(com.jussicodes.music.ui.components.ScaledDialogDensity.scale) }
+            var fontScale by rememberPreference(fontScaleKey, com.jussicodes.music.ui.components.ScaledDialogDensity.fontScale)
+            var liveFontScale by remember { mutableFloatStateOf(com.jussicodes.music.ui.components.ScaledDialogDensity.fontScale) }
             var githubDownloadSource by rememberPreference(
                 githubDownloadSourceKey,
                 downloadSources.first().id

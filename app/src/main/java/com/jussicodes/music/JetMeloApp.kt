@@ -18,7 +18,9 @@ import com.jussicodes.music.constants.audioSourceKey
 import com.jussicodes.music.constants.cacheAutoCleanEnabledKey
 import com.jussicodes.music.constants.cacheAutoCleanThresholdKey
 import com.jussicodes.music.constants.directSourceKey
+import com.jussicodes.music.constants.fontScaleKey
 import com.jussicodes.music.constants.localSourceKey
+import com.jussicodes.music.constants.uiScaleKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.resolveAllSongsKey
 import com.jussicodes.music.constants.unblockSourceKey
@@ -115,6 +117,8 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
             ExplorePreloader.loadCache(prefs)
             PinnedAlbumStore.loadCache(prefs)
             HomeUserInfoStore.applySnapshot(prefs)
+            prefs[uiScaleKey]?.let { com.jussicodes.music.ui.components.ScaledDialogDensity.scale = it }
+            prefs[fontScaleKey]?.let { com.jussicodes.music.ui.components.ScaledDialogDensity.fontScale = it }
 
             val needAudioSourceMigration = prefs[audioSourceKey] == null
             val alreadyCleaned = prefs[apiServerListCleanedKey] ?: false
