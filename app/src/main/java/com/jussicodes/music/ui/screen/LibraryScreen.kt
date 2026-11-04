@@ -86,6 +86,7 @@ import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.screen.PERSONAL_FM_SOURCE
 import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
 import com.jussicodes.music.utils.PlayerExpandBus
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.jussicodes.music.data.HomeBgTextStore
 import com.jussicodes.music.data.HomeTransparentCardStore
@@ -240,6 +241,9 @@ fun LibraryScreen(
         val cookie = ncmCookie ?: return@LaunchedEffect
         if (cookie.isNotEmpty()) {
             libraryScreenViewModel.fetchUserInfo(cookie = cookie)
+            // 专辑墙已有本地磁盘缓存 loadCache() 立即上屏，网络同步错峰 1.5 秒，
+            // 避免启动瞬间与用户信息、歌单列表请求抢占网络与 CPU 导致初次操作卡顿
+            delay(1500)
             PinnedAlbumStore.sync()
         } else {
             libraryScreenViewModel.clear()
@@ -248,15 +252,24 @@ fun LibraryScreen(
     }
 
     val userId = userInfoBatchState?.account?.profile?.userId ?: 0L
-    val favoritePlaylistId = userPlaylists.firstOrNull { playlist ->
-        playlist.creator?.userId == userId && (
-            playlist.specialType == 5 ||
-            playlist.name.contains(LIKED_PLAYLIST_NAME_FRAGMENT))
-    }?.id
-    val favoritePlaylist = userPlaylists.firstOrNull { it.id == favoritePlaylistId }
-    val normalPlaylists = userPlaylists.filterNot { it.id == favoritePlaylistId }
-    val collectedPlaylists = normalPlaylists.filter { it.subscribed || it.creator?.userId != userId }
-    val createdPlaylists = normalPlaylists.filterNot { it in collectedPlaylists }
+    val (favoritePlaylist, createdPlaylists, collectedPlaylists) = remember(userPlaylists, userId) {
+        var fav: Playlist? = null
+        val created = ArrayList<Playlist>()
+        val collected = ArrayList<Playlist>()
+        for (pl in userPlaylists) {
+            val isFav = fav == null && pl.creator?.userId == userId && (
+                pl.specialType == 5 || pl.name.contains(LIKED_PLAYLIST_NAME_FRAGMENT)
+            )
+            if (isFav) {
+                fav = pl
+            } else if (pl.subscribed || pl.creator?.userId != userId) {
+                collected.add(pl)
+            } else {
+                created.add(pl)
+            }
+        }
+        Triple(fav, created, collected)
+    }
 
     // 主页文字色（设置页「外观」选择）：auto 档不覆盖（scheme 原样，逐像素一致、零重绘）；
     // 白/黑档用本地 ColorScheme 覆盖整页（卡片内 onSurface/onSurfaceVariant 读取处自动跟随）。
