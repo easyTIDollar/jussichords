@@ -52,6 +52,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
 import com.jussicodes.music.animation.AlbumArtBoundsTransform
 import com.jussicodes.music.animation.MotionDuration
+import com.jussicodes.music.animation.MotionEasing
 import com.jussicodes.music.animation.MotionSpec
 import com.jussicodes.music.animation.MotionSpring
 import com.jussicodes.music.animation.PanelBoundsPlaceHolder
