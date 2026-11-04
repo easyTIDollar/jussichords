@@ -22,6 +22,7 @@ import androidx.media3.common.util.UnstableApi
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.uiScaleKey
+import com.jussicodes.music.constants.fontScaleKey
 import com.jussicodes.music.data.MsgSessionCache
 import android.Manifest
 import android.content.pm.PackageManager
@@ -93,16 +94,20 @@ class MainActivity : ComponentActivity() {
             var downloadProgressText by remember { mutableStateOf<String?>(null) }
             var uiScale by rememberPreference(uiScaleKey, 1f)
             var liveUiScale by remember { mutableFloatStateOf(uiScale) }
+            var fontScale by rememberPreference(fontScaleKey, 1f)
+            var liveFontScale by remember { mutableFloatStateOf(fontScale) }
             var githubDownloadSource by rememberPreference(
                 githubDownloadSourceKey,
                 downloadSources.first().id
             )
 
-            LaunchedEffect(uiScale) {
+            LaunchedEffect(uiScale, fontScale) {
                 liveUiScale = uiScale
+                liveFontScale = fontScale
                 // 同步给进程级 holder：弹窗是独立窗口，不继承这里的缩放 Density，
                 // 靠 ScaledDialogContent 读这个值跨窗口复刻缩放。
                 com.jussicodes.music.ui.components.ScaledDialogDensity.scale = uiScale
+                com.jussicodes.music.ui.components.ScaledDialogDensity.fontScale = fontScale
             }
 
             LaunchedEffect(Unit) {
@@ -211,11 +216,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
             val baseDensity = LocalDensity.current
-            val scaledDensity = remember(baseDensity, liveUiScale) {
+            val scaledDensity = remember(baseDensity, liveUiScale, liveFontScale) {
                 val scale = liveUiScale.coerceIn(0.7f, 1.1f)
+                val fScale = liveFontScale.coerceIn(0.8f, 1.3f)
                 Density(
                     density = baseDensity.density * scale,
-                    fontScale = baseDensity.fontScale * scale
+                    fontScale = baseDensity.fontScale * scale * fScale
                 )
             }
             CompositionLocalProvider(LocalDensity provides scaledDensity) {
@@ -234,6 +240,13 @@ class MainActivity : ComponentActivity() {
                                 // ScaledDialogDensity.scale 实时变化，弹窗内 dp/sp 即时
                                 // 跟随缩放，无需关弹窗重开。
                                 com.jussicodes.music.ui.components.ScaledDialogDensity.scale = scale
+                            },
+                            fontScale = liveFontScale,
+                            setFontScale = {
+                                val fScale = it.coerceIn(0.8f, 1.3f)
+                                liveFontScale = fScale
+                                fontScale = fScale
+                                com.jussicodes.music.ui.components.ScaledDialogDensity.fontScale = fScale
                             }
                         )
                     ) {
@@ -304,11 +317,15 @@ val LocalPlayerState = staticCompositionLocalOf<PlayerState?> {
 data class UiScaleController(
     val scale: Float,
     val setScale: (Float) -> Unit,
+    val fontScale: Float = 1f,
+    val setFontScale: (Float) -> Unit = {},
 )
 
 val LocalUiScaleController = staticCompositionLocalOf<UiScaleController> {
     UiScaleController(
         scale = 1f,
         setScale = {},
+        fontScale = 1f,
+        setFontScale = {},
     )
 }

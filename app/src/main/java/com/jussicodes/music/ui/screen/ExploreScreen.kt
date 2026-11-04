@@ -38,6 +38,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -67,6 +70,7 @@ import com.jussicodes.music.ui.components.SongListItem
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
 import com.jussicodes.music.ui.components.TopBar
 import com.jussicodes.music.ui.components.resolveHomeBgTextColor
+import com.jussicodes.music.ui.components.withShadow
 import com.jussicodes.music.ui.navigation.PlaylistNav
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.viewModel.ExploreScreenViewModel
@@ -116,15 +120,36 @@ fun ExploreScreen(
     // 主页文字色（设置页「外观」选择）：auto 档不覆盖（scheme 原样，逐像素一致、零重绘）；
     // 白/黑档用本地 ColorScheme 覆盖整页（卡片内 onSurface/onSurfaceVariant 读取处自动跟随）。
     val bgTextMode = HomeBgTextStore.state.collectAsState().value
+    val bgTextShadow = HomeBgTextStore.shadow.collectAsState().value
     val bgTextColor = resolveHomeBgTextColor(bgTextMode, MaterialTheme.colorScheme)
-    MaterialTheme(colorScheme = if (bgTextMode == "auto") {
-        MaterialTheme.colorScheme
-    } else {
-        MaterialTheme.colorScheme.copy(
-            onSurface = bgTextColor,
-            onSurfaceVariant = bgTextColor.copy(alpha = 0.85f),
-        )
-    }) {
+    val textShadow = remember(bgTextShadow, bgTextColor) {
+        if (bgTextShadow > 0.05f) {
+            val lum = 0.299f * bgTextColor.red + 0.587f * bgTextColor.green + 0.114f * bgTextColor.blue
+            val shadowColor = if (lum > 0.5f) {
+                Color.Black.copy(alpha = 0.85f)
+            } else {
+                Color.White.copy(alpha = 0.85f)
+            }
+            Shadow(
+                color = shadowColor,
+                offset = Offset.Zero,
+                blurRadius = bgTextShadow * 3f
+            )
+        } else {
+            null
+        }
+    }
+    MaterialTheme(
+        colorScheme = if (bgTextMode == "auto") {
+            MaterialTheme.colorScheme
+        } else {
+            MaterialTheme.colorScheme.copy(
+                onSurface = bgTextColor,
+                onSurfaceVariant = bgTextColor.copy(alpha = 0.85f),
+            )
+        },
+        typography = MaterialTheme.typography.withShadow(textShadow)
+    ) {
     Scaffold(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
         topBar = {

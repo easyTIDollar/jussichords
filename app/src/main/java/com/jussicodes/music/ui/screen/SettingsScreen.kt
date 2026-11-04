@@ -132,7 +132,6 @@ import com.jussicodes.music.ui.components.UpdateDialog
 import com.jussicodes.music.ui.components.unblockSourceOptions
 import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.AudioLines
-import com.jussicodes.music.ui.icons.Blur
 import com.jussicodes.music.ui.icons.DesktopLyrics
 import androidx.compose.material.icons.outlined.Dns
 import com.jussicodes.music.ui.icons.Gesture
@@ -140,7 +139,6 @@ import com.jussicodes.music.ui.icons.Github
 import com.jussicodes.music.ui.icons.Login
 import com.jussicodes.music.ui.icons.Logout
 import com.jussicodes.music.ui.icons.MusicNote
-import com.jussicodes.music.ui.icons.NavigationPill
 import com.jussicodes.music.ui.icons.Palette
 import com.jussicodes.music.ui.icons.Remove
 import com.jussicodes.music.ui.icons.Script
@@ -252,6 +250,7 @@ fun SettingsScreen(
     val homeTransparentCard = com.jussicodes.music.data.HomeTransparentCardStore.state.collectAsState().value
     // 主页文字颜色（设置页「外观」选择）：进程级 store，auto/white/black。
     val homeBgTextColor = com.jussicodes.music.data.HomeBgTextStore.state.collectAsState().value
+    val homeBgTextShadow = com.jussicodes.music.data.HomeBgTextStore.shadow.collectAsState().value
     var homeBgOffsetX by rememberPreference(homeBgOffsetXKey, 0f)
     var homeBgOffsetY by rememberPreference(homeBgOffsetYKey, 0f)
     val homeBg = remember(
@@ -519,7 +518,7 @@ fun SettingsScreen(
             "主页背景图取色（未设置图片）"
         }
     }
-    val appearanceWithScale = "$appearanceSubtitle · 缩放 ${(uiScaleController.scale * 100).toInt()}%"
+    val appearanceWithScale = "$appearanceSubtitle · 界面 ${(uiScaleController.scale * 100).toInt()}% · 字体 ${(uiScaleController.fontScale * 100).toInt()}%"
     val accountCookie = remember(ncmCookie) { ncmCookie.toCookieHeader() }
     val accountCookieMap = remember(accountCookie) { parseCookieString(accountCookie) }
     val loggedOut = ncmCookie.isEmpty()
@@ -582,38 +581,6 @@ fun SettingsScreen(
                 subtitle = appearanceWithScale,
                 imageVector = Palette,
                 onClick = { showThemeColorSourceDialog = true }
-            ),
-            SettingItemData(
-                title = "悬浮胶囊底栏",
-                subtitle = if (floatingNavBarEnabled) {
-                    "已开启 · 悬浮胶囊样式"
-                } else {
-                    "已关闭 · 经典贴底通栏"
-                },
-                imageVector = NavigationPill,
-                trailingContent = {
-                    Switch(
-                        checked = floatingNavBarEnabled,
-                        onCheckedChange = { floatingNavBarEnabled = it }
-                    )
-                    Spacer(Modifier.width(12.dp))
-                }
-            ),
-            SettingItemData(
-                title = "上滑背景高斯模糊",
-                subtitle = if (playerBackgroundBlurEnabled) {
-                    "已开启 · 上滑播放器动态模糊背景，掉帧请关闭"
-                } else {
-                    "已关闭 · 使用景深遮罩减少掉帧"
-                },
-                imageVector = Blur,
-                trailingContent = {
-                    Switch(
-                        checked = playerBackgroundBlurEnabled,
-                        onCheckedChange = { playerBackgroundBlurEnabled = it }
-                    )
-                    Spacer(Modifier.width(12.dp))
-                }
             ),
             SettingItemData(
                 title = "桌面歌词",
@@ -950,10 +917,16 @@ fun SettingsScreen(
         ThemeColorSourceDialog(
             currentSource = themeColorSource,
             currentUiScale = uiScaleController.scale,
+            currentFontScale = uiScaleController.fontScale,
             wallpaperColorAvailable = dynamicColorAvailable,
             onDismiss = { showThemeColorSourceDialog = false },
             onSourceSelected = { themeColorSource = it },
             onUiScaleSelected = uiScaleController.setScale,
+            onFontScaleSelected = uiScaleController.setFontScale,
+            floatingNavBarEnabled = floatingNavBarEnabled,
+            onFloatingNavBarEnabledChange = { floatingNavBarEnabled = it },
+            playerBackgroundBlurEnabled = playerBackgroundBlurEnabled,
+            onPlayerBackgroundBlurEnabledChange = { playerBackgroundBlurEnabled = it },
             homeBg = homeBg,
             onHomeBgPick = { homeBgPicker.launch("image/*") },
             onHomeBgRemoved = { removeHomeBg() },
@@ -962,6 +935,12 @@ fun SettingsScreen(
             onHomeBgTextColorChanged = { v ->
                 coroutineScope.launch {
                     com.jussicodes.music.data.HomeBgTextStore.set(context, v)
+                }
+            },
+            homeBgTextShadow = homeBgTextShadow,
+            onHomeBgTextShadowChanged = { v ->
+                coroutineScope.launch {
+                    com.jussicodes.music.data.HomeBgTextStore.setShadow(context, v)
                 }
             },
             homeTransparentCard = homeTransparentCard,
