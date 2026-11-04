@@ -364,10 +364,15 @@ fun Lyric(
                     }
                 }
 
-                // 当活动歌词索引变化或自动跟随恢复时，平滑定位到当前行（停留在视口舒适偏上位置）
+                // 当活动歌词索引变化或自动跟随恢复时，平滑定位到当前行（上方保留 1~2 句前文上下文）
                 LaunchedEffect(currentIndex, autoScrollEnabled) {
                     if (autoScrollEnabled && currentIndex in 0..lrcLines.lastIndex) {
-                        listState.animateScrollToItem(currentIndex, 0)
+                        val targetIndex = if (landscape) {
+                            maxOf(currentIndex - 1, 0)
+                        } else {
+                            maxOf(currentIndex - 2, 0)
+                        }
+                        listState.animateScrollToItem(targetIndex, 0)
                     }
                 }
 
@@ -379,10 +384,10 @@ fun Lyric(
                     contentPadding = PaddingValues(
                         start = if (landscape) 20.dp else 12.dp,
                         end = if (landscape) 20.dp else 12.dp,
-                        // 顶部留出适度呼吸空间（当前句停留在视口上方约 20%~25% 黄金位，避开横屏渐隐）
-                        top = if (landscape) 48.dp else 120.dp,
-                        // 底部留出充足垫底高度，保证哪怕最后几句也能优雅滚到视口黄金位置，绝不沉底出画
-                        bottom = if (landscape) 140.dp else 280.dp,
+                        // 紧凑微间距，彻底消除首句上方大块空白
+                        top = 8.dp,
+                        // 底部留出充足垫底高度，保证末尾几句也能平滑滚到舒适视野，绝不沉底出画
+                        bottom = if (landscape) 120.dp else 240.dp,
                     )
                 ) {
                     items(
