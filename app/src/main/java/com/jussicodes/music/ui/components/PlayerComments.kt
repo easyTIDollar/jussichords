@@ -213,34 +213,19 @@ fun PlayerCommentsContent(
             isSending = false
             result
                 .onSuccess {
+                    val fresh = Comment(
+                        commentId = -System.nanoTime(),
+                        content = content,
+                        user = CommentUser(
+                            userId = currentUid ?: 0L,
+                            nickname = currentProfile?.nickname.orEmpty().ifBlank { "我" },
+                            avatarUrl = currentProfile?.avatarUrl.orEmpty()
+                        )
+                    )
+                    comments = listOf(fresh) + comments
                     draft = ""
                     replyTarget = null
-                    Toast.makeText(
-                        context,
-                        if (target != null) "回复成功" else "评论已发送",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    val newComment = it.data.comment
-                    if (newComment != null) {
-                        comments = listOf(newComment) + comments
-                    } else {
-                        pageNo = 1
-                        cursor = ""
-                        CommentApi.newComments(
-                            id = songId,
-                            type = commentType,
-                            sortType = selectedSort.type,
-                            pageSize = 20,
-                            pageNo = 1
-                        ).onSuccess { res ->
-                            commentData = res.data
-                            comments = res.data.comments
-                            hasMore = res.data.hasMore
-                            cursor = (res.data.cursor as? JsonPrimitive)?.content?.takeIf { c -> c.isNotBlank() }
-                                ?: res.data.comments.lastOrNull()?.time?.toString()
-                                ?: ""
-                        }
-                    }
+                    Toast.makeText(context, if (target == null) "评论已发布" else "回复已发布", Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
                     Toast.makeText(context, it.message ?: "发送失败", Toast.LENGTH_SHORT).show()

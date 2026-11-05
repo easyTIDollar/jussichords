@@ -1,6 +1,7 @@
 package com.jussicodes.music.ui.components
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import com.jussicodes.music.animation.MotionSpring
@@ -681,7 +682,7 @@ fun Player(
 
                                 // 打断正在飞行的动画
                                 if (commentSheetTranslationY.isRunning) {
-                                    commentSheetTranslationY.stop()
+                                    scope.launch { commentSheetTranslationY.stop() }
                                 }
 
                                 val velocityTracker = VelocityTracker()
