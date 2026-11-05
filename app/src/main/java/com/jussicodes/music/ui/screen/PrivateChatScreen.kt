@@ -10,12 +10,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -34,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -202,11 +209,18 @@ fun PrivateChatScreen(
         MsgSessionCache.markRead(viewModel.contactUserId)
     }
 
-    // 聊天页输入框贴底：Scaffold 已做键盘避让，bottomBar 勿再 imePadding（会与 adjustResize 叠加顶跳）；进入时声明隐藏常驻小播放条，避免盖住输入框；
-    // 退出（组合销毁）时恢复显示。
+    // 聊天页输入框贴底：移入 content 并在主容器使用 imePadding()，输入框紧贴键盘上沿；
+    // 进入时声明隐藏常驻小播放条，避免盖住输入框；退出（组合销毁）时恢复显示。
     DisposableEffect(Unit) {
         MiniPlayerHiddenBus.setHidden(true)
         onDispose { MiniPlayerHiddenBus.setHidden(false) }
+    }
+
+    val isImeVisible = WindowInsets.isImeVisible
+    LaunchedEffect(isImeVisible) {
+        if (isImeVisible && chatList.isNotEmpty()) {
+            listState.scrollToItem(chatList.lastIndex)
+        }
     }
 
     LaunchedEffect(refreshTick) {
@@ -277,40 +291,14 @@ fun PrivateChatScreen(
                 }
             )
         },
-        bottomBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text(stringResource(R.string.msg_chat_input_hint)) },
-                    maxLines = 4,
-                    enabled = !isSending,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { onSend() })
-                )
-                IconButton(
-                    onClick = { onSend() },
-                    enabled = !isSending && draft.isNotBlank()
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = stringResource(R.string.msg_chat_send),
-                        tint = if (draft.isNotBlank()) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
+        contentWindowInsets = ScaffoldDefaults.contentWindowInsets.exclude(WindowInsets.ime)
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = padding.calculateTopPadding())
+                .imePadding()
+        ) {
             if (sendError != null) {
                 Box(
                     modifier = Modifier
@@ -325,14 +313,18 @@ fun PrivateChatScreen(
             }
             if (isLoading) {
                 Box(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator()
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
                     state = listState,
                     contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -367,6 +359,39 @@ fun PrivateChatScreen(
                             )
                         }
                     }
+                }
+            }
+
+            // 底部输入栏：输入框与发送按钮，贴紧软键盘
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surface)
+                    .windowInsetsPadding(WindowInsets.navigationBars.exclude(WindowInsets.ime))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text(stringResource(R.string.msg_chat_input_hint)) },
+                    maxLines = 4,
+                    enabled = !isSending,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { onSend() })
+                )
+                IconButton(
+                    onClick = { onSend() },
+                    enabled = !isSending && draft.isNotBlank()
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = stringResource(R.string.msg_chat_send),
+                        tint = if (draft.isNotBlank()) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
