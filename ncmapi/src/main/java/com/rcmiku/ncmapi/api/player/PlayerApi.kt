@@ -301,16 +301,15 @@ object PlayerApi {
         songId: Long,
         albumName: String = "",
         publishTimeStr: String = ""
-    ): Result<com.rcmiku.ncmapi.model.SongWikiData> = kotlinx.coroutines.coroutineScope {
-        val summaryDeferred = kotlinx.coroutines.async {
-            apiPost<com.rcmiku.ncmapi.model.SongWikiSummaryResponse>("/song/wiki/summary", mapOf("songId" to songId))
-        }
-        val creatorsDeferred = kotlinx.coroutines.async {
-            apiPost<com.rcmiku.ncmapi.model.SongCreatorsResponse>("/song/creators", mapOf("songId" to songId))
-        }
-
-        val summaryResult = summaryDeferred.await().getOrNull()
-        val creatorsResult = creatorsDeferred.await().getOrNull()
+    ): Result<com.rcmiku.ncmapi.model.SongWikiData> {
+        val summaryResult = apiPost<com.rcmiku.ncmapi.model.SongWikiSummaryResponse>(
+            "/song/wiki/summary",
+            mapOf("songId" to songId)
+        ).getOrNull()
+        val creatorsResult = apiPost<com.rcmiku.ncmapi.model.SongCreatorsResponse>(
+            "/song/creators",
+            mapOf("songId" to songId)
+        ).getOrNull()
 
         var style = ""
         var language = ""
@@ -379,7 +378,7 @@ object PlayerApi {
             }
         val creatorsStr = creatorRoles.joinToString(" / ") { "${it.roleName} ${it.artistNames.joinToString(" ")}" }
 
-        Result.success(
+        return Result.success(
             com.rcmiku.ncmapi.model.SongWikiData(
                 style = style,
                 album = albumName,
