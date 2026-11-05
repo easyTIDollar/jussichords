@@ -45,19 +45,38 @@ object WidgetUpdater {
         mutex.withLock {
             runCatching {
                 val snapshot = WidgetStateStore.read(app)
+                val cookie = cookie(app)
+                val loggedIn = !cookie.isNullOrBlank()
+                // 没有播放会话时也必须同步登录标记：否则空状态会一直停在「未登录」，
+                // 用户明明已在 App 内登录，组件却永远提示去登录。
                 if (!snapshot.hasSession) {
-                    WidgetHub.updateAll(app)
+                    if (loggedIn != snapshot.loggedIn) {
+                        WidgetStateStore.write(app, snapshot.copy(loggedIn = loggedIn))
+                        WidgetHub.updateAll(app)
+                    }
                     return@runCatching
                 }
                 val ids = favoriteIds(app)
-                val cookie = cookie(app)
                 val liked = snapshot.songId != 0L && snapshot.songId in ids
-                val loggedIn = !cookie.isNullOrBlank()
                 if (liked == snapshot.isLiked && loggedIn == snapshot.loggedIn) return@runCatching
                 WidgetStateStore.write(
                     app,
                     snapshot.copy(isLiked = liked, loggedIn = loggedIn)
                 )
+                WidgetHub.updateAll(app)
+            }
+        }
+    }
+
+    /** 登录 / 登出 / 切号变化时立即同步登录标记，不依赖播放事件，也不必等回到前台。 */
+    suspend fun syncLoginFlag(context: Context) {
+        val app = context.applicationContext
+        mutex.withLock {
+            runCatching {
+                val snapshot = WidgetStateStore.read(app)
+                val loggedIn = !cookie(app).isNullOrBlank()
+                if (loggedIn == snapshot.loggedIn) return@runCatching
+                WidgetStateStore.write(app, snapshot.copy(loggedIn = loggedIn))
                 WidgetHub.updateAll(app)
             }
         }
