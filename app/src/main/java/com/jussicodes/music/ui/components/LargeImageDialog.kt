@@ -6,6 +6,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,7 +43,8 @@ fun LargeImageDialog(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     showSaveAction: Boolean = false,
-    actions: @Composable RowScope.() -> Unit = {}
+    actions: @Composable RowScope.() -> Unit = {},
+    overlayContent: @Composable (BoxScope.() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -79,6 +81,7 @@ fun LargeImageDialog(
                         translationY = offset.y
                     }
             )
+            overlayContent?.invoke(this)
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)

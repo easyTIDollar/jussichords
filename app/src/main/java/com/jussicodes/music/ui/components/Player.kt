@@ -97,11 +97,13 @@ import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.playback.ListenTogetherSession
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.FavoriteSongAction
+import com.rcmiku.ncmapi.model.SongWikiData
 import com.jussicodes.music.utils.getItemShape
 import com.jussicodes.music.utils.makeTimeString
 import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.rcmiku.ncmapi.api.album.AlbumApi
+import com.rcmiku.ncmapi.api.player.PlayerApi
 import com.rcmiku.ncmapi.model.Artist
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.SongAlbum
@@ -789,11 +791,57 @@ fun Player(
         )
 
         coverPreviewUrl?.let { url ->
+            val previewSongId = remember(url, currentSong?.id, mediaId) {
+                currentSong?.id ?: mediaId?.toLongOrNull()
+            }
+            var songWiki by remember(previewSongId) { mutableStateOf<SongWikiData?>(null) }
+            var isWikiLoading by remember(previewSongId) { mutableStateOf(false) }
+            var showWikiSheet by remember { mutableStateOf(false) }
+
+            LaunchedEffect(previewSongId) {
+                if (previewSongId != null && previewSongId > 0) {
+                    isWikiLoading = true
+                    val albumName = currentSong?.al?.name.orEmpty()
+                    val publishTime = currentSong?.publishTime ?: 0L
+                    val publishDateStr = if (publishTime > 0) {
+                        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                        sdf.format(java.util.Date(publishTime))
+                    } else ""
+                    PlayerApi.songWiki(previewSongId, albumName, publishDateStr)
+                        .onSuccess { songWiki = it }
+                    isWikiLoading = false
+                }
+            }
+
             LargeImageDialog(
                 imageUrl = url,
-                onDismiss = { coverPreviewUrl = null },
-                showSaveAction = true
+                onDismiss = {
+                    coverPreviewUrl = null
+                    showWikiSheet = false
+                },
+                showSaveAction = true,
+                overlayContent = {
+                    if (previewSongId != null && previewSongId > 0) {
+                        SongWikiPeekPill(
+                            songWiki = songWiki,
+                            isLoading = isWikiLoading,
+                            onClick = { showWikiSheet = true },
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .padding(bottom = 60.dp)
+                        )
+                    }
+                }
             )
+
+            if (showWikiSheet) {
+                SongWikiBottomSheet(
+                    songWiki = songWiki,
+                    isLoading = isWikiLoading,
+                    onDismissRequest = { showWikiSheet = false }
+                )
+            }
         }
 
         // 评论区背景暗色蒙层

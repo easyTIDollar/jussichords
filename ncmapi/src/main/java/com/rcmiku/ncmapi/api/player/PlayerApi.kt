@@ -10,6 +10,7 @@ import com.rcmiku.ncmapi.api.LxSourceBridge
 import com.rcmiku.ncmapi.api.UNBLOCK_SOURCE
 import com.rcmiku.ncmapi.api.apiClient
 import com.rcmiku.ncmapi.api.apiGet
+import com.rcmiku.ncmapi.api.apiPost
 import com.rcmiku.ncmapi.model.LyricResponse
 import com.rcmiku.ncmapi.model.SongUrl
 import com.rcmiku.ncmapi.model.SongUrlResponse
@@ -292,4 +293,106 @@ object PlayerApi {
 
     suspend fun songLyric(musicId: Long): Result<LyricResponse> =
         apiGet("/lyric/new", mapOf("id" to musicId))
+
+    /**
+     * 获取歌曲百科（含回忆坐标、曲风、制作人员等）
+     */
+    suspend fun songWiki(
+        songId: Long,
+        albumName: String = "",
+        publishTimeStr: String = ""
+    ): Result<com.rcmiku.ncmapi.model.SongWikiData> = kotlinx.coroutines.coroutineScope {
+        val summaryDeferred = kotlinx.coroutines.async {
+            apiPost<com.rcmiku.ncmapi.model.SongWikiSummaryResponse>("/song/wiki/summary", mapOf("songId" to songId))
+        }
+        val creatorsDeferred = kotlinx.coroutines.async {
+            apiPost<com.rcmiku.ncmapi.model.SongCreatorsResponse>("/song/creators", mapOf("songId" to songId))
+        }
+
+        val summaryResult = summaryDeferred.await().getOrNull()
+        val creatorsResult = creatorsDeferred.await().getOrNull()
+
+        var style = ""
+        var language = ""
+        var bpm = ""
+        var entertainment = ""
+        var awards = emptyList<String>()
+        var awardTotal = 0
+        var musicMemory: com.rcmiku.ncmapi.model.SongMusicMemory? = null
+
+        summaryResult?.data?.blocks?.forEach { block ->
+            when (block.code) {
+                "SONG_PLAY_ABOUT_SONG_BASIC" -> {
+                    block.creatives.forEach { creative ->
+                        when (creative.creativeType) {
+                            "songTag" -> {
+                                style = creative.resources.mapNotNull { it.uiElement?.mainTitle?.title }
+                                    .filter { it.isNotEmpty() }
+                                    .joinToString(" / ")
+                            }
+                            "language" -> {
+                                language = creative.uiElement?.textLinks?.firstOrNull()?.text.orEmpty()
+                            }
+                            "bpm" -> {
+                                bpm = creative.uiElement?.textLinks?.firstOrNull()?.text.orEmpty()
+                            }
+                            "entertainment" -> {
+                                entertainment = creative.resources.mapNotNull { it.uiElement?.mainTitle?.title }
+                                    .filter { it.isNotEmpty() }
+                                    .joinToString(" / ")
+                            }
+                            "songAward" -> {
+                                awards = creative.resources.mapNotNull { it.uiElement?.mainTitle?.title }
+                                    .filter { it.isNotEmpty() }
+                                awardTotal = creative.uiElement?.buttons?.firstOrNull()?.text
+                                    ?.filter { it.isDigit() }
+                                    ?.toIntOrNull() ?: 0
+                            }
+                        }
+                    }
+                }
+                "SONG_PLAY_ABOUT_MUSIC_MEMORY" -> {
+                    val resources = block.creatives.flatMap { it.resources }
+                    val firstListen = resources.firstOrNull { it.resourceType == "FIRST_LISTEN" }
+                        ?.resourceExt?.musicFirstListenDto
+                    val totalPlay = resources.firstOrNull { it.resourceType == "TOTAL_PLAY" }
+                        ?.resourceExt?.musicTotalPlayDto
+                    val date = firstListen?.date?.trim().orEmpty()
+                    val playCount = totalPlay?.playCount?.coerceAtLeast(0) ?: 0
+                    if (date.isNotEmpty() || playCount > 0) {
+                        musicMemory = com.rcmiku.ncmapi.model.SongMusicMemory(
+                            firstListenDate = date,
+                            season = firstListen?.season?.trim().orEmpty(),
+                            period = firstListen?.period?.trim().orEmpty(),
+                            playCount = playCount,
+                            playCountText = totalPlay?.text?.trim().orEmpty()
+                        )
+                    }
+                }
+            }
+        }
+
+        val creatorRoles = (creatorsResult?.data?.songCreatorsRoleVos ?: emptyList())
+            .mapNotNull { role ->
+                val artists = role.creatorMetaVOS.map { it.artistName }.filter { it.isNotEmpty() }
+                if (artists.isNotEmpty()) com.rcmiku.ncmapi.model.SongWikiCreatorRole(role.roleName, artists) else null
+            }
+        val creatorsStr = creatorRoles.joinToString(" / ") { "${it.roleName} ${it.artistNames.joinToString(" ")}" }
+
+        Result.success(
+            com.rcmiku.ncmapi.model.SongWikiData(
+                style = style,
+                album = albumName,
+                language = language,
+                publishTime = publishTimeStr,
+                bpm = bpm,
+                creators = creatorsStr,
+                creatorRoles = creatorRoles,
+                entertainment = entertainment,
+                awards = awards,
+                awardTotal = awardTotal,
+                musicMemory = musicMemory
+            )
+        )
+    }
 }
