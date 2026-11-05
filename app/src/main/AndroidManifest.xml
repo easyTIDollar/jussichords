@@ -86,6 +86,67 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- 桌面小组件：每款一个 GlanceAppWidgetReceiver -->
+        <receiver
+            android:name=".widget.ClassicWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_classic_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_classic_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SquareWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_square_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_square_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.CapsuleWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_capsule_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_capsule_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.FmWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_fm_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_fm_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.VinylWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_vinyl_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_vinyl_info" />
+        </receiver>
+
     </application>
 
 </manifest>

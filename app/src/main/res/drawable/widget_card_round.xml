@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  低版本圆角兜底：GlanceModifier.cornerRadius 只在 API 31+ 生效，
+  API 26–30 用这张纯白圆角矩形作为背景 + ColorFilter.tint 上色，
+  既拿到动态配色又保住 28dp 圆角。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FFFFFFFF" />
+    <corners android:radius="28dp" />
+</shape>

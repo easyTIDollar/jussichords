@@ -123,4 +123,25 @@
     <string name="msg_chat_album_hint">点击查看专辑</string>
     <string name="msg_chat_mv_hint">点击观看 MV</string>
     <string name="msg_chat_general_hint">点击查看</string>
+
+    <!-- 桌面小组件 -->
+    <string name="widget_classic_name">经典播放器</string>
+    <string name="widget_classic_desc">封面、歌名、艺人、专辑，上一首 / 播放 / 下一首 / 红心</string>
+    <string name="widget_square_name">方形封面</string>
+    <string name="widget_square_desc">封面铺满，底部渐隐显示歌名与艺人，红心 + 播放</string>
+    <string name="widget_capsule_name">迷你胶囊</string>
+    <string name="widget_capsule_desc">圆形小封面、歌名、艺人·专辑，上一首 / 播放 / 下一首</string>
+    <string name="widget_fm_name">私人 FM</string>
+    <string name="widget_fm_desc">深色私人 FM 卡片，红心 / 播放 / 下一首</string>
+    <string name="widget_vinyl_name">黑胶唱片</string>
+    <string name="widget_vinyl_desc">黑胶样式封面，红心 / 上一首 / 播放 / 下一首 / 私人 FM 入口</string>
+    <string name="widget_fm_label">私人FM</string>
+    <string name="widget_empty_no_song">暂无播放歌曲</string>
+    <string name="widget_empty_no_song_hint">点击打开 App 选一首歌</string>
+    <string name="widget_empty_not_logged_in">未登录</string>
+    <string name="widget_empty_not_logged_in_hint">点击打开 App 登录账号</string>
+    <string name="widget_empty_loading">加载中…</string>
+    <string name="widget_empty_loading_hint">正在准备播放</string>
+    <string name="widget_unknown_artist">未知艺人</string>
+    <string name="widget_unknown_album">未知专辑</string>
 </resources>

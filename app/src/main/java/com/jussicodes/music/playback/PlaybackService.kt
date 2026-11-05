@@ -69,6 +69,7 @@ import com.jussicodes.music.utils.enumPreference
 import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.preference
 import com.jussicodes.music.utils.toEnum
+import com.jussicodes.music.widget.WidgetUpdater
 import com.jussicodes.music.BuildConfig
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.Song
@@ -95,6 +96,25 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var favoriteSongIds: List<Long> by mutableStateOf(emptyList())
+
+    /**
+     * 桌面小组件刷新：只在播放状态 / 曲目 / 元数据 / 队列变化时推一次快照，
+     * 组件侧不做定时轮询。事件会成串到达，WidgetUpdater 内部合并。
+     */
+    private val widgetStateListener = object : Player.Listener {
+        override fun onEvents(player: Player, events: Player.Events) {
+            if (events.containsAny(
+                    Player.EVENT_IS_PLAYING_CHANGED,
+                    Player.EVENT_MEDIA_ITEM_TRANSITION,
+                    Player.EVENT_MEDIA_METADATA_CHANGED,
+                    Player.EVENT_PLAYBACK_STATE_CHANGED,
+                    Player.EVENT_TIMELINE_CHANGED,
+                )
+            ) {
+                WidgetUpdater.refresh(applicationContext, player)
+            }
+        }
+    }
     private val use40DpIcon by preference(this, use40DpIconKey, false)
     private val desktopLyricEnabled by preference(this, desktopLyricEnabledKey, false)
     private val desktopLyricLocked by preference(this, desktopLyricLockedKey, false)
@@ -708,6 +728,8 @@ class PlaybackService : MediaSessionService() {
             ncblDeviceId = { CookieProvider.getCookieMap()["deviceId"].orEmpty() },
         )
         player.addListener(playbackHistoryListener)
+        // 桌面小组件：播放/暂停、切歌、缓冲变化主动刷新
+        player.addListener(widgetStateListener)
         // 弱网恢复：同曲退避重试 + 网络恢复后续播
         player.addListener(recoveryListener)
         // 音源时长校验：解析出的直链与歌曲元数据时长不符 → 拉黑该链并换源重试
@@ -742,6 +764,7 @@ class PlaybackService : MediaSessionService() {
         scope.cancel()
         mediaSession?.run {
             player.removeListener(playbackHistoryListener)
+            player.removeListener(widgetStateListener)
             player.removeListener(recoveryListener)
             // 服务销毁前结算并排空未上报的播放历史事件。
             playbackHistoryReporter?.let { reporter ->
@@ -811,6 +834,7 @@ class PlaybackService : MediaSessionService() {
                 .collect { favoriteSongs ->
                     favoriteSongIds = favoriteSongs.songIdsList
                     updateCustomLayout()
+                    WidgetUpdater.refresh(applicationContext, mediaSession?.player)
                 }
         }
     }

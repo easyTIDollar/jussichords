@@ -80,6 +80,14 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // 系统深浅色切换时重染桌面小组件（Glance 的 RemoteViews 不会自动跟着换色）
+        applicationScope.launch {
+            com.jussicodes.music.widget.WidgetUpdater.redraw(this@JetMeloApp)
+        }
+    }
+
     @androidx.annotation.OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
