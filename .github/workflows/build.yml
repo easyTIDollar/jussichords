@@ -235,3 +235,43 @@ jobs:
           prerelease: false
           body_path: ${{ env.RELEASE_NOTES_FILE }}
 
+      # 正式版发版后：把 APK + 更新说明自动发到 Telegram 频道（失败不影响发版）
+      - name: Send stable APK to Telegram channel
+        if: env.BUILD_TYPE != 'canary' && github.ref_name != 'canary-dev'
+        continue-on-error: true
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          RELEASE_NOTES_FILE: ${{ env.RELEASE_NOTES_FILE }}
+          APK_PATH: app/build/outputs/apk/release/jussichords-${{ github.ref_name }}.apk
+        run: |
+          set -e
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Telegram secrets missing, skipping notification."; exit 0
+          fi
+          APK=$(find "app/build/outputs/apk/release" -maxdepth 1 -name "*.apk" | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "APK not found, skipping Telegram notification."; exit 0
+          fi
+          APK_NAME=$(basename "$APK")
+          NOTES=$(cat "$RELEASE_NOTES_FILE" 2>/dev/null || echo "发布新版本")
+          # 更新说明可能 >1024 字符，caption 截断；完整内容在 description 或频道消息
+          if [ ${#NOTES} -gt 900 ]; then
+            NOTES="${NOTES:0:900}..."
+          fi
+          # HTML 转义更新说明（发送时用 parse_mode=HTML）
+          ESC=$(printf '%s' "$NOTES" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+          CAPTION=$(printf '🚀 jussichords %s · 正式版已发布\n\n%s\n\n📥 下载：https://github.com/%s/releases/download/%s/%s' "${RELEASE_TAG}" "${ESC}" "${GITHUB_REPOSITORY}" "${RELEASE_TAG}" "${APK_NAME}")
+          RESP=$(curl -s -m 60 \
+            -F "chat_id=${TELEGRAM_CHAT_ID}" \
+            -F "parse_mode=HTML" \
+            -F "caption=${CAPTION}" \
+            -F "document=@${APK};filename=${APK_NAME}" \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument")
+          if echo "$RESP" | grep -q '"ok":true'; then
+            echo "Telegram: stable APK sent to channel successfully."
+          else
+            echo "Telegram send failed (non-fatal): $RESP"
+          fi
