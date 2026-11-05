@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -183,7 +184,7 @@ private fun listenInviteKeysFromBody(body: String): Pair<String, String>? {
  * 历史接口返回倒序（最新在前），UI 反转后旧消息在上、新消息在下；历史变化时自动滚底。
  * 私信内层 JSON 携带的 song / playlist 渲染成可交互小卡片：点歌曲直接起播、点歌单跳详情。
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun PrivateChatScreen(
     navController: NavHostController,
