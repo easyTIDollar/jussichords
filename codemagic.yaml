@@ -31,4 +31,3 @@ workflows:
           ls -lh output/
     artifacts:
       - output/*.apk
-      - app/build/outputs/**/*.apk
