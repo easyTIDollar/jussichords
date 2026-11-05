@@ -12,7 +12,11 @@ import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
@@ -21,6 +25,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import com.jussicodes.music.animation.MotionSpec
@@ -235,9 +240,19 @@ private fun HomePager(
             .collect(onPageScroll)
     }
 
+    // 冷启动首屏完全专注渲染 LibraryScreen（beyondViewportPageCount = 0 零多余开销）；
+    // 首屏渲染完成后延迟 2.5 秒，等主线程与渲染完全静止空闲时，提升为 1，
+    // 后台静默预热 ExploreScreen 布局，消除后续用户滑动切换时的首帧重组掉帧。
+    var beyondViewportCount by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        delay(2500)
+        beyondViewportCount = 1
+    }
+
     Box {
         HorizontalPager(
             state = pagerState,
+            beyondViewportPageCount = beyondViewportCount,
             flingBehavior = PagerDefaults.flingBehavior(
                 state = pagerState,
                 snapPositionalThreshold = 0.5f

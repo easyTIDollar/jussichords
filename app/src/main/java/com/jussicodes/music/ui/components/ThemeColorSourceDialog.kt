@@ -1,17 +1,31 @@
 package com.jussicodes.music.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -23,6 +37,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.ui.theme.ThemeColorSource
@@ -32,251 +48,422 @@ import kotlin.math.roundToInt
 fun ThemeColorSourceDialog(
     currentSource: ThemeColorSource,
     currentUiScale: Float,
+    currentFontScale: Float,
     wallpaperColorAvailable: Boolean,
     onDismiss: () -> Unit,
     onSourceSelected: (ThemeColorSource) -> Unit,
     onUiScaleSelected: (Float) -> Unit,
+    onFontScaleSelected: (Float) -> Unit,
+    floatingNavBarEnabled: Boolean,
+    onFloatingNavBarEnabledChange: (Boolean) -> Unit,
+    playerBackgroundBlurEnabled: Boolean,
+    onPlayerBackgroundBlurEnabledChange: (Boolean) -> Unit,
     homeBg: HomeBackgroundConfig,
     onHomeBgPick: () -> Unit,
     onHomeBgRemoved: () -> Unit,
     onHomeBgTune: () -> Unit,
     homeBgTextColor: String,
     onHomeBgTextColorChanged: (String) -> Unit,
+    homeBgTextShadow: Float,
+    onHomeBgTextShadowChanged: (Float) -> Unit,
     homeTransparentCard: Boolean,
     onHomeTransparentCardChange: (Boolean) -> Unit,
 ) {
-    // 界面缩放五档：70/80/90/100/110。跟下方「主页背景」滑块完全同款（复用 HomeBgSliderRow，
-    // steps=4 → 五档）。关键跟手修复：拖动期间只改本地 uiScaleValue（驱动 % 文案+滑块，
-    // 不动 LocalDensity），弹窗布局稳定、滑块跟手；松手时(onValueChangeFinished)才吸附到
-    // 最近档并 commit → 此时才触发弹窗缩放重排，手指已抬起不冲突。最终落值仍只有 5 档。
-    var uiScaleValue by remember {
-        // 初值吸附到最近的 0.7 + k*0.1 档，避免 Slider 拿到非 step 位报错。
+    // 界面缩放五档：70/80/90/100/110
+    var uiScaleValue by remember(currentUiScale) {
         val raw = currentUiScale.coerceIn(0.7f, 1.1f)
         mutableFloatStateOf((0.7f + ((raw - 0.7f) / 0.1f).roundToInt() * 0.1f).coerceIn(0.7f, 1.1f))
     }
     val uiScaleTicks = listOf(0.7f, 0.8f, 0.9f, 1f, 1.1f)
     fun commitUiScale() {
-        // 松手时把当前档位吸附值 commit 出去（写 liveUiScale + ScaledDialogDensity，触发弹窗
-        // 缩放重排）。分档滑块拖出的值已是档位值，这里**不判等、无条件 commit**：
-        // 若保留 `snapped == uiScaleValue` 早返回，因拖出值恒等于最近档，判等恒成立、
-        // onUiScaleSelected 永不触发 → 松手后缩放不生效（用户报告的 bug）。
         val snapped = uiScaleTicks.minByOrNull { kotlin.math.abs(it - uiScaleValue) } ?: 1f
         uiScaleValue = snapped
         onUiScaleSelected(snapped)
     }
+
+    // 字体缩放六档：80/90/100/110/120/130
+    var fontScaleValue by remember(currentFontScale) {
+        val raw = currentFontScale.coerceIn(0.8f, 1.3f)
+        mutableFloatStateOf((0.8f + ((raw - 0.8f) / 0.1f).roundToInt() * 0.1f).coerceIn(0.8f, 1.3f))
+    }
+    val fontScaleTicks = listOf(0.8f, 0.9f, 1f, 1.1f, 1.2f, 1.3f)
+    fun commitFontScale() {
+        val snapped = fontScaleTicks.minByOrNull { kotlin.math.abs(it - fontScaleValue) } ?: 1f
+        fontScaleValue = snapped
+        onFontScaleSelected(snapped)
+    }
+
+    // 文字柔和轮廓/阴影半径 (0 ~ 10 dp)
+    var textShadowValue by remember(homeBgTextShadow) {
+        mutableFloatStateOf(homeBgTextShadow.coerceIn(0f, 10f))
+    }
+    fun commitTextShadow() {
+        val snapped = ((textShadowValue * 10).roundToInt() / 10f).coerceIn(0f, 10f)
+        textShadowValue = snapped
+        onHomeBgTextShadowChanged(snapped)
+    }
+
     ResponsiveDialogWindow(onDismissRequest = onDismiss) {
         ScaledDialogContent {
-        Card(shape = MaterialTheme.shapes.extraLarge) {
-            Column(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+            Card(
+                shape = MaterialTheme.shapes.extraLarge,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
             ) {
-                Text(
-                    text = "主题颜色",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = "选择应用配色的来源",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                ThemeColorSource.entries.forEach { source ->
-                    val selected = source == currentSource
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainer
-                            },
-                        ),
-                        shape = RoundedCornerShape(20.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                onSourceSelected(source)
-                                onDismiss()
-                            },
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(source.label, style = MaterialTheme.typography.titleMedium)
-                                Text(
-                                    text = when (source) {
-                                        ThemeColorSource.WALLPAPER -> if (wallpaperColorAvailable) {
-                                            "跟随系统壁纸颜色"
-                                        } else {
-                                            "需要 Android 12；当前使用默认配色"
-                                        }
-
-                                        ThemeColorSource.ARTWORK ->
-                                            "切歌时更新；无封面时自动使用壁纸配色"
-
-                                        ThemeColorSource.HOME_BG ->
-                                            "未设置主页背景图时使用默认配色"
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            RadioButton(selected = selected, onClick = null)
-                        }
-                    }
-                }
-
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onHomeTransparentCardChange(!homeTransparentCard) },
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 22.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    // ==================== 1. 主题颜色卡片组 ====================
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "主页透明卡片",
+                            text = "主题颜色",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+
+                        // 复用音源选择卡片样式：三列精致小卡片，文案简练
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            ThemeColorSource.entries.forEach { source ->
+                                val selected = source == currentSource
+                                val sub = when (source) {
+                                    ThemeColorSource.WALLPAPER -> "系统原色"
+                                    ThemeColorSource.ARTWORK -> "跟随封面"
+                                    ThemeColorSource.HOME_BG -> "提取主页"
+                                }
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(64.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            if (selected) MaterialTheme.colorScheme.primaryContainer
+                                            else MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                        .clickable { onSourceSelected(source) }
+                                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                ) {
+                                    Text(
+                                        text = source.label,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        text = sub,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (selected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // ==================== 2. 视觉与动效 ====================
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "视觉与动效",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            ),
+                            shape = RoundedCornerShape(20.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                            ) {
+                                // 悬浮胶囊底栏
+                                DialogSwitchRow(
+                                    title = "悬浮胶囊底栏",
+                                    subtitle = if (floatingNavBarEnabled) {
+                                        "已开启 · 悬浮胶囊样式"
+                                    } else {
+                                        "已关闭 · 经典贴底通栏"
+                                    },
+                                    checked = floatingNavBarEnabled,
+                                    onCheckedChange = onFloatingNavBarEnabledChange,
+                                )
+
+                                // 上滑背景高斯模糊
+                                DialogSwitchRow(
+                                    title = "上滑背景高斯模糊",
+                                    subtitle = if (playerBackgroundBlurEnabled) {
+                                        "已开启 · 动态高斯模糊"
+                                    } else {
+                                        "已关闭 · 景深遮罩（省电流畅）"
+                                    },
+                                    checked = playerBackgroundBlurEnabled,
+                                    onCheckedChange = onPlayerBackgroundBlurEnabledChange,
+                                )
+
+                                // 主页透明卡片
+                                DialogSwitchRow(
+                                    title = "主页透明卡片",
+                                    subtitle = if (homeTransparentCard) {
+                                        "已开启 · 半透明毛玻璃质感"
+                                    } else {
+                                        "已关闭 · 实色卡片容器"
+                                    },
+                                    checked = homeTransparentCard,
+                                    onCheckedChange = onHomeTransparentCardChange,
+                                )
+                            }
+                        }
+                    }
+
+                    // ==================== 3. 界面与字体缩放 ====================
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "界面与字体缩放",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            ),
+                            shape = RoundedCornerShape(20.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                // 界面缩放
+                                HomeBgSliderRow(
+                                    label = "界面缩放",
+                                    value = uiScaleValue,
+                                    valueText = "${(uiScaleValue * 100).roundToInt()}%",
+                                    valueRange = 0.7f..1.1f,
+                                    steps = 3,
+                                    onValueChanged = { uiScaleValue = it },
+                                    onValueChangeFinished = { commitUiScale() },
+                                )
+
+                                // 字体大小缩放
+                                HomeBgSliderRow(
+                                    label = "字体大小",
+                                    value = fontScaleValue,
+                                    valueText = "${(fontScaleValue * 100).roundToInt()}%",
+                                    valueRange = 0.8f..1.3f,
+                                    steps = 4,
+                                    onValueChanged = { fontScaleValue = it },
+                                    onValueChangeFinished = { commitFontScale() },
+                                )
+                            }
+                        }
+                    }
+
+                    // ==================== 4. 主页文字效果 ====================
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "主页文字效果",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = if (homeTransparentCard) "已开启" else "已关闭",
+                            text = "自定义「我的」与「探索」页在壁纸下的文字颜色与柔和阴影轮廓",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 2.dp),
                         )
-                    }
-                    Switch(
-                        checked = homeTransparentCard,
-                        onCheckedChange = onHomeTransparentCardChange,
-                    )
-                }
 
-                Text(
-                    text = "界面缩放",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    ),
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        // 跟下方「主页背景」三个滑块完全同款：复用 HomeBgSliderRow（steps=4 → 五档）。
-                        // 跟手修复：拖动期间只更新本地 uiScaleValue（驱动滑块+ %文案，不动 LocalDensity），
-                        // 弹窗不重排、滑块跟手；松手时才 commit → 弹窗一次性缩放重排。
-                        HomeBgSliderRow(
-                            label = "缩放",
-                            value = uiScaleValue,
-                            valueText = "${(uiScaleValue * 100).roundToInt()}%",
-                            valueRange = 0.7f..1.1f,
-                            steps = 3,
-                            onValueChanged = { v ->
-                                uiScaleValue = v
-                            },
-                            onValueChangeFinished = {
-                                commitUiScale()
-                            },
-                        )
-                    }
-                }
-
-                Text(
-                    text = "主页背景",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-                Text(
-                    text = "在「我的」和「探索」页使用的本地图片背景",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    ),
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Row(
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            ),
+                            shape = RoundedCornerShape(20.dp),
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(
-                                text = if (homeBg.enabled) "已设置背景图" else "未设置背景图",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            Row {
-                                TextButton(onClick = onHomeBgPick) {
-                                    Text(if (homeBg.enabled) "更换" else "选取图片")
-                                }
-                                if (homeBg.enabled) {
-                                    TextButton(onClick = onHomeBgTune) {
-                                        Text("在主页调整")
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                // 颜色预设横向滚动
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        text = "字体颜色",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        val colorPresets = listOf(
+                                            Triple("auto", "自动", null),
+                                            Triple("white", "纯白", Color(0xFFF5F5F5)),
+                                            Triple("warm_white", "米白", Color(0xFFFFF8E7)),
+                                            Triple("black", "纯黑", Color(0xDE000000)),
+                                            Triple("yellow", "暖黄", Color(0xFFFFD54F)),
+                                            Triple("cyan", "青绿", Color(0xFF80DEEA)),
+                                            Triple("blue", "冰蓝", Color(0xFF90CAF9)),
+                                            Triple("pink", "淡粉", Color(0xFFF48FB1)),
+                                        )
+                                        colorPresets.forEach { (mode, label, previewColor) ->
+                                            val isSelected = homeBgTextColor == mode
+                                            FilterChip(
+                                                selected = isSelected,
+                                                onClick = { onHomeBgTextColorChanged(mode) },
+                                                leadingIcon = {
+                                                    if (previewColor != null) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(14.dp)
+                                                                .clip(CircleShape)
+                                                                .background(previewColor)
+                                                                .border(
+                                                                    1.dp,
+                                                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                                                    CircleShape,
+                                                                ),
+                                                        )
+                                                    }
+                                                },
+                                                label = { Text(label) },
+                                            )
+                                        }
                                     }
-                                    TextButton(onClick = onHomeBgRemoved) {
-                                        Text("移除")
-                                    }
                                 }
-                            }
-                        }
 
-                        // 字体颜色三档（常驻外观弹窗：自动/白字/黑字，方便自由适配不同壁纸或主题风格）
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "字体颜色",
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            listOf(
-                                "auto" to "自动",
-                                "white" to "白字",
-                                "black" to "黑字",
-                            ).forEach { (mode, label) ->
-                                FilterChip(
-                                    selected = homeBgTextColor == mode,
-                                    onClick = { onHomeBgTextColorChanged(mode) },
-                                    label = { Text(label) },
+                                // 柔和轮廓/阴影滑块
+                                HomeBgSliderRow(
+                                    label = "柔和轮廓",
+                                    value = textShadowValue,
+                                    valueText = if (textShadowValue <= 0.05f) {
+                                        "关闭"
+                                    } else {
+                                        "${(textShadowValue * 10).roundToInt() / 10f} dp"
+                                    },
+                                    valueRange = 0f..10f,
+                                    steps = 19,
+                                    onValueChanged = { textShadowValue = it },
+                                    onValueChangeFinished = { commitTextShadow() },
                                 )
                             }
                         }
+                    }
 
-                        // 透明度/模糊度滑块已移除：调参统一在主页编辑面板（选图/「在主页调整」
-                        // 都会立刻跳回主页，面板里实时预览 + 保存/取消），弹窗里只留开关入口。
+                    // ==================== 5. 主页背景 ====================
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "主页背景",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "在「我的」和「探索」页使用的本地图片背景",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 2.dp),
+                        )
+
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            ),
+                            shape = RoundedCornerShape(20.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = if (homeBg.enabled) "已设置背景图" else "未设置背景图",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                    Row {
+                                        TextButton(onClick = onHomeBgPick) {
+                                            Text(if (homeBg.enabled) "更换" else "选取图片")
+                                        }
+                                        if (homeBg.enabled) {
+                                            TextButton(onClick = onHomeBgTune) {
+                                                Text("在主页调整")
+                                            }
+                                            TextButton(onClick = onHomeBgRemoved) {
+                                                Text("移除")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DialogSwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
+        Spacer(modifier = Modifier.width(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+        )
     }
 }
 

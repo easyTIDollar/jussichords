@@ -10,6 +10,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -20,6 +21,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -127,35 +129,52 @@ fun PlayerProgressSlider(
     onValueChangeFinished: () -> Unit,
     modifier: Modifier = Modifier,
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
+    isLoading: Boolean = false,
 ) {
-    Slider(
-        value = value,
-        valueRange = valueRange,
-        onValueChange = onValueChange,
-        onValueChangeFinished = onValueChangeFinished,
-        colors = SliderDefaults.colors(
-            activeTrackColor = MaterialTheme.colorScheme.primary,
-            inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
-            thumbColor = MaterialTheme.colorScheme.primary,
-        ),
-        track = { sliderState ->
-            SliderDefaults.Track(
-                sliderState = sliderState,
-                modifier = Modifier.height(3.dp),
-                thumbTrackGapSize = 0.dp,
-                drawStopIndicator = null,
-            )
-        },
-        thumb = {
-            Box(
+    if (isLoading) {
+        Box(
+            modifier = modifier.height(28.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            LinearProgressIndicator(
                 modifier = Modifier
-                    .size(width = 4.dp, height = 16.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.primary)
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(1.5.dp)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
             )
-        },
-        modifier = modifier.height(28.dp),
-    )
+        }
+    } else {
+        Slider(
+            value = value,
+            valueRange = valueRange,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
+            colors = SliderDefaults.colors(
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
+                thumbColor = MaterialTheme.colorScheme.primary,
+            ),
+            track = { sliderState ->
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    modifier = Modifier.height(3.dp),
+                    thumbTrackGapSize = 0.dp,
+                    drawStopIndicator = null,
+                )
+            },
+            thumb = {
+                Box(
+                    modifier = Modifier
+                        .size(width = 4.dp, height = 16.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.primary)
+                )
+            },
+            modifier = modifier.height(28.dp),
+        )
+    }
 }
 
 /** 播放模式（循环 + 随机合并成一个按钮）的状态。 */

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
@@ -11,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.graphicsLayer
@@ -91,7 +93,7 @@ fun HomeBackgroundLayer(
             model = file,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            filterQuality = FilterQuality.High,
+            filterQuality = FilterQuality.Low,
             onState = { state ->
                 if (state is AsyncImagePainter.State.Success) {
                     val size = state.painter.intrinsicSize
@@ -115,16 +117,55 @@ fun HomeBackgroundLayer(
 }
 
 /**
- * 主页（我的/探索）文字颜色解析：[mode] = "auto"/"white"/"black"（HomeBgTextStore）。
- * auto = 跟随主题 onSurface（与现状逐像素一致）；白/黑档用于"背景太亮/太暗看不清字"。
- * 白字 0xFFF5F5F5（近白不死白）、黑字 0xDE000000（87% 不透明），避免死黑白。
+ * 主页（我的/探索）文字颜色解析：[mode] = "auto"/"white"/"warm_white"/"black"/"yellow"/"cyan"/"blue"/"pink"。
+ * auto = 跟随主题 onSurface；支持 Hex 颜色自定义或预设高可读性颜色。
  */
 @Composable
 fun resolveHomeBgTextColor(mode: String, colorScheme: ColorScheme): Color {
     return when (mode) {
         "white" -> Color(0xFFF5F5F5)
+        "warm_white" -> Color(0xFFFFF8E7)
         "black" -> Color(0xDE000000)
-        else -> colorScheme.onSurface
+        "yellow" -> Color(0xFFFFD54F)
+        "cyan" -> Color(0xFF80DEEA)
+        "blue" -> Color(0xFF90CAF9)
+        "pink" -> Color(0xFFF48FB1)
+        "auto" -> colorScheme.onSurface
+        else -> {
+            try {
+                if (mode.startsWith("#")) {
+                    Color(android.graphics.Color.parseColor(mode))
+                } else {
+                    colorScheme.onSurface
+                }
+            } catch (e: Exception) {
+                colorScheme.onSurface
+            }
+        }
     }
+}
+
+/**
+ * 为 Typography 内所有文字样式注入柔和阴影轮廓。
+ */
+fun Typography.withShadow(shadow: Shadow?): Typography {
+    if (shadow == null) return this
+    return copy(
+        displayLarge = displayLarge.copy(shadow = shadow),
+        displayMedium = displayMedium.copy(shadow = shadow),
+        displaySmall = displaySmall.copy(shadow = shadow),
+        headlineLarge = headlineLarge.copy(shadow = shadow),
+        headlineMedium = headlineMedium.copy(shadow = shadow),
+        headlineSmall = headlineSmall.copy(shadow = shadow),
+        titleLarge = titleLarge.copy(shadow = shadow),
+        titleMedium = titleMedium.copy(shadow = shadow),
+        titleSmall = titleSmall.copy(shadow = shadow),
+        bodyLarge = bodyLarge.copy(shadow = shadow),
+        bodyMedium = bodyMedium.copy(shadow = shadow),
+        bodySmall = bodySmall.copy(shadow = shadow),
+        labelLarge = labelLarge.copy(shadow = shadow),
+        labelMedium = labelMedium.copy(shadow = shadow),
+        labelSmall = labelSmall.copy(shadow = shadow),
+    )
 }
 

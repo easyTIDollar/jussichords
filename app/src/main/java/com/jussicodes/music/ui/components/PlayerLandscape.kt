@@ -339,11 +339,13 @@ fun PlayerLandscape(
                         }
 
                         // 3) 进度条：统一细样式（3dp 轨道 + 竖条滑块）。
+                        val isSongBuffering = playerState?.playbackState == androidx.media3.common.Player.STATE_BUFFERING
                         PlayerProgressSlider(
                             value = if (durationUsable) {
                                 if (sliderPosition != null) scrubFraction
                                 else (shownPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
                             } else 0f,
+                            isLoading = isSongBuffering,
                             onValueChange = {
                                 scrubFraction = it
                                 sliderPosition = (it * (if (durationUsable) duration else 0L)).toLong()

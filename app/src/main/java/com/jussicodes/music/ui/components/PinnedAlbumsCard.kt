@@ -364,13 +364,13 @@ private fun PinnedAlbumsGrid(
         ) {
             items(albums.size, key = { index -> albums[index].id }) { index ->
                 val album = albums[index]
-                ReorderableItem(
-                    state = reorderableState,
-                    key = album.id,
-                    enabled = editing
-                ) { isDragging ->
-                    val dragModifier = if (editing) {
-                        Modifier.longPressDraggableHandle(
+                if (editing) {
+                    ReorderableItem(
+                        state = reorderableState,
+                        key = album.id,
+                        enabled = true
+                    ) { isDragging ->
+                        val dragModifier = Modifier.longPressDraggableHandle(
                             onDragStarted = {
                                 ViewCompat.performHapticFeedback(
                                     view, HapticFeedbackConstantsCompat.GESTURE_START
@@ -382,15 +382,25 @@ private fun PinnedAlbumsGrid(
                                 )
                             }
                         )
-                    } else {
-                        Modifier
+                        PinnedAlbumCover(
+                            album = album,
+                            editing = true,
+                            isDragging = isDragging,
+                            cardShape = cardShape,
+                            dragModifier = dragModifier,
+                            onOpen = { onOpenAlbum(album) },
+                            onLoop = { onPlay(album, true) },
+                            onRemove = { onRemove(album) },
+                            onEnterEdit = onEnterEdit
+                        )
                     }
+                } else {
                     PinnedAlbumCover(
                         album = album,
-                        editing = editing,
-                        isDragging = isDragging,
+                        editing = false,
+                        isDragging = false,
                         cardShape = cardShape,
-                        dragModifier = dragModifier,
+                        dragModifier = Modifier,
                         onOpen = { onOpenAlbum(album) },
                         onLoop = { onPlay(album, true) },
                         onRemove = { onRemove(album) },

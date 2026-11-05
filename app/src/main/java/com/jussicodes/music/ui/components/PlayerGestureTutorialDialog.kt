@@ -45,7 +45,8 @@ import com.jussicodes.music.ui.icons.SkipNext
  */
 @Composable
 fun PlayerGestureTutorialDialog(
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onNeverShowAgain: () -> Unit = onDismiss,
 ) {
     ResponsiveDialogWindow(onDismissRequest = onDismiss) {
         ScaledDialogContent {
@@ -157,20 +158,34 @@ fun PlayerGestureTutorialDialog(
                         icon = Message
                     )
 
-                    Spacer(Modifier.height(22.dp))
+                    Spacer(Modifier.height(20.dp))
 
-                    Button(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        shape = RoundedCornerShape(24.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = "我知道了",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
+                            shape = RoundedCornerShape(22.dp)
+                        ) {
+                            Text("关闭")
+                        }
+                        Button(
+                            onClick = onNeverShowAgain,
+                            modifier = Modifier
+                                .weight(1.2f)
+                                .height(44.dp),
+                            shape = RoundedCornerShape(22.dp)
+                        ) {
+                            Text(
+                                text = "不再提示",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }

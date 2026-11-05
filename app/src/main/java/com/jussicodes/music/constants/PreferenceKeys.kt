@@ -74,8 +74,12 @@ val homeBgOffsetXKey = floatPreferencesKey("homeBgOffsetX")
 val homeBgOffsetYKey = floatPreferencesKey("homeBgOffsetY")
 /** 主页（我的/探索）文字颜色："auto"（默认，跟随主题）/"white"/"black"。 */
 val homeBgTextColorKey = stringPreferencesKey("homeBgTextColor")
+val fontScaleKey = floatPreferencesKey("fontScale")
+val homeBgTextShadowKey = floatPreferencesKey("homeBgTextShadow")
+val lyricSourceKey = stringPreferencesKey("lyric_source")
 val githubDownloadSourceKey = stringPreferencesKey("githubDownloadSource")
 val playerGestureTutorialVersionKey = intPreferencesKey("playerGestureTutorialVersion")
+val playerGestureTutorialDismissedKey = booleanPreferencesKey("player_gesture_tutorial_dismissed")
 val homeTransparentCardKey = booleanPreferencesKey("homeTransparentCard")
 /** 缓存自动清理开关（默认关）。 */
 val cacheAutoCleanEnabledKey = booleanPreferencesKey("cacheAutoCleanEnabled")

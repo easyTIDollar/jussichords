@@ -79,9 +79,9 @@ object ExplorePreloader {
      * cleared. Fresh network results already in the flows are never
      * overwritten by stale cache.
      */
-    suspend fun loadCache() {
+    suspend fun loadCache(cachedPrefs: Preferences? = null) {
         val s = store ?: return
-        val prefs = s.data.first()
+        val prefs = cachedPrefs ?: s.data.first()
         val cachedUser = prefs[keyUser] ?: return
         val currentKey = userKey()
         if (currentKey != GUEST_KEY && cachedUser != currentKey) {

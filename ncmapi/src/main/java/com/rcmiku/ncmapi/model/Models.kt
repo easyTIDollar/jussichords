@@ -37,7 +37,8 @@ data class Song(
     val sq: JsonElement? = null,
     val hr: JsonElement? = null,
     val jm: JsonElement? = null,
-    val db: JsonElement? = null
+    val db: JsonElement? = null,
+    val publishTime: Long = 0
 )
 
 @Serializable

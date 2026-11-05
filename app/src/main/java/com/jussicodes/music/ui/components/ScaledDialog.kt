@@ -23,11 +23,12 @@ import androidx.compose.ui.unit.Density
  */
 object ScaledDialogDensity {
     var scale by mutableFloatStateOf(1f)
+    var fontScale by mutableFloatStateOf(0.9f)
 }
 
 /**
  * 在弹窗（window.Dialog / material3.AlertDialog）内部包裹一层，
- * 让弹窗内的所有 dp / sp 跟随当前界面缩放。
+ * 让弹窗内的所有 dp / sp 跟随当前界面缩放与字体缩放。
  *
  * 用法（放在 Dialog/AlertDialog 的 content 最外层）：
  * ```
@@ -38,17 +39,19 @@ object ScaledDialogDensity {
  * }
  * ```
  * 弹窗窗口内 [LocalDensity.current] 是系统默认密度（dp 跟屏幕 dpi、sp 跟系统字体），
- * 在此基础上再乘进程级 [ScaledDialogDensity.scale]，等效 MainActivity 里的缩放。
+ * 在此基础上再乘进程级 [ScaledDialogDensity.scale] 与 [ScaledDialogDensity.fontScale]。
  */
 @Composable
 fun ScaledDialogContent(content: @Composable () -> Unit) {
     val baseDensity = LocalDensity.current
-    // 直接读可观察 state：弹窗内拖动「界面缩放」滑块时 ScaledDialogDensity.scale
-    // 变化，本组合自动重组，弹窗内的 dp/sp 实时跟随缩放（无需关弹窗重开）。
     val scale = ScaledDialogDensity.scale
-    val scaled = remember(baseDensity, scale) {
-        if (scale != 1f) {
-            Density(density = baseDensity.density * scale, fontScale = baseDensity.fontScale * scale)
+    val fontScale = ScaledDialogDensity.fontScale
+    val scaled = remember(baseDensity, scale, fontScale) {
+        if (scale != 1f || fontScale != 1f) {
+            Density(
+                density = baseDensity.density * scale,
+                fontScale = baseDensity.fontScale * scale * fontScale
+            )
         } else {
             baseDensity
         }

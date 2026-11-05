@@ -18,7 +18,9 @@ import com.jussicodes.music.constants.audioSourceKey
 import com.jussicodes.music.constants.cacheAutoCleanEnabledKey
 import com.jussicodes.music.constants.cacheAutoCleanThresholdKey
 import com.jussicodes.music.constants.directSourceKey
+import com.jussicodes.music.constants.fontScaleKey
 import com.jussicodes.music.constants.localSourceKey
+import com.jussicodes.music.constants.uiScaleKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.resolveAllSongsKey
 import com.jussicodes.music.constants.unblockSourceKey
@@ -47,6 +49,7 @@ import com.rcmiku.ncmapi.utils.UserAgentProvider
 import com.rcmiku.ncmapi.utils.json
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.Dispatchers
@@ -100,49 +103,50 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         com.rcmiku.ncmapi.api.LxSourceBridge.resolver = { songId, songLevel, skipUrls ->
             com.jussicodes.music.lx.LxPluginManager.resolveUrl(songId, songLevel, skipUrls)
         }
-        applicationScope.launch { com.jussicodes.music.lx.LxPluginManager.warmUp() }
-        // Fill the explore flows from disk cache immediately, so the explore
-        // tab renders content on first frame even while the cookie config
-        // and network fetch are still in flight.
-        applicationScope.launch { ExplorePreloader.loadCache() }
-        applicationScope.launch { PinnedAlbumStore.loadCache() }
-        // 一次性迁移（本版本起）：旧安装里可能留有自建的 API 服务器（例如 http://8.134.163.111:3000），
-        // 共用裸 IP 会过载。首次启动时清掉所有非内置服务器，当前服务器若非内置一并清空；
-        // 完成后置标记，之后每次启动不再重复清理。清理在下方同步协程之前，保证写回立即生效。
-        // 一次性迁移（本版本起）：音源选择从旧的 localSource 单选 + unblockSource
-        // 改为 AudioSources 三选一（LX / 内置直连 / 代理）。按用户要求强制清除旧选择，
-        // 一律回到内置 LX 音源。写回 audioSource=lx 同时清掉旧键，之后不再重复执行。
+        // 关键路径让路首屏：WebView 初始化在主线程耗时极高（数百毫秒），
+        // 启动延迟 4 秒等待首屏完全渲染并静止后，再后台预热沙盒；
+        // 若用户 4 秒内点播，LxPluginEngine 内部原本就有懒建机制兜底。
         applicationScope.launch {
-            if (dataStore.data.first()[audioSourceKey] == null) {
-                dataStore.edit { prefs ->
-                    // 旧键作废：localSource 是旧的直连单选（其值整体由 AUTO 接管）
-                    prefs.remove(localSourceKey)
-                    prefs[audioSourceKey] = AudioSources.LX
+            delay(4000)
+            com.jussicodes.music.lx.LxPluginManager.warmUp()
+        }
+        // 关键路径优化：单次读取 DataStore 根快照，顺序注入 Explore/PinnedAlbum/HomeUserInfo 各 Store，
+        // 彻底消除启动阶段多协程并发 .first() 产生的 DataStore 锁排队与 I/O 阻塞。
+        applicationScope.launch {
+            val prefs = dataStore.data.first()
+            ExplorePreloader.loadCache(prefs)
+            PinnedAlbumStore.loadCache(prefs)
+            HomeUserInfoStore.applySnapshot(prefs)
+            prefs[uiScaleKey]?.let { com.jussicodes.music.ui.components.ScaledDialogDensity.scale = it }
+            prefs[fontScaleKey]?.let { com.jussicodes.music.ui.components.ScaledDialogDensity.fontScale = it }
+
+            val needAudioSourceMigration = prefs[audioSourceKey] == null
+            val alreadyCleaned = prefs[apiServerListCleanedKey] ?: false
+            if (needAudioSourceMigration || !alreadyCleaned) {
+                dataStore.edit { editPrefs ->
+                    if (needAudioSourceMigration) {
+                        editPrefs.remove(localSourceKey)
+                        editPrefs[audioSourceKey] = AudioSources.LX
+                    }
+                    if (!alreadyCleaned) {
+                        val builtin = apiServers.toSet()
+                        val currentList = editPrefs[apiServerListKey]
+                            ?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }
+                            ?: apiServers.toList()
+                        val cleaned = currentList.filter { it in builtin }.ifEmpty { apiServers.toList() }
+                        editPrefs[apiServerListKey] = json.encodeToString(cleaned)
+                        val current = editPrefs[apiBaseUrlKey]
+                        if (!current.isNullOrEmpty() && current !in builtin) {
+                            editPrefs[apiBaseUrlKey] = ""
+                        }
+                        editPrefs[apiServerListCleanedKey] = true
+                    }
                 }
             }
         }
         applicationScope.launch {
-            val alreadyCleaned = dataStore.data.first()[apiServerListCleanedKey] ?: false
-            if (alreadyCleaned) return@launch
-            val builtin = apiServers.toSet()
-            dataStore.edit { prefs ->
-                val currentList = prefs[apiServerListKey]
-                    ?.let { runCatching { json.decodeFromString<List<String>>(it) }.getOrNull() }
-                    ?: apiServers.toList()
-                // 只保留内置 3 台；若被删到一台不剩则回落到内置全集，保证仍有可用官方源。
-                val cleaned = currentList.filter { it in builtin }.ifEmpty { apiServers.toList() }
-                prefs[apiServerListKey] = json.encodeToString(cleaned)
-                val current = prefs[apiBaseUrlKey]
-                if (!current.isNullOrEmpty() && current !in builtin) {
-                    prefs[apiBaseUrlKey] = ""
-                }
-                prefs[apiServerListCleanedKey] = true
-            }
-        }
-        applicationScope.launch {
-            // 缓存自动清理：用户开了开关且总占用超过阈值时，启动即清。
-            // 只清理「可回收」部分（音频/图片/其它），不影响账号与设置；
-            // 播放中启动也只损失命中率，ExoPlayer/Coil 会回源重新下载。
+            // 缓存自动清理错峰 6 秒：避免启动瞬间扫描整个 cacheDir 抢占 I/O 导致首屏顿挫
+            delay(6000)
             val prefs = dataStore.data.first()
             val autoClean = prefs[cacheAutoCleanEnabledKey] ?: false
             if (!autoClean) return@launch
@@ -167,8 +171,10 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                     } else {
                         CookieProvider.clear()
                     }
-                    // Warm the explore page content as soon as the cookie
-                    // config changes so it is cached before the user opens it.
+                    // 关键路径让路首屏：冷启动时首屏在「我的」页，
+                    // 探索页已有 loadCache() 磁盘缓存铺底，预热延迟 2.5 秒错峰，
+                    // 避免冷启动瞬间与首屏个人信息/歌单请求争夺网络与 CPU。
+                    delay(2500)
                     ExplorePreloader.warmUp(this@JetMeloApp)
                 }
         }

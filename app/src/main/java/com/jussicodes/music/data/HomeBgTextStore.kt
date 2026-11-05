@@ -3,6 +3,7 @@ package com.jussicodes.music.data
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import com.jussicodes.music.constants.homeBgTextColorKey
+import com.jussicodes.music.constants.homeBgTextShadowKey
 import com.jussicodes.music.utils.dataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +24,9 @@ object HomeBgTextStore {
     private val _state = MutableStateFlow("auto")
     val state: StateFlow<String> = _state.asStateFlow()
 
+    private val _shadow = MutableStateFlow(0f)
+    val shadow: StateFlow<Float> = _shadow.asStateFlow()
+
     private val watcherScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** 启动时调用一次：持续跟 DataStore 的颜色设置回流进 [state]。 */
@@ -31,6 +35,7 @@ object HomeBgTextStore {
         watcherScope.launch {
             ds.data.collect { prefs ->
                 _state.value = prefs[homeBgTextColorKey] ?: "auto"
+                _shadow.value = prefs[homeBgTextShadowKey] ?: 0f
             }
         }
     }
@@ -38,5 +43,10 @@ object HomeBgTextStore {
     /** 写颜色设置（DataStore）；watcher 回流后 [state] 自动跟上，UI 无需手动 set。 */
     suspend fun set(context: Context, value: String) {
         context.applicationContext.dataStore.edit { it[homeBgTextColorKey] = value }
+    }
+
+    /** 写文字阴影半径设置（DataStore）；watcher 回流后 [shadow] 自动跟上。 */
+    suspend fun setShadow(context: Context, value: Float) {
+        context.applicationContext.dataStore.edit { it[homeBgTextShadowKey] = value }
     }
 }

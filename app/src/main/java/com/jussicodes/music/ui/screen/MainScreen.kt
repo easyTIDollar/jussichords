@@ -57,6 +57,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import android.os.Build
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.blur
@@ -99,6 +100,7 @@ import com.jussicodes.music.constants.useNavigationRailLayout
 import com.jussicodes.music.data.HomeBgEditor
 import com.jussicodes.music.ui.components.AdaptiveContent
 import com.jussicodes.music.ui.components.AdaptiveNavigationRail
+import com.jussicodes.music.ui.components.BlurEffectCache
 import com.jussicodes.music.ui.components.BottomBarTab
 import com.jussicodes.music.ui.components.FloatingBottomNavBar
 import com.jussicodes.music.ui.components.HomeBackgroundLayer
@@ -148,6 +150,7 @@ fun MainScreen() {
     var currentPlayMediaId by rememberPreference(currentPlayMediaIdKey, 0)
     var showPlayer by remember { mutableStateOf(false) }
     var miniPlayerDragProgress by remember { mutableFloatStateOf(0f) }
+    val bgBlurEffectCache = remember { BlurEffectCache() }
     var homePage by rememberSaveable { mutableIntStateOf(0) }
     var homePageScroll by remember { mutableFloatStateOf(homePage.toFloat()) }
     val homePagerState = rememberPagerState(initialPage = homePage) { activeNavTabs.size }
@@ -498,18 +501,20 @@ fun MainScreen() {
 
             // Expanded（大屏）左侧竖排导航栏；Compact/Medium 保持底部横条。
             // 两者只在这里分叉：rail 占左侧固定宽度，内容区限宽居中（AdaptiveContent）。
-            // 动态高斯模糊受设置项「上滑背景高斯模糊」控制，默认关闭以减少掉帧。
-            val bgBlurRadius = if (playerBackgroundBlurEnabled && miniPlayerDragProgress > 0.01f) {
-                (miniPlayerDragProgress * 18f).dp
-            } else 0.dp
+            // 实时动态高斯模糊：参考 PixelPlayer 方案，在 Draw 阶段消费手势进度，通过 BlurEffectCache 缓存与整像素量化，
+            // 彻底避免 Compose 外层重组与高频 JNI 重复分配，兼具丝滑满帧与纯正的实时虚化质感。
             Row(
                 Modifier
                     .fillMaxSize()
-                    .then(
-                        if (playerBackgroundBlurEnabled && miniPlayerDragProgress > 0.01f) {
-                            Modifier.blur(bgBlurRadius)
-                        } else Modifier
-                    )
+                    .graphicsLayer {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && playerBackgroundBlurEnabled) {
+                            val progress = miniPlayerDragProgress
+                            val radiusPx = if (progress > 0.01f) {
+                                (progress * 18f * density).roundToInt().toFloat()
+                            } else 0f
+                            renderEffect = bgBlurEffectCache.get(radiusPx)
+                        }
+                    }
             ) {
                 if (useNavigationRail && showNavigationBar) {
                     AdaptiveNavigationRail(

@@ -5,6 +5,8 @@ import androidx.core.graphics.ColorUtils
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,10 +21,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,6 +45,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
@@ -56,12 +63,21 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaMetadata
@@ -83,6 +99,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private data class CommentSortOption(
     val title: String,
@@ -104,18 +122,17 @@ private fun opaqueTint(fg: Color, ratio: Float): Color =
     Color(ColorUtils.blendARGB(MaterialTheme.colorScheme.surfaceContainer.toArgb(), fg.toArgb(), ratio))
 
 /**
- * 播放页半屏评论面板（M3 ModalBottomSheet，和播放页右上角菜单 PlayerMenuBottomSheet 同款）。
- * 半屏→上滑全屏两态由 M3 grab handle 内建；ModalBottomSheet 内建处理键盘 insets，
- * 键盘弹出时 sheet 收缩、底部输入条贴键盘上沿可见（半屏 / 全屏 / 键盘弹出三态均可见）。
+ * 评论区核心内容与交互逻辑：包含标题、排序、评论列表、楼中楼、输入条以及发表/回复/删除逻辑。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlayerComments(
+fun PlayerCommentsContent(
     mediaId: Long?,
     mediaMetadata: MediaMetadata,
     commentType: Int = 0,
     modifier: Modifier = Modifier,
-    onBackPressed: () -> Unit = {},
+    headerModifier: Modifier = Modifier,
+    listModifier: Modifier = Modifier,
+    lazyListState: LazyListState = rememberLazyListState(),
     onUserClick: (userId: Long) -> Unit = {}
 ) {
     val resolvedMediaId = mediaId ?: LocalPlayerState.current?.currentMediaItem?.mediaId?.toLongOrNull()
@@ -130,20 +147,8 @@ fun PlayerComments(
     var isLoadingMore by remember(resolvedMediaId, selectedSort.type) { mutableStateOf(false) }
     var errorMessage by remember(resolvedMediaId) { mutableStateOf<String?>(null) }
 
-    // 外壳：M3 ModalBottomSheet。skipPartiallyExpanded=true —— 只保留 全屏↔收起 两态，
-    // 无半屏停靠位；这样点击输入框呼起软键盘、窗口随 adjustResize 收缩时，
-    // sheet 不会被结算逻辑拉回半屏，始终停在 fullscreen。
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    LaunchedEffect(sheetState) {
-        if (!sheetState.isVisible) {
-            sheetState.show()
-        }
-    }
-
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val lazyListState = rememberLazyListState()
 
     // 发/回复/删除评论所需的身份与输入状态（登录态才渲染输入条）。
     val isLoggedIn = remember { CookieProvider.isLoggedIn() }
@@ -223,19 +228,18 @@ fun PlayerComments(
                     Toast.makeText(context, if (target == null) "评论已发布" else "回复已发布", Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
-                    Toast.makeText(context, it.message ?: "发送评论失败", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, it.message ?: "发送失败", Toast.LENGTH_SHORT).show()
                 }
         }
     }
 
-    // 删除：仅本人主评论可删；确认后从列表移除。
+    // 删除：提交到 NCM，成功后从本地列表直接剔除（不重新请求整页，保住当前滚动位）。
     fun deleteComment(cid: Long) {
         val songId = resolvedMediaId ?: return
         scope.launch {
-            val result = CommentApi.deleteComment(id = songId, type = commentType, cid = cid)
-            result
+            CommentApi.deleteComment(id = songId, type = commentType, cid = cid)
                 .onSuccess {
-                    comments = comments.filter { it.commentId != cid }
+                    comments = comments.filter { c -> c.commentId != cid }
                     Toast.makeText(context, "评论已删除", Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
@@ -285,212 +289,396 @@ fun PlayerComments(
             }
     }
 
+    Column(modifier = modifier) {
+        // 标题行（封面 + 标题 + 排序）
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(headerModifier)
+                .padding(start = 16.dp, end = 8.dp, bottom = 12.dp)
+        ) {
+            AsyncImage(
+                model = mediaMetadata.artworkUri,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(MaterialTheme.shapes.small)
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "评论",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = mediaMetadata.title?.toString().orEmpty(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.basicMarquee()
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                commentData?.totalCount?.takeIf { it > 0 }?.let {
+                    Text(
+                        text = it.toString(),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    text = selectedSort.title,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.clickable { sortMenuExpanded = true }
+                )
+                IconButton(onClick = { sortMenuExpanded = true }) {
+                    Icon(
+                        imageVector = FilterList,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                JussiDropdownMenu(
+                    expanded = sortMenuExpanded,
+                    onDismissRequest = { sortMenuExpanded = false }
+                ) {
+                    commentSortOptions.forEach { option ->
+                        JussiMenuItem(
+                            text = option.title,
+                            icon = when (option.type) {
+                                2 -> Icons.Outlined.LocalFireDepartment
+                                3 -> Icons.Outlined.Schedule
+                                else -> Icons.Outlined.ThumbUp
+                            },
+                            selected = selectedSort.type == option.type,
+                            onClick = {
+                                selectedSort = option
+                                sortMenuExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider(color = opaqueTint(DividerDefaults.color, 0.4f))
+
+        // 列表区：占中间弹性空间，底部固定输入条不被挤掉。
+        Column(modifier = Modifier.weight(1f)) {
+            when {
+                isLoading -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+
+                errorMessage != null -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = errorMessage.orEmpty(),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                comments.isEmpty() -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "暂无评论",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(listModifier),
+                        state = lazyListState,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        contentPadding = WindowInsets.navigationBars.asPaddingValues()
+                    ) {
+                        items(
+                            items = comments,
+                            key = { it.commentId }
+                        ) { comment ->
+                            CommentItem(
+                                resourceId = resolvedMediaId,
+                                resourceType = commentType,
+                                comment = comment,
+                                currentUid = currentUid,
+                                onReply = { replyTarget = it },
+                                onDelete = { deleteTarget = it },
+                                onToast = { message ->
+                                    Toast.makeText(
+                                        context,
+                                        message ?: "操作失败",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                onUserClick = { onUserClick(it) }
+                            )
+                        }
+                        if (hasMore || isLoadingMore) {
+                            item(key = "comment-loading-more") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isLoadingMore) {
+                                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                    } else {
+                                        Text(
+                                            text = "上滑加载更多",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        CommentInputBar(
+            draft = draft,
+            replyTarget = replyTarget,
+            isLoggedIn = isLoggedIn,
+            isSending = isSending,
+            onDraftChange = { draft = it },
+            onCancelReply = { replyTarget = null },
+            onSend = { submitComment() },
+            modifier = Modifier.navigationBarsPadding()
+        )
+
+        deleteTarget?.let { target ->
+            CommentDeleteDialog(
+                comment = target,
+                onConfirm = {
+                    deleteComment(target.commentId)
+                    deleteTarget = null
+                },
+                onDismiss = { deleteTarget = null }
+            )
+        }
+    }
+}
+
+/**
+ * 播放页半屏评论面板（M3 ModalBottomSheet 包装，供其它独立页面调用）。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PlayerComments(
+    mediaId: Long?,
+    mediaMetadata: MediaMetadata,
+    commentType: Int = 0,
+    modifier: Modifier = Modifier,
+    onBackPressed: () -> Unit = {},
+    onUserClick: (userId: Long) -> Unit = {}
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    LaunchedEffect(sheetState) {
+        if (!sheetState.isVisible) {
+            sheetState.show()
+        }
+    }
+
     ResponsiveModalBottomSheet(
         onDismissRequest = onBackPressed,
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        // 整页不透明：scrim 用不透明 background 实色，半屏/全屏时彻底挡住下层播放器，
-        // 不再让下层隐约透出（M3 默认 scrim 是半透明 surface）。
         scrimColor = MaterialTheme.colorScheme.background
     ) {
         Column(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxWidth()
                 .fillMaxHeight()
                 .imePadding()
         ) {
+            PlayerCommentsContent(
+                mediaId = mediaId,
+                mediaMetadata = mediaMetadata,
+                commentType = commentType,
+                onUserClick = onUserClick,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+}
 
-                    // 标题行（封面 + 标题 + 排序）
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, end = 8.dp, bottom = 12.dp)
-                    ) {
-                        AsyncImage(
-                            model = mediaMetadata.artworkUri,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(MaterialTheme.shapes.small)
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "评论",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = mediaMetadata.title?.toString().orEmpty(),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.basicMarquee()
-                            )
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            commentData?.totalCount?.takeIf { it > 0 }?.let {
-                                Text(
-                                    text = it.toString(),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(Modifier.width(8.dp))
-                            }
-                            Text(
-                                text = selectedSort.title,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.clickable { sortMenuExpanded = true }
-                            )
-                            IconButton(onClick = { sortMenuExpanded = true }) {
-                                Icon(
-                                    imageVector = FilterList,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            JussiDropdownMenu(
-                                expanded = sortMenuExpanded,
-                                onDismissRequest = { sortMenuExpanded = false }
-                            ) {
-                                commentSortOptions.forEach { option ->
-                                    JussiMenuItem(
-                                        text = option.title,
-                                        icon = when (option.type) {
-                                            2 -> Icons.Outlined.LocalFireDepartment
-                                            3 -> Icons.Outlined.Schedule
-                                            else -> Icons.Outlined.ThumbUp
-                                        },
-                                        selected = selectedSort.type == option.type,
-                                        onClick = {
-                                            selectedSort = option
-                                            sortMenuExpanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
+/**
+ * 播放页内嵌跟手评论面板（物理手势与位移驱动，与小播放器手势同款手感）。
+ *
+ * 核心交互：
+ * 1. 快速轻扫直接展开/收起：结合 VelocityTracker 判定松手垂直速度；
+ * 2. 慢慢滑像素级跟手：随着手指纵向位移实时平滑拖拽，支持中途反向拉回取消；
+ * 3. 动画可打断：展开/收起飞行过程中手指按下即可立即中断动画并重新接管；
+ * 4. 列表嵌套滚动：评论列表滑到最顶部后继续下拉，接管带动面板下滑收起。
+ */
+@Composable
+fun PlayerCommentsPanel(
+    mediaId: Long?,
+    mediaMetadata: MediaMetadata,
+    commentType: Int = 0,
+    translationY: Float,
+    progress: Float,
+    onDismiss: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: (velocityY: Float) -> Unit,
+    onUserClick: (userId: Long) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val lazyListState = rememberLazyListState()
 
-                    HorizontalDivider(color = opaqueTint(DividerDefaults.color, 0.4f))
+    val nestedScrollConnection = remember(translationY) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val deltaY = available.y
+                // 面板在半开状态（已拉下一截）时，向上推优先把面板推回顶部 0f
+                if (deltaY < 0f && translationY > 0f) {
+                    onDrag(deltaY)
+                    return Offset(0f, deltaY)
+                }
+                return Offset.Zero
+            }
 
-                    // 列表区：占中间弹性空间，底部固定输入条不被挤掉。
-                    Column(modifier = Modifier.weight(1f)) {
-                        when {
-                            isLoading -> {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator()
-                                }
-                            }
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                val deltaY = available.y
+                // 列表在最顶端继续向下拉动，接管为向下拉动面板
+                if (deltaY > 0f && source == NestedScrollSource.UserInput) {
+                    onDrag(deltaY)
+                    return Offset(0f, deltaY)
+                }
+                return Offset.Zero
+            }
 
-                            errorMessage != null -> {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = errorMessage.orEmpty(),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (translationY > 0f) {
+                    onDragEnd(available.y)
+                    return available
+                }
+                return Velocity.Zero
+            }
 
-                            comments.isEmpty() -> {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "暂无评论",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (available.y > 0f && lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0) {
+                    onDragEnd(available.y)
+                    return available
+                }
+                return Velocity.Zero
+            }
+        }
+    }
 
-                            else -> {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    state = lazyListState,
-                                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                                    contentPadding = WindowInsets.navigationBars.asPaddingValues()
-                                ) {
-                                    items(
-                                        items = comments,
-                                        key = { it.commentId }
-                                    ) { comment ->
-                                        CommentItem(
-                                            resourceId = resolvedMediaId,
-                                            resourceType = commentType,
-                                            comment = comment,
-                                            currentUid = currentUid,
-                                            onReply = { replyTarget = it },
-                                            onDelete = { deleteTarget = it },
-                                            onToast = { message ->
-                                                Toast.makeText(
-                                                    context,
-                                                    message ?: "操作失败",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            },
-                                            onUserClick = { onUserClick(it) }
-                                        )
-                                    }
-                                    if (hasMore || isLoadingMore) {
-                                        item(key = "comment-loading-more") {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(vertical = 16.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                if (isLoadingMore) {
-                                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                                                } else {
-                                                    Text(
-                                                        text = "上滑加载更多",
-                                                        style = MaterialTheme.typography.labelMedium,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+    val dragModifier = Modifier.pointerInput(Unit) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val velocityTracker = VelocityTracker()
+            velocityTracker.addPosition(down.uptimeMillis, down.position)
+            var isDragging = false
+            var totalDragY = 0f
 
-                    CommentInputBar(
-                        draft = draft,
-                        replyTarget = replyTarget,
-                        isLoggedIn = isLoggedIn,
-                        isSending = isSending,
-                        onDraftChange = { draft = it },
-                        onCancelReply = { replyTarget = null },
-                        onSend = { submitComment() }
-                    )
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                if (!change.pressed) break
 
-                    deleteTarget?.let { target ->
-                        CommentDeleteDialog(
-                            comment = target,
-                            onConfirm = {
-                                deleteComment(target.commentId)
-                                deleteTarget = null
-                            },
-                            onDismiss = { deleteTarget = null }
-                        )
-                    }
+                velocityTracker.addPosition(change.uptimeMillis, change.position)
+                val positionChange = change.positionChange()
+                totalDragY += positionChange.y
+
+                if (!isDragging && abs(totalDragY) > viewConfiguration.touchSlop) {
+                    isDragging = true
+                }
+
+                if (isDragging) {
+                    change.consume()
+                    onDrag(positionChange.y)
                 }
             }
+
+            if (isDragging) {
+                val velocityY = velocityTracker.calculateVelocity().y
+                onDragEnd(velocityY)
+            }
+        }
+    }
+
+    Surface(
+        modifier = modifier
+            .offset { IntOffset(0, translationY.roundToInt()) }
+            .fillMaxWidth()
+            .fillMaxHeight(),
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shadowElevation = 16.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .imePadding()
+        ) {
+            // 顶部抓手条 Drag Handle（可拖动）
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(dragModifier)
+                    .padding(top = 10.dp, bottom = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(2.dp)
+                        )
+                )
+            }
+
+            PlayerCommentsContent(
+                mediaId = mediaId,
+                mediaMetadata = mediaMetadata,
+                commentType = commentType,
+                headerModifier = dragModifier,
+                listModifier = Modifier.nestedScroll(nestedScrollConnection),
+                lazyListState = lazyListState,
+                onUserClick = onUserClick,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
 }
+
 /**
  * 主评论条目：头像 + 昵称 + 归属地(省)·日期 + 内容 + 点赞(右上) + 「查看 N 条回复」
  * 折叠入口(点按才拉楼中楼) + 本人删除。头像保持方头(需求：不改圆头)。

@@ -56,6 +56,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ColorFilter
@@ -85,6 +86,7 @@ import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.screen.PERSONAL_FM_SOURCE
 import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
 import com.jussicodes.music.utils.PlayerExpandBus
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.jussicodes.music.data.HomeBgTextStore
 import com.jussicodes.music.data.HomeTransparentCardStore
@@ -102,6 +104,7 @@ import com.jussicodes.music.ui.components.PinnedAlbumPickDialog
 import com.jussicodes.music.ui.components.PinnedAlbumsCard
 import com.jussicodes.music.ui.components.TopBar
 import com.jussicodes.music.ui.components.resolveHomeBgTextColor
+import com.jussicodes.music.ui.components.withShadow
 import com.jussicodes.music.ui.icons.Delete
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.History
@@ -238,6 +241,9 @@ fun LibraryScreen(
         val cookie = ncmCookie ?: return@LaunchedEffect
         if (cookie.isNotEmpty()) {
             libraryScreenViewModel.fetchUserInfo(cookie = cookie)
+            // 专辑墙已有本地磁盘缓存 loadCache() 立即上屏，网络同步错峰 1.5 秒，
+            // 避免启动瞬间与用户信息、歌单列表请求抢占网络与 CPU 导致初次操作卡顿
+            delay(1500)
             PinnedAlbumStore.sync()
         } else {
             libraryScreenViewModel.clear()
@@ -246,28 +252,61 @@ fun LibraryScreen(
     }
 
     val userId = userInfoBatchState?.account?.profile?.userId ?: 0L
-    val favoritePlaylistId = userPlaylists.firstOrNull { playlist ->
-        playlist.creator?.userId == userId && (
-            playlist.specialType == 5 ||
-            playlist.name.contains(LIKED_PLAYLIST_NAME_FRAGMENT))
-    }?.id
-    val favoritePlaylist = userPlaylists.firstOrNull { it.id == favoritePlaylistId }
-    val normalPlaylists = userPlaylists.filterNot { it.id == favoritePlaylistId }
-    val collectedPlaylists = normalPlaylists.filter { it.subscribed || it.creator?.userId != userId }
-    val createdPlaylists = normalPlaylists.filterNot { it in collectedPlaylists }
+    val (favoritePlaylist, createdPlaylists, collectedPlaylists) = remember(userPlaylists, userId) {
+        var fav: Playlist? = null
+        val created = ArrayList<Playlist>()
+        val collected = ArrayList<Playlist>()
+        for (pl in userPlaylists) {
+            val isFav = fav == null && pl.creator?.userId == userId && (
+                pl.specialType == 5 || pl.name.contains(LIKED_PLAYLIST_NAME_FRAGMENT)
+            )
+            if (isFav) {
+                fav = pl
+            } else if (pl.subscribed || pl.creator?.userId != userId) {
+                collected.add(pl)
+            } else {
+                created.add(pl)
+            }
+        }
+        Triple(fav, created, collected)
+    }
 
     // 主页文字色（设置页「外观」选择）：auto 档不覆盖（scheme 原样，逐像素一致、零重绘）；
     // 白/黑档用本地 ColorScheme 覆盖整页（卡片内 onSurface/onSurfaceVariant 读取处自动跟随）。
     val bgTextMode = HomeBgTextStore.state.collectAsState().value
+    val bgTextShadow = HomeBgTextStore.shadow.collectAsState().value
     val bgTextColor = resolveHomeBgTextColor(bgTextMode, MaterialTheme.colorScheme)
-    MaterialTheme(colorScheme = if (bgTextMode == "auto") {
-        MaterialTheme.colorScheme
-    } else {
-        MaterialTheme.colorScheme.copy(
-            onSurface = bgTextColor,
-            onSurfaceVariant = bgTextColor.copy(alpha = 0.85f),
-        )
-    }) {
+    val textShadow = remember(bgTextShadow, bgTextColor) {
+        if (bgTextShadow > 0.05f) {
+            val lum = 0.299f * bgTextColor.red + 0.587f * bgTextColor.green + 0.114f * bgTextColor.blue
+            val shadowColor = if (lum > 0.5f) {
+                androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.85f)
+            } else {
+                androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f)
+            }
+            Shadow(
+                color = shadowColor,
+                offset = Offset.Zero,
+                blurRadius = bgTextShadow * 3f
+            )
+        } else {
+            null
+        }
+    }
+    MaterialTheme(
+        colorScheme = if (bgTextMode == "auto") {
+            MaterialTheme.colorScheme
+        } else {
+            MaterialTheme.colorScheme.copy(
+                onSurface = bgTextColor,
+                onSurfaceVariant = bgTextColor.copy(alpha = 0.85f),
+            )
+        },
+        typography = MaterialTheme.typography.withShadow(textShadow)
+    ) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.material3.LocalContentColor provides (if (bgTextMode == "auto") MaterialTheme.colorScheme.onSurface else bgTextColor)
+    ) {
     Scaffold(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
         topBar = { TopBar(navController = navController, titleRes = R.string.mine, transparent = true, contentColor = bgTextColor) }
@@ -806,6 +845,7 @@ fun LibraryScreen(
             }
         )
     }
+    }
 }
 
 @Composable
@@ -845,7 +885,10 @@ private fun LibraryUserCard(
         } else {
             null
         },
-        colors = CardDefaults.cardColors(containerColor = userCardGlassColor())
+        colors = CardDefaults.cardColors(
+            containerColor = userCardGlassColor(),
+            contentColor = MaterialTheme.colorScheme.onSurface
+        )
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -892,6 +935,7 @@ private fun LibraryUserCard(
                     Text(
                         text = profile.nickname,
                         style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1032,7 +1076,10 @@ private fun FavoritePlaylistCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = transparentCardColor())
+        colors = CardDefaults.cardColors(
+            containerColor = transparentCardColor(),
+            contentColor = MaterialTheme.colorScheme.onSurface
+        )
     ) {
         Box(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(14.dp)) {
             RowCardContent(
@@ -1086,7 +1133,10 @@ private fun PlaylistGroupCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = transparentCardColor())
+        colors = CardDefaults.cardColors(
+            containerColor = transparentCardColor(),
+            contentColor = MaterialTheme.colorScheme.onSurface
+        )
     ) {
         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(text = title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
@@ -1096,26 +1146,36 @@ private fun PlaylistGroupCard(
                 modifier = Modifier.heightIn(max = (orderedPlaylists.size * 66).dp)
             ) {
                 itemsIndexed(orderedPlaylists, key = { _, playlist -> playlist.id }) { index, playlist ->
-                    ReorderableItem(reorderableState, key = playlist.id, enabled = reorderEnabled) {
+                    if (reorderEnabled) {
+                        ReorderableItem(reorderableState, key = playlist.id, enabled = true) {
+                            LibraryPlaylistRow(
+                                playlist = playlist,
+                                coverVersion = coverVersions[playlist.id] ?: 0L,
+                                menuItems = menuItems,
+                                reorderEnabled = true,
+                                dragModifier = Modifier.longPressDraggableHandle(
+                                    onDragStarted = {
+                                        ViewCompat.performHapticFeedback(
+                                            view,
+                                            HapticFeedbackConstantsCompat.GESTURE_START
+                                        )
+                                    },
+                                    onDragStopped = {
+                                        ViewCompat.performHapticFeedback(
+                                            view,
+                                            HapticFeedbackConstantsCompat.GESTURE_END
+                                        )
+                                    }
+                                ),
+                                onClick = { onPlaylistClick(playlist) }
+                            )
+                        }
+                    } else {
                         LibraryPlaylistRow(
                             playlist = playlist,
                             coverVersion = coverVersions[playlist.id] ?: 0L,
                             menuItems = menuItems,
-                            reorderEnabled = reorderEnabled,
-                            dragModifier = Modifier.longPressDraggableHandle(
-                                onDragStarted = {
-                                    ViewCompat.performHapticFeedback(
-                                        view,
-                                        HapticFeedbackConstantsCompat.GESTURE_START
-                                    )
-                                },
-                                onDragStopped = {
-                                    ViewCompat.performHapticFeedback(
-                                        view,
-                                        HapticFeedbackConstantsCompat.GESTURE_END
-                                    )
-                                }
-                            ),
+                            reorderEnabled = false,
                             onClick = { onPlaylistClick(playlist) }
                         )
                     }
@@ -1172,20 +1232,22 @@ private fun LibraryPlaylistRow(
                             contentDescription = stringResource(R.string.more)
                         )
                     }
-                    JussiDropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false }
-                    ) {
-                        menuItems.forEach { item ->
-                            JussiMenuItem(
-                                text = item.text,
-                                icon = item.icon,
-                                destructive = item.destructive,
-                                onClick = {
-                                    menuExpanded = false
-                                    item.onClick(playlist)
-                                }
-                            )
+                    if (menuExpanded) {
+                        JussiDropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false }
+                        ) {
+                            menuItems.forEach { item ->
+                                JussiMenuItem(
+                                    text = item.text,
+                                    icon = item.icon,
+                                    destructive = item.destructive,
+                                    onClick = {
+                                        menuExpanded = false
+                                        item.onClick(playlist)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -1218,7 +1280,13 @@ private fun RowCardContent(
             modifier = Modifier.clip(MaterialTheme.shapes.medium).size(52.dp)
         )
         Column(modifier = Modifier.padding(start = 10.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(text = title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
             Text(text = subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         trailingContent?.invoke()

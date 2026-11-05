@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
@@ -44,6 +45,7 @@ import kotlinx.serialization.encodeToString
 import javax.inject.Inject
 
 private const val USER_INFO_REFRESH_INTERVAL_MS = 5 * 60 * 1000L
+private const val PLAYLIST_REFRESH_INTERVAL_MS = 15_000L
 private const val LIKED_PLAYLIST_SPECIAL_TYPE = 5
 private const val LIKED_PLAYLIST_NAME_FRAGMENT = "\u559c\u6b22"
 
@@ -64,6 +66,10 @@ class LibraryScreenViewModel @Inject constructor(
     private var lastUserInfoRefreshAt = 0L
     private var lastUserInfoCookieHash = 0
     private var lastUserDetailUid = 0L
+    private var lastPlaylistFetchUid = 0L
+    private var lastPlaylistFetchAt = 0L
+    private var lastFavoriteSongFetchUid = 0L
+    private var lastFavoriteSongFetchAt = 0L
     private val _userDetail = MutableStateFlow<UserDetailResponse?>(null)
     val userDetail: StateFlow<UserDetailResponse?> = _userDetail.asStateFlow()
     private var favoriteSongCount = 0
@@ -122,9 +128,16 @@ class LibraryScreenViewModel @Inject constructor(
         }
     }
 
-    private fun fetchFavoriteSong(userId: Long) {
+    private fun fetchFavoriteSong(userId: Long, delayMs: Long = 0L) {
         viewModelScope.launch {
+            if (delayMs > 0L) delay(delayMs)
+            val now = System.currentTimeMillis()
+            if (userId == lastFavoriteSongFetchUid && now - lastFavoriteSongFetchAt < PLAYLIST_REFRESH_INTERVAL_MS) {
+                return@launch
+            }
             AccountApi.favoriteSong(userId).getOrNull()?.let {
+                lastFavoriteSongFetchUid = userId
+                lastFavoriteSongFetchAt = System.currentTimeMillis()
                 _favoriteSong.value = it
                 context.dataStore.edit { prefs ->
                     prefs[libraryFavoriteSongCacheKey] = json.encodeToString(it)
@@ -133,14 +146,21 @@ class LibraryScreenViewModel @Inject constructor(
         }
     }
 
-    private fun fetchUserPlaylists(userId: Long) {
+    private fun fetchUserPlaylists(userId: Long, delayMs: Long = 0L) {
         viewModelScope.launch {
+            if (delayMs > 0L) delay(delayMs)
+            val now = System.currentTimeMillis()
+            if (userId == lastPlaylistFetchUid && now - lastPlaylistFetchAt < PLAYLIST_REFRESH_INTERVAL_MS) {
+                return@launch
+            }
             val playlists = AccountApi.userPlaylists(userId)
                 .getOrNull()
                 ?.data
                 ?.playlist
                 ?.let(PlaylistCollectionSyncBus::mergeInto)
             if (playlists != null) {
+                lastPlaylistFetchUid = userId
+                lastPlaylistFetchAt = System.currentTimeMillis()
                 baseUserPlaylists = playlists
                 _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
                 context.dataStore.edit { prefs ->
@@ -303,6 +323,7 @@ class LibraryScreenViewModel @Inject constructor(
 
     private fun refreshUserPlaylists() {
         val userId = _userInfo.value?.account?.profile?.userId ?: return
+        lastPlaylistFetchAt = 0L
         fetchUserPlaylists(userId)
     }
 
@@ -454,8 +475,10 @@ class LibraryScreenViewModel @Inject constructor(
                         baseUserPlaylists = emptyList()
                         _userPlaylists.value = emptyList()
                     } else {
-                        fetchFavoriteSong(userId)
-                        fetchUserPlaylists(userId)
+                        // 若本地已有缓存铺底，延迟 1800ms 错峰刷新，让出冷启动黄金渲染期；无缓存则立即可见
+                        val staggerDelay = if (baseUserPlaylists.isNotEmpty()) 1800L else 0L
+                        fetchFavoriteSong(userId, staggerDelay)
+                        fetchUserPlaylists(userId, staggerDelay)
                     }
                 }
         }

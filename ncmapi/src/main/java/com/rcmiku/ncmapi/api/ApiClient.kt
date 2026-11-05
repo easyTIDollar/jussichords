@@ -750,6 +750,16 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
             "/api/v3/song/detail",
             mapOf("c" to str("c"))
         )
+        // 歌曲百科简要信息（含回忆坐标、曲风、语种、BPM、影综、成就等）
+        "/song/wiki/summary" -> weapi(
+            "/api/song/play/about/block/page",
+            mapOf("songId" to long("songId", 0L))
+        )
+        // 歌曲创作者/制作人员名单
+        "/song/creators" -> weapi(
+            "/api/song/creators",
+            mapOf("songId" to long("songId", 0L))
+        )
         else -> error("Unsupported NetEase route: $path")
     }
 }

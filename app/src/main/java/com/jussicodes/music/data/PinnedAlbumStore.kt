@@ -107,9 +107,9 @@ object PinnedAlbumStore {
     }
 
     /** 读磁盘缓存灌 [albums]（启动时调用）；账号不匹配时清掉旧内容。 */
-    suspend fun loadCache() {
+    suspend fun loadCache(cachedPrefs: Preferences? = null) {
         val s = store ?: return
-        val prefs = s.data.first()
+        val prefs = cachedPrefs ?: s.data.first()
         val storedAccount = prefs[pinnedAlbumsAccountKey].orEmpty()
         val acc = accountKey()
         // 旧版指纹是 cookie 哈希 hex（会误判掉墙）；非 uid: 前缀一律视为旧格式，不清墙，

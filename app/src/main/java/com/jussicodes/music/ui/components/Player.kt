@@ -1,5 +1,10 @@
 package com.jussicodes.music.ui.components
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import com.jussicodes.music.animation.MotionSpring
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -69,6 +74,7 @@ import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.constants.isLandscapePhone
 import com.jussicodes.music.constants.MediaSessionConstants
+import com.jussicodes.music.utils.PlayerGestureTutorialStore
 import com.jussicodes.music.ui.icons.Album
 import com.jussicodes.music.ui.icons.Artist
 import com.jussicodes.music.ui.icons.ChevronDown
@@ -91,11 +97,13 @@ import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.playback.ListenTogetherSession
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.FavoriteSongAction
+import com.rcmiku.ncmapi.model.SongWikiData
 import com.jussicodes.music.utils.getItemShape
 import com.jussicodes.music.utils.makeTimeString
 import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.rcmiku.ncmapi.api.album.AlbumApi
+import com.rcmiku.ncmapi.api.player.PlayerApi
 import com.rcmiku.ncmapi.model.Artist
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.SongAlbum
@@ -153,9 +161,11 @@ fun Player(
     var openAlbumSheet by rememberSaveable { mutableStateOf(false) }
     var openArtistSheet by rememberSaveable { mutableStateOf(false) }
     var openPlayerBottomSheet by rememberSaveable { mutableStateOf(false) }
-    var openComments by rememberSaveable { mutableStateOf(false) }
     var playerLabelMenuExpanded by rememberSaveable { mutableStateOf(false) }
     var coverPreviewUrl by remember { mutableStateOf<Any?>(null) }
+    var showGestureTutorial by remember {
+        mutableStateOf(!PlayerGestureTutorialStore.isDismissed(context))
+    }
 
     // 一起听会话：歌名行爱心左侧的成员小组件（进房才出现）读的就是这个 StateFlow。
     val listenTogetherState by ListenTogetherSession.state.collectAsState()
@@ -260,8 +270,83 @@ fun Player(
     }
 
     val screenHeight = LocalConfiguration.current.screenHeightDp
+    val screenHeightPx = with(density) { screenHeight.dp.toPx() }
     val dragDirectionSlopPx = with(density) { 3.dp.toPx() }
-    val queueOpenThresholdPx = with(density) { 40.dp.toPx() }
+
+    // 评论区垂直位移：screenHeightPx 为完全收起在屏幕底部之外，0f 为完全展开
+    val commentSheetTranslationY = remember { Animatable(screenHeightPx) }
+    var commentSheetActive by remember { mutableStateOf(false) }
+    val commentProgress = if (screenHeightPx > 0f) {
+        (1f - (commentSheetTranslationY.value / screenHeightPx)).coerceIn(0f, 1f)
+    } else 0f
+
+    LaunchedEffect(screenHeightPx) {
+        if (!commentSheetActive && commentSheetTranslationY.value > 0f) {
+            commentSheetTranslationY.snapTo(screenHeightPx)
+        }
+    }
+
+    fun expandComments(initialVelocity: Float = 0f) {
+        commentSheetActive = true
+        scope.launch {
+            commentSheetTranslationY.animateTo(
+                targetValue = 0f,
+                animationSpec = MotionSpring.sheetExpand,
+                initialVelocity = initialVelocity
+            )
+        }
+    }
+
+    fun collapseComments(initialVelocity: Float = 0f) {
+        scope.launch {
+            commentSheetTranslationY.animateTo(
+                targetValue = screenHeightPx,
+                animationSpec = MotionSpring.sheetCollapse,
+                initialVelocity = initialVelocity
+            )
+            commentSheetActive = false
+        }
+    }
+
+    fun onCommentDrag(deltaY: Float) {
+        commentSheetActive = true
+        scope.launch {
+            val current = commentSheetTranslationY.value
+            val target = (current + deltaY).coerceIn(0f, screenHeightPx)
+            commentSheetTranslationY.snapTo(target)
+        }
+    }
+
+    fun onCommentDragEnd(velocityY: Float, startedExpanded: Boolean) {
+        scope.launch {
+            val current = commentSheetTranslationY.value
+            if (startedExpanded) {
+                // 展开态下滑退出：阈值 80dp 或向下甩动速度 velocityY >= 350f
+                val isDragDown = current >= with(density) { 80.dp.toPx() }
+                val isFlingDown = velocityY >= 350f
+                if (isDragDown || isFlingDown) {
+                    collapseComments(velocityY)
+                } else {
+                    expandComments(velocityY)
+                }
+            } else {
+                // 收起态上滑展开：
+                // 1. 快速轻扫甩动速度 <= -200f（向上甩动为负）轻扫直接展开；
+                // 2. 向上拖动超过 36dp / 比例 >= 10%，松手平滑展开；
+                // 3. 否则下滑取消 / 回弹收起。
+                val dragDistanceUp = screenHeightPx - current
+                val expandThresholdPx = with(density) { 36.dp.toPx() }
+                val currentProg = if (screenHeightPx > 0f) dragDistanceUp / screenHeightPx else 0f
+                val isFlingUp = velocityY <= -200f
+                val isDragUp = (dragDistanceUp >= expandThresholdPx || currentProg >= 0.10f) && velocityY < 200f
+                if (isFlingUp || isDragUp) {
+                    expandComments(velocityY)
+                } else {
+                    collapseComments(velocityY)
+                }
+            }
+        }
+    }
 
     Surface(
         modifier = modifier
@@ -280,7 +365,7 @@ fun Player(
                 liked = mediaId?.toLongOrNull() in songIds,
                 onBackPressed = onBackPressed,
                 onMoreClick = { openPlayerBottomSheet = true },
-                onCommentsClick = { openComments = true },
+                onCommentsClick = { expandComments() },
                 // 歌名 / 歌手跳转：与竖屏同一套逻辑（歌名进专辑、歌手进音乐人页）。
                 onTitleClick = {
                     if (fmDirectNav && currentSong?.al?.id != 0L) {
@@ -546,9 +631,11 @@ fun Player(
                         Spacer(Modifier.height(24.dp))
 
                     // 进度条与横屏播放页、私人 FM 共用同一套细样式。
+                    val isSongBuffering = playerState?.playbackState == androidx.media3.common.Player.STATE_BUFFERING
                     PlayerProgressSlider(
                         value = (sliderPosition ?: position).toFloat(),
                         valueRange = 0f..(if (duration == C.TIME_UNSET) 0f else duration.toFloat()),
+                        isLoading = isSongBuffering,
                         onValueChange = { sliderPosition = it.toLong() },
                         onValueChangeFinished = {
                             sliderPosition?.let {
@@ -588,22 +675,31 @@ fun Player(
                         .pointerInput(
                             openAlbumSheet,
                             openArtistSheet,
-                            openPlayerBottomSheet,
-                            queueOpenThresholdPx
+                            openPlayerBottomSheet
                         ) {
+                            if (openAlbumSheet || openArtistSheet || openPlayerBottomSheet) return@pointerInput
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
-                                if (down.position.y < 72.dp.toPx()) {
-                                    return@awaitEachGesture
+                                val isButtonArea = down.position.y < 72.dp.toPx()
+
+                                // 打断正在飞行的动画
+                                if (commentSheetTranslationY.isRunning) {
+                                    scope.launch { commentSheetTranslationY.stop() }
                                 }
+
+                                val velocityTracker = VelocityTracker()
+                                velocityTracker.addPosition(down.uptimeMillis, down.position)
                                 var totalDragX = 0f
                                 var totalDragY = 0f
                                 var isVerticalDrag: Boolean? = null
+                                var isDragging = false
+
                                 while (true) {
                                     val event = awaitPointerEvent()
                                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
                                     if (!change.pressed) break
 
+                                    velocityTracker.addPosition(change.uptimeMillis, change.position)
                                     val positionChange = change.positionChange()
                                     totalDragX += positionChange.x
                                     totalDragY += positionChange.y
@@ -618,20 +714,21 @@ fun Player(
                                         break
                                     }
 
-                                    if (isVerticalDrag == true && totalDragY < 0f) {
+                                    val slop = if (isButtonArea) viewConfiguration.touchSlop * 1.5f else dragDirectionSlopPx
+                                    if (!isDragging && isVerticalDrag == true && totalDragY < -slop) {
+                                        isDragging = true
                                         change.consume()
                                     }
 
-                                    if (isVerticalDrag == true &&
-                                        totalDragY <= -queueOpenThresholdPx &&
-                                        !openAlbumSheet &&
-                                        !openArtistSheet &&
-                                        !openPlayerBottomSheet
-                                    ) {
-                                        openComments = true
+                                    if (isDragging) {
                                         change.consume()
-                                        break
+                                        onCommentDrag(positionChange.y)
                                     }
+                                }
+
+                                if (isDragging) {
+                                    val velocityY = velocityTracker.calculateVelocity().y
+                                    onCommentDragEnd(velocityY, startedExpanded = false)
                                 }
                             }
                         }
@@ -694,26 +791,104 @@ fun Player(
         )
 
         coverPreviewUrl?.let { url ->
+            val previewSongId = remember(url, currentSong?.id, mediaId) {
+                currentSong?.id ?: mediaId?.toLongOrNull()
+            }
+            var songWiki by remember(previewSongId) { mutableStateOf<SongWikiData?>(null) }
+            var isWikiLoading by remember(previewSongId) { mutableStateOf(false) }
+            var showWikiSheet by remember { mutableStateOf(false) }
+
+            LaunchedEffect(previewSongId) {
+                if (previewSongId != null && previewSongId > 0) {
+                    isWikiLoading = true
+                    val albumName = currentSong?.al?.name.orEmpty()
+                    val publishTime = currentSong?.publishTime ?: 0L
+                    val publishDateStr = if (publishTime > 0) {
+                        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                        sdf.format(java.util.Date(publishTime))
+                    } else ""
+                    PlayerApi.songWiki(previewSongId, albumName, publishDateStr)
+                        .onSuccess { songWiki = it }
+                    isWikiLoading = false
+                }
+            }
+
             LargeImageDialog(
                 imageUrl = url,
-                onDismiss = { coverPreviewUrl = null },
-                showSaveAction = true
+                onDismiss = {
+                    coverPreviewUrl = null
+                    showWikiSheet = false
+                },
+                showSaveAction = true,
+                overlayContent = {
+                    if (previewSongId != null && previewSongId > 0) {
+                        SongWikiPeekPill(
+                            songWiki = songWiki,
+                            isLoading = isWikiLoading,
+                            onClick = { showWikiSheet = true },
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .padding(bottom = 60.dp)
+                        )
+                    }
+                }
+            )
+
+            if (showWikiSheet) {
+                SongWikiBottomSheet(
+                    songWiki = songWiki,
+                    isLoading = isWikiLoading,
+                    onDismissRequest = { showWikiSheet = false }
+                )
+            }
+        }
+
+        // 评论区背景暗色蒙层
+        if (commentProgress > 0.001f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = (commentProgress * 0.6f).coerceIn(0f, 0.6f) }
+                    .background(Color.Black)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        collapseComments()
+                    }
             )
         }
 
-        if (openComments) {
-            PlayerComments(
+        // 评论区跟手面板（支持慢滑跟手、快速轻扫展开、中途打断、下滑取消）
+        if (commentSheetActive || commentProgress > 0.001f) {
+            PlayerCommentsPanel(
                 mediaId = mediaId?.toLongOrNull(),
                 mediaMetadata = mediaMetadata,
-                onBackPressed = { openComments = false },
+                translationY = commentSheetTranslationY.value,
+                progress = commentProgress,
+                onDismiss = { collapseComments() },
+                onDrag = { onCommentDrag(it) },
+                onDragEnd = { velocityY -> onCommentDragEnd(velocityY, startedExpanded = true) },
                 onUserClick = { userId ->
-                    // 全屏播放是 MainScreen 里 zIndex(1f) 的 overlay、评论区是 Dialog 窗口，
-                    // 二者都压在 NavHost 之上。只 navigate 会把 UserNav 推到它们下方被盖住，
-                    // 得连退两层才见主页。故：关评论区 + navigate 推主页 + onBackPressed 收起
-                    // 全屏 overlay，主页即刻可见（与"播放器内点歌手跳 Artist"同款收尾）。
-                    openComments = false
+                    collapseComments()
                     navController.navigate(UserNav(userId = userId))
                     onBackPressed()
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        BackHandler(enabled = commentProgress > 0.01f || (commentSheetActive && !commentSheetTranslationY.isRunning)) {
+            collapseComments()
+        }
+
+        if (showGestureTutorial) {
+            PlayerGestureTutorialDialog(
+                onDismiss = { showGestureTutorial = false },
+                onNeverShowAgain = {
+                    showGestureTutorial = false
+                    PlayerGestureTutorialStore.markDismissed(context)
                 }
             )
         }

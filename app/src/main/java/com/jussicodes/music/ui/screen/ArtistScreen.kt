@@ -29,6 +29,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -39,6 +40,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,6 +52,9 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -69,6 +74,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollDispatcher
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
@@ -77,8 +83,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -136,6 +144,15 @@ fun ArtistScreen(
     var selectSong by remember { mutableStateOf<Song?>(null) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
     var previewArtistImageUrl by remember { mutableStateOf<String?>(null) }
+    val isRefreshing by artistScreenViewModel.isRefreshing.collectAsState()
+    val pullToRefreshState = rememberPullToRefreshState()
+    val density = LocalDensity.current
+    val nestedScrollDispatcher = remember { NestedScrollDispatcher() }
+    val onRefreshAction: () -> Unit = {
+        artistScreenViewModel.refresh()
+        artistAllSongs.refresh()
+        artistAlbumList.refresh()
+    }
     val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
     val haptics = LocalHapticFeedback.current
@@ -155,6 +172,7 @@ fun ArtistScreen(
 
     val candidateSongs = allSongsForQueue ?: artistTopSongState?.songs.orEmpty()
     val filteredSongs = rememberFilteredSongs(candidateSongs, searchQuery)
+    val chunkedSimiArtists = remember(simiArtists) { simiArtists.chunked(2) }
 
     var headerHeightPx by remember { mutableFloatStateOf(0f) }
     var topBarHeightPx by remember { mutableFloatStateOf(0f) }
@@ -218,8 +236,29 @@ fun ArtistScreen(
 
     // 横屏（矮屏）走左右分栏：左栏沉浸区 + 右栏内容浏览区。
     // 竖屏保持「顶部横幅 + 三 tab」的单列堆叠，两套布局互不影响。
-    if (isLandscapePhone()) {
-        ArtistLandscapeBody(
+    PullToRefreshBox(
+        modifier = Modifier.fillMaxSize(),
+        state = pullToRefreshState,
+        isRefreshing = isRefreshing,
+        onRefresh = onRefreshAction,
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .then(
+                        if (!isLandscapePhone() && topBarHeightPx > 0f) {
+                            Modifier.padding(top = with(density) { topBarHeightPx.toDp() })
+                        } else {
+                            Modifier
+                        }
+                    ),
+                isRefreshing = isRefreshing,
+                state = pullToRefreshState
+            )
+        }
+    ) {
+        if (isLandscapePhone()) {
+            ArtistLandscapeBody(
             artistName = artistHeadInfoState?.data?.artist?.name.orEmpty(),
             briefDesc = artistHeadInfoState?.data?.artist?.briefDesc,
             fansText = artistFollowStats?.let { "粉丝 ${formatPlayCount(it.fansCnt.toDouble())}" },
@@ -290,7 +329,6 @@ fun ArtistScreen(
         )
     } else {
         // 竖屏方案 A：Header 固定原始尺寸随手势平滑向上移出（绝不变形），Tab 栏平滑上移吸顶在顶栏下方，列表底边始终贴紧屏幕底部
-        val density = LocalDensity.current
         val backgroundColor = MaterialTheme.colorScheme.background
 
         BoxWithConstraints(
@@ -298,7 +336,7 @@ fun ArtistScreen(
                 .fillMaxSize()
                 .background(backgroundColor)
                 .clipToBounds()
-                .nestedScroll(nestedScrollConnection)
+                .nestedScroll(nestedScrollConnection, nestedScrollDispatcher)
         ) {
             val screenHeight = maxHeight
             val pagerHeight = if (topBarHeightPx > 0f) {
@@ -321,8 +359,41 @@ fun ArtistScreen(
                         orientation = Orientation.Vertical,
                         enabled = !searchActive,
                         state = rememberDraggableState { delta ->
-                            val newOffset = (headerOffsetPx + delta).coerceIn(-maxCollapsePx, 0f)
-                            headerOffsetPx = newOffset
+                            if (delta < 0f) {
+                                val newOffset = (headerOffsetPx + delta).coerceIn(-maxCollapsePx, 0f)
+                                headerOffsetPx = newOffset
+                            } else {
+                                if (headerOffsetPx < 0f) {
+                                    val newOffset = (headerOffsetPx + delta).coerceIn(-maxCollapsePx, 0f)
+                                    val consumed = newOffset - headerOffsetPx
+                                    headerOffsetPx = newOffset
+                                    val remaining = delta - consumed
+                                    if (remaining > 0f) {
+                                        nestedScrollDispatcher.dispatchPostScroll(
+                                            consumed = Offset(0f, consumed),
+                                            available = Offset(0f, remaining),
+                                            source = NestedScrollSource.UserInput
+                                        )
+                                    }
+                                } else {
+                                    nestedScrollDispatcher.dispatchPostScroll(
+                                        consumed = Offset.Zero,
+                                        available = Offset(0f, delta),
+                                        source = NestedScrollSource.UserInput
+                                    )
+                                }
+                            }
+                        },
+                        onDragStopped = { velocity ->
+                            scope.launch {
+                                nestedScrollDispatcher.dispatchPreFling(
+                                    Velocity(0f, velocity)
+                                )
+                                nestedScrollDispatcher.dispatchPostFling(
+                                    consumed = Velocity.Zero,
+                                    available = Velocity(0f, velocity)
+                                )
+                            }
                         }
                     )
             ) {
@@ -445,21 +516,33 @@ fun ArtistScreen(
                                 }
                             }
                             if (simiArtists.isNotEmpty()) {
-                                item {
+                                item(key = "explore-simi-title") {
                                     NavigationTitle(title = "相似歌手")
                                 }
-                                itemsIndexed(
-                                    items = simiArtists,
-                                    key = { _, artist -> "explore-artist-${artist.id}" }
-                                ) { _, artist ->
-                                    ArtistListItem(
-                                        artist = artist,
+                                items(
+                                    items = chunkedSimiArtists,
+                                    key = { row -> "explore-simi-row-" + row.first().id }
+                                ) { rowArtists ->
+                                    Row(
                                         modifier = Modifier
-                                            .animateItem(placementSpec = null)
-                                            .clickable {
-                                                navController.navigate(ArtistNav(artistId = artist.id))
-                                            }
-                                    )
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        rowArtists.forEach { artist ->
+                                            ArtistSimilarGridItem(
+                                                artist = artist,
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clickable {
+                                                        navController.navigate(ArtistNav(artistId = artist.id))
+                                                    }
+                                            )
+                                        }
+                                        if (rowArtists.size == 1) {
+                                            Spacer(modifier = Modifier.weight(1f))
+                                        }
+                                    }
                                 }
                             }
 
@@ -760,7 +843,7 @@ fun ArtistScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(
+                    FilledTonalIconButton(
                         onClick = {
                             if (searchActive) {
                                 searchActive = false
@@ -769,7 +852,12 @@ fun ArtistScreen(
                             } else {
                                 navController.navigateUp()
                             }
-                        }
+                        },
+                        modifier = Modifier.padding(start = 4.dp),
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.82f),
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -779,14 +867,19 @@ fun ArtistScreen(
                 },
                 actions = {
                     if (!searchActive) {
-                        IconButton(
+                        FilledTonalIconButton(
                             onClick = {
                                 searchActive = true
                                 artistScreenViewModel.loadAllSongsIfNeeded()
                                 scope.launch {
                                     pagerState.animateScrollToPage(1)
                                 }
-                            }
+                            },
+                            modifier = Modifier.padding(end = 4.dp),
+                            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.82f),
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            )
                         ) {
                             Icon(
                                 imageVector = Search,
@@ -801,6 +894,7 @@ fun ArtistScreen(
             )
         }
     }
+    }
 
     SongMenuBottomSheet(
         navController = navController,
@@ -813,6 +907,37 @@ fun ArtistScreen(
             imageUrl = imageUrl.toCoverImageUrl(CoverImageSize.LARGE),
             onDismiss = { previewArtistImageUrl = null },
             showSaveAction = true
+        )
+    }
+}
+
+@Composable
+private fun ArtistSimilarGridItem(
+    artist: com.rcmiku.ncmapi.model.SearchArtist,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .padding(vertical = 8.dp, horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        AsyncImage(
+            model = artist.cover.toCoverImageUrl(CoverImageSize.LIST),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(72.dp)
+                .clip(CircleShape)
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = artist.name,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
         )
     }
 }

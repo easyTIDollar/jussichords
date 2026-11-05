@@ -106,6 +106,12 @@ fun String.parseLrc(): List<LrcLine> {
             continue
         }
 
+        // 过滤头部制作人员信息（作词/作曲/编曲/制作人/混音等），不将其混入歌词正文高亮
+        val isCreditLine = line.matches("""^\[\d{1,3}:\d{2}(?:[.:,]\d{1,3})?]\s*(作词|作曲|编曲|制作人|监制|混音|母带|录音|吉他|贝斯|鼓|键盘|弦乐|企划|统筹|出品|发行|OP|SP|Lyricist|Composer|Arranger|Producer)\s*[:：].*""".toRegex(RegexOption.IGNORE_CASE))
+        if (isCreditLine) {
+            continue
+        }
+
         val tagMatches = timeTagRegex.findAll(line).toList()
         if (tagMatches.isEmpty()) continue
 

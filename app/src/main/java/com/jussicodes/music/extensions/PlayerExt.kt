@@ -8,11 +8,16 @@ import com.jussicodes.music.constants.currentPlayMediaIdKey
 import com.jussicodes.music.utils.SongListUtil
 import com.jussicodes.music.utils.SongSourceMeta
 import com.jussicodes.music.utils.dataStore
-import com.jussicodes.music.utils.get
 import com.rcmiku.ncmapi.model.CloudSong
 import com.rcmiku.ncmapi.model.Radio
 import com.rcmiku.ncmapi.model.Song
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal val Player.currentMediaItems: List<MediaItem>
     get() {
@@ -25,28 +30,35 @@ private var cacheSourceName: String = "list"
 private var cacheSourceType: String? = null
 private var cacheSourceNavId: Long = 0L
 
+private val playerInitScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
 fun Player.init(context: Context) {
-    val currentPlayMediaId = context.dataStore[currentPlayMediaIdKey]
-    val savedList = SongListUtil.loadSongList()
-    // Restore the last queue's source metadata together with the list, so
-    // the top-of-player source label is not blank after an app restart.
-    // Written in lockstep with song_list.json by setPlaylist.
-    val source = SongListUtil.loadSongSource()
-    savedList?.let { songs ->
-        if (currentMediaItems.isEmpty()) {
-            setMediaItems(
-                songs.toMediaItemList(
-                    sourceId = source?.sourceId ?: 0L,
-                    sourceName = source?.sourceName ?: "list",
-                    sourceType = source?.sourceType,
-                    navId = source?.navId ?: 0L
-                )
+    playerInitScope.launch {
+        val currentPlayMediaId = runCatching {
+            context.dataStore.data.first()[currentPlayMediaIdKey]
+        }.getOrNull()
+        val savedList = SongListUtil.loadSongList()
+        // Restore the last queue's source metadata together with the list, so
+        // the top-of-player source label is not blank after an app restart.
+        // Written in lockstep with song_list.json by setPlaylist.
+        val source = SongListUtil.loadSongSource()
+        savedList?.let { songs ->
+            val mediaItems = songs.toMediaItemList(
+                sourceId = source?.sourceId ?: 0L,
+                sourceName = source?.sourceName ?: "list",
+                sourceType = source?.sourceType,
+                navId = source?.navId ?: 0L
             )
-            val index =
-                currentMediaItems.indexOfFirst { it.mediaId == currentPlayMediaId.toString() }
-            if (index != -1)
-                seekToDefaultPosition(index)
-            prepare()
+            withContext(Dispatchers.Main) {
+                if (currentMediaItems.isEmpty()) {
+                    setMediaItems(mediaItems)
+                    val index =
+                        currentMediaItems.indexOfFirst { it.mediaId == currentPlayMediaId.toString() }
+                    if (index != -1)
+                        seekToDefaultPosition(index)
+                    prepare()
+                }
+            }
         }
     }
 }
