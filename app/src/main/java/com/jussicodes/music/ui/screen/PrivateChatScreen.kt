@@ -202,7 +202,7 @@ fun PrivateChatScreen(
         MsgSessionCache.markRead(viewModel.contactUserId)
     }
 
-    // 聊天页输入框贴底（imePadding）：进入时声明隐藏常驻小播放条，避免盖住输入框；
+    // 聊天页输入框贴底：Scaffold 已做键盘避让，bottomBar 勿再 imePadding（会与 adjustResize 叠加顶跳）；进入时声明隐藏常驻小播放条，避免盖住输入框；
     // 退出（组合销毁）时恢复显示。
     DisposableEffect(Unit) {
         MiniPlayerHiddenBus.setHidden(true)
@@ -281,7 +281,6 @@ fun PrivateChatScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .imePadding()
                     .background(MaterialTheme.colorScheme.surface)
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,

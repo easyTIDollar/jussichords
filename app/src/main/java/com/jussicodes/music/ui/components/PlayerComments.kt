@@ -516,7 +516,6 @@ fun PlayerComments(
             modifier = modifier
                 .fillMaxWidth()
                 .fillMaxHeight()
-                .imePadding()
         ) {
             PlayerCommentsContent(
                 mediaId = mediaId,
@@ -644,7 +643,6 @@ fun PlayerCommentsPanel(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .imePadding()
         ) {
             // 顶部抓手条 Drag Handle（可拖动）
             Box(
