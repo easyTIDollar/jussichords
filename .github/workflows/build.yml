@@ -263,7 +263,7 @@ jobs:
           fi
           # HTML 转义更新说明（发送时用 parse_mode=HTML）
           ESC=$(printf '%s' "$NOTES" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
-          CAPTION=$(printf '🚀 jussichords %s · 正式版已发布\n\n%s\n\n📥 下载：https://github.com/%s/releases/download/%s/%s' "${RELEASE_TAG}" "${ESC}" "${GITHUB_REPOSITORY}" "${RELEASE_TAG}" "${APK_NAME}")
+          CAPTION=$(printf 'jussichords【%s】\n\n%s\n\n📥 下载：https://github.com/%s/releases/download/%s/%s' "${RELEASE_TAG}" "${ESC}" "${GITHUB_REPOSITORY}" "${RELEASE_TAG}" "${APK_NAME}")
           RESP=$(curl -s -m 60 \
             -F "chat_id=${TELEGRAM_CHAT_ID}" \
             -F "parse_mode=HTML" \
