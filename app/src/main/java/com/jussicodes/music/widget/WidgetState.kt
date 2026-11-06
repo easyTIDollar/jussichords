@@ -27,7 +27,9 @@ data class WidgetSnapshot(
     /** 采样时刻（SystemClock.elapsedRealtime），播放中据此向前推算进度。 */
     val progressAt: Long = 0L,
 ) {
-    val hasSong: Boolean get() = hasSession && title.isNotBlank()
+    // 只看 title：mediaId 回填晚于 title，单看 songId 会把只有 id 没歌名的
+    // 中间帧当成“有歌”。空帧防护也用这个口径（见 WidgetUpdater.commit）。
+    val hasSong: Boolean get() = title.isNotBlank()
 
     /** 0f..1f 的播放进度；播放中按采样时间补上已经过去的毫秒数。 */
     fun progress(now: Long = SystemClock.elapsedRealtime()): Float {

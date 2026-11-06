@@ -69,6 +69,7 @@ import com.jussicodes.music.utils.enumPreference
 import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.preference
 import com.jussicodes.music.utils.toEnum
+import com.jussicodes.music.widget.WidgetHub
 import com.jussicodes.music.widget.WidgetUpdater
 import com.jussicodes.music.BuildConfig
 import com.rcmiku.ncmapi.api.player.SongLevel
@@ -755,8 +756,10 @@ class PlaybackService : MediaSessionService() {
         observeAudioEffectMode()
         observeAudioEffectParams()
         DesktopLyricManager.syncService(this)
-        // 服务刚起来就对齐一次：媒体会话恢复（如系统重建服务）时组件也该立刻显示当前歌。
-        WidgetUpdater.refresh(applicationContext, player)
+        // 服务刚起来：播放器刚 build 完、队列还没恢复时 currentMediaItem=null。
+        // 空快照即时提交会把磁盘上“上次播放的歌”覆盖掉——“关掉 App 后组件
+        // 变“暂无播放歌曲”、播放控件全没了，主源就是这里。这里只做重绘对齐：
+        // 从磁盘读回已有快照刷新一帧显示，不通过 capture 提交空帧。
     }
 
     override fun onDestroy() {
@@ -764,8 +767,9 @@ class PlaybackService : MediaSessionService() {
         recoveryJob?.cancel()
         unregisterNetworkCallback()
         // 服务没了就不会再有播放：组件不能继续停在「正在播放」。
+        // 先同步清播放态（保留歌曲信息），再在尾部补一次同步重绘；协程里的
+        // 落盘/重绘在 scope.cancel() 后不保证跑完。
         WidgetUpdater.markStopped(applicationContext)
-        scope.cancel()
         mediaSession?.run {
             player.removeListener(playbackHistoryListener)
             player.removeListener(widgetStateListener)
@@ -784,6 +788,9 @@ class PlaybackService : MediaSessionService() {
             release()
             mediaSession = null
         }
+        // 同步补一帧重绘，确保“关掉 App 后组件停在暂停态、歌信息还在”能落地。
+        runBlocking { WidgetHub.updateAll(applicationContext) }
+        scope.cancel()
         super.onDestroy()
     }
 

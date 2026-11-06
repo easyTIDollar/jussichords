@@ -315,7 +315,7 @@ private fun ClassicLayout(
             )
             Spacer(GlanceModifier.width(10.dp))
             Column(
-                modifier = GlanceModifier.defaultWeight().clickable(openPlayerAction(context)),
+                modifier = GlanceModifier.defaultWeight().clickable(openPlayerOrAppAction(context, snapshot)),
             ) {
                 if (snapshot.hasSong) {
                     Text(
@@ -446,7 +446,7 @@ private fun SquareLayout(
                         imageProvider = ImageProvider(R.drawable.widget_scrim_bottom),
                         contentScale = ContentScale.FillBounds,
                     )
-                    .clickable(openPlayerAction(context)),
+                    .clickable(openPlayerOrAppAction(context, snapshot)),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = GlanceModifier.defaultWeight().padding(start = 14.dp)) {
@@ -531,7 +531,7 @@ private fun CapsuleLayout(
             )
             Spacer(GlanceModifier.width(8.dp))
             Column(
-                modifier = GlanceModifier.defaultWeight().clickable(openPlayerAction(context)),
+                modifier = GlanceModifier.defaultWeight().clickable(openPlayerOrAppAction(context, snapshot)),
             ) {
                 if (snapshot.hasSong) {
                     Text(
@@ -568,3 +568,7 @@ private fun CapsuleLayout(
         }
     }
 }
+
+/** 空状态点卡片进 App，有歌时进播放页。 */
+internal fun openPlayerOrAppAction(context: Context, snapshot: WidgetSnapshot): androidx.glance.action.Action =
+    if (snapshot.hasSong) openPlayerAction(context) else openAppAction(context)

@@ -64,9 +64,6 @@ object WidgetUpdater {
     @Volatile
     private var version = 0
 
-    @Volatile
-    private var publishSeq = 0L
-
     /**
      * 进程内实时快照。合成组件时优先读它，其次才是 SharedPreferences。
      * 播放器还活着的时候，这边一定是当前帧——不依赖落盘是否成功。
@@ -130,6 +127,39 @@ object WidgetUpdater {
         }
     }
 
+    /** 乐观播放/暂停翻转：点按钮立刻把图标翻过来，返回当前是否“正在播放”供调用方决定下一步。 */
+    fun optimisticPlayPause(context: Context): Boolean {
+        val app = context.applicationContext
+        val snapshot = current(app)
+        val next = !snapshot.isPlaying
+        publish(app, snapshot.copy(isPlaying = next), redraw = true)
+        return next
+    }
+
+    /**
+     * 真实状态到达后对齐：把 [isPlaying]（播放器真实态）覆盖回快照。
+     * 调用方在点按钮 300ms 后兜底调用一次，避免乐观帧没被真实事件覆盖。
+     */
+    fun pushPlayingFrame(context: Context, isPlaying: Boolean) {
+        val app = context.applicationContext
+        scope.launch {
+            delay(300)
+            val snapshot = current(app)
+            // 已经是真实态就跳过，避免多推一次 RemoteViews。
+            if (snapshot.isPlaying == isPlaying) return@launch
+            publish(app, snapshot.copy(isPlaying = isPlaying), redraw = true)
+        }
+    }
+
+    /**
+     * 取消待推进的 drain 协程（乐观点击先清掉旧的合并帧，
+     * 避免稍后旧事件把刚翻好的图标又翻回去）。
+     */
+    fun cancelPending() {
+        pending?.cancel()
+        pending = null
+    }
+
     /** 仅重绘（系统配置变化 / 用户手动刷新），不重新读播放器。 */
     suspend fun redraw(context: Context) {
         val app = context.applicationContext
@@ -142,25 +172,21 @@ object WidgetUpdater {
      */
     fun markStopped(context: Context) {
         val app = context.applicationContext
-        scope.launch {
-            mutex.withLock {
-                runCatching {
-                    val snapshot = current(app)
-                    tickProgress(app, false)
-                    if (!snapshot.isPlaying && !snapshot.isLoading) return@runCatching
-                    // 只清播放态，歌曲信息留着：关掉 App 后组件仍显示「上次播放的歌」。
-                    publish(
-                        app,
-                        snapshot.copy(
-                            isPlaying = false,
-                            isLoading = false,
-                            progressAt = SystemClock.elapsedRealtime(),
-                        ),
-                        redraw = true,
-                    )
-                }
-            }
-        }
+        tickProgress(app, false)
+        val snapshot = current(app)
+        // 只清播放态，歌曲信息留着：关掉 App 后组件仍显示「上次播放的歌」。
+        // 这里走同步落盘 + 调用方在 onDestroy 尾部补一次重绘，不靠 scope.launch：
+        // scope 可能已被 cancel，协程里的写盘/重绘不跑就会丢这一帧。
+        if (!snapshot.isPlaying && !snapshot.isLoading) return
+        publishNow(
+            app,
+            snapshot.copy(
+                isPlaying = false,
+                isLoading = false,
+                progressAt = SystemClock.elapsedRealtime(),
+            ),
+        )
+        scope.launch { runCatching { WidgetHub.updateAll(app) } }
     }
 
     private fun capture(player: Player): PlayerSnapshot? = try {
@@ -203,7 +229,7 @@ object WidgetUpdater {
     private suspend fun drain(context: Context) {
         var committed = -1
         while (committed != version) {
-            delay(150)
+            delay(60)
             val target = version
             val snapshot = latest ?: break
             mutex.withLock { runCatching { commit(context, snapshot) } }
@@ -212,6 +238,26 @@ object WidgetUpdater {
     }
 
     private suspend fun commit(context: Context, snapshot: PlayerSnapshot) {
+        // 空快照防护：播放器刚起来（队列未恢复）或被清空时，capture 会读到
+        //songId=0/title="" 的空快照。旧实现直接把这个空帧 commit() 写盘，
+        // 把磁盘上带歌名/封面的快照覆盖掉——“关掉 App 后暂无播放歌曲、
+        // 播放控件全没了”正是这里。
+        //
+        // 判空口径和 hasSong 对齐（title 非空）。mediaId 回填晚于 title 时，
+        // 只看 songId 会把中间帧误认为“有歌”，新帧刚切好的歌会被覆盖回去。
+        // 规则：新帧没歌、旧帧有歌时，保留旧歌曲信息，只把播放态清零。
+        if (snapshot.title.isBlank() && snapshot.songId == 0L) {
+            val prev = current(context)
+            if (prev.title.isNotBlank()) {
+                publish(
+                    context,
+                    prev.copy(isPlaying = false, isLoading = false),
+                    redraw = true,
+                )
+                tickProgress(context, false)
+                return
+            }
+        }
         val ids = favoriteIds(context)
         val loggedIn = !cookie(context).isNullOrBlank()
         val next = WidgetSnapshot(
@@ -246,13 +292,22 @@ object WidgetUpdater {
      */
     private fun publish(context: Context, snapshot: WidgetSnapshot, redraw: Boolean) {
         live = snapshot
-        val seq = ++publishSeq
-        scope.launch {
-            // 已经有更新的帧在排队，就别拿旧帧覆盖落盘（也不再多推一帧 RemoteViews）。
-            if (seq != publishSeq) return@launch
-            runCatching { WidgetStateStore.write(context, snapshot) }
-            if (redraw && seq == publishSeq) runCatching { WidgetHub.updateAll(context) }
-        }
+        // write() 内部是 commit()（同步落盘）：服务被划掉/进程被杀时
+        // apply 的异步落盘会丢，组件会退回旧帧或被空帧覆盖。这里同步写盘，
+        // 不走协程序号门也不异步竞速。重绘也同步走：上一帧必定落地，
+        // 不再有中间帧丢弃导致的“组件停在旧状态”。
+        runCatching { WidgetStateStore.write(context, snapshot) }
+        if (redraw) runCatching { scope.launch { WidgetHub.updateAll(context) } }
+    }
+
+    /**
+     * 同步发布：服务销毁路径专用。scope 正在 cancel 时协程里的重绘
+     * 或落盘可能不跑。这里直接（调用线程、通常主线程）同步写盘，
+     * 返回后由调用方负责调 [WidgetHub.updateAll] 一次。
+     */
+    fun publishNow(context: Context, snapshot: WidgetSnapshot) {
+        live = snapshot
+        runCatching { WidgetStateStore.write(context, snapshot) }
     }
 
     /**

@@ -88,7 +88,12 @@ object WidgetMedia {
 
 class WidgetPlayPauseAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        WidgetMedia.withController(context) { controller ->
+        val app = context.applicationContext
+        // 乐观翻转：点按钮立刻重绘图标，后台真实事件到达后再对齐一次。
+        // 等播放器线程事件回来才刷会有 100~200ms 延迟，观感就是“点了没反应”。
+        WidgetUpdater.cancelPending()
+        val nextPlayingState = WidgetUpdater.optimisticPlayPause(app)
+        val controller = WidgetMedia.withController(app) { controller ->
             if (controller.isPlaying || controller.playWhenReady) {
                 controller.pause()
             } else {
@@ -96,6 +101,8 @@ class WidgetPlayPauseAction : ActionCallback {
                 controller.play()
             }
         }
+        // 300ms 后兜底对齐一次真实态，避免乐观帧没被事件覆盖。
+        WidgetUpdater.pushPlayingFrame(app, nextPlayingState)
     }
 }
 
