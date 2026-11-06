@@ -36,9 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
@@ -118,28 +116,14 @@ fun FloatingBottomNavBar(
     val settingsAlpha = if (isHomeRoute) {
         (homePageScroll - 1f).coerceIn(0f, 1f)
     } else 1f
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val outlineVariantColor = MaterialTheme.colorScheme.outlineVariant
 
-    // 最外层容器：主页/探索保持完全透明穿透，进入设置页平滑过渡为不透明实色底衬
+    // 外层容器不画任何背景：胶囊外侧（含横向边距与底部手势栏区域）始终 100% 透明，
+    // 壁纸/列表内容直接平铺到屏幕最底边并从胶囊两侧穿透。
+    // 不要再在这里铺 fillMaxWidth 的 surface 实色底衬——那会把胶囊变成"假悬浮"，
+    // 且与页面底色同色时整条底栏退化成一整块矩形。
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .then(
-                if (settingsAlpha > 0.005f) {
-                    Modifier.drawBehind {
-                        drawRect(
-                            color = surfaceColor.copy(alpha = settingsAlpha)
-                        )
-                        drawLine(
-                            color = outlineVariantColor.copy(alpha = 0.20f * settingsAlpha),
-                            start = Offset(0f, 0f),
-                            end = Offset(size.width, 0f),
-                            strokeWidth = 1.dp.toPx()
-                        )
-                    }
-                } else Modifier
-            )
             .padding(
                 start = FloatingBottomNavHorizontalPadding,
                 end = FloatingBottomNavHorizontalPadding,
