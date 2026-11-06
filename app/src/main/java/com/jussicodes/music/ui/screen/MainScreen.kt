@@ -458,10 +458,11 @@ fun MainScreen() {
         },
         content = { padding ->
             val floatingNavBarFullHeight = FloatingBottomNavigationHeight + FloatingBottomNavBottomPadding + FloatingBottomNavTopPadding + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-            // 小播放器贴底间距（首页=底栏上方，二级页=避开系统导航栏并额外抬高 12dp 避免被手势栏遮挡），套 200ms 缓入缓出
+            // 小播放器贴底间距（首页=底栏上方；二级页=距屏幕底边固定 12dp，不再叠加系统手势条 inset），
+            // 套 200ms 缓入缓出：进二级页时直接下落到离底边 12dp 的位置。
             val targetMiniBottomPadding = when {
                 navBarTakesBottomSpace -> if (floatingNavBarEnabled) floatingNavBarFullHeight else padding.calculateBottomPadding()
-                else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp
+                else -> 12.dp
             }
             // 内容区跟小播放器用同一个贴底间距（无整体垫高）：首页列表的底部避让
             // 由各列表自己在末尾加空白块实现（如专辑墙），这里不再全局 +64dp。
