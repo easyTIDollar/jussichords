@@ -490,11 +490,13 @@ private fun CapsuleLayout(
     Box(modifier = roundedCard(palette.card).fillMaxSize()) {
         // 实时进度：和 App 迷你播放器一样，用主题色半透明把整条胶囊从左往右填满
         if (snapshot.hasSong && snapshot.durationMs > 0L) {
+            val fraction = snapshot.progress().coerceIn(0f, 1f)
             Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
                 Box(
                     modifier = GlanceModifier
                         .fillMaxHeight()
-                        .fillMaxWidth(snapshot.progress().coerceIn(0f, 1f))
+                        // Glance 没有 fillMaxWidth(fraction)，按实测尺寸算宽度
+                        .width(size.width * fraction)
                         .then(roundedCard(palette.accent.copy(alpha = 0.20f)))
                 ) {}
             }
