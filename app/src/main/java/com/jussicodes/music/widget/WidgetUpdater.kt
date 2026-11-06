@@ -1,6 +1,8 @@
 package com.jussicodes.music.widget
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.updateAll
 import androidx.media3.common.Player
@@ -20,6 +22,25 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/**
+ * 播放器侧读出来的纯内存快照。
+ *
+ * 必须在播放器自己的线程上采集：ExoPlayer 的每个 getter 都会校验调用线程
+ * （media3 的 verifyApplicationThread），换到协程线程再读会抛 IllegalStateException。
+ */
+private data class PlayerSnapshot(
+    val songId: Long = 0L,
+    val title: String = "",
+    val artist: String = "",
+    val album: String = "",
+    val coverUrl: String = "",
+    val isPlaying: Boolean = false,
+    val isFm: Boolean = false,
+    val isLoading: Boolean = false,
+) {
+    val hasSession: Boolean get() = songId != 0L || title.isNotBlank()
+}
+
 /** 统一刷新入口：只在播放状态 / 歌曲 / 红心变化时推一次，不做任何定时轮询。 */
 object WidgetUpdater {
 
@@ -27,15 +48,29 @@ object WidgetUpdater {
     private val mutex = Mutex()
     private var pending: Job? = null
 
-    /** 播放器事件会成串到来（metadata → item → isPlaying），合并成一次刷新。 */
+    /** 最新一次采集结果 + 版本号：事件成串到达时只保证收敛到最新一帧，不排队重放。 */
+    @Volatile
+    private var latest: PlayerSnapshot? = null
+
+    @Volatile
+    private var version = 0
+
+    /**
+     * 播放事件入口。
+     *
+     * Player.Listener 的回调就在播放器线程上，这里必须当场把状态读出来，再交给后台去落盘/重绘。
+     * 旧实现把 player 引用直接丢进 Dispatchers.Default 的协程里再读，会命中
+     * "Player is accessed on the wrong thread" 并被 runCatching 静默吞掉，
+     * 组件因此永远拿不到新快照——表现就是不同步当前播放状态。
+     */
     fun refresh(context: Context, player: Player?) {
+        if (player == null) return
         val app = context.applicationContext
-        pending?.cancel()
-        pending = scope.launch {
-            delay(180)
-            mutex.withLock {
-                runCatching { updateFromPlayer(app, player) }
-            }
+        val looper = runCatching { player.applicationLooper }.getOrNull() ?: Looper.getMainLooper()
+        if (Looper.myLooper() == looper) {
+            submit(app, capture(player))
+        } else {
+            Handler(looper).post { submit(app, capture(player)) }
         }
     }
 
@@ -88,32 +123,84 @@ object WidgetUpdater {
         mutex.withLock { runCatching { WidgetHub.updateAll(app) } }
     }
 
-    private suspend fun updateFromPlayer(context: Context, player: Player?) {
-        val item = player?.currentMediaItem
+    /**
+     * 播放服务销毁（划掉 App / 停止播放）：把「正在播放」清掉，
+     * 否则组件会永久停在上一帧的播放态，和服务真实状态脱节。
+     */
+    fun markStopped(context: Context) {
+        val app = context.applicationContext
+        scope.launch {
+            mutex.withLock {
+                runCatching {
+                    val snapshot = WidgetStateStore.read(app)
+                    if (!snapshot.isPlaying && !snapshot.isLoading) return@runCatching
+                    WidgetStateStore.write(app, snapshot.copy(isPlaying = false, isLoading = false))
+                    WidgetHub.updateAll(app)
+                }
+            }
+        }
+    }
+
+    private fun capture(player: Player): PlayerSnapshot? = runCatching {
+        val item = player.currentMediaItem
         val metadata = item?.mediaMetadata
         val extras = metadata?.extras
         val song = extras?.getString("song")?.let {
             runCatching { json.decodeFromString<Song>(it) }.getOrNull()
         }
-        val ids = favoriteIds(context)
-        val cookie = cookie(context)
-        val songId = item?.mediaId?.toLongOrNull() ?: 0L
-
-        val snapshot = WidgetSnapshot(
-            songId = songId,
+        PlayerSnapshot(
+            songId = item?.mediaId?.toLongOrNull() ?: 0L,
             title = metadata?.title?.toString().orEmpty(),
             artist = metadata?.artist?.toString().orEmpty(),
             album = song?.al?.name.orEmpty(),
             coverUrl = metadata?.artworkUri?.toString().orEmpty(),
-            isPlaying = player?.isPlaying == true,
+            isPlaying = player.isPlaying,
             isFm = extras?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME) ==
                 MediaSessionConstants.SOURCE_PERSONAL_FM,
-            isLoading = player?.isLoading == true,
-            isLiked = songId != 0L && songId in ids,
-            hasSession = songId != 0L,
-            loggedIn = !cookie.isNullOrBlank(),
+            isLoading = player.isLoading,
         )
-        WidgetStateStore.write(context, snapshot)
+    }.getOrNull()
+
+    private fun submit(context: Context, snapshot: PlayerSnapshot?) {
+        // 读失败（线程不对 / 播放器已释放）就保持上一帧，绝不把组件清空。
+        if (snapshot == null) return
+        latest = snapshot
+        version++
+        if (pending?.isActive == true) return
+        pending = scope.launch { drain(context) }
+    }
+
+    /** 合并同一轮事件（item → metadata → isPlaying），但保证最后一定落最新一帧。 */
+    private suspend fun drain(context: Context) {
+        var committed = -1
+        while (committed != version) {
+            delay(150)
+            val target = version
+            val snapshot = latest ?: break
+            mutex.withLock { runCatching { commit(context, snapshot) } }
+            committed = target
+        }
+    }
+
+    private suspend fun commit(context: Context, snapshot: PlayerSnapshot) {
+        val ids = favoriteIds(context)
+        val loggedIn = !cookie(context).isNullOrBlank()
+        val next = WidgetSnapshot(
+            songId = snapshot.songId,
+            title = snapshot.title,
+            artist = snapshot.artist,
+            album = snapshot.album,
+            coverUrl = snapshot.coverUrl,
+            isPlaying = snapshot.isPlaying,
+            isFm = snapshot.isFm,
+            isLoading = snapshot.isLoading,
+            isLiked = snapshot.songId != 0L && snapshot.songId in ids,
+            hasSession = snapshot.hasSession,
+            loggedIn = loggedIn,
+        )
+        // 内容没变就不重绘：回到前台、收藏列表刷新等事件不必再推一次 RemoteViews。
+        if (WidgetStateStore.read(context) == next) return
+        WidgetStateStore.write(context, next)
         WidgetHub.updateAll(context)
     }
 

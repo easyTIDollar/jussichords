@@ -761,6 +761,8 @@ class PlaybackService : MediaSessionService() {
         reloadJob?.cancel()
         recoveryJob?.cancel()
         unregisterNetworkCallback()
+        // 服务没了就不会再有播放：组件不能继续停在「正在播放」。
+        WidgetUpdater.markStopped(applicationContext)
         scope.cancel()
         mediaSession?.run {
             player.removeListener(playbackHistoryListener)

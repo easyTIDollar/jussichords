@@ -313,6 +313,8 @@ class MainActivity : ComponentActivity() {
         // 回到前台时校准组件的登录 / 红心标记：登录状态可能在 App 内刚刚变化，
         // 没有播放事件也要跟上（内部会比对，未变化就不重绘）。
         lifecycleScope.launch { WidgetUpdater.syncFavoriteFlags(this@MainActivity) }
+        // 兜底再对齐一次播放态：进程被系统回收过、或服务刚恢复时，组件可能还停在旧快照。
+        WidgetUpdater.refresh(this@MainActivity, playerState?.player)
     }
 
     override fun onNewIntent(intent: Intent) {
