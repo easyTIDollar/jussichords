@@ -97,17 +97,34 @@ object WidgetUpdater {
     @Volatile
     private var activeValue = false
 
+    /** 合成跑过就不再怀疑「有没有组件」：本轮进程内一直按有组件处理。 */
+    @Volatile
+    private var proven = false
+
     /** 组件被添加/删除后清掉缓存，下一次判断重新查。 */
     fun invalidateActive() {
         activeAt = 0L
     }
 
+    /**
+     * 合成跑过 = 桌面上确实有实例。用它把门禁直接置真，
+     * 免得上游 AppWidgetManager 查询在个别 ROM 上抽风，把整条刷新链路掐死。
+     */
+    fun markAlive() {
+        proven = true
+        activeValue = true
+        activeAt = SystemClock.elapsedRealtime()
+    }
+
     private fun isActive(context: Context): Boolean {
+        if (proven) return true
         val now = SystemClock.elapsedRealtime()
         if (activeAt != 0L && now - activeAt < 10_000L) return activeValue
-        activeValue = WidgetHub.hasAnyInstance(context)
+        val next = WidgetHub.hasAnyInstance(context)
+        if (next != activeValue) WidgetDebug.event(context, "active=$next")
+        activeValue = next
         activeAt = now
-        return activeValue
+        return next
     }
 
     /**
@@ -123,7 +140,10 @@ object WidgetUpdater {
         val app = context.applicationContext
         // 桌面上没有组件实例就整条链路空转：采集、落盘、重绘都不做。
         // 绝大多数用户根本没放组件，不该为它付任何 CPU/IO。
-        if (!isActive(app)) return
+        if (!isActive(app)) {
+            WidgetDebug.log("refresh skipped: no widget instance")
+            return
+        }
         playerRef = WeakReference(player)
         val looper = runCatching { player.applicationLooper }.getOrNull() ?: Looper.getMainLooper()
         if (Looper.myLooper() == looper) {
@@ -352,8 +372,9 @@ object WidgetUpdater {
             tickProgress(context, next.isPlaying)
             return
         }
-        WidgetDebug.log(
-            "commit playing=${next.isPlaying} song=${next.songId} title=${next.title} " +
+        WidgetDebug.event(
+            context,
+            "commit playing=${next.isPlaying} song=${next.songId} title=${next.title.take(14)} " +
                 "dur=${next.durationMs} liked=${next.isLiked} loggedIn=$loggedIn"
         )
         publish(context, next, redraw = true)
@@ -530,23 +551,42 @@ object WidgetHub {
         receiver: Class<out GlanceAppWidgetReceiver>,
     ) {
         val manager = AppWidgetManager.getInstance(context)
-        val ids = runCatching {
+        val rawIds = runCatching {
             manager.getAppWidgetIds(ComponentName(context, receiver))
         }.getOrElse {
             WidgetDebug.log("getAppWidgetIds(${receiver.simpleName}) failed: ${it.message}")
             IntArray(0)
         }
-        if (ids.isEmpty()) {
+        val glanceManager = GlanceAppWidgetManager(context)
+        var glanceIds = rawIds.mapNotNull { rawId ->
+            runCatching { glanceManager.getGlanceIdBy(rawId) }.getOrNull()
+        }
+        if (glanceIds.isEmpty()) {
+            // getAppWidgetIds 为空或 id 映射失败时，退回 Glance 自己的实例表。
+            val fallback = runCatching { glanceManager.getGlanceIds(widget.javaClass) }
+                .getOrDefault(emptyList())
+            if (fallback.isNotEmpty()) {
+                WidgetDebug.event(context, "fallback ${receiver.simpleName} ids=${fallback.size}")
+                glanceIds = fallback
+            }
+        }
+        if (glanceIds.isEmpty()) {
+            WidgetDebug.event(context, "no ids ${receiver.simpleName} raw=${rawIds.size}")
             return
         }
-        val glanceManager = GlanceAppWidgetManager(context)
-        ids.forEach { rawId ->
+        glanceIds.forEach { glanceId ->
             runCatching {
-                widget.update(context, glanceManager.getGlanceIdBy(rawId))
+                widget.update(context, glanceId)
+            }.onSuccess {
+                WidgetDebug.event(context, "upd ${receiver.simpleName} ok")
             }.onFailure {
                 // 这里的失败以前只有一行 Log.d：RemoteViews 超 Binder 上限、合成异常都被吞掉，
                 // 组件停在旧帧却查不到原因。至少要在 logcat 里是 error 级别。
-                WidgetDebug.error("update #$rawId failed", it)
+                WidgetDebug.error("update ${receiver.simpleName} failed", it)
+                WidgetDebug.event(
+                    context,
+                    "upd ${receiver.simpleName} FAIL ${it.javaClass.simpleName}: ${it.message?.take(80)}"
+                )
             }
         }
     }

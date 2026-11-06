@@ -1,7 +1,9 @@
 package com.jussicodes.music.widget
 
+import android.content.ComponentName
 import android.content.Context
 import android.util.Log
+import android.appwidget.AppWidgetManager
 
 /**
  * 小组件的求救通道。
@@ -58,4 +60,67 @@ object WidgetDebug {
     fun error(message: String, throwable: Throwable? = null) {
         Log.e(TAG, message, throwable)
     }
+
+    // ---- 应用内诊断日志：没有 adb 也能把组件链路的状态导出来 ----
+
+    private const val K_LOG = "log"
+    private const val MAX_LINES = 60
+
+    private fun time(): String {
+        val now = System.currentTimeMillis()
+        return java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(now))
+    }
+
+    /** 记一条事件到环形缓冲，同时照常打 logcat。 */
+    fun event(context: Context, message: String) {
+        Log.d(TAG, message)
+        runCatching {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val old = prefs.getString(K_LOG, "").orEmpty()
+            val lines = (old.split('\n').filter { it.isNotBlank() } + "${time()} $message")
+                .takeLast(MAX_LINES)
+            prefs.edit().putString(K_LOG, lines.joinToString("\n")).apply()
+        }
+    }
+
+    fun clearLog(context: Context) {
+        runCatching {
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().remove(K_LOG).apply()
+        }
+    }
+
+    /** 当前环境 + 环形日志，给诊断弹窗直接展示。 */
+    fun dump(context: Context): String = buildString {
+        val app = context.applicationContext
+        appendLine("包名: ${app.packageName}")
+        appendLine("版本: ${runCatching { com.jussicodes.music.BuildConfig.VERSION_NAME }.getOrDefault("?")} (${runCatching { com.jussicodes.music.BuildConfig.BUILD_TYPE }.getOrDefault("?")})")
+        val manager = runCatching { AppWidgetManager.getInstance(app) }.getOrNull()
+        if (manager == null) {
+            appendLine("AppWidgetManager: 取不到")
+        } else {
+            listOf(
+                "经典" to ClassicWidgetReceiver::class.java,
+                "方形" to SquareWidgetReceiver::class.java,
+                "胶囊" to CapsuleWidgetReceiver::class.java,
+            ).forEach { (label, receiver) ->
+                val ids = runCatching {
+                    manager.getAppWidgetIds(ComponentName(app, receiver)).joinToString(",")
+                }.getOrElse { "err:${it.javaClass.simpleName}" }
+                appendLine("$label: [$ids]")
+            }
+        }
+        val snapshot = runCatching { WidgetUpdater.current(app) }.getOrNull()
+        appendLine(
+            "帧: song=${snapshot?.songId ?: "-"} play=${snapshot?.isPlaying ?: "-"} " +
+                "load=${snapshot?.isLoading ?: "-"} title=${snapshot?.title.orEmpty().take(18)}"
+        )
+        appendLine("最近异常: ${recentError(app) ?: "无"}")
+        appendLine("--- 日志 ---")
+        val lines = runCatching {
+            app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(K_LOG, "").orEmpty()
+        }.getOrDefault("")
+        appendLine(lines.ifBlank { "（空）" })
+    }.trim()
+
 }

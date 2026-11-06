@@ -67,6 +67,14 @@ abstract class BaseMusicWidget(
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         // 进程内实时帧优先：播放服务还活着时它一定是最新状态，不依赖落盘
         val snapshot = WidgetUpdater.current(context)
+        // 合成跑到这里就说明桌面上一定有实例：把「有人用」的判定钉死，
+        // 别因为某些 ROM 上 AppWidgetManager 查询为空而把整条刷新链路掐掉。
+        WidgetUpdater.markAlive()
+        WidgetDebug.event(
+            context,
+            "compose id=${id.hashCode()} song=${snapshot.songId} play=${snapshot.isPlaying} " +
+                "load=${snapshot.isLoading} has=${snapshot.hasSong}"
+        )
         val cover = if (snapshot.hasSong) {
             WidgetCoverLoader.cached(snapshot, coverStyle, cornerRatio)
         } else {
@@ -78,8 +86,7 @@ abstract class BaseMusicWidget(
                 WidgetHub.updateAll(context)
             }
         }
-        // 播放中新增组件时把进度 ticker 接上，不然进度条要等下一次播放事件才会动。
-        WidgetUpdater.invalidateActive()
+        // 万一桌面确实没有实例（比如刚被移除），isActive 里会查一次，不让空转。
         WidgetUpdater.ensureProgressTicker(context)
         provideContent {
             val prefs = currentState<Preferences>()

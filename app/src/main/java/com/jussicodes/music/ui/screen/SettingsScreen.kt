@@ -143,6 +143,7 @@ import com.jussicodes.music.ui.icons.Palette
 import com.jussicodes.music.ui.icons.Remove
 import com.jussicodes.music.ui.icons.Script
 import com.jussicodes.music.ui.icons.SettingsGear
+import com.jussicodes.music.widget.WidgetDiagDialog
 import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.theme.ThemeColorSource
@@ -386,6 +387,7 @@ fun SettingsScreen(
     var showCookieDialog by remember { mutableStateOf(false) }
     var showGithubSourceDialog by remember { mutableStateOf(false) }
     var showApiServerDialog by remember { mutableStateOf(false) }
+    var showWidgetDiag by remember { mutableStateOf(false) }
     var apiServerStatuses by remember { mutableStateOf<List<ApiServerStatus>>(emptyList()) }
     var apiServerListJson by rememberPreference(
         apiServerListKey,
@@ -761,6 +763,12 @@ fun SettingsScreen(
                 }
             ),
             SettingItemData(
+                title = "小组件诊断",
+                subtitle = "桌面组件不刷新 / 按钮没反应时，把这里的内容复制出来",
+                imageVector = Icons.Outlined.Description,
+                onClick = { showWidgetDiag = true }
+            ),
+            SettingItemData(
                 title = if (updating) "正在检查" else "检查更新",
                 subtitle = "v${BuildConfig.VERSION_NAME}",
                 // 上次检查失败的原因直接挂在这一行：之前失败是完全静默的，
@@ -964,6 +972,10 @@ fun SettingsScreen(
             dialogTitle = stringResource(R.string.logout),
             dialogText = "退出后将清除本地保存的登录信息",
         )
+    }
+
+    if (showWidgetDiag) {
+        WidgetDiagDialog(onDismiss = { showWidgetDiag = false })
     }
 
     if (showApiServerDialog) {

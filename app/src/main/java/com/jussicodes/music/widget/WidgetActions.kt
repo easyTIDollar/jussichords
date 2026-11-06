@@ -94,6 +94,7 @@ class WidgetPlayPauseAction : ActionCallback {
         // 等播放器线程事件回来才刷会有 100~200ms 延迟，观感就是“点了没反应”。
         WidgetUpdater.cancelPending()
         val nextPlayingState = WidgetUpdater.optimisticPlayPause(app)
+        WidgetDebug.event(app, "action play/pause optimistic=$nextPlayingState")
         val acted = WidgetMedia.withController(app) { controller ->
             // App 进程被系统回收过：会话里没有队列。磁盘上存着上次的队列就让它走
             // MediaSession.Callback.onPlaybackResumption 直接续播，不用把用户拽进 App。
@@ -113,6 +114,7 @@ class WidgetPlayPauseAction : ActionCallback {
         if (!acted) {
             // 没会话/连不上：把乐观帧翻回去，别让图标停在错误状态，然后打开 App。
             WidgetUpdater.pushPlayingFrame(app, !nextPlayingState)
+            WidgetDebug.event(app, "action play/pause 失败 -> openApp")
             WidgetMedia.openApp(app, openPlayer = false)
             return
         }
@@ -139,6 +141,7 @@ class WidgetNextAction : ActionCallback {
             controller.play()
             true
         } ?: false
+        WidgetDebug.event(app, "action next acted=$acted")
         if (!acted) {
             WidgetMedia.openApp(app, openPlayer = false)
             return
@@ -165,6 +168,7 @@ class WidgetPrevAction : ActionCallback {
             controller.play()
             true
         } ?: false
+        WidgetDebug.event(app, "action prev acted=$acted")
         if (!acted) {
             WidgetMedia.openApp(app, openPlayer = false)
             return
