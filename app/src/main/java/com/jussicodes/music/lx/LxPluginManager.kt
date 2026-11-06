@@ -89,6 +89,9 @@ object LxPluginManager {
 
     private const val MOLAN_ID = "builtin-lx-molan"
 
+    /** 「同名用户副本去重」的一次性迁移标记。 */
+    private const val DEDUPE_MOLAN_KEY = "dedupe-molan"
+
     val DEFAULT_QUALITIES = listOf(
         "128k", "320k", "flac", "flac24bit", "hires",
         "master", "jymaster", "dolby", "atmos"
@@ -110,7 +113,10 @@ object LxPluginManager {
             }.getOrNull()?.let { seed to it }
         }
         if (scripts.isEmpty()) return
-        val alreadyMigrated = LEGACY_BUILTIN_ID in state.migrated
+        val needsLegacyMigration = LEGACY_BUILTIN_ID !in state.migrated
+        val needsMolanDedupe = DEDUPE_MOLAN_KEY !in state.migrated
+        // 用户之前自己导入过墨澜时，内置这条才是默认音源；同名旧副本只留一份生效。
+        val molanName = scripts.firstOrNull { it.first.id == MOLAN_ID }?.let { parseHeader(it.second).name }
         LxPluginStore.update { list ->
             var next = list
             for ((seed, script) in scripts) {
@@ -141,18 +147,33 @@ object LxPluginManager {
                             it
                         }
                     }
-                } else if (seed.id == LEGACY_BUILTIN_ID && !alreadyMigrated && existing.isEnabled) {
+                } else if (seed.id == LEGACY_BUILTIN_ID && needsLegacyMigration && existing.isEnabled) {
                     // 老内置脚本「默认启用」→「默认不活动」，只迁移一次
                     next = next.map {
                         if (it.id == seed.id) it.copy(isEnabled = false) else it
                     }
                 }
             }
+            // 同名的用户副本：内置生效，副本一次性置为不活动（条目留着，可删可再启用）
+            if (needsMolanDedupe && molanName != null && next.any { it.id == MOLAN_ID }) {
+                next = next.map {
+                    if (it.id != MOLAN_ID && (it.name == molanName || it.name.startsWith(molanName))) {
+                        it.copy(isEnabled = false)
+                    } else {
+                        it
+                    }
+                }
+            }
             next
         }
-        if (!alreadyMigrated) {
+        if (needsLegacyMigration || needsMolanDedupe) {
             LxPluginStore.updateSeedState {
-                it.copy(migrated = (it.migrated + LEGACY_BUILTIN_ID).distinct())
+                it.copy(
+                    migrated = (it.migrated + listOfNotNull(
+                        LEGACY_BUILTIN_ID.takeIf { needsLegacyMigration },
+                        DEDUPE_MOLAN_KEY.takeIf { needsMolanDedupe }
+                    )).distinct()
+                )
             }
         }
     }
