@@ -152,6 +152,18 @@ object WidgetUpdater {
     }
 
     /**
+     * 切歌/切歌后兜底重绘：真实事件回来后 refresh 会按 0 延迟 drain 立即推；
+     * 若事件被吞（空帧防护拦截、监听器未注册等），这里 800ms 后强制 updateAll 一次。
+     */
+    fun poke(context: Context, delayMs: Long = 800) {
+        val app = context.applicationContext
+        scope.launch {
+            delay(delayMs)
+            runCatching { WidgetHub.updateAll(app) }
+        }
+    }
+
+    /**
      * 取消待推进的 drain 协程（乐观点击先清掉旧的合并帧，
      * 避免稍后旧事件把刚翻好的图标又翻回去）。
      */
@@ -229,7 +241,10 @@ object WidgetUpdater {
     private suspend fun drain(context: Context) {
         var committed = -1
         while (committed != version) {
-            delay(60)
+            // 之前 delay(150)→delay(60) 是“事件和窗”的合并节流：事件成了串时
+            // 只取最后一帧统一推。但切歌/下一首这种离散按钮的场景里，150ms/60ms
+            // 的延迟就是“我点了但组件没变”——用户能感觉到的滞后。这里改成 0 延迟，
+            // 靠 version 循环继续合并同轮事件，不靠 sleep 合。
             val target = version
             val snapshot = latest ?: break
             mutex.withLock { runCatching { commit(context, snapshot) } }
@@ -313,22 +328,25 @@ object WidgetUpdater {
     /**
      * 4×1 胶囊的背景层是实时进度条：播放中每秒推进一次快照里的播放位置，只重绘胶囊。
      * 暂停/停止立刻停掉，不空转。
+     *
+     * 播放进度不同步的主因：ticker 是“每秒从内存快照推算一格”的伪动画，
+     * 它对齐的是采集时的快照。而 seek/切歌/暂停后，播放器里的真实位置已经变了，
+     * 下一次真实事件来之前，这台伪动画继续按旧快照往前推——于是胶囊条
+     * 永远追不上 App 内的实际进度。修法是“真实帧来了就重置 ticker
+     * 的基准”，每轮 tick 只在新基准上往前算，不凭旧快照硬推。
      */
     private fun tickProgress(context: Context, playing: Boolean) {
-        if (!playing) {
-            ticker?.cancel()
-            ticker = null
-            return
-        }
-        if (ticker?.isActive == true) return
+        // 每次状态变化（暂停/切歌/加载/重加重）都重启 ticker，
+        // 这样每一帧都是新快照的基准，不会被上一首的偏移带跑。
+        ticker?.cancel()
+        ticker = null
+        if (!playing) return
         ticker = scope.launch {
-            val songId = current(context).songId
             while (isActive) {
                 delay(1000)
                 val snapshot = current(context)
-                // 切歌/暂停/时长未知都停：宁可少推帧，也不要把别的歌的进度写回去。
+                // 暂停/时长未知就停：不让错误进度污染胶囊。
                 if (!snapshot.isPlaying || snapshot.durationMs <= 0L) break
-                if (songId != 0L && snapshot.songId != songId) break
                 val now = SystemClock.elapsedRealtime()
                 val position = (snapshot.positionMs + (now - snapshot.progressAt).coerceAtLeast(0L))
                     .coerceAtMost(snapshot.durationMs)

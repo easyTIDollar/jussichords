@@ -108,21 +108,31 @@ class WidgetPlayPauseAction : ActionCallback {
 
 class WidgetNextAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        WidgetMedia.withController(context) { controller ->
+        val app = context.applicationContext
+        // 切歌前先清掉 pending：否则上一轮 drain 的 0 延迟合并会把旧歌直接推到组件，
+        // 再等真实切换事件回来就是二次刷新。清掉后只走新事件的 drain。
+        WidgetUpdater.cancelPending()
+        WidgetMedia.withController(app) { controller ->
             controller.seekToNextMediaItem()
             if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
             controller.play()
         }
+        // 兜底：真实事件（EVENT_MEDIA_ITEM_TRANSITION）回来后 WidgetUpdater.refresh
+        // 按 0 延迟 drain 立即推；若事件被吞（如空帧防护拦截），这里 800ms 后强制重绘一次。
+        WidgetUpdater.poke(app)
     }
 }
 
 class WidgetPrevAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        WidgetMedia.withController(context) { controller ->
+        val app = context.applicationContext
+        WidgetUpdater.cancelPending()
+        WidgetMedia.withController(app) { controller ->
             controller.seekToPreviousMediaItem()
             if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
             controller.play()
         }
+        WidgetUpdater.poke(app)
     }
 }
 
