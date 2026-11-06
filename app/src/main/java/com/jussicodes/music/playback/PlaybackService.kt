@@ -12,6 +12,7 @@ import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -59,6 +60,7 @@ import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.desktopLyricLockedKey
 import com.jussicodes.music.constants.use40DpIconKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
+import com.jussicodes.music.extensions.toResolveKey
 import com.jussicodes.music.extensions.updateMediaItemUri
 import com.jussicodes.music.lyric.DesktopLyricManager
 import com.jussicodes.music.playback.audio.AudioEffectMode
@@ -74,6 +76,7 @@ import com.jussicodes.music.utils.toEnum
 import com.jussicodes.music.widget.WidgetHub
 import com.jussicodes.music.widget.WidgetUpdater
 import com.jussicodes.music.BuildConfig
+import com.rcmiku.ncmapi.api.player.PlayUrlSkip
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.ncbl.NcblDeviceInfo
@@ -710,31 +713,59 @@ class PlaybackService : MediaSessionService() {
                     .setCache(AudioCache.get(this@PlaybackService))
                     .setUpstreamDataSourceFactory(upstreamFactory)
                     .setCacheKeyFactory { dataSpec ->
-                        // 音源代号进 cacheKey：换源后同一首歌的直链缓存必须失效，
-                        // 否则 ResolvingDataSource 会直接复用旧音源解析出的 url。
-                        "v3:${dataSpec.key ?: dataSpec.uri}#${audioQuality.value}#${PlaybackReloadBus.sourceTag}"
+                        // key 已经是歌曲级标识（resolver 里 setKey("song:…")），这里只补上
+                        // 音质与音源代号：换音质/换源后同一首歌必须落到不同的缓存条目，
+                        // 不能复用旧档位的音频。
+                        "v4:${dataSpec.key ?: dataSpec.uri}#${audioQuality.value}#${PlaybackReloadBus.sourceTag}"
                     }
                     .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
                 val resolvingDataSourceFactory = ResolvingDataSource.Factory(
                     cacheDataSourceFactory
                 ) { dataSpec ->
                     runBlocking {
-                        // 解析播放地址本身也是一次网络请求，弱网下不能无限期卡住加载线程
-                        val resolvedUri = withTimeout(resolveUrlTimeoutMs) {
-                            updateMediaItemUri(
-                                dataSpec.uri,
-                                audioQuality,
-                                this@PlaybackService
+                        val rawUri = dataSpec.uri
+                        val resolveKey = rawUri.toResolveKey()
+                        val qualityTag = audioQuality.value
+                        val sourceTag = PlaybackReloadBus.sourceTag
+                        // seek 会重新 open 数据流，这里先查内存里的解析结果：同一首歌在
+                        // 同一音质/音源下不必反复走网络解析（VIP 歌还可能要等 LX 沙盒）。
+                        // 命中前必须过滤已拉黑的坏链，否则换源重放会又把同一条链放一遍。
+                        val skipUrls = ResolveGuard.skipUrls(resolveKey)
+                        val cachedUrl = PlayUrlCache.get(rawUri.toString(), qualityTag, sourceTag)
+                            ?.takeUnless { PlayUrlSkip.blocks(skipUrls, it) }
+
+                        val resolvedUri = if (cachedUrl != null) {
+                            android.util.Log.d(TAG, "play url cache hit songId=$resolveKey")
+                            cachedUrl.toUri()
+                        } else {
+                            // 解析播放地址本身也是一次网络请求，弱网下不能无限期卡住加载线程
+                            withTimeout(resolveUrlTimeoutMs) {
+                                updateMediaItemUri(
+                                    rawUri,
+                                    audioQuality,
+                                    this@PlaybackService
+                                )
+                            } ?: throw PlaybackException(
+                                null,
+                                null,
+                                PlaybackException.ERROR_CODE_REMOTE_ERROR
                             )
-                        } ?: throw PlaybackException(
-                            null,
-                            null,
-                            PlaybackException.ERROR_CODE_REMOTE_ERROR
-                        )
+                        }
+                        if (cachedUrl == null) {
+                            PlayUrlCache.put(
+                                rawUri.toString(),
+                                qualityTag,
+                                sourceTag,
+                                resolvedUri.toString()
+                            )
+                        }
 
                         dataSpec.buildUpon()
                             .setUri(resolvedUri)
-                            .setKey(resolvedUri.toString())
+                            // cacheKey 用歌曲级标识，不能拿直链当 key：直链普遍带一次性
+                            // token，同一首歌每次解析都不同，会让缓存永远命中不了 ——
+                            // seek 回到已播放位置也要整段重新下载。
+                            .setKey("song:$resolveKey")
                             .build()
                     }
                 }
@@ -750,14 +781,16 @@ class PlaybackService : MediaSessionService() {
                     /* handleAudioBecomingNoisy = */ true
                 )
                 setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)
-                // 弱网缓冲余量：最小缓冲 15s，最大 50s
+                // 缓冲策略：最小缓冲 15s / 最大 50s；起播只要 1.5s，seek 或断流后
+                // 续播只要 2s（原来是 2.5s / 5s）。后两项直接决定「拖完进度条多久出声」，
+                // 5s 的 after-rebuffer 门槛在弱网下会把一次 seek 拖成十几秒的静默等待。
                 setLoadControl(
                     DefaultLoadControl.Builder()
                         .setBufferDurationsMs(
                             15_000,
                             50_000,
-                            2_500,
-                            5_000
+                            1_500,
+                            2_000
                         )
                         .build()
                 )
