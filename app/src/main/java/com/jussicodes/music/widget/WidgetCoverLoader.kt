@@ -131,7 +131,7 @@ object WidgetCoverLoader {
         val software = if (compressed.isMutable) compressed else compressed.copy(Bitmap.Config.ARGB_8888, true)
 
         when (style) {
-            CoverStyle.ROUNDED -> round(software, software.width * cornerRatio)
+            CoverStyle.ROUNDED, CoverStyle.LARGE -> round(software, software.width * cornerRatio)
             CoverStyle.CIRCLE -> circle(software)
         }
     }
