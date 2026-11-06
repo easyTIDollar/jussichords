@@ -6,7 +6,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import androidx.glance.appwidget.AppWidgetReceiver
+import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.media3.common.Player
@@ -317,7 +317,7 @@ object WidgetHub {
     private suspend fun refresh(
         context: Context,
         widget: GlanceAppWidget,
-        receiver: Class<out AppWidgetReceiver>,
+        receiver: Class<out GlanceAppWidgetReceiver>,
     ) {
         val manager = AppWidgetManager.getInstance(context)
         val ids = runCatching {
@@ -338,7 +338,7 @@ object WidgetHub {
         }
     }
 
-    private val pairings: List<Pair<GlanceAppWidget, Class<out AppWidgetReceiver>>>
+    private val pairings: List<Pair<GlanceAppWidget, Class<out GlanceAppWidgetReceiver>>>
         get() = listOf(
             ClassicWidget to ClassicWidgetReceiver::class.java,
             SquareWidget to SquareWidgetReceiver::class.java,
