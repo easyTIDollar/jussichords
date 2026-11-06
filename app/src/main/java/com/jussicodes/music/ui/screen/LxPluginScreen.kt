@@ -265,7 +265,7 @@ fun LxPluginScreen(navController: NavHostController) {
             }
             if (selectionMode) {
                 item {
-                    val deletableCount = selected.count { it != LxPluginManager.BUILTIN_ID }
+                    val deletableCount = selected.size
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(
@@ -324,7 +324,6 @@ fun LxPluginScreen(navController: NavHostController) {
                     }
                     LxPluginRow(
                         item = item,
-                        isBuiltin = item.id == LxPluginManager.BUILTIN_ID,
                         selectionMode = selectionMode,
                         selected = selected.contains(item.id),
                         dragging = isDragging,
@@ -339,7 +338,7 @@ fun LxPluginScreen(navController: NavHostController) {
                                 selected + item.id
                             }
                         },
-                        onDelete = { if (item.id != LxPluginManager.BUILTIN_ID) removingId = item.id },
+                        onDelete = { removingId = item.id },
                         onTest = { testingPlugin = item }
                     )
                 }
@@ -364,7 +363,7 @@ fun LxPluginScreen(navController: NavHostController) {
     }
 
     if (batchDeleteConfirm) {
-        val count = selected.count { it != LxPluginManager.BUILTIN_ID }
+        val count = selected.size
         Dialog(
             onConfirmation = {
                 val ids = selected
@@ -440,7 +439,6 @@ fun LxPluginScreen(navController: NavHostController) {
 @Composable
 private fun LxPluginRow(
     item: LxPluginItem,
-    isBuiltin: Boolean,
     selectionMode: Boolean,
     selected: Boolean,
     dragging: Boolean,
@@ -534,13 +532,10 @@ private fun LxPluginRow(
                     )
                 }
                 Spacer(Modifier.width(4.dp))
-                TextButton(
-                    enabled = !isBuiltin,
-                    onClick = onDelete
-                ) {
+                TextButton(onClick = onDelete) {
                     Text(
                         text = "删除",
-                        color = if (isBuiltin) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+                        color = MaterialTheme.colorScheme.error
                     )
                 }
             }

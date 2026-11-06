@@ -66,45 +66,93 @@ object LxPluginManager {
                 // 沙盒懒创建时要能按 id 拿到脚本正文
                 e.itemProvider = { id -> LxPluginStore.latest.value.firstOrNull { it.id == id } }
             }
-            scope.launch { ensureBuiltinScript(context.applicationContext) }
+            scope.launch { seedBuiltinScripts(context.applicationContext) }
         }
     }
 
     /**
-     * 内置 LX 脚本：打进 assets 的「玉宁熙 Pro」，随应用分发，用户无需自己导入。
-     * 版本号变化才覆盖，避免每次启动重写 DataStore。
+     * 打进 assets 的内置脚本。
+     *
+     * 现在的默认音源是「墨澜聚合音源」；原来的「玉宁熙 Pro」降级成普通条目并默认不活动，
+     * 用户想用可以自己打开。两个都允许删除——删掉后不会再被种回来（见 [LxPluginStore.SeedState]）。
      */
-    const val BUILTIN_ID = "builtin-lx-yuanningxi"
-    private const val BUILTIN_ASSET = "lx/lx-builtin.js"
+    private data class SeededScript(
+        val id: String,
+        val asset: String,
+        val name: String,
+        val enabled: Boolean,
+        val qualities: List<String>
+    )
+
+    /** 老版本内置脚本 id：条目沿用，只把默认状态改成不活动。 */
+    const val LEGACY_BUILTIN_ID = "builtin-lx-yuanningxi"
+
+    private const val MOLAN_ID = "builtin-lx-molan"
+
     val DEFAULT_QUALITIES = listOf(
         "128k", "320k", "flac", "flac24bit", "hires",
         "master", "jymaster", "dolby", "atmos"
     )
 
-    private suspend fun ensureBuiltinScript(context: Context) {
-        // 注意：这里必须用 snapshot()（等磁盘读完）判断，不能用 latest.value 空镜像，
-        // 否则启动瞬间读到空列表 → 把整份脚本列表覆盖成只剩内置脚本（用户脚本全丢）。
-        val script = runCatching {
-            context.assets.open(BUILTIN_ASSET).bufferedReader().use { it.readText() }
-        }.getOrNull() ?: return
+    /** 墨澜脚本 `inited` 里对网易云声明的档位（不含 192k/exhigh 这类官方档位）。 */
+    private val MOLAN_QUALITIES = listOf("128k", "320k", "flac", "flac24bit", "hires", "atmos", "master")
+
+    private val SEEDED = listOf(
+        SeededScript(MOLAN_ID, "lx/molan.js", "墨澜聚合音源（内置）", enabled = true, qualities = MOLAN_QUALITIES),
+        SeededScript(LEGACY_BUILTIN_ID, "lx/lx-builtin.js", "玉宁熙 Pro（内置）", enabled = false, qualities = DEFAULT_QUALITIES)
+    )
+
+    private suspend fun seedBuiltinScripts(context: Context) {
+        val state = LxPluginStore.seedState()
+        val scripts = SEEDED.mapNotNull { seed ->
+            runCatching {
+                context.assets.open(seed.asset).bufferedReader().use { it.readText() }
+            }.getOrNull()?.let { seed to it }
+        }
+        if (scripts.isEmpty()) return
+        val alreadyMigrated = LEGACY_BUILTIN_ID in state.migrated
         LxPluginStore.update { list ->
-            val existing = list.firstOrNull { it.id == BUILTIN_ID }
-            if (existing != null) {
-                if (existing.wyQualities.size <= 5) {
-                    list.map {
-                        if (it.id == BUILTIN_ID) it.copy(wyQualities = DEFAULT_QUALITIES) else it
+            var next = list
+            for ((seed, script) in scripts) {
+                val existing = next.firstOrNull { it.id == seed.id }
+                if (existing == null) {
+                    // 用户删过就别复活
+                    if (seed.id !in state.removed) {
+                        val info = parseHeader(script)
+                        val item = LxPluginItem(
+                            id = seed.id,
+                            name = seed.name.ifBlank { info.name },
+                            version = info.version,
+                            author = info.author,
+                            description = info.description,
+                            rawScript = script,
+                            isEnabled = seed.enabled,
+                            wyQualities = seed.qualities
+                        )
+                        // 默认音源放最前面：解析按列表顺序轮插件，排最后等于「最后才用」
+                        next = if (seed.enabled) listOf(item) + next else next + item
                     }
-                } else {
-                    list
+                } else if (existing.rawScript != script) {
+                    // 内置脚本随版本更新：正文变了就覆盖（启停沿用用户当前选择）
+                    next = next.map {
+                        if (it.id == seed.id) {
+                            it.copy(rawScript = script, name = seed.name, wyQualities = seed.qualities)
+                        } else {
+                            it
+                        }
+                    }
+                } else if (seed.id == LEGACY_BUILTIN_ID && !alreadyMigrated && existing.isEnabled) {
+                    // 老内置脚本「默认启用」→「默认不活动」，只迁移一次
+                    next = next.map {
+                        if (it.id == seed.id) it.copy(isEnabled = false) else it
+                    }
                 }
-            } else {
-                list + LxPluginItem(
-                    id = BUILTIN_ID,
-                    name = "玉宁熙 Pro（内置）",
-                    rawScript = script,
-                    isEnabled = true,
-                    wyQualities = DEFAULT_QUALITIES
-                )
+            }
+            next
+        }
+        if (!alreadyMigrated) {
+            LxPluginStore.updateSeedState {
+                it.copy(migrated = (it.migrated + LEGACY_BUILTIN_ID).distinct())
             }
         }
     }
@@ -187,12 +235,16 @@ object LxPluginManager {
         if (!enabled) ids.forEach { engine?.deactivate(it) }
     }
 
-    /** 批量删除；内置脚本不参与删除。 */
+    /** 批量删除；内置脚本也能删，删过的不会再被种回来。 */
     suspend fun removeAll(ids: Collection<String>) {
-        val targets = ids.filter { it != BUILTIN_ID }
-        if (targets.isEmpty()) return
+        if (ids.isEmpty()) return
+        val targets = ids.toList()
         targets.forEach { engine?.deactivate(it) }
         LxPluginStore.update { list -> list.filterNot { it.id in targets } }
+        val seeded = targets.filter { id -> SEEDED.any { it.id == id } }
+        if (seeded.isNotEmpty()) {
+            LxPluginStore.updateSeedState { it.copy(removed = (it.removed + seeded).distinct()) }
+        }
     }
 
     /** 预热：把已启用的插件脚本装进沙盒池（不命中时首播不再等建沙盒）。 */
