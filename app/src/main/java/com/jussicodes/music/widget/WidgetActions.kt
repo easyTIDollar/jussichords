@@ -22,6 +22,7 @@ import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.libraryPlaylistRefreshTokenKey
 import com.jussicodes.music.constants.userIdKye
 import com.jussicodes.music.extensions.toMediaItemList
+import com.jussicodes.music.playback.PlaybackQueueStore
 import com.jussicodes.music.playback.PlaybackService
 import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
 import com.jussicodes.music.utils.FavoriteSongIdsUtil
@@ -94,9 +95,13 @@ class WidgetPlayPauseAction : ActionCallback {
         WidgetUpdater.cancelPending()
         val nextPlayingState = WidgetUpdater.optimisticPlayPause(app)
         val acted = WidgetMedia.withController(app) { controller ->
-            // App 进程被系统回收过：会话里没有队列，pause/play 打上去是静默成功但什么都不会发生，
-            // 用户看到的就是「按钮根本没用」。这种情况直接把用户带回 App，让它的播放列表恢复流程重建队列。
-            if (controller.mediaItemCount == 0) return@withController false
+            // App 进程被系统回收过：会话里没有队列。磁盘上存着上次的队列就让它走
+            // MediaSession.Callback.onPlaybackResumption 直接续播，不用把用户拽进 App。
+            if (controller.mediaItemCount == 0) {
+                if (!PlaybackQueueStore.get(app).hasQueue()) return@withController false
+                controller.play()
+                return@withController true
+            }
             if (controller.isPlaying || controller.playWhenReady) {
                 controller.pause()
             } else {
@@ -123,7 +128,12 @@ class WidgetNextAction : ActionCallback {
         // 再等真实切换事件回来就是二次刷新。清掉后只走新事件的 drain。
         WidgetUpdater.cancelPending()
         val acted = WidgetMedia.withController(app) { controller ->
-            if (controller.mediaItemCount == 0) return@withController false
+            if (controller.mediaItemCount == 0) {
+                // 会话里没有队列，但磁盘上存着上次的：先让它续播，别把人直接拽进 App。
+                if (!PlaybackQueueStore.get(app).hasQueue()) return@withController false
+                controller.play()
+                return@withController true
+            }
             controller.seekToNextMediaItem()
             if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
             controller.play()
@@ -144,7 +154,12 @@ class WidgetPrevAction : ActionCallback {
         val app = context.applicationContext
         WidgetUpdater.cancelPending()
         val acted = WidgetMedia.withController(app) { controller ->
-            if (controller.mediaItemCount == 0) return@withController false
+            if (controller.mediaItemCount == 0) {
+                // 会话里没有队列，但磁盘上存着上次的：先让它续播，别把人直接拽进 App。
+                if (!PlaybackQueueStore.get(app).hasQueue()) return@withController false
+                controller.play()
+                return@withController true
+            }
             controller.seekToPreviousMediaItem()
             if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
             controller.play()

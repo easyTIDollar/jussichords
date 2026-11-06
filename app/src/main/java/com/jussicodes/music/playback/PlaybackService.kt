@@ -41,8 +41,10 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.datastore.preferences.core.edit
 import com.google.common.collect.ImmutableList
+import com.google.common.util.concurrent.AsyncFunction
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
 import com.jussicodes.music.MainActivity
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MediaSessionConstants
@@ -85,6 +87,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.runBlocking
@@ -119,6 +122,52 @@ class PlaybackService : MediaSessionService() {
             }
         }
     }
+
+    /** 播放队列落盘：进程被杀后媒体会话还能把上次的队列和进度恢复出来。 */
+    private val queueStore by lazy { PlaybackQueueStore.get(this) }
+
+    /**
+     * 队列持久化监听：切歌 / 上下架（时间线变化）/ 播放暂停 / 就绪 时写盘。
+     * 写盘本身是 apply() + 队列未变时跳过，不进播放热路径。
+     */
+    private val queuePersistListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            persistQueue()
+        }
+
+        override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+            persistQueue()
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            persistQueue()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_READY ||
+                playbackState == Player.STATE_PAUSED ||
+                playbackState == Player.STATE_ENDED
+            ) {
+                persistQueue()
+            }
+        }
+    }
+
+    /** 把当前队列、下标、播放位置写盘。必须在播放器线程（主线程）调用。 */
+    private fun persistQueue() {
+        val player = mediaSession?.player ?: return
+        runCatching {
+            val items = ArrayList<MediaItem>(player.mediaItemCount)
+            for (i in 0 until player.mediaItemCount) items.add(player.getMediaItemAt(i))
+            queueStore.save(
+                items = items,
+                index = player.currentMediaItemIndex,
+                positionMs = player.currentPosition,
+                playWhenReady = player.playWhenReady,
+            )
+        }
+    }
+
     private val use40DpIcon by preference(this, use40DpIconKey, false)
     private val desktopLyricEnabled by preference(this, desktopLyricEnabledKey, false)
     private val desktopLyricLocked by preference(this, desktopLyricLockedKey, false)
@@ -732,6 +781,15 @@ class PlaybackService : MediaSessionService() {
             ncblDeviceId = { CookieProvider.getCookieMap()["deviceId"].orEmpty() },
         )
         player.addListener(playbackHistoryListener)
+        // 队列持久化：杀进程后组件/蓝牙/系统媒体面板点播放还能续播
+        player.addListener(queuePersistListener)
+        // 播放中每 15s 记一次位置：进程被强杀时最多丢 15s 进度
+        scope.launch {
+            while (isActive) {
+                delay(15_000)
+                if (mediaSession?.player?.isPlaying == true) persistQueue()
+            }
+        }
         // 桌面小组件：播放/暂停、切歌、缓冲变化主动刷新
         player.addListener(widgetStateListener)
         // 弱网恢复：同曲退避重试 + 网络恢复后续播
@@ -773,8 +831,11 @@ class PlaybackService : MediaSessionService() {
         // 先同步清播放态（保留歌曲信息），再在尾部补一次同步重绘；协程里的
         // 落盘/重绘在 scope.cancel() 后不保证跑完。
         WidgetUpdater.markStopped(applicationContext)
+        // 服务销毁前把队列落盘：下次冷启动/杀进程后组件点播放才能接着放。
+        persistQueue()
         mediaSession?.run {
             player.removeListener(playbackHistoryListener)
+            player.removeListener(queuePersistListener)
             player.removeListener(widgetStateListener)
             player.removeListener(recoveryListener)
             // 服务销毁前结算并排空未上报的播放历史事件。
@@ -905,6 +966,40 @@ class PlaybackService : MediaSessionService() {
     }
 
     private inner class MediaSessionCallback : MediaSession.Callback {
+
+        /**
+         * 播放队列恢复：控制器在队列为空时按下播放（桌面组件 / 蓝牙 / 系统媒体面板 /
+         * MediaButtonReceiver），media3 会先问这里要「上次播到哪」。
+         * 读不到就返回失败 future，media3 会退化成普通的 play()，不会崩。
+         */
+        @OptIn(UnstableApi::class)
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            return Futures.transformAsync(
+                queueStore.readAsync(),
+                object : AsyncFunction<PlaybackQueueStore.SavedQueue?, MediaSession.MediaItemsWithStartPosition> {
+                    override fun apply(
+                        input: PlaybackQueueStore.SavedQueue?
+                    ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+                        if (input == null) {
+                            return Futures.immediateFailedFuture(
+                                IllegalStateException("没有可恢复的播放队列")
+                            )
+                        }
+                        return Futures.immediateFuture(
+                            MediaSession.MediaItemsWithStartPosition(
+                                input.mediaItems,
+                                input.index,
+                                input.positionMs,
+                            )
+                        )
+                    }
+                },
+                MoreExecutors.directExecutor(),
+            )
+        }
 
         override fun onConnect(
             session: MediaSession,
