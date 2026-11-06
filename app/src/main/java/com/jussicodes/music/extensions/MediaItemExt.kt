@@ -16,7 +16,6 @@ import com.rcmiku.ncmapi.model.Radio
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.SongUrl
 import com.rcmiku.ncmapi.utils.json
-import kotlinx.coroutines.delay
 
 private fun Song.encodeUri(): String {
     val base = id.toString()
@@ -167,8 +166,8 @@ fun Uri.toResolveKey(): String {
  * always resolve with a null per-song source.
  *
  * 拿到试听片段（LX/直连偶发未命中时 PlayerApi 会回落官方直连，非会员拿到的是 30 秒
- * 试听链）不能直接交给播放器——那会表现为「听着听着只能试听」。这里先短退避重解析一次
- * （沙盒已热、脚本有 URL 缓存，第二次通常就命中），两次都只有试听才接受，避免彻底没声。
+ * 试听链）就直接交给播放器：再解析一遍要额外等一轮、再跑一整条插件链路，结果几乎一样，
+ * 只会把起播拖慢。只有完全拿不到直链时才重试一次。
  *
  * 每次真正返回给播放器的直链都登记到 [ResolveGuard]：播放器拿到真实音频时长后核对，
  * 对不上会把它拉黑并触发重新解析（这是「解析成功但放不出声 / 播一半断」的兜底）。
@@ -213,26 +212,13 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
 
     val first = resolveOnce()
     val firstUrl = first?.url?.takeIf { it.isNotBlank() }
-    if (firstUrl != null && first?.isTrialClip() != true) return accept(firstUrl, trial = false)
+    // 拿到试听就直接播：再解析一遍要额外等一轮，结果几乎一样，只会把起播拖慢。
+    if (firstUrl != null) return accept(firstUrl, trial = first?.isTrialClip() == true)
 
-    android.util.Log.d(
-        "PlayerApi",
-        "play url blank/trial, retry resolve songId=$songId firstUrl=${firstUrl != null} trial=${first?.isTrialClip()}"
-    )
-    delay(400)
+    // 完全拿不到直链才重试一次（网络抖动），不再额外 sleep。
+    android.util.Log.d("PlayerApi", "play url blank, retry resolve songId=$songId")
     val second = resolveOnce()
     val secondUrl = second?.url?.takeIf { it.isNotBlank() }
-
-    return when {
-        secondUrl != null && second?.isTrialClip() != true -> accept(secondUrl, trial = false)
-        // 两次都只拿到试听：先给试听，别让用户彻底听不到。
-        // 已经把所有脚本/直连源都试过了，播放器侧不必再为「试听」重试（见 durationVerifyListener）。
-        firstUrl != null -> accept(firstUrl, trial = first?.isTrialClip() == true)
-        secondUrl != null -> accept(secondUrl, trial = second?.isTrialClip() == true)
-        else -> {
-            android.util.Log.w("PlayerApi", "play url unavailable songId=$songId")
-            null
-        }
-    }
+    return accept(secondUrl, trial = second?.isTrialClip() == true)
 }
 

@@ -43,6 +43,7 @@ fun AdaptiveNavigationRail(
     homePageScroll: Float,
     onTabClick: (String) -> Unit,
     modifier: Modifier = Modifier,
+    displayTabs: List<BottomBarTab> = floatingNavTabs,
 ) {
     Column(
         modifier = modifier
@@ -54,7 +55,7 @@ fun AdaptiveNavigationRail(
     ) {
         // 顶部留白与底栏的 NavigationBar 内边距观感对齐，避免第一项贴顶。
         Box(Modifier.height(16.dp))
-        tabs.forEachIndexed { index, item ->
+        displayTabs.forEachIndexed { index, item ->
             val homeProgress = if (isHomeRoute) {
                 (1f - abs(homePageScroll - index)).coerceIn(0f, 1f)
             } else {
@@ -62,7 +63,7 @@ fun AdaptiveNavigationRail(
             }
             val selected = if (isHomeRoute) {
                 // 与底栏同一套取整规则（roundToInt），避免 0.5 边界上两边高亮错位。
-                tabs.getOrNull(homePageScroll.roundToInt())?.route == item.route
+                displayTabs.getOrNull(homePageScroll.roundToInt())?.route == item.route
             } else {
                 // rail 只在 tab 路由下出现（showNavigationBar = isTabRoute），
                 // 此时 currentDestination 就是 tab 本身，直接比 route 即可。

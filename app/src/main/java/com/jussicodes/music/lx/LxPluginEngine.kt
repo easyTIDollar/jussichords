@@ -358,7 +358,7 @@ class LxPluginEngine(private val context: Context) {
     companion object {
         private const val LOG_TAG = "LxPlugin"
         const val INIT_TIMEOUT_MS = 8000L
-        const val RESOLVE_TIMEOUT_MS = 12000L
+        const val RESOLVE_TIMEOUT_MS = 5000L
         const val PAGE_READY_TIMEOUT_MS = 4000L
 
         /** 脚本未跑起来（页面未就绪就注入）时 shim 回的错误关键字。 */

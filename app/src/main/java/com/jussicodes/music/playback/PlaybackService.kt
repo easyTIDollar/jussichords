@@ -12,6 +12,7 @@ import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -57,6 +58,7 @@ import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.desktopLyricLockedKey
 import com.jussicodes.music.constants.use40DpIconKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
+import com.jussicodes.music.extensions.toResolveKey
 import com.jussicodes.music.extensions.updateMediaItemUri
 import com.jussicodes.music.lyric.DesktopLyricManager
 import com.jussicodes.music.playback.audio.AudioEffectMode
@@ -70,6 +72,7 @@ import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.preference
 import com.jussicodes.music.utils.toEnum
 import com.jussicodes.music.BuildConfig
+import com.rcmiku.ncmapi.api.player.PlayUrlSkip
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.ncbl.NcblDeviceInfo
@@ -83,6 +86,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.runBlocking
@@ -284,6 +288,82 @@ class PlaybackService : MediaSessionService() {
 
     /** 解析播放地址（一次网络请求 + 可能的试听重解析）的超时。 */
     private val resolveUrlTimeoutMs = 20_000L
+
+    /** 距结尾多久开始预取下一首的直链。 */
+    private val prefetchBeforeEndMs = 10_000L
+
+    /** 预取本身也走网络，弱网下不能把它变成新的卡点。 */
+    private val prefetchTimeoutMs = 12_000L
+
+    private var prefetchJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * 下一首预取。
+     *
+     * 起播的等待几乎全在「解析直链」这一步（LX 脚本约 100ms，官方 eapi 几百 ms），音频字节
+     * 本来就是边下边播。所以距结尾 [prefetchBeforeEndMs] 时先把下一首的直链解析好塞进
+     * [PlayUrlCache]，真正切歌时 `ResolvingDataSource` 直接命中缓存 —— 解析这一步归零。
+     *
+     * 只解析、不下载：不占磁盘音频缓存，也不吃音频流量；代价是提前打一次解析请求，
+     * 预取完就被跳过的那首等于白解析一次。
+     */
+    private val prefetchListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            schedulePrefetch()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_READY) schedulePrefetch()
+        }
+    }
+
+    private fun schedulePrefetch() {
+        prefetchJob?.cancel()
+        val current = mediaSession?.player?.currentMediaItem?.mediaId ?: return
+        prefetchJob = scope.launch {
+            while (isActive) {
+                val p = mediaSession?.player ?: return@launch
+                // 换歌了：让 onMediaItemTransition 重启这一轮
+                if (p.currentMediaItem?.mediaId != current) return@launch
+                val duration = p.duration
+                if (duration <= 0 || duration == androidx.media3.common.C.TIME_UNSET) {
+                    delay(1_000)
+                    continue
+                }
+                val remain = duration - p.currentPosition
+                if (remain <= prefetchBeforeEndMs) {
+                    prefetchNext(p)
+                    return@launch
+                }
+                delay((remain - prefetchBeforeEndMs).coerceIn(1_000L, 5_000L))
+            }
+        }
+    }
+
+    private fun prefetchNext(player: Player) {
+        val count = player.mediaItemCount
+        if (count <= 1) return
+        if (player.repeatMode == Player.REPEAT_MODE_ONE) return
+        var next = player.currentMediaItemIndex + 1
+        if (next >= count) {
+            if (player.repeatMode != Player.REPEAT_MODE_ALL) return
+            next = 0
+        }
+        val uri = player.getMediaItemAt(next).localConfiguration?.uri ?: return
+        val qualityTag = audioQuality.value
+        val sourceTag = PlaybackReloadBus.sourceTag
+        // 已经在缓存里（本轮播过/刚预取过）就别再打一次解析请求
+        if (PlayUrlCache.get(uri.toString(), qualityTag, sourceTag) != null) return
+        scope.launch(Dispatchers.IO) {
+            val resolved = runCatching {
+                withTimeout(prefetchTimeoutMs) {
+                    updateMediaItemUri(uri, audioQuality, this@PlaybackService)
+                }
+            }.getOrNull() ?: return@launch
+            PlayUrlCache.put(uri.toString(), qualityTag, sourceTag, resolved.toString())
+            android.util.Log.d(TAG, "prefetch url ready songId=${uri.toResolveKey()}")
+        }
+    }
 
     private val recoveryListener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
@@ -639,31 +719,59 @@ class PlaybackService : MediaSessionService() {
                     .setCache(AudioCache.get(this@PlaybackService))
                     .setUpstreamDataSourceFactory(upstreamFactory)
                     .setCacheKeyFactory { dataSpec ->
-                        // 音源代号进 cacheKey：换源后同一首歌的直链缓存必须失效，
-                        // 否则 ResolvingDataSource 会直接复用旧音源解析出的 url。
-                        "v3:${dataSpec.key ?: dataSpec.uri}#${audioQuality.value}#${PlaybackReloadBus.sourceTag}"
+                        // key 已经是歌曲级标识（resolver 里 setKey("song:…")），这里只补上
+                        // 音质与音源代号：换音质/换源后同一首歌必须落到不同的缓存条目，
+                        // 不能复用旧档位的音频。
+                        "v4:${dataSpec.key ?: dataSpec.uri}#${audioQuality.value}#${PlaybackReloadBus.sourceTag}"
                     }
                     .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
                 val resolvingDataSourceFactory = ResolvingDataSource.Factory(
                     cacheDataSourceFactory
                 ) { dataSpec ->
                     runBlocking {
-                        // 解析播放地址本身也是一次网络请求，弱网下不能无限期卡住加载线程
-                        val resolvedUri = withTimeout(resolveUrlTimeoutMs) {
-                            updateMediaItemUri(
-                                dataSpec.uri,
-                                audioQuality,
-                                this@PlaybackService
+                        val rawUri = dataSpec.uri
+                        val resolveKey = rawUri.toResolveKey()
+                        val qualityTag = audioQuality.value
+                        val sourceTag = PlaybackReloadBus.sourceTag
+                        // seek 会重新 open 数据流，这里先查内存里的解析结果：同一首歌在
+                        // 同一音质/音源下不必反复走网络解析（VIP 歌还可能要等 LX 沙盒）。
+                        // 命中前必须过滤已拉黑的坏链，否则换源重放会又把同一条链放一遍。
+                        val skipUrls = ResolveGuard.skipUrls(resolveKey)
+                        val cachedUrl = PlayUrlCache.get(rawUri.toString(), qualityTag, sourceTag)
+                            ?.takeUnless { PlayUrlSkip.blocks(skipUrls, it) }
+
+                        val resolvedUri = if (cachedUrl != null) {
+                            android.util.Log.d(TAG, "play url cache hit songId=$resolveKey")
+                            cachedUrl.toUri()
+                        } else {
+                            // 解析播放地址本身也是一次网络请求，弱网下不能无限期卡住加载线程
+                            withTimeout(resolveUrlTimeoutMs) {
+                                updateMediaItemUri(
+                                    rawUri,
+                                    audioQuality,
+                                    this@PlaybackService
+                                )
+                            } ?: throw PlaybackException(
+                                null,
+                                null,
+                                PlaybackException.ERROR_CODE_REMOTE_ERROR
                             )
-                        } ?: throw PlaybackException(
-                            null,
-                            null,
-                            PlaybackException.ERROR_CODE_REMOTE_ERROR
-                        )
+                        }
+                        if (cachedUrl == null) {
+                            PlayUrlCache.put(
+                                rawUri.toString(),
+                                qualityTag,
+                                sourceTag,
+                                resolvedUri.toString()
+                            )
+                        }
 
                         dataSpec.buildUpon()
                             .setUri(resolvedUri)
-                            .setKey(resolvedUri.toString())
+                            // cacheKey 用歌曲级标识，不能拿直链当 key：直链普遍带一次性
+                            // token，同一首歌每次解析都不同，会让缓存永远命中不了 ——
+                            // seek 回到已播放位置也要整段重新下载。
+                            .setKey("song:$resolveKey")
                             .build()
                     }
                 }
@@ -679,14 +787,16 @@ class PlaybackService : MediaSessionService() {
                     /* handleAudioBecomingNoisy = */ true
                 )
                 setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)
-                // 弱网缓冲余量：最小缓冲 15s，最大 50s
+                // 缓冲策略：最小缓冲 15s / 最大 50s；起播只要 1.5s，seek 或断流后
+                // 续播只要 2s（原来是 2.5s / 5s）。后两项直接决定「拖完进度条多久出声」，
+                // 5s 的 after-rebuffer 门槛在弱网下会把一次 seek 拖成十几秒的静默等待。
                 setLoadControl(
                     DefaultLoadControl.Builder()
                         .setBufferDurationsMs(
                             15_000,
                             50_000,
-                            2_500,
-                            5_000
+                            1_500,
+                            1_100
                         )
                         .build()
                 )
@@ -712,6 +822,8 @@ class PlaybackService : MediaSessionService() {
         player.addListener(recoveryListener)
         // 音源时长校验：解析出的直链与歌曲元数据时长不符 → 拉黑该链并换源重试
         player.addListener(durationVerifyListener)
+        // 下一首直链预取：距结尾 10s 先解析好，切歌时零解析
+        player.addListener(prefetchListener)
         observeNetworkRecovery()
         observeSourceReloads()
         // 一起听会话：挂到全局播放器上，冷启动恢复/创建房间时接管同步。

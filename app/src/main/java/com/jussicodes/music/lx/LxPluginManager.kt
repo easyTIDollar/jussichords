@@ -66,44 +66,113 @@ object LxPluginManager {
                 // 沙盒懒创建时要能按 id 拿到脚本正文
                 e.itemProvider = { id -> LxPluginStore.latest.value.firstOrNull { it.id == id } }
             }
-            scope.launch { ensureBuiltinScript(context.applicationContext) }
+            scope.launch { seedBuiltinScripts(context.applicationContext) }
         }
     }
 
     /**
-     * 内置 LX 脚本：打进 assets 的「玉宁熙 Pro」，随应用分发，用户无需自己导入。
-     * 版本号变化才覆盖，避免每次启动重写 DataStore。
+     * 打进 assets 的内置脚本。
+     *
+     * 现在的默认音源是「墨澜聚合音源」；原来的「玉宁熙 Pro」降级成普通条目并默认不活动，
+     * 用户想用可以自己打开。两个都允许删除——删掉后不会再被种回来（见 [LxPluginStore.SeedState]）。
      */
-    const val BUILTIN_ID = "builtin-lx-yuanningxi"
-    private const val BUILTIN_ASSET = "lx/lx-builtin.js"
+    private data class SeededScript(
+        val id: String,
+        val asset: String,
+        val name: String,
+        val enabled: Boolean,
+        val qualities: List<String>
+    )
+
+    /** 老版本内置脚本 id：条目沿用，只把默认状态改成不活动。 */
+    const val LEGACY_BUILTIN_ID = "builtin-lx-yuanningxi"
+
+    private const val MOLAN_ID = "builtin-lx-molan"
+
+    /** 「同名用户副本去重」的一次性迁移标记。 */
+    private const val DEDUPE_MOLAN_KEY = "dedupe-molan"
+
     val DEFAULT_QUALITIES = listOf(
         "128k", "320k", "flac", "flac24bit", "hires",
         "master", "jymaster", "dolby", "atmos"
     )
 
-    private suspend fun ensureBuiltinScript(context: Context) {
-        // 注意：这里必须用 snapshot()（等磁盘读完）判断，不能用 latest.value 空镜像，
-        // 否则启动瞬间读到空列表 → 把整份脚本列表覆盖成只剩内置脚本（用户脚本全丢）。
-        val script = runCatching {
-            context.assets.open(BUILTIN_ASSET).bufferedReader().use { it.readText() }
-        }.getOrNull() ?: return
+    /** 墨澜脚本 `inited` 里对网易云声明的档位（不含 192k/exhigh 这类官方档位）。 */
+    private val MOLAN_QUALITIES = listOf("128k", "320k", "flac", "flac24bit", "hires", "atmos", "master")
+
+    private val SEEDED = listOf(
+        SeededScript(MOLAN_ID, "lx/molan.js", "墨澜聚合音源（内置）", enabled = true, qualities = MOLAN_QUALITIES),
+        SeededScript(LEGACY_BUILTIN_ID, "lx/lx-builtin.js", "玉宁熙 Pro（内置）", enabled = false, qualities = DEFAULT_QUALITIES)
+    )
+
+    private suspend fun seedBuiltinScripts(context: Context) {
+        val state = LxPluginStore.seedState()
+        val scripts = SEEDED.mapNotNull { seed ->
+            runCatching {
+                context.assets.open(seed.asset).bufferedReader().use { it.readText() }
+            }.getOrNull()?.let { seed to it }
+        }
+        if (scripts.isEmpty()) return
+        val needsLegacyMigration = LEGACY_BUILTIN_ID !in state.migrated
+        val needsMolanDedupe = DEDUPE_MOLAN_KEY !in state.migrated
+        // 用户之前自己导入过墨澜时，内置这条才是默认音源；同名旧副本只留一份生效。
+        val molanName = scripts.firstOrNull { it.first.id == MOLAN_ID }?.let { parseHeader(it.second).name }
         LxPluginStore.update { list ->
-            val existing = list.firstOrNull { it.id == BUILTIN_ID }
-            if (existing != null) {
-                if (existing.wyQualities.size <= 5) {
-                    list.map {
-                        if (it.id == BUILTIN_ID) it.copy(wyQualities = DEFAULT_QUALITIES) else it
+            var next = list
+            for ((seed, script) in scripts) {
+                val existing = next.firstOrNull { it.id == seed.id }
+                if (existing == null) {
+                    // 用户删过就别复活
+                    if (seed.id !in state.removed) {
+                        val info = parseHeader(script)
+                        val item = LxPluginItem(
+                            id = seed.id,
+                            name = seed.name.ifBlank { info.name },
+                            version = info.version,
+                            author = info.author,
+                            description = info.description,
+                            rawScript = script,
+                            isEnabled = seed.enabled,
+                            wyQualities = seed.qualities
+                        )
+                        // 默认音源放最前面：解析按列表顺序轮插件，排最后等于「最后才用」
+                        next = if (seed.enabled) listOf(item) + next else next + item
                     }
-                } else {
-                    list
+                } else if (existing.rawScript != script) {
+                    // 内置脚本随版本更新：正文变了就覆盖（启停沿用用户当前选择）
+                    next = next.map {
+                        if (it.id == seed.id) {
+                            it.copy(rawScript = script, name = seed.name, wyQualities = seed.qualities)
+                        } else {
+                            it
+                        }
+                    }
+                } else if (seed.id == LEGACY_BUILTIN_ID && needsLegacyMigration && existing.isEnabled) {
+                    // 老内置脚本「默认启用」→「默认不活动」，只迁移一次
+                    next = next.map {
+                        if (it.id == seed.id) it.copy(isEnabled = false) else it
+                    }
                 }
-            } else {
-                list + LxPluginItem(
-                    id = BUILTIN_ID,
-                    name = "玉宁熙 Pro（内置）",
-                    rawScript = script,
-                    isEnabled = true,
-                    wyQualities = DEFAULT_QUALITIES
+            }
+            // 同名的用户副本：内置生效，副本一次性置为不活动（条目留着，可删可再启用）
+            if (needsMolanDedupe && molanName != null && next.any { it.id == MOLAN_ID }) {
+                next = next.map {
+                    if (it.id != MOLAN_ID && (it.name == molanName || it.name.startsWith(molanName))) {
+                        it.copy(isEnabled = false)
+                    } else {
+                        it
+                    }
+                }
+            }
+            next
+        }
+        if (needsLegacyMigration || needsMolanDedupe) {
+            LxPluginStore.updateSeedState {
+                it.copy(
+                    migrated = (it.migrated + listOfNotNull(
+                        LEGACY_BUILTIN_ID.takeIf { needsLegacyMigration },
+                        DEDUPE_MOLAN_KEY.takeIf { needsMolanDedupe }
+                    )).distinct()
                 )
             }
         }
@@ -187,12 +256,16 @@ object LxPluginManager {
         if (!enabled) ids.forEach { engine?.deactivate(it) }
     }
 
-    /** 批量删除；内置脚本不参与删除。 */
+    /** 批量删除；内置脚本也能删，删过的不会再被种回来。 */
     suspend fun removeAll(ids: Collection<String>) {
-        val targets = ids.filter { it != BUILTIN_ID }
-        if (targets.isEmpty()) return
+        if (ids.isEmpty()) return
+        val targets = ids.toList()
         targets.forEach { engine?.deactivate(it) }
         LxPluginStore.update { list -> list.filterNot { it.id in targets } }
+        val seeded = targets.filter { id -> SEEDED.any { it.id == id } }
+        if (seeded.isNotEmpty()) {
+            LxPluginStore.updateSeedState { it.copy(removed = (it.removed + seeded).distinct()) }
+        }
     }
 
     /** 预热：把已启用的插件脚本装进沙盒池（不命中时首播不再等建沙盒）。 */
@@ -262,8 +335,18 @@ object LxPluginManager {
         }
         val musicInfo = buildMusicInfo(songId, song)
         val qualityCandidates = getQualityCandidates(songLevel)
+        // 单次起播的总预算：宁可回落官方直链，也不能让一次点歌被某个档位/某个脚本拖到十几秒。
+        val deadline = startedAt + RESOLVE_BUDGET_MS
         for (item in enabled) {
-            for (quality in qualityCandidates) {
+            for (quality in candidatesFor(item, qualityCandidates)) {
+                if (System.currentTimeMillis() >= deadline) {
+                    android.util.Log.w(
+                        TAG,
+                        "resolve budget ${RESOLVE_BUDGET_MS}ms exhausted songId=$songId " +
+                            "quality=$quality plugin='${item.name}'"
+                    )
+                    return null
+                }
                 val t0 = System.currentTimeMillis()
                 val url = engine?.resolveUrl(item.id, musicInfo, quality)
                 val cost = System.currentTimeMillis() - t0
@@ -445,14 +528,31 @@ object LxPluginManager {
         put("interval", "%02d:%02d".format(song.dt / 60000, (song.dt / 1000) % 60))
     }.toString()
 
+    /**
+     * NCM 档位 → LX 脚本档位的候选序列。
+     *
+     * 脚本的档位是 LX 协议那一套：128k / 320k / flac / flac24bit（部分脚本额外支持 hires/master）。
+     * **192k、exhigh、standard 不是脚本档位**，发过去脚本内部没有对应分支，会一直挂着等上游，
+     * 直到单次解析超时——日志特征就是 `quality=192k cost=12000ms error=无响应/超时`，
+     * 紧接着 `quality=320k cost≈100ms` 命中。所以 192k/higher 在这里直接落到 320k。
+     */
     private fun getQualityCandidates(songLevel: String): List<String> = when (songLevel.lowercase()) {
-        "jymaster", "master" -> listOf("master", "jymaster", "flac24bit", "hires", "flac", "lossless", "320k", "128k")
-        "dolby", "atmos", "atmos_plus" -> listOf("atmos_plus", "atmos", "dolby", "flac24bit", "hires", "flac", "lossless", "320k")
-        "hires", "flac24bit" -> listOf("flac24bit", "hires", "flac", "lossless", "320k", "128k")
-        "lossless", "flac" -> listOf("flac", "lossless", "320k", "128k")
-        "higher", "192k" -> listOf("192k", "320k", "exhigh", "128k")
-        "exhigh", "320k" -> listOf("320k", "exhigh", "192k", "128k")
-        else -> listOf("128k", "standard")
+        "jymaster", "master" -> listOf("master", "jymaster", "flac24bit", "hires", "flac", "320k", "128k")
+        "dolby", "atmos", "atmos_plus" -> listOf("atmos_plus", "atmos", "dolby", "flac24bit", "hires", "flac", "320k")
+        "hires", "flac24bit" -> listOf("flac24bit", "hires", "flac", "320k", "128k")
+        "lossless", "flac" -> listOf("flac", "320k", "128k")
+        "higher", "192k", "exhigh", "320k" -> listOf("320k", "128k")
+        else -> listOf("128k")
+    }
+
+    /**
+     * 叠加脚本自身能力（`inited` 上报的 `wyQualities`）后，这个脚本实际要试的档位。
+     * 脚本没上报过能力（老条目）时按静态候选表来，不做过滤。
+     */
+    private fun candidatesFor(item: LxPluginItem, wanted: List<String>): List<String> {
+        val advertised = item.wyQualities
+        if (advertised.isEmpty()) return wanted
+        return wanted.filter { it in advertised }.ifEmpty { wanted }
     }
 
     private fun mapQuality(songLevel: String): String = getQualityCandidates(songLevel).first()
@@ -498,4 +598,7 @@ object LxPluginManager {
     }
 
     private const val MAX_WARM_PLUGINS = 5
+
+    /** 单次起播的解析总预算；超了就回落官方直链，不把点歌拖成十几秒。 */
+    private const val RESOLVE_BUDGET_MS = 8_000L
 }

@@ -45,6 +45,9 @@ data class LxPluginItem(
 object LxPluginStore {
 
     private val KEY = stringPreferencesKey("lxPlugins")
+
+    /** 内置脚本的种子状态：用户删过哪些、做过哪些一次性迁移（避免重启后又冒出来）。 */
+    private val SEED_KEY = stringPreferencesKey("lxSeedState")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _latest = MutableStateFlow<List<LxPluginItem>>(emptyList())
@@ -113,5 +116,38 @@ object LxPluginStore {
             }
         }
         return _latest.value
+    }
+
+    /**
+     * 内置脚本的种子状态。
+     *
+     * 为什么需要：内置脚本现在也允许用户删除。如果只看「列表里没有这个 id 就补回来」，
+     * 删掉的内置脚本下次启动就会被重新种一遍，等于删不掉。所以单独记一份「删过的 id」，
+     * 种脚本时跳过；`migrated` 用来保证「老内置脚本降级为不活动」这种一次性迁移只做一次，
+     * 之后用户手动启用不会再被强制关掉。
+     */
+    @kotlinx.serialization.Serializable
+    data class SeedState(
+        val removed: List<String> = emptyList(),
+        val migrated: List<String> = emptyList()
+    )
+
+    suspend fun seedState(): SeedState {
+        val ctx = appContext ?: return SeedState()
+        return runCatching {
+            val raw = ctx.dataStore.data.first()[SEED_KEY]
+            if (raw.isNullOrBlank()) SeedState() else json.decodeFromString<SeedState>(raw)
+        }.getOrDefault(SeedState())
+    }
+
+    suspend fun updateSeedState(transform: (SeedState) -> SeedState) {
+        writeLock.withLock {
+            val ctx = appContext ?: return@withLock
+            val current = seedState()
+            val next = transform(current)
+            if (next != current) {
+                runCatching { ctx.dataStore.edit { it[SEED_KEY] = json.encodeToString(next) } }
+            }
+        }
     }
 }

@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -131,21 +132,7 @@ fun PlayerProgressSlider(
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
     isLoading: Boolean = false,
 ) {
-    if (isLoading) {
-        Box(
-            modifier = modifier.height(28.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            LinearProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(1.5.dp)),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
-            )
-        }
-    } else {
+    Box(modifier = modifier.height(28.dp), contentAlignment = Alignment.Center) {
         Slider(
             value = value,
             valueRange = valueRange,
@@ -172,8 +159,23 @@ fun PlayerProgressSlider(
                         .background(MaterialTheme.colorScheme.primary)
                 )
             },
-            modifier = modifier.height(28.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(28.dp),
         )
+        if (isLoading) {
+            // 缓冲中不再把整条滑块换成跑条：seek 之后必然 BUFFERING，那一瞬间滑块
+            // 消失会让人以为「卡住了、跳不过去」，也没法继续拖动微调。这里保留轨道
+            // 和拖动能力，只叠一条半透明细指示表示正在加载。
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .clip(RoundedCornerShape(1.dp)),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                trackColor = Color.Transparent,
+            )
+        }
     }
 }
 

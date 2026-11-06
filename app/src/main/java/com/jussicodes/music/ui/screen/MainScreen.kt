@@ -131,7 +131,10 @@ fun MainScreen() {
     val currentDestination = navBackStackEntry?.destination
     val floatingNavBarEnabled by rememberPreference(floatingNavBarEnabledKey, true)
     val playerBackgroundBlurEnabled by rememberPreference(playerBackgroundBlurEnabledKey, true)
-    val activeNavTabs = if (floatingNavBarEnabled) floatingNavTabs else tabs
+    // 响应式：横屏手机（矮屏 914x411dp）也要左侧竖排导航栏 —— 411dp 高度放
+    // 底部横条会吃掉 1/6 可视高度。判定逻辑集中在 useNavigationRailLayout()。
+    val useNavigationRail = useNavigationRailLayout()
+    val activeNavTabs = if (floatingNavBarEnabled || useNavigationRail) floatingNavTabs else tabs
     val isHomeRoute =
         currentDestination?.hierarchy?.any { tabs.any { tab -> it.route == tab.route } } == true
     val isTabRoute =
@@ -176,9 +179,6 @@ fun MainScreen() {
     // 不再用 destination.route 字符串匹配（类型安全参数路由的 route 格式不可靠，已踩坑三次）。
     val miniPlayerHidden by MiniPlayerHiddenBus.hidden.collectAsState()
     val showMiniPlayerChrome = showMiniPlayer && !isRoamRoute && !miniPlayerHidden
-    // 响应式：横屏手机（矮屏 914x411dp）也要左侧竖排导航栏 —— 411dp 高度放
-    // 底部横条会吃掉 1/6 可视高度。判定逻辑集中在 useNavigationRailLayout()。
-    val useNavigationRail = useNavigationRailLayout()
     // 走侧栏时导航不再占底部，内容区应贴系统导航栏而不是留出底栏高度。
     val navBarTakesBottomSpace = showNavigationBar && !useNavigationRail
     // 主页背景（"我的"/"探索"底层）：提升到 MainScreen 全屏层渲染，布局与 bottomPadding
@@ -262,7 +262,7 @@ fun MainScreen() {
     var previousRoute by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(currentDestination?.route) {
         val route = currentDestination?.route
-        if (floatingNavBarEnabled && route == Screen.Settings.route) {
+        if ((floatingNavBarEnabled || useNavigationRail) && route == Screen.Settings.route) {
             navController.popBackStack()
             coroutineScope.launch {
                 MotionDefaults.animatePagerToPage(
@@ -521,8 +521,9 @@ fun MainScreen() {
                         currentRoute = currentDestination?.route,
                         isHomeRoute = isHomeRoute,
                         homePageScroll = homePageScroll,
+                        displayTabs = activeNavTabs,
                         onTabClick = { route ->
-                            val targetPage = tabs.indexOfFirst { it.route == route }
+                            val targetPage = activeNavTabs.indexOfFirst { it.route == route }
                             if (targetPage >= 0 && isHomeRoute) {
                                 MotionDefaults.animatePagerToPage(
                                     pagerState = homePagerState,
