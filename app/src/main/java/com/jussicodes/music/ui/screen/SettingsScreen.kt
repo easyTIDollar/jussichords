@@ -85,7 +85,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -182,9 +181,7 @@ import com.jussicodes.music.ui.components.ResponsiveAlertDialog
 @Composable
 fun SettingsScreen(
     navController: NavHostController,
-    onBackClick: (() -> Unit)? = null,
-    // 悬浮底栏高度（含系统手势条）：设置页作为主页第 3 页时，末尾留白要盖住整条底栏
-    bottomContentPadding: Dp = 0.dp
+    onBackClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -847,13 +844,8 @@ fun SettingsScreen(
             )
         }
     ) { padding ->
-        // 悬浮底栏时页面铺满到屏幕底部，末尾留白 = 小播放器 + 整条底栏高度（已含手势条）；
-        // 否则沿用「小播放器 + 手势条」。
-        val bottomInset = MiniPlayerHeight + if (bottomContentPadding > 0.dp) {
-            bottomContentPadding
-        } else {
+        val bottomInset = MiniPlayerHeight +
             WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        }
         LazyColumn(
             contentPadding = PaddingValues(
                 start = 12.dp,

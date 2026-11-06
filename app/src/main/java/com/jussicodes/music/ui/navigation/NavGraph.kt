@@ -24,7 +24,6 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.toRoute
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -74,19 +73,12 @@ fun NavGraph(
     // gentle decelerate feels like a Material-style page reveal.
     val homeRoutes = setOf(Screen.Library.route, Screen.Explore.route)
 
-    // 悬浮底栏是「盖在页面上」的一层：主页内容必须能滚到它下面，胶囊外的区域才透得出封面。
-    // 这里只在主页路由取消 NavHost 的整体底部让位，避让改由主页列表末尾留白承担；
-    // 二级页仍整体让位（它们没有悬浮穿透需求，让位可以保证列表最后一项不被底栏压住）。
-    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
-    val homeRouteActive = currentRoute?.let { it in homeRoutes } == true
-    val navHostBottomInset = if (floatingNavBarEnabled && homeRouteActive) 0.dp else bottomPadding
-
     SharedTransitionLayout {
         NavHost(
             navController = navController,
             startDestination = Screen.Library.route,
             Modifier
-                .windowInsetsPadding(WindowInsets(bottom = navHostBottomInset)),
+                .windowInsetsPadding(WindowInsets(bottom = bottomPadding)),
             enterTransition = {
                 val isHomeToHome = (initialState.destination.route in homeRoutes || initialState.destination.route == null) &&
                     targetState.destination.route in homeRoutes
@@ -129,8 +121,7 @@ fun NavGraph(
                     navController = navController,
                     pagerState = homePagerState,
                     onPageChange = onHomePageChange,
-                    onPageScroll = onHomePageScroll,
-                    bottomContentPadding = if (floatingNavBarEnabled) bottomPadding else 0.dp
+                    onPageScroll = onHomePageScroll
                 )
             }
             composable(Screen.Explore.route) {
@@ -138,8 +129,7 @@ fun NavGraph(
                     navController = navController,
                     pagerState = homePagerState,
                     onPageChange = onHomePageChange,
-                    onPageScroll = onHomePageScroll,
-                    bottomContentPadding = if (floatingNavBarEnabled) bottomPadding else 0.dp
+                    onPageScroll = onHomePageScroll
                 )
             }
             composable(Screen.Roam.route) {
@@ -229,8 +219,7 @@ private fun HomePager(
     navController: NavHostController,
     pagerState: PagerState,
     onPageChange: (Int) -> Unit,
-    onPageScroll: (Float) -> Unit,
-    bottomContentPadding: Dp = 0.dp
+    onPageScroll: (Float) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
     LaunchedEffect(pagerState.settledPage) {
@@ -270,22 +259,15 @@ private fun HomePager(
             )
         ) { page ->
             when (page) {
-                0 -> LibraryScreen(
-                    navController = navController,
-                    bottomContentPadding = bottomContentPadding
-                )
-                1 -> ExploreScreen(
-                    navController = navController,
-                    bottomContentPadding = bottomContentPadding
-                )
+                0 -> LibraryScreen(navController = navController)
+                1 -> ExploreScreen(navController = navController)
                 2 -> SettingsScreen(
                     navController = navController,
                     onBackClick = {
                         coroutineScope.launch {
                             pagerState.animateScrollToPage(1)
                         }
-                    },
-                    bottomContentPadding = bottomContentPadding
+                    }
                 )
             }
         }
