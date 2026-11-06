@@ -79,6 +79,7 @@ abstract class BaseMusicWidget(
             }
         }
         // 播放中新增组件时把进度 ticker 接上，不然进度条要等下一次播放事件才会动。
+        WidgetUpdater.invalidateActive()
         WidgetUpdater.ensureProgressTicker(context)
         provideContent {
             val prefs = currentState<Preferences>()

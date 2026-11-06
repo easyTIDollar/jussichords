@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.GlanceAppWidget
@@ -89,6 +90,26 @@ object WidgetUpdater {
     /** 组件合成时要用的状态：先看内存里的实时帧，没有再退回落盘快照。 */
     fun current(context: Context): WidgetSnapshot = live ?: WidgetStateStore.read(context)
 
+    /** 桌面上到底有没有组件实例。结果缓存 10s，避免每次播放事件都问一遍 AppWidgetManager。 */
+    @Volatile
+    private var activeAt = 0L
+
+    @Volatile
+    private var activeValue = false
+
+    /** 组件被添加/删除后清掉缓存，下一次判断重新查。 */
+    fun invalidateActive() {
+        activeAt = 0L
+    }
+
+    private fun isActive(context: Context): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (activeAt != 0L && now - activeAt < 10_000L) return activeValue
+        activeValue = WidgetHub.hasAnyInstance(context)
+        activeAt = now
+        return activeValue
+    }
+
     /**
      * 播放事件入口。
      *
@@ -99,8 +120,11 @@ object WidgetUpdater {
      */
     fun refresh(context: Context, player: Player?) {
         if (player == null) return
-        playerRef = WeakReference(player)
         val app = context.applicationContext
+        // 桌面上没有组件实例就整条链路空转：采集、落盘、重绘都不做。
+        // 绝大多数用户根本没放组件，不该为它付任何 CPU/IO。
+        if (!isActive(app)) return
+        playerRef = WeakReference(player)
         val looper = runCatching { player.applicationLooper }.getOrNull() ?: Looper.getMainLooper()
         if (Looper.myLooper() == looper) {
             submit(app, capture(player))
@@ -112,6 +136,7 @@ object WidgetUpdater {
     /** 红心状态变化：只重算收藏/登录标记，不覆盖正在播放的歌曲信息。 */
     suspend fun syncFavoriteFlags(context: Context) {
         val app = context.applicationContext
+        if (!isActive(app)) return
         mutex.withLock {
             runCatching {
                 val snapshot = current(app)
@@ -132,6 +157,7 @@ object WidgetUpdater {
     /** 登录 / 登出 / 切号变化时立即同步登录标记，不依赖播放事件，也不必等回到前台。 */
     suspend fun syncLoginFlag(context: Context) {
         val app = context.applicationContext
+        if (!isActive(app)) return
         mutex.withLock {
             runCatching {
                 val snapshot = current(app)
@@ -190,6 +216,7 @@ object WidgetUpdater {
     /** 仅重绘（系统配置变化 / 用户手动刷新），不重新读播放器。 */
     suspend fun redraw(context: Context) {
         val app = context.applicationContext
+        if (!isActive(app)) return
         mutex.withLock { runCatching { WidgetHub.updateAll(app) } }
     }
 
@@ -199,6 +226,7 @@ object WidgetUpdater {
      */
     fun markStopped(context: Context) {
         val app = context.applicationContext
+        if (!isActive(app)) return
         tickProgress(app, false)
         playerRef = null
         val snapshot = current(app)
@@ -393,6 +421,8 @@ object WidgetUpdater {
                 val snapshot = current(context)
                 // 暂停/时长未知就停：不让错误进度污染胶囊。
                 if (!snapshot.isPlaying || snapshot.durationMs <= 0L) break
+                // 息屏时没人看进度条：跳过这一轮重绘，别在后台纯烧 CPU/Binder。
+                if (!screenOn(context)) continue
                 val now = SystemClock.elapsedRealtime()
                 // 以播放器真实位置为准；读不到（播放器已释放）才退回外推。
                 val realPosition = readPlayerPosition()
@@ -408,6 +438,10 @@ object WidgetUpdater {
             }
         }
     }
+
+    /** 息屏判断：息屏时跳过进度重绘。 */
+    private fun screenOn(context: Context): Boolean =
+        (context.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive ?: true
 
     /** 在播放器线程上读一次真实播放位置；读失败返回 null（不影响 ticker 继续走外推）。 */
     private suspend fun readPlayerPosition(): Long? {
@@ -475,6 +509,20 @@ object WidgetHub {
                 .getAppWidgetIds(ComponentName(context, receiver))
                 .isNotEmpty()
         }.getOrDefault(false)
+
+    /** 三款组件里任意一款在桌面上就算 active。 */
+    fun hasAnyInstance(context: Context): Boolean {
+        val app = context.applicationContext
+        return runCatching {
+            AppWidgetManager.getInstance(app).let { manager ->
+                listOf(
+                    ClassicWidgetReceiver::class.java,
+                    SquareWidgetReceiver::class.java,
+                    CapsuleWidgetReceiver::class.java,
+                ).any { manager.getAppWidgetIds(ComponentName(app, it)).isNotEmpty() }
+            }
+        }.getOrDefault(false)
+    }
 
     private suspend fun refresh(
         context: Context,
