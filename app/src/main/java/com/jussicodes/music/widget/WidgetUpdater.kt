@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import androidx.glance.GlanceId
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
@@ -563,8 +564,10 @@ object WidgetHub {
         }
         if (glanceIds.isEmpty()) {
             // getAppWidgetIds 为空或 id 映射失败时，退回 Glance 自己的实例表。
-            val fallback = runCatching { glanceManager.getGlanceIds(widget.javaClass) }
-                .getOrDefault(emptyList())
+            @Suppress("UNCHECKED_CAST")
+            val widgetClass = widget.javaClass as Class<GlanceAppWidget>
+            val fallback: List<GlanceId> = runCatching { glanceManager.getGlanceIds(widgetClass) }
+                .getOrElse { emptyList() }
             if (fallback.isNotEmpty()) {
                 WidgetDebug.event(context, "fallback ${receiver.simpleName} ids=${fallback.size}")
                 glanceIds = fallback
