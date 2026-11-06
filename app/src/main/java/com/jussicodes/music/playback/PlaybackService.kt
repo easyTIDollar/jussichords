@@ -790,7 +790,7 @@ class PlaybackService : MediaSessionService() {
                             15_000,
                             50_000,
                             1_500,
-                            2_000
+                            1_100
                         )
                         .build()
                 )

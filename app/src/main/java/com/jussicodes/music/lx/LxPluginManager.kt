@@ -262,8 +262,18 @@ object LxPluginManager {
         }
         val musicInfo = buildMusicInfo(songId, song)
         val qualityCandidates = getQualityCandidates(songLevel)
+        // 单次起播的总预算：宁可回落官方直链，也不能让一次点歌被某个档位/某个脚本拖到十几秒。
+        val deadline = startedAt + RESOLVE_BUDGET_MS
         for (item in enabled) {
-            for (quality in qualityCandidates) {
+            for (quality in candidatesFor(item, qualityCandidates)) {
+                if (System.currentTimeMillis() >= deadline) {
+                    android.util.Log.w(
+                        TAG,
+                        "resolve budget ${RESOLVE_BUDGET_MS}ms exhausted songId=$songId " +
+                            "quality=$quality plugin='${item.name}'"
+                    )
+                    return null
+                }
                 val t0 = System.currentTimeMillis()
                 val url = engine?.resolveUrl(item.id, musicInfo, quality)
                 val cost = System.currentTimeMillis() - t0
@@ -445,14 +455,31 @@ object LxPluginManager {
         put("interval", "%02d:%02d".format(song.dt / 60000, (song.dt / 1000) % 60))
     }.toString()
 
+    /**
+     * NCM 档位 → LX 脚本档位的候选序列。
+     *
+     * 脚本的档位是 LX 协议那一套：128k / 320k / flac / flac24bit（部分脚本额外支持 hires/master）。
+     * **192k、exhigh、standard 不是脚本档位**，发过去脚本内部没有对应分支，会一直挂着等上游，
+     * 直到单次解析超时——日志特征就是 `quality=192k cost=12000ms error=无响应/超时`，
+     * 紧接着 `quality=320k cost≈100ms` 命中。所以 192k/higher 在这里直接落到 320k。
+     */
     private fun getQualityCandidates(songLevel: String): List<String> = when (songLevel.lowercase()) {
-        "jymaster", "master" -> listOf("master", "jymaster", "flac24bit", "hires", "flac", "lossless", "320k", "128k")
-        "dolby", "atmos", "atmos_plus" -> listOf("atmos_plus", "atmos", "dolby", "flac24bit", "hires", "flac", "lossless", "320k")
-        "hires", "flac24bit" -> listOf("flac24bit", "hires", "flac", "lossless", "320k", "128k")
-        "lossless", "flac" -> listOf("flac", "lossless", "320k", "128k")
-        "higher", "192k" -> listOf("192k", "320k", "exhigh", "128k")
-        "exhigh", "320k" -> listOf("320k", "exhigh", "192k", "128k")
-        else -> listOf("128k", "standard")
+        "jymaster", "master" -> listOf("master", "jymaster", "flac24bit", "hires", "flac", "320k", "128k")
+        "dolby", "atmos", "atmos_plus" -> listOf("atmos_plus", "atmos", "dolby", "flac24bit", "hires", "flac", "320k")
+        "hires", "flac24bit" -> listOf("flac24bit", "hires", "flac", "320k", "128k")
+        "lossless", "flac" -> listOf("flac", "320k", "128k")
+        "higher", "192k", "exhigh", "320k" -> listOf("320k", "128k")
+        else -> listOf("128k")
+    }
+
+    /**
+     * 叠加脚本自身能力（`inited` 上报的 `wyQualities`）后，这个脚本实际要试的档位。
+     * 脚本没上报过能力（老条目）时按静态候选表来，不做过滤。
+     */
+    private fun candidatesFor(item: LxPluginItem, wanted: List<String>): List<String> {
+        val advertised = item.wyQualities
+        if (advertised.isEmpty()) return wanted
+        return wanted.filter { it in advertised }.ifEmpty { wanted }
     }
 
     private fun mapQuality(songLevel: String): String = getQualityCandidates(songLevel).first()
@@ -498,4 +525,7 @@ object LxPluginManager {
     }
 
     private const val MAX_WARM_PLUGINS = 5
+
+    /** 单次起播的解析总预算；超了就回落官方直链，不把点歌拖成十几秒。 */
+    private const val RESOLVE_BUDGET_MS = 8_000L
 }

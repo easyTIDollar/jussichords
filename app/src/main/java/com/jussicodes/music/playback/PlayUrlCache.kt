@@ -22,8 +22,8 @@ object PlayUrlCache {
     /** 单条直链最多复用多久；CDN 签名普遍比这更久，保守取值。 */
     private const val TTL_MS = 30 * 60_000L
 
-    /** 缓存条目上限（只服务当前队列附近的歌，不是无限增长的表）。 */
-    private const val MAX_ENTRIES = 8
+    /** 缓存条目上限：够覆盖当前队列附近 + 拖过进度条的几首，跳转不再重走解析。 */
+    private const val MAX_ENTRIES = 64
 
     private class Entry(val url: String, var at: Long)
 

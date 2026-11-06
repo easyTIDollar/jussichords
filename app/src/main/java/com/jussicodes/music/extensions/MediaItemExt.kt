@@ -16,7 +16,6 @@ import com.rcmiku.ncmapi.model.Radio
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.SongUrl
 import com.rcmiku.ncmapi.utils.json
-import kotlinx.coroutines.delay
 
 private fun Song.encodeUri(): String {
     val base = id.toString()
@@ -213,26 +212,13 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
 
     val first = resolveOnce()
     val firstUrl = first?.url?.takeIf { it.isNotBlank() }
-    if (firstUrl != null && first?.isTrialClip() != true) return accept(firstUrl, trial = false)
+    // 拿到试听就直接播：再解析一遍要额外等一轮，结果几乎一样，只会把起播拖慢。
+    if (firstUrl != null) return accept(firstUrl, trial = first?.isTrialClip() == true)
 
-    android.util.Log.d(
-        "PlayerApi",
-        "play url blank/trial, retry resolve songId=$songId firstUrl=${firstUrl != null} trial=${first?.isTrialClip()}"
-    )
-    delay(400)
+    // 完全拿不到直链才重试一次（网络抖动），不再额外 sleep。
+    android.util.Log.d("PlayerApi", "play url blank, retry resolve songId=$songId")
     val second = resolveOnce()
     val secondUrl = second?.url?.takeIf { it.isNotBlank() }
-
-    return when {
-        secondUrl != null && second?.isTrialClip() != true -> accept(secondUrl, trial = false)
-        // 两次都只拿到试听：先给试听，别让用户彻底听不到。
-        // 已经把所有脚本/直连源都试过了，播放器侧不必再为「试听」重试（见 durationVerifyListener）。
-        firstUrl != null -> accept(firstUrl, trial = first?.isTrialClip() == true)
-        secondUrl != null -> accept(secondUrl, trial = second?.isTrialClip() == true)
-        else -> {
-            android.util.Log.w("PlayerApi", "play url unavailable songId=$songId")
-            null
-        }
-    }
+    return accept(secondUrl, trial = second?.isTrialClip() == true)
 }
 
