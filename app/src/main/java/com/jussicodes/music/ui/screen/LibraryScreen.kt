@@ -72,6 +72,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -145,7 +146,10 @@ private const val PLAYLIST_COVER_UPLOAD_SIZE = 300
 @Composable
 fun LibraryScreen(
     navController: NavHostController,
-    libraryScreenViewModel: LibraryScreenViewModel = hiltViewModel()
+    libraryScreenViewModel: LibraryScreenViewModel = hiltViewModel(),
+    // 悬浮底栏高度（含系统手势条）：列表末尾留白用它，内容才能滚到胶囊下方而不被压住。
+    // 0 = 不走悬浮穿透（经典底栏/大屏侧栏），沿用原来的手势条避让。
+    bottomContentPadding: Dp = 0.dp
 ) {
     // cookie 读进程级 NcmCookieStore（Application watcher 从 DataStore 灌值）：
     // 本 Screen 每次"探索划回主页"都随路由切换整块重组，rememberNullablePreference
@@ -356,9 +360,11 @@ fun LibraryScreen(
             }
         } else {
             LazyColumn(
+                // 只吃顶部（状态栏 + 顶栏）避让：底部不再整体让位给底栏，
+                // 列表要一直画到屏幕最底边，滚到胶囊下方时从胶囊两侧透出来。
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding),
+                    .padding(top = padding.calculateTopPadding()),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     start = 12.dp,
                     end = 12.dp,
@@ -504,7 +510,12 @@ fun LibraryScreen(
                     // 列表末尾（专辑墙下方）空白：小播放器悬浮在底栏上方，滚到底最后一段
                     // 会被它盖住 64dp；有歌时末尾垫一块 MiniPlayerHeight 避让。
                     if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
-                    Spacer(modifier = Modifier.navigationBarsPadding())
+                    if (bottomContentPadding > 0.dp) {
+                        // 悬浮底栏：末尾垫整条底栏高度（胶囊 + 边距 + 手势条）
+                        Spacer(modifier = Modifier.height(bottomContentPadding))
+                    } else {
+                        Spacer(modifier = Modifier.navigationBarsPadding())
+                    }
                 }
             }
         }

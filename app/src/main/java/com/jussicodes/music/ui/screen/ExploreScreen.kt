@@ -50,6 +50,7 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
@@ -85,7 +86,9 @@ import kotlin.math.abs
 @Composable
 fun ExploreScreen(
     navController: NavHostController,
-    exploreScreenViewModel: ExploreScreenViewModel = hiltViewModel()
+    exploreScreenViewModel: ExploreScreenViewModel = hiltViewModel(),
+    // 悬浮底栏高度（含系统手势条）：列表末尾留白用它，内容才能滚到胶囊下方而不被压住。
+    bottomContentPadding: Dp = 0.dp
 ) {
     val recommendSongsState by exploreScreenViewModel.recommendSongs.collectAsState()
     val recommendPlaylistState by exploreScreenViewModel.recommendPlaylist.collectAsState()
@@ -300,6 +303,10 @@ fun ExploreScreen(
                     item {
                         // 小播放器避让：有歌时末尾垫 64dp，最后一行不被悬浮播放器盖住
                         if (hasMiniPlayer) Spacer(modifier = Modifier.height(MiniPlayerHeight))
+                        // 悬浮底栏避让：末尾垫整条底栏高度，内容可以滚到胶囊下方
+                        if (bottomContentPadding > 0.dp) {
+                            Spacer(modifier = Modifier.height(bottomContentPadding))
+                        }
                     }
                 }
             }
