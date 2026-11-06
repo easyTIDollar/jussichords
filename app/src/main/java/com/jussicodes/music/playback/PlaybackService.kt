@@ -144,10 +144,8 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            if (playbackState == Player.STATE_READY ||
-                playbackState == Player.STATE_PAUSED ||
-                playbackState == Player.STATE_ENDED
-            ) {
+            // 暂停由 onIsPlayingChanged 覆盖；media3 没有 STATE_PAUSED。
+            if (playbackState == Player.STATE_READY || playbackState == Player.STATE_ENDED) {
                 persistQueue()
             }
         }
