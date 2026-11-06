@@ -14,11 +14,3 @@ class SquareWidgetReceiver : GlanceAppWidgetReceiver() {
 class CapsuleWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = CapsuleWidget
 }
-
-class FmWidgetReceiver : GlanceAppWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = FmWidget
-}
-
-class VinylWidgetReceiver : GlanceAppWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = VinylWidget
-}

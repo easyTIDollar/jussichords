@@ -1,6 +1,7 @@
 package com.jussicodes.music.widget
 
 import android.content.Context
+import android.os.SystemClock
 
 /**
  * 小组件要展示的播放快照。
@@ -21,8 +22,19 @@ data class WidgetSnapshot(
     val isLiked: Boolean = false,
     val hasSession: Boolean = false,
     val loggedIn: Boolean = false,
+    val positionMs: Long = 0L,
+    val durationMs: Long = 0L,
+    /** 采样时刻（SystemClock.elapsedRealtime），播放中据此向前推算进度。 */
+    val progressAt: Long = 0L,
 ) {
     val hasSong: Boolean get() = hasSession && title.isNotBlank()
+
+    /** 0f..1f 的播放进度；播放中按采样时间补上已经过去的毫秒数。 */
+    fun progress(now: Long = SystemClock.elapsedRealtime()): Float {
+        if (durationMs <= 0L) return 0f
+        val drift = if (isPlaying && progressAt > 0L) (now - progressAt).coerceAtLeast(0L) else 0L
+        return ((positionMs + drift).toFloat() / durationMs).coerceIn(0f, 1f)
+    }
 
     /** 空状态文案：未登录 / 无歌曲 / 加载中。 */
     fun statusTitle(context: Context): String = when {
@@ -62,6 +74,9 @@ object WidgetStateStore {
     private const val K_LIKED = "is_liked"
     private const val K_SESSION = "has_session"
     private const val K_LOGGED_IN = "logged_in"
+    private const val K_POSITION = "position_ms"
+    private const val K_DURATION = "duration_ms"
+    private const val K_PROGRESS_AT = "progress_at"
 
     fun read(context: Context): WidgetSnapshot {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -77,6 +92,9 @@ object WidgetStateStore {
             isLiked = prefs.getBoolean(K_LIKED, false),
             hasSession = prefs.getBoolean(K_SESSION, false),
             loggedIn = prefs.getBoolean(K_LOGGED_IN, false),
+            positionMs = prefs.getLong(K_POSITION, 0L),
+            durationMs = prefs.getLong(K_DURATION, 0L),
+            progressAt = prefs.getLong(K_PROGRESS_AT, 0L),
         )
     }
 
@@ -94,6 +112,9 @@ object WidgetStateStore {
             .putBoolean(K_LIKED, snapshot.isLiked)
             .putBoolean(K_SESSION, snapshot.hasSession)
             .putBoolean(K_LOGGED_IN, snapshot.loggedIn)
+            .putLong(K_POSITION, snapshot.positionMs)
+            .putLong(K_DURATION, snapshot.durationMs)
+            .putLong(K_PROGRESS_AT, snapshot.progressAt)
             .apply()
     }
 }

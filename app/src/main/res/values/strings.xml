@@ -126,16 +126,11 @@
 
     <!-- 桌面小组件 -->
     <string name="widget_classic_name">经典播放器</string>
-    <string name="widget_classic_desc">封面、歌名、艺人、专辑，上一首 / 播放 / 下一首 / 红心</string>
+    <string name="widget_classic_desc">封面、歌名、艺人、专辑，上一首 / 播放 / 下一首 / 私人 FM / 红心</string>
     <string name="widget_square_name">方形封面</string>
-    <string name="widget_square_desc">封面铺满，底部渐隐显示歌名与艺人，红心 + 播放</string>
+    <string name="widget_square_desc">圆形封面，底部渐隐显示歌名与艺人，圆底红心 + 播放</string>
     <string name="widget_capsule_name">迷你胶囊</string>
-    <string name="widget_capsule_desc">圆形小封面、歌名、艺人·专辑，上一首 / 播放 / 下一首</string>
-    <string name="widget_fm_name">私人 FM</string>
-    <string name="widget_fm_desc">深色私人 FM 卡片，红心 / 播放 / 下一首</string>
-    <string name="widget_vinyl_name">黑胶唱片</string>
-    <string name="widget_vinyl_desc">黑胶样式封面，红心 / 上一首 / 播放 / 下一首 / 私人 FM 入口</string>
-    <string name="widget_fm_label">私人FM</string>
+    <string name="widget_capsule_desc">背景即实时进度条，小封面、歌名、艺人·专辑，上一首 / 播放 / 下一首</string>
     <string name="widget_empty_no_song">暂无播放歌曲</string>
     <string name="widget_empty_no_song_hint">点击打开 App 选一首歌</string>
     <string name="widget_empty_not_logged_in">未登录</string>

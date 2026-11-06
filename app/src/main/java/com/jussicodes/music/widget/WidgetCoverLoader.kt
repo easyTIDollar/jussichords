@@ -16,9 +16,8 @@ import coil3.toBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
-import kotlin.math.max
 
-enum class CoverStyle { ROUNDED, CIRCLE, VINYL }
+enum class CoverStyle { ROUNDED, CIRCLE }
 
 /**
  * 封面加载：Coil（复用 App 已有的 ImageLoader / 磁盘缓存）→ 方形裁切 → 缩到 ≤512px
@@ -81,7 +80,6 @@ object WidgetCoverLoader {
         return when (style) {
             CoverStyle.ROUNDED -> round(software, software.width * cornerRatio)
             CoverStyle.CIRCLE -> circle(software)
-            CoverStyle.VINYL -> vinyl(software)
         }
     }
 
@@ -117,43 +115,6 @@ object WidgetCoverLoader {
             shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
         }
         canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
-        return out
-    }
-
-    /** 黑胶：黑盘 + 细纹 + 中间贴封面 + 中心孔。 */
-    private fun vinyl(src: Bitmap): Bitmap {
-        val size = src.width
-        val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(out)
-        val cx = size / 2f
-        val cy = size / 2f
-        val radius = size / 2f
-
-        canvas.drawCircle(cx, cy, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF0E0E10.toInt() })
-
-        val groove = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = max(1f, size * 0.0035f)
-            color = 0x24FFFFFF
-        }
-        for (i in 1..7) {
-            canvas.drawCircle(cx, cy, radius * (0.70f + i * 0.038f), groove)
-        }
-
-        val coverPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
-            shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-        }
-        val coverRadius = size * 0.30f
-        canvas.drawCircle(cx, cy, coverRadius, coverPaint)
-        canvas.drawCircle(
-            cx, cy, coverRadius,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                strokeWidth = max(1f, size * 0.004f)
-                color = 0x40000000
-            }
-        )
-        canvas.drawCircle(cx, cy, size * 0.032f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF0B0B0C.toInt() })
         return out
     }
 }

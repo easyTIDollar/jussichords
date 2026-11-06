@@ -30,6 +30,7 @@ import androidx.glance.layout.Column
 import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
+import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
@@ -43,10 +44,11 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.jussicodes.music.R
 
-enum class WidgetStyle { CLASSIC, SQUARE, CAPSULE, FM, VINYL }
+enum class WidgetStyle { CLASSIC, SQUARE, CAPSULE }
 
 /**
- * 五款组件共用一套组合逻辑：快照 + 红心（含乐观覆盖）+ 封面位图。
+ * 三款组件共用一套组合逻辑：快照 + 红心（含乐观覆盖）+ 封面位图。
+ * 播放态由 WidgetUpdater 统一推进，任何一款变化都会一起重绘。
  */
 abstract class BaseMusicWidget(
     private val style: WidgetStyle,
@@ -77,7 +79,7 @@ abstract class BaseMusicWidget(
                 snapshot = snapshot,
                 liked = liked,
                 cover = cover,
-                palette = if (style == WidgetStyle.FM) WidgetPalette.fm() else WidgetPalette.of(context),
+                palette = WidgetPalette.of(context),
                 context = context,
             )
         }
@@ -89,19 +91,11 @@ object ClassicWidget : BaseMusicWidget(
 )
 
 object SquareWidget : BaseMusicWidget(
-    WidgetStyle.SQUARE, CoverStyle.ROUNDED, 0.18f, SizeMode.Responsive(WidgetSizes.Square)
+    WidgetStyle.SQUARE, CoverStyle.CIRCLE, 0f, SizeMode.Responsive(WidgetSizes.Square)
 )
 
 object CapsuleWidget : BaseMusicWidget(
     WidgetStyle.CAPSULE, CoverStyle.CIRCLE, 0f, SizeMode.Responsive(WidgetSizes.Capsule)
-)
-
-object FmWidget : BaseMusicWidget(
-    WidgetStyle.FM, CoverStyle.ROUNDED, 0.18f, SizeMode.Responsive(WidgetSizes.Fm)
-)
-
-object VinylWidget : BaseMusicWidget(
-    WidgetStyle.VINYL, CoverStyle.VINYL, 0f, SizeMode.Responsive(WidgetSizes.Vinyl)
 )
 
 @Composable
@@ -117,8 +111,6 @@ private fun WidgetBody(
         WidgetStyle.CLASSIC -> ClassicLayout(snapshot, liked, cover, palette, context)
         WidgetStyle.SQUARE -> SquareLayout(snapshot, liked, cover, palette, context)
         WidgetStyle.CAPSULE -> CapsuleLayout(snapshot, liked, cover, palette, context)
-        WidgetStyle.FM -> FmLayout(snapshot, liked, palette, context)
-        WidgetStyle.VINYL -> VinylLayout(snapshot, liked, cover, palette, context)
     }
 }
 
@@ -130,9 +122,10 @@ private fun ControlIcon(
     description: String,
     action: androidx.glance.action.Action,
     tint: Color,
+    size: Dp = 48.dp,
 ) {
     Box(
-        modifier = GlanceModifier.size(48.dp).clickable(action),
+        modifier = GlanceModifier.size(size).clickable(action),
         contentAlignment = Alignment.Center,
     ) {
         Image(
@@ -144,12 +137,39 @@ private fun ControlIcon(
     }
 }
 
+/** 圆底图标按钮（YouTube Music 那种）：胶囊/圆形底 + 单色图标。 */
+@Composable
+private fun CircleButton(
+    iconRes: Int,
+    description: String,
+    action: androidx.glance.action.Action,
+    background: Color,
+    tint: Color,
+    size: Dp,
+    iconSize: Dp = 20.dp,
+) {
+    Box(
+        modifier = GlanceModifier.size(size)
+            .then(roundedCard(background, radius = size * 0.5f, drawable = R.drawable.widget_circle))
+            .clickable(action),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            provider = ImageProvider(iconRes),
+            contentDescription = description,
+            modifier = GlanceModifier.size(iconSize),
+            colorFilter = ColorFilter.tint(ColorProvider(tint)),
+        )
+    }
+}
+
 @Composable
 private fun Cover(
     cover: Bitmap?,
     modifier: GlanceModifier,
     palette: WidgetPalette,
     iconSize: Dp = 24.dp,
+    circle: Boolean = false,
 ) {
     if (cover != null) {
         Image(
@@ -163,7 +183,7 @@ private fun Cover(
             modifier = modifier.then(
                 roundedCard(
                     color = palette.placeholderBottom,
-                    radius = 16.dp,
+                    radius = if (circle) 64.dp else 16.dp,
                     drawable = R.drawable.widget_cover_placeholder,
                 )
             ),
@@ -298,27 +318,41 @@ private fun ClassicLayout(
                 modifier = GlanceModifier.fillMaxWidth().height(48.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (!snapshot.isFm) ControlIcon(R.drawable.ic_widget_prev, "上一首", prevAction(), palette.onCard)
+                ControlIcon(
+                    R.drawable.ic_widget_prev, "上一首", prevAction(), palette.onCard,
+                    size = 44.dp,
+                )
                 ControlIcon(
                     iconRes = if (snapshot.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
                     description = if (snapshot.isPlaying) "暂停" else "播放",
                     action = playPauseAction(),
                     tint = palette.onCard,
+                    size = 44.dp,
                 )
-                ControlIcon(R.drawable.ic_widget_next, "下一首", nextAction(), palette.onCard)
+                ControlIcon(
+                    R.drawable.ic_widget_next, "下一首", nextAction(), palette.onCard,
+                    size = 44.dp,
+                )
+                // 私人 FM 入口：FM 模式里高亮，普通播放里当快捷键用
+                ControlIcon(
+                    R.drawable.ic_widget_fm, "私人FM", fmAction(),
+                    tint = if (snapshot.isFm) palette.accent else palette.secondary,
+                    size = 44.dp,
+                )
                 Spacer(GlanceModifier.defaultWeight())
                 ControlIcon(
                     iconRes = if (liked) R.drawable.ic_favorite_fill else R.drawable.ic_favorite,
                     description = if (liked) "取消喜欢" else "喜欢",
                     action = likeAction(),
                     tint = if (liked) palette.accent else palette.secondary,
+                    size = 44.dp,
                 )
             }
         }
     }
 }
 
-// —————————————————————— 2. 方形 2×2 ——————————————————————
+// —————————————————————— 2. 方形 2×2（1:1，YouTube Music 风格按钮） ——————————————————————
 
 @Composable
 private fun SquareLayout(
@@ -329,17 +363,24 @@ private fun SquareLayout(
     context: Context,
 ) {
     val size = LocalSize.current
-    val textWidth = size.width - 26.dp - 52.dp
-    val scrimHeight = if (size.height < 170.dp) 58.dp else 66.dp
+    val art = size.width - 26.dp
+    val scrimHeight = 52.dp
 
     Box(modifier = roundedCard(palette.card).fillMaxSize()) {
         if (snapshot.hasSong) {
-            Cover(
-                cover = cover,
-                modifier = GlanceModifier.fillMaxSize(),
-                palette = palette,
-                iconSize = 32.dp,
-            )
+            // 圆形封面，居中偏上：1:1 画布里的主视觉
+            Box(
+                modifier = GlanceModifier.fillMaxSize().padding(bottom = scrimHeight),
+                contentAlignment = Alignment.Center,
+            ) {
+                Cover(
+                    cover = cover,
+                    modifier = GlanceModifier.size(art).clickable(openPlayerAction(context)),
+                    palette = palette,
+                    iconSize = 32.dp,
+                    circle = true,
+                )
+            }
         } else {
             Box(
                 modifier = GlanceModifier.fillMaxSize()
@@ -355,72 +396,84 @@ private fun SquareLayout(
             }
         }
 
-        Column(modifier = GlanceModifier.fillMaxSize()) {
-            Row(
-                modifier = GlanceModifier.fillMaxWidth().height(52.dp).padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        // 右上角：YouTube Music 那种圆底爱心
+        if (snapshot.hasSong) {
+            Box(
+                modifier = GlanceModifier.fillMaxSize().padding(8.dp),
+                contentAlignment = Alignment.TopEnd,
             ) {
-                Spacer(GlanceModifier.defaultWeight())
-                if (snapshot.hasSong) {
-                    ControlIcon(
-                        iconRes = if (liked) R.drawable.ic_favorite_fill else R.drawable.ic_favorite,
-                        description = if (liked) "取消喜欢" else "喜欢",
-                        action = likeAction(),
-                        tint = if (liked) palette.accent else Color.White,
-                    )
-                }
+                CircleButton(
+                    iconRes = if (liked) R.drawable.ic_favorite_fill else R.drawable.ic_favorite,
+                    description = if (liked) "取消喜欢" else "喜欢",
+                    action = likeAction(),
+                    background = Color.Black.copy(alpha = 0.32f),
+                    tint = if (liked) palette.accent else Color.White,
+                    size = 34.dp,
+                    iconSize = 18.dp,
+                )
             }
+        }
+
+        Column(modifier = GlanceModifier.fillMaxSize()) {
             Spacer(GlanceModifier.defaultWeight())
             Row(
                 modifier = GlanceModifier.fillMaxWidth().height(scrimHeight)
                     .background(
                         imageProvider = ImageProvider(R.drawable.widget_scrim_bottom),
                         contentScale = ContentScale.FillBounds,
-                    )
-                    .clickable(openPlayerAction(context)),
+                    ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = GlanceModifier.defaultWeight().padding(start = 14.dp)) {
+                Column(
+                    modifier = GlanceModifier.defaultWeight().padding(start = 14.dp)
+                        .clickable(openPlayerAction(context)),
+                ) {
                     if (snapshot.hasSong) {
                         Text(
-                            text = ellipsize(context, snapshot.title, textWidth, 15f, bold = true),
-                            maxLines = 1,
-                            style = titleStyle(Color.White, 15.sp),
-                        )
-                        Spacer(GlanceModifier.height(2.dp))
-                        Text(
-                            text = ellipsize(context, snapshot.artistLine(context), textWidth, 12f),
-                            maxLines = 1,
-                            style = bodyStyle(Color.White.copy(alpha = 0.82f), 12.sp),
-                        )
-                    } else {
-                        Text(
-                            text = ellipsize(context, snapshot.statusTitle(context), textWidth, 14f, bold = true),
+                            text = ellipsize(context, snapshot.title, size.width - 96.dp, 14f, bold = true),
                             maxLines = 1,
                             style = titleStyle(Color.White, 14.sp),
                         )
                         Spacer(GlanceModifier.height(2.dp))
                         Text(
-                            text = ellipsize(context, snapshot.statusHint(context), textWidth, 11f),
+                            text = ellipsize(context, snapshot.artistLine(context), size.width - 96.dp, 11f),
+                            maxLines = 1,
+                            style = bodyStyle(Color.White.copy(alpha = 0.82f), 11.sp),
+                        )
+                    } else {
+                        Text(
+                            text = ellipsize(context, snapshot.statusTitle(context), size.width - 40.dp, 14f, bold = true),
+                            maxLines = 1,
+                            style = titleStyle(Color.White, 14.sp),
+                        )
+                        Spacer(GlanceModifier.height(2.dp))
+                        Text(
+                            text = ellipsize(context, snapshot.statusHint(context), size.width - 40.dp, 11f),
                             maxLines = 1,
                             style = bodyStyle(Color.White.copy(alpha = 0.78f), 11.sp),
                         )
                     }
                 }
                 if (snapshot.hasSong) {
-                    ControlIcon(
-                        iconRes = if (snapshot.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
-                        description = if (snapshot.isPlaying) "暂停" else "播放",
-                        action = playPauseAction(),
-                        tint = Color.White,
-                    )
+                    // 右下角：实心圆底的播放/暂停键
+                    Box(modifier = GlanceModifier.padding(end = 10.dp)) {
+                        CircleButton(
+                            iconRes = if (snapshot.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
+                            description = if (snapshot.isPlaying) "暂停" else "播放",
+                            action = playPauseAction(),
+                            background = palette.accent,
+                            tint = Color.White,
+                            size = 42.dp,
+                            iconSize = 22.dp,
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-// —————————————————————— 3. 胶囊 4×1 ——————————————————————
+// —————————————————————— 3. 胶囊 4×1（背景层是实时进度条） ——————————————————————
 
 @Composable
 private fun CapsuleLayout(
@@ -434,219 +487,58 @@ private fun CapsuleLayout(
     val buttons = if (snapshot.hasSong) (if (snapshot.isFm) 2 else 3) else 0
     val textWidth = size.width - 20.dp - 48.dp - 8.dp - (48.dp * buttons) - 4.dp
 
-    Row(
-        modifier = roundedCard(palette.card).fillMaxSize().padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Cover(
-            cover = cover,
-            modifier = GlanceModifier.size(40.dp).clickable(openPlayerAction(context)),
-            palette = palette,
-            iconSize = 18.dp,
-        )
-        Spacer(GlanceModifier.width(8.dp))
-        Column(
-            modifier = GlanceModifier.defaultWeight().clickable(openPlayerAction(context)),
-        ) {
-            if (snapshot.hasSong) {
-                Text(
-                    text = ellipsize(context, snapshot.title, textWidth, 14f, bold = true),
-                    maxLines = 1,
-                    style = titleStyle(palette.onCard, 14.sp),
-                )
-                Text(
-                    text = ellipsize(context, snapshot.artistAlbumLine(context), textWidth, 11f),
-                    maxLines = 1,
-                    style = bodyStyle(palette.secondary, 11.sp),
-                )
-            } else {
-                EmptyBlock(
-                    snapshot = snapshot,
-                    palette = palette,
-                    context = context,
-                    titleSize = 13.sp,
-                    hintSize = 10.sp,
-                    maxWidth = textWidth,
-                )
-            }
-        }
-        if (snapshot.hasSong) {
-            if (!snapshot.isFm) ControlIcon(R.drawable.ic_widget_prev, "上一首", prevAction(), palette.onCard)
-            ControlIcon(
-                iconRes = if (snapshot.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
-                description = if (snapshot.isPlaying) "暂停" else "播放",
-                action = playPauseAction(),
-                tint = palette.onCard,
-            )
-            ControlIcon(R.drawable.ic_widget_next, "下一首", nextAction(), palette.onCard)
-        }
-    }
-}
-
-// —————————————————————— 4. 私人 FM 4×2（固定深色） ——————————————————————
-
-@Composable
-private fun FmLayout(
-    snapshot: WidgetSnapshot,
-    liked: Boolean,
-    palette: WidgetPalette,
-    context: Context,
-) {
-    val size = LocalSize.current
-    val textWidth = size.width - 28.dp
-
-    Column(modifier = roundedCard(palette.card).fillMaxSize().padding(14.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = GlanceModifier.size(6.dp)
-                    .then(roundedCard(palette.accent, radius = 3.dp, drawable = R.drawable.widget_cover_placeholder)),
-            ) {}
-            Spacer(GlanceModifier.width(6.dp))
-            Text(
-                text = context.getString(R.string.widget_fm_label),
-                maxLines = 1,
-                style = TextStyle(
-                    color = ColorProvider(palette.accent),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                ),
-            )
-        }
-        Spacer(GlanceModifier.height(6.dp))
-        if (snapshot.hasSong) {
-            Text(
-                text = ellipsize(context, snapshot.title, textWidth, 17f, bold = true),
-                maxLines = 1,
-                style = titleStyle(palette.onCard, 17.sp),
-            )
-            Spacer(GlanceModifier.height(2.dp))
-            Text(
-                text = ellipsize(context, snapshot.artistLine(context), textWidth, 12f),
-                maxLines = 1,
-                style = bodyStyle(palette.secondary, 12.sp),
-            )
-        } else {
-            EmptyBlock(
-                snapshot = snapshot,
-                palette = palette,
-                context = context,
-                titleSize = 15.sp,
-                hintSize = 11.sp,
-                maxWidth = textWidth,
-            )
-        }
-        Spacer(GlanceModifier.defaultWeight())
-        Row(
-            modifier = GlanceModifier.fillMaxWidth().height(48.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (snapshot.hasSong) {
-                ControlIcon(
-                    iconRes = if (liked) R.drawable.ic_favorite_fill else R.drawable.ic_favorite,
-                    description = if (liked) "取消喜欢" else "喜欢",
-                    action = likeAction(),
-                    tint = if (liked) palette.accent else palette.secondary,
-                )
-                ControlIcon(
-                    iconRes = if (snapshot.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
-                    description = if (snapshot.isPlaying) "暂停" else "播放",
-                    action = playPauseAction(),
-                    tint = palette.onCard,
-                )
-                ControlIcon(R.drawable.ic_widget_next, "下一首", nextAction(), palette.onCard)
-            } else {
-                Spacer(GlanceModifier.defaultWeight())
-                ControlIcon(R.drawable.ic_widget_fm, "私人FM", fmAction(), palette.accent)
-            }
-        }
-    }
-}
-
-// —————————————————————— 5. 唱片 4×4 ——————————————————————
-
-@Composable
-private fun VinylLayout(
-    snapshot: WidgetSnapshot,
-    liked: Boolean,
-    cover: Bitmap?,
-    palette: WidgetPalette,
-    context: Context,
-) {
-    val size = LocalSize.current
-    val artSize = (minOf(size.width, size.height).value * 0.46f).dp
-    val textWidth = size.width - 24.dp
-
-    Column(
-        modifier = roundedCard(palette.card).fillMaxSize().padding(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(
-            modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (snapshot.hasSong) {
-                Cover(
-                    cover = cover,
-                    modifier = GlanceModifier.size(artSize).clickable(openPlayerAction(context)),
-                    palette = palette,
-                    iconSize = 30.dp,
-                )
-            } else {
+    Box(modifier = roundedCard(palette.card).fillMaxSize()) {
+        // 实时进度：和 App 迷你播放器一样，用主题色半透明把整条胶囊从左往右填满
+        if (snapshot.hasSong && snapshot.durationMs > 0L) {
+            Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
                 Box(
-                    modifier = GlanceModifier.size(artSize)
-                        .then(roundedCard(palette.chip, radius = artSize / 2)),
-                ) {
-                    Box(
-                        modifier = GlanceModifier.fillMaxSize()
-                            .then(roundedCard(palette.placeholderTop, radius = artSize / 4)),
-                    ) {}
-                }
+                    modifier = GlanceModifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(snapshot.progress().coerceIn(0f, 1f))
+                        .then(roundedCard(palette.accent.copy(alpha = 0.20f)))
+                ) {}
             }
         }
-        Spacer(GlanceModifier.height(4.dp))
-        Column(
-            modifier = GlanceModifier.fillMaxWidth().clickable(openPlayerAction(context)),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            if (snapshot.hasSong) {
-                Text(
-                    text = ellipsize(context, snapshot.title, textWidth, 16f, bold = true),
-                    maxLines = 1,
-                    style = titleStyle(palette.onCard, 16.sp).copy(textAlign = TextAlign.Center),
-                )
-                Text(
-                    text = ellipsize(context, snapshot.artistAlbumLine(context), textWidth, 12f),
-                    maxLines = 1,
-                    style = bodyStyle(palette.secondary, 12.sp).copy(textAlign = TextAlign.Center),
-                )
-            } else {
-                Text(
-                    text = ellipsize(context, snapshot.statusTitle(context), textWidth, 15f, bold = true),
-                    maxLines = 1,
-                    style = titleStyle(palette.onCard, 15.sp).copy(textAlign = TextAlign.Center),
-                )
-                Text(
-                    text = ellipsize(context, snapshot.statusHint(context), textWidth, 11f),
-                    maxLines = 1,
-                    style = bodyStyle(palette.secondary, 11.sp).copy(textAlign = TextAlign.Center),
-                )
-            }
-        }
-        Spacer(GlanceModifier.height(4.dp))
+
         Row(
-            modifier = GlanceModifier.height(48.dp),
+            modifier = GlanceModifier.fillMaxSize().padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (snapshot.hasSong) {
-                ControlIcon(
-                    iconRes = if (liked) R.drawable.ic_favorite_fill else R.drawable.ic_favorite,
-                    description = if (liked) "取消喜欢" else "喜欢",
-                    action = likeAction(),
-                    tint = if (liked) palette.accent else palette.secondary,
-                )
-                if (!snapshot.isFm) {
-                    ControlIcon(R.drawable.ic_widget_prev, "上一首", prevAction(), palette.onCard)
+            Cover(
+                cover = cover,
+                modifier = GlanceModifier.size(40.dp).clickable(openPlayerAction(context)),
+                palette = palette,
+                iconSize = 18.dp,
+                circle = true,
+            )
+            Spacer(GlanceModifier.width(8.dp))
+            Column(
+                modifier = GlanceModifier.defaultWeight().clickable(openPlayerAction(context)),
+            ) {
+                if (snapshot.hasSong) {
+                    Text(
+                        text = ellipsize(context, snapshot.title, textWidth, 14f, bold = true),
+                        maxLines = 1,
+                        style = titleStyle(palette.onCard, 14.sp),
+                    )
+                    Text(
+                        text = ellipsize(context, snapshot.artistAlbumLine(context), textWidth, 11f),
+                        maxLines = 1,
+                        style = bodyStyle(palette.secondary, 11.sp),
+                    )
+                } else {
+                    EmptyBlock(
+                        snapshot = snapshot,
+                        palette = palette,
+                        context = context,
+                        titleSize = 13.sp,
+                        hintSize = 10.sp,
+                        maxWidth = textWidth,
+                    )
                 }
+            }
+            if (snapshot.hasSong) {
+                if (!snapshot.isFm) ControlIcon(R.drawable.ic_widget_prev, "上一首", prevAction(), palette.onCard)
                 ControlIcon(
                     iconRes = if (snapshot.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
                     description = if (snapshot.isPlaying) "暂停" else "播放",
@@ -654,9 +546,6 @@ private fun VinylLayout(
                     tint = palette.onCard,
                 )
                 ControlIcon(R.drawable.ic_widget_next, "下一首", nextAction(), palette.onCard)
-                ControlIcon(R.drawable.ic_widget_fm, "私人FM", fmAction(), palette.secondary)
-            } else {
-                ControlIcon(R.drawable.ic_widget_fm, "私人FM", fmAction(), palette.accent)
             }
         }
     }

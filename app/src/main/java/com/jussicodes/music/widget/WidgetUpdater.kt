@@ -3,6 +3,7 @@ package com.jussicodes.music.widget
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.updateAll
 import androidx.media3.common.Player
@@ -18,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -37,6 +39,9 @@ private data class PlayerSnapshot(
     val isPlaying: Boolean = false,
     val isFm: Boolean = false,
     val isLoading: Boolean = false,
+    val positionMs: Long = 0L,
+    val durationMs: Long = 0L,
+    val progressAt: Long = 0L,
 ) {
     val hasSession: Boolean get() = songId != 0L || title.isNotBlank()
 }
@@ -47,6 +52,7 @@ object WidgetUpdater {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
     private var pending: Job? = null
+    private var ticker: Job? = null
 
     /** 最新一次采集结果 + 版本号：事件成串到达时只保证收敛到最新一帧，不排队重放。 */
     @Volatile
@@ -133,6 +139,7 @@ object WidgetUpdater {
             mutex.withLock {
                 runCatching {
                     val snapshot = WidgetStateStore.read(app)
+                    tickProgress(app, false)
                     if (!snapshot.isPlaying && !snapshot.isLoading) return@runCatching
                     WidgetStateStore.write(app, snapshot.copy(isPlaying = false, isLoading = false))
                     WidgetHub.updateAll(app)
@@ -158,6 +165,9 @@ object WidgetUpdater {
             isFm = extras?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME) ==
                 MediaSessionConstants.SOURCE_PERSONAL_FM,
             isLoading = player.isLoading,
+            positionMs = player.currentPosition.coerceAtLeast(0L),
+            durationMs = player.duration.coerceAtLeast(0L),
+            progressAt = SystemClock.elapsedRealtime(),
         )
     }.getOrNull()
 
@@ -197,11 +207,40 @@ object WidgetUpdater {
             isLiked = snapshot.songId != 0L && snapshot.songId in ids,
             hasSession = snapshot.hasSession,
             loggedIn = loggedIn,
+            positionMs = snapshot.positionMs,
+            durationMs = snapshot.durationMs,
+            progressAt = snapshot.progressAt,
         )
         // 内容没变就不重绘：回到前台、收藏列表刷新等事件不必再推一次 RemoteViews。
         if (WidgetStateStore.read(context) == next) return
         WidgetStateStore.write(context, next)
         WidgetHub.updateAll(context)
+        tickProgress(context, next.isPlaying)
+    }
+
+    /**
+     * 4×1 胶囊的背景层是实时进度条：播放中每秒推进一次快照里的播放位置，只重绘胶囊。
+     * 暂停/停止立刻停掉，不空转。
+     */
+    private fun tickProgress(context: Context, playing: Boolean) {
+        if (!playing) {
+            ticker?.cancel()
+            ticker = null
+            return
+        }
+        if (ticker?.isActive == true) return
+        ticker = scope.launch {
+            while (isActive) {
+                delay(1000)
+                val snapshot = WidgetStateStore.read(context)
+                if (!snapshot.isPlaying || snapshot.durationMs <= 0L) break
+                val now = SystemClock.elapsedRealtime()
+                val position = (snapshot.positionMs + (now - snapshot.progressAt).coerceAtLeast(0L))
+                    .coerceAtMost(snapshot.durationMs)
+                WidgetStateStore.write(context, snapshot.copy(positionMs = position, progressAt = now))
+                runCatching { CapsuleWidget.updateAll(context) }
+            }
+        }
     }
 
     private suspend fun favoriteIds(context: Context): List<Long> =
@@ -214,7 +253,7 @@ object WidgetUpdater {
 
 object WidgetHub {
     val widgets: List<GlanceAppWidget>
-        get() = listOf(ClassicWidget, SquareWidget, CapsuleWidget, FmWidget, VinylWidget)
+        get() = listOf(ClassicWidget, SquareWidget, CapsuleWidget)
 
     suspend fun updateAll(context: Context) {
         widgets.forEach { widget ->

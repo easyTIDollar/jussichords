@@ -66,18 +66,6 @@ data class WidgetPalette(
             )
         }
 
-        /** 私人 FM 组件固定深色，不跟随系统。 */
-        fun fm(): WidgetPalette = WidgetPalette(
-            isDark = true,
-            card = Color(0xFF121115),
-            chip = Color(0xFF232128),
-            onCard = Color(0xFFF5F1F5),
-            secondary = Color(0xFFA8A1AC),
-            accent = WidgetTokens.Accent,
-            placeholderTop = Color(0xFF2A1B20),
-            placeholderBottom = Color(0xFF161317),
-        )
-
         private fun systemSeed(context: Context): Color {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 runCatching {
@@ -110,6 +98,4 @@ object WidgetSizes {
     val Classic = setOf(DpSize(250.dp, 110.dp), DpSize(300.dp, 140.dp), DpSize(340.dp, 160.dp))
     val Square = setOf(DpSize(140.dp, 140.dp), DpSize(180.dp, 180.dp), DpSize(230.dp, 230.dp))
     val Capsule = setOf(DpSize(250.dp, 60.dp), DpSize(300.dp, 68.dp), DpSize(350.dp, 76.dp))
-    val Fm = setOf(DpSize(250.dp, 110.dp), DpSize(300.dp, 140.dp))
-    val Vinyl = setOf(DpSize(230.dp, 230.dp), DpSize(270.dp, 270.dp), DpSize(320.dp, 320.dp))
 }

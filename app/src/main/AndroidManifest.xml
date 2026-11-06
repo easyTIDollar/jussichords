@@ -123,30 +123,6 @@
                 android:resource="@xml/widget_capsule_info" />
         </receiver>
 
-        <receiver
-            android:name=".widget.FmWidgetReceiver"
-            android:exported="true"
-            android:label="@string/widget_fm_name">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/widget_fm_info" />
-        </receiver>
-
-        <receiver
-            android:name=".widget.VinylWidgetReceiver"
-            android:exported="true"
-            android:label="@string/widget_vinyl_name">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/widget_vinyl_info" />
-        </receiver>
-
     </application>
 
 </manifest>
