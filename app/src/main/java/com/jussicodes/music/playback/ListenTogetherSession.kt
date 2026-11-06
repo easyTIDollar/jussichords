@@ -93,7 +93,6 @@ object ListenTogetherSession : Player.Listener {
      */
     private var lastOwnCommandSeq = 0L
     private var lastOwnCommandTargetId = 0L
-    private var lastOwnCommandAtMs = 0L
     private var consecutiveFailures = 0
 
     // ------------------------------------------------------------------
@@ -340,7 +339,6 @@ object ListenTogetherSession : Player.Listener {
         lastCommandSig = null
         lastOwnCommandSeq = 0L
         lastOwnCommandTargetId = 0L
-        lastOwnCommandAtMs = 0L
         consecutiveFailures = 0
         _state.value = UiState(notice = notice)
     }
@@ -435,17 +433,8 @@ object ListenTogetherSession : Player.Listener {
         //   → 用户点第 5 首（此刻在 1s 抑制窗口内，GOTO(#5) 被丢弃）
         //   → 下一 tick 读到 GOTO(#1) → seekTo(#1) → 自动播第一首，每秒重复。
         // 所以「我发的、我本地已经执行过的」目标不再回灌；只落签名继续同步。
-        // 回声只在发送后 4s 内、且只消费一次：clientSeq 是各端独立计数器，对端
-        // 恰好发到同一序号会与我误判为回声（进度不同步大概率成因）；超过 4s 的
-        // 是对端的新命令，必须正常应用。
         val ownEcho = snapshot.clientSeq == lastOwnCommandSeq && lastOwnCommandSeq > 0L &&
-            (snapshot.targetSongId ?: 0L) == lastOwnCommandTargetId &&
-            SystemClock.elapsedRealtime() - lastOwnCommandAtMs < 4_000L
-        if (ownEcho) {
-            // 本轮消费掉：同一条回声下一 tick 不再判成远端命令。
-            lastOwnCommandSeq = 0L
-            lastOwnCommandAtMs = 0L
-        }
+            (snapshot.targetSongId ?: 0L) == lastOwnCommandTargetId
         if (ownEcho && !playlistChanged) {
             lastCommandSig = commandSig
             Log.d(TAG, "applyRemote skip own echo clientSeq=${snapshot.clientSeq} target=${snapshot.targetSongId}")
@@ -516,18 +505,7 @@ object ListenTogetherSession : Player.Listener {
                 activePlayer.setMediaItems(items, targetIndex, startPos)
                 activePlayer.prepare()
             } else if (initial || commandChanged) {
-                // 纯进度对齐：commandType 为空（只有 heartbeat 滚动的快照变化）不代表
-                // 远端拖动了进度——用它 seek 会把本地正在播的进度拉回服务端 stale 值，
-                // 这是仅「进度不同步」的常见成因（别人播了 80s，我跳回 12s）。
-                // 只在两处情形才 seek：initial、或真实命令类型（GOTO/PROGRESS/PLAY/
-                // PAUSE/NEXT/PREV）且与本地进度差超过 2s。
-                val type = snapshot.commandType?.uppercase()
-                val isRealCommand = type != null && type != "REPLACE" && type != "HEARTBEAT"
-                val remoteProgress = snapshot.progressMs?.coerceAtLeast(0L)
-                val driftMs = remoteProgress?.let { it - activePlayer.currentPosition } ?: 0L
-                if (isRealCommand || initial || kotlin.math.abs(driftMs) > 2_000L) {
-                    activePlayer.seekTo(targetIndex, remoteProgress ?: activePlayer.currentPosition)
-                }
+                activePlayer.seekTo(targetIndex, snapshot.progressMs?.coerceAtLeast(0L) ?: activePlayer.currentPosition)
             }
             val mode = snapshot.playMode?.uppercase()
             if (mode != null) {
@@ -623,7 +601,6 @@ object ListenTogetherSession : Player.Listener {
                 // 记下「这条是我发的」，供 applyRemote 做回声识别（见 lastOwnCommandSeq）。
                 lastOwnCommandSeq = seq
                 lastOwnCommandTargetId = target
-                lastOwnCommandAtMs = SystemClock.elapsedRealtime()
             }
             .onFailure { _state.value = _state.value.copy(reconnecting = true) }
     }
