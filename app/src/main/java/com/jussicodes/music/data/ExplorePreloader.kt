@@ -5,13 +5,20 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import coil3.imageLoader
+import coil3.request.ImageRequest
+import coil3.size.Size
 import com.jussicodes.music.utils.ApiServerErrorNotifier
+import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.FavoriteSongIdsUtil
 import com.jussicodes.music.utils.dataStore
+import com.jussicodes.music.utils.toCoverImageUrl
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.recommend.RecommendApi
 import com.rcmiku.ncmapi.model.DailySongsResponse
+import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.RecommendPlaylistResponse
+import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.json
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,6 +47,12 @@ object ExplorePreloader {
 
     /** Window in which a duplicate [warmUp] for the same account is skipped. */
     private const val REFRESH_DEDUPE_MS = 10_000L
+
+    /** 首屏预热：每日推荐 4 行 × 横向可见 3 列，取 12 首足够覆盖第一屏。 */
+    private const val PREFETCH_SONGS = 12
+
+    /** 推荐歌单一行横向卡片，第一屏最多看到 6~8 张。 */
+    private const val PREFETCH_PLAYLISTS = 8
 
     private val mutex = Mutex()
 
@@ -148,6 +161,13 @@ object ExplorePreloader {
                 _recommendPlaylist.value = playlist
                 if (!isGuest) persist(key, keyPlaylist, json.encodeToString(playlist.getOrThrow()))
             }
+            // 数据一到位就在后台把首屏封面塞进 Coil 缓存：探索页要等用户滑过去才开始组合，
+            // 那时才发十几个图片请求，冷启动还要和首屏抢连接。这里提前取好，切过去只剩解码。
+            prefetchCovers(
+                context,
+                songs.getOrNull()?.data?.dailySongs.orEmpty(),
+                playlist.getOrNull()?.result.orEmpty(),
+            )
             // 两块推荐都拉不到 => 大概率是已配置的 API 服务器失效/填错，
             // 弹一次节流的 toast 引导用户去设置更换后端（不刷屏）。
             if (!songs.isSuccess && !playlist.isSuccess) {
@@ -166,6 +186,43 @@ object ExplorePreloader {
         store?.edit { prefs ->
             prefs[prefKey] = value
             prefs[keyUser] = userKey
+        }
+    }
+
+    /**
+     * 预取探索页首屏可见的封面。
+     *
+     * 只 enqueue 不等待：Coil 自己在后台取，失败也无所谓（真正展示时还会再请求一次）。
+     * 尺寸必须和 UI 侧一致（[CoverImageSize.pixels]），否则磁盘缓存能命中但内存缓存对不上，
+     * 等于只省了网络、没省解码。
+     */
+    private fun prefetchCovers(
+        context: Context,
+        songs: List<Song>,
+        playlists: List<Playlist>,
+    ) {
+        val density = context.resources.displayMetrics.density
+        val loader = context.imageLoader
+        val listPx = CoverImageSize.LIST.pixels(density)
+        val gridPx = CoverImageSize.GRID.pixels(density)
+
+        fun enqueue(url: String?, px: Int) {
+            if (url.isNullOrBlank()) return
+            runCatching {
+                loader.enqueue(
+                    ImageRequest.Builder(context)
+                        .data(url)
+                        .size(Size(px, px))
+                        .build()
+                )
+            }
+        }
+
+        songs.take(PREFETCH_SONGS).forEach { song ->
+            enqueue(song.al.picUrl.toCoverImageUrl(CoverImageSize.LIST, density), listPx)
+        }
+        playlists.take(PREFETCH_PLAYLISTS).forEach { playlist ->
+            enqueue(playlist.picUrl.toCoverImageUrl(CoverImageSize.GRID, density), gridPx)
         }
     }
 

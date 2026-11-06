@@ -17,13 +17,19 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun rememberArtworkSeed(artwork: Any?): Color? {
     val context = LocalContext.current.applicationContext
-    return produceState<Color?>(initialValue = null, artwork, context) {
+    return produceState<Color?>(
+        // 首帧直接用上次算好的种子色：冷启动恢复到上次播放的封面时，
+        // 界面一出来就是最终配色，不会先默认色再整屏跳一次。
+        initialValue = ArtworkSeedCache.get(artwork),
+        artwork,
+        context,
+    ) {
         if (artwork == null) {
             value = null
             return@produceState
         }
 
-        value = withContext(Dispatchers.IO) {
+        val seed = withContext(Dispatchers.IO) {
             try {
                 val request = ImageRequest.Builder(context)
                     .data(artwork)
@@ -36,6 +42,11 @@ internal fun rememberArtworkSeed(artwork: Any?): Color? {
             } catch (_: Exception) {
                 null
             }
+        }
+        if (seed != null) {
+            ArtworkSeedCache.put(artwork, seed)
+            // 与缓存的初始值相同就不要赋值，否则等于白重组一次整棵树。
+            if (seed != value) value = seed
         }
     }.value
 }

@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -469,11 +470,19 @@ fun SongListItem(
     badges = badges,
     thumbnailContent = {
         val context = androidx.compose.ui.platform.LocalContext.current
-        val effectiveThumbnail = androidx.compose.runtime.remember(song.id, song.al.picUrl) {
+        val density = androidx.compose.ui.platform.LocalDensity.current.density
+        // 列表只做「本地缓存文件 / 外部歌单封面」两步查询，不解析音频内嵌封面：
+        // 那一步要 MediaMetadataRetriever 读整个音频文件，在组合阶段同步执行会把主线程拖住。
+        // 拿不到本地封面就直接用按密度换算过的网络 URL 兜底。
+        val remoteThumbnail = androidx.compose.runtime.remember(song.id, song.al.picUrl, density) {
+            song.al.picUrl.toCoverImageUrl(CoverImageSize.LIST, density)?.toString()
+        }
+        val effectiveThumbnail = androidx.compose.runtime.remember(song.id, remoteThumbnail) {
             com.jussicodes.music.data.offline.OfflineMusicMetadataManager.getOfflineCover(
                 context,
                 song.id,
-                song.al.picUrl.toCoverImageUrl(CoverImageSize.LIST)?.toString()
+                remoteThumbnail,
+                allowExtract = false
             )
         }
         ItemThumbnail(
@@ -611,11 +620,14 @@ fun ItemThumbnail(
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
                     .data(thumbnailUrl)
-                    .crossfade(true)
+                    // 关掉单图淡入：命中磁盘/内存缓存时直接出图，列表滚动不再"慢慢浮现"。
+                    .crossfade(false)
                     .placeholderMemoryCacheKey(cacheKey)
                     .memoryCacheKey(cacheKey)
                     .build(),
                 contentDescription = null,
+                // 加载中先铺一块和圆角一致的底色，避免列表出现"空白缺图"的观感。
+                placeholder = ColorPainter(MaterialTheme.colorScheme.surfaceVariant),
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.clip(shape)
             )

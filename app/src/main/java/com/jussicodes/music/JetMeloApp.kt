@@ -92,6 +92,8 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // 主题种子色缓存要在首帧前可用（同步读一张极小的 SharedPreferences 表）。
+        com.jussicodes.music.ui.theme.ArtworkSeedCache.preload(this)
         AppVisibilityTracker.register(this)
         ExplorePreloader.init(this)
         PinnedAlbumStore.init(this)
