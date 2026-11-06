@@ -359,6 +359,82 @@ class PlaybackService : MediaSessionService() {
     /** 解析播放地址（一次网络请求 + 可能的试听重解析）的超时。 */
     private val resolveUrlTimeoutMs = 20_000L
 
+    /** 距结尾多久开始预取下一首的直链。 */
+    private val prefetchBeforeEndMs = 10_000L
+
+    /** 预取本身也走网络，弱网下不能把它变成新的卡点。 */
+    private val prefetchTimeoutMs = 12_000L
+
+    private var prefetchJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * 下一首预取。
+     *
+     * 起播的等待几乎全在「解析直链」这一步（LX 脚本约 100ms，官方 eapi 几百 ms），音频字节
+     * 本来就是边下边播。所以距结尾 [prefetchBeforeEndMs] 时先把下一首的直链解析好塞进
+     * [PlayUrlCache]，真正切歌时 `ResolvingDataSource` 直接命中缓存 —— 解析这一步归零。
+     *
+     * 只解析、不下载：不占磁盘音频缓存，也不吃音频流量；代价是提前打一次解析请求，
+     * 预取完就被跳过的那首等于白解析一次。
+     */
+    private val prefetchListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            schedulePrefetch()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_READY) schedulePrefetch()
+        }
+    }
+
+    private fun schedulePrefetch() {
+        prefetchJob?.cancel()
+        val current = mediaSession?.player?.currentMediaItem?.mediaId ?: return
+        prefetchJob = scope.launch {
+            while (isActive) {
+                val p = mediaSession?.player ?: return@launch
+                // 换歌了：让 onMediaItemTransition 重启这一轮
+                if (p.currentMediaItem?.mediaId != current) return@launch
+                val duration = p.duration
+                if (duration <= 0 || duration == androidx.media3.common.C.TIME_UNSET) {
+                    delay(1_000)
+                    continue
+                }
+                val remain = duration - p.currentPosition
+                if (remain <= prefetchBeforeEndMs) {
+                    prefetchNext(p)
+                    return@launch
+                }
+                delay((remain - prefetchBeforeEndMs).coerceIn(1_000L, 5_000L))
+            }
+        }
+    }
+
+    private fun prefetchNext(player: Player) {
+        val count = player.mediaItemCount
+        if (count <= 1) return
+        if (player.repeatMode == Player.REPEAT_MODE_ONE) return
+        var next = player.currentMediaItemIndex + 1
+        if (next >= count) {
+            if (player.repeatMode != Player.REPEAT_MODE_ALL) return
+            next = 0
+        }
+        val uri = player.getMediaItemAt(next).localConfiguration?.uri ?: return
+        val qualityTag = audioQuality.value
+        val sourceTag = PlaybackReloadBus.sourceTag
+        // 已经在缓存里（本轮播过/刚预取过）就别再打一次解析请求
+        if (PlayUrlCache.get(uri.toString(), qualityTag, sourceTag) != null) return
+        scope.launch(Dispatchers.IO) {
+            val resolved = runCatching {
+                withTimeout(prefetchTimeoutMs) {
+                    updateMediaItemUri(uri, audioQuality, this@PlaybackService)
+                }
+            }.getOrNull() ?: return@launch
+            PlayUrlCache.put(uri.toString(), qualityTag, sourceTag, resolved.toString())
+            android.util.Log.d(TAG, "prefetch url ready songId=${uri.toResolveKey()}")
+        }
+    }
+
     private val recoveryListener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
             // 音源本身坏了（404 / HTML 页 / 不是音频）：同一条链重试没意义 → 换源。
@@ -827,6 +903,8 @@ class PlaybackService : MediaSessionService() {
         player.addListener(recoveryListener)
         // 音源时长校验：解析出的直链与歌曲元数据时长不符 → 拉黑该链并换源重试
         player.addListener(durationVerifyListener)
+        // 下一首直链预取：距结尾 10s 先解析好，切歌时零解析
+        player.addListener(prefetchListener)
         observeNetworkRecovery()
         observeSourceReloads()
         // 一起听会话：挂到全局播放器上，冷启动恢复/创建房间时接管同步。
