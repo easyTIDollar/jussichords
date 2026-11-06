@@ -26,6 +26,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.lang.ref.WeakReference
 
 /**
  * 播放器侧读出来的纯内存快照。
@@ -38,6 +40,8 @@ private data class PlayerSnapshot(
     val title: String = "",
     val artist: String = "",
     val album: String = "",
+    /** 原始 song JSON：解析放到后台线程做，播放器线程（= 主线程）上只搬运字符串。 */
+    val songJson: String? = null,
     val coverUrl: String = "",
     val isPlaying: Boolean = false,
     val isFm: Boolean = false,
@@ -65,6 +69,16 @@ object WidgetUpdater {
     private var version = 0
 
     /**
+     * 播放器弱引用。
+     *
+     * 进度条不能靠「快照外推」：seek、缓冲、倍速、缓冲卡顿都不会由 Player.Events 通知到组件，
+     * 按旧快照每分钟往前推一格就会越漂越远。tick 时直接问真实播放器要一次 currentPosition。
+     * 弱引用 + 只在播放器线程读，不持有服务实例。
+     */
+    @Volatile
+    private var playerRef: WeakReference<Player>? = null
+
+    /**
      * 进程内实时快照。合成组件时优先读它，其次才是 SharedPreferences。
      * 播放器还活着的时候，这边一定是当前帧——不依赖落盘是否成功。
      */
@@ -85,6 +99,7 @@ object WidgetUpdater {
      */
     fun refresh(context: Context, player: Player?) {
         if (player == null) return
+        playerRef = WeakReference(player)
         val app = context.applicationContext
         val looper = runCatching { player.applicationLooper }.getOrNull() ?: Looper.getMainLooper()
         if (Looper.myLooper() == looper) {
@@ -100,11 +115,11 @@ object WidgetUpdater {
         mutex.withLock {
             runCatching {
                 val snapshot = current(app)
-                val loggedIn = !cookie(app).isNullOrBlank()
+                val loggedIn = !cookie(app, force = true).isNullOrBlank()
                 // 没有播放会话时也必须同步登录标记：否则空状态会一直停在「未登录」，
                 // 用户明明已在 App 内登录，组件却永远提示去登录。
                 val liked = if (snapshot.hasSession && snapshot.songId != 0L) {
-                    snapshot.songId in favoriteIds(app)
+                    snapshot.songId in favoriteIds(app, force = true)
                 } else {
                     false
                 }
@@ -120,7 +135,7 @@ object WidgetUpdater {
         mutex.withLock {
             runCatching {
                 val snapshot = current(app)
-                val loggedIn = !cookie(app).isNullOrBlank()
+                val loggedIn = !cookie(app, force = true).isNullOrBlank()
                 if (loggedIn == snapshot.loggedIn) return@runCatching
                 publish(app, snapshot.copy(loggedIn = loggedIn), redraw = true)
             }
@@ -185,10 +200,11 @@ object WidgetUpdater {
     fun markStopped(context: Context) {
         val app = context.applicationContext
         tickProgress(app, false)
+        playerRef = null
         val snapshot = current(app)
         // 只清播放态，歌曲信息留着：关掉 App 后组件仍显示「上次播放的歌」。
-        // 这里走同步落盘 + 调用方在 onDestroy 尾部补一次重绘，不靠 scope.launch：
-        // scope 可能已被 cancel，协程里的写盘/重绘不跑就会丢这一帧。
+        // 这里只写内存帧（apply）+ 在对象级 scope 上重绘，不在主线程上同步 fsync 或阻塞等 Glance 合成：
+        // onDestroy 是在主线程跑的，之前那句 runBlocking{updateAll} 直接把服务销毁卡在那里。
         if (!snapshot.isPlaying && !snapshot.isLoading) return
         publishNow(
             app,
@@ -205,16 +221,16 @@ object WidgetUpdater {
         val item = player.currentMediaItem
         val metadata = item?.mediaMetadata
         val extras = metadata?.extras
-        val song = extras?.getString("song")?.let {
-            runCatching { json.decodeFromString<Song>(it) }.getOrNull()
-        }
         PlayerSnapshot(
             songId = item?.mediaId?.toLongOrNull() ?: 0L,
             title = metadata?.title?.toString().orEmpty(),
             artist = metadata?.artist?.toString().orEmpty(),
-            album = song?.al?.name.orEmpty(),
+            // 专辑名要从 song JSON 里取，但反序列化不能放在播放器线程上：
+            // 这个回调就在播放器线程（= 主线程），点歌那一下会连着来一串事件，
+            // 每次都在主线程解一遍 Song 就是实打实的加载卡顿。这里只带原文。
+            songJson = extras?.getString("song"),
             coverUrl = metadata?.artworkUri?.toString().orEmpty(),
-            isPlaying = player.isPlaying,
+            isPlaying = player.playWhenReady && player.playbackState != Player.STATE_IDLE,
             isFm = extras?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME) ==
                 MediaSessionConstants.SOURCE_PERSONAL_FM,
             isLoading = player.isLoading,
@@ -275,11 +291,17 @@ object WidgetUpdater {
         }
         val ids = favoriteIds(context)
         val loggedIn = !cookie(context).isNullOrBlank()
+        // 专辑名在这里解（Dispatchers.Default），不在播放器线程上解。
+        val album = snapshot.album.ifBlank {
+            snapshot.songJson?.let { raw ->
+                runCatching { json.decodeFromString<Song>(raw).al?.name }.getOrNull()
+            }.orEmpty()
+        }
         val next = WidgetSnapshot(
             songId = snapshot.songId,
             title = snapshot.title,
             artist = snapshot.artist,
-            album = snapshot.album,
+            album = album,
             coverUrl = snapshot.coverUrl,
             isPlaying = snapshot.isPlaying,
             isFm = snapshot.isFm,
@@ -291,6 +313,17 @@ object WidgetUpdater {
             durationMs = snapshot.durationMs,
             progressAt = snapshot.progressAt,
         )
+        // 一帧里 buffering→ready→playing 会连着来好几次事件，内容没变就别再组一遍、
+        // 再往 launcher 推一次 RemoteViews：点歌那一下的卡顿有一半来自这些重复帧。
+        if (sameContent(current(context), next)) {
+            // 内容没变不等于位置没变（拖动进度条 / seek 只改位置）：更新基准，
+            // 让胶囊下一帧就从新位置画起，别等下一次暂停/切歌。
+            live = next
+            WidgetStateStore.write(context, next)
+            if (!next.isPlaying) scope.launch { runCatching { WidgetHub.updateCapsule(context) } }
+            tickProgress(context, next.isPlaying)
+            return
+        }
         WidgetDebug.log(
             "commit playing=${next.isPlaying} song=${next.songId} title=${next.title} " +
                 "dur=${next.durationMs} liked=${next.isLiked} loggedIn=$loggedIn"
@@ -299,18 +332,22 @@ object WidgetUpdater {
         tickProgress(context, next.isPlaying)
     }
 
+    /** 只比「组件会画出来的东西」，播放位置/采样时刻不参与。 */
+    private fun sameContent(a: WidgetSnapshot, b: WidgetSnapshot): Boolean =
+        a.songId == b.songId && a.title == b.title && a.artist == b.artist &&
+            a.album == b.album && a.coverUrl == b.coverUrl && a.isPlaying == b.isPlaying &&
+            a.isFm == b.isFm && a.isLoading == b.isLoading && a.isLiked == b.isLiked &&
+            a.hasSession == b.hasSession && a.loggedIn == b.loggedIn && a.durationMs == b.durationMs
+
     /**
      * 统一发布点：先更新内存帧（组件合成直接读它），再落盘，最后重绘。
      *
-     * 不做「内容没变就跳过」：切歌/暂停这类事件本来就该重绘一次，
-     * 而多推一帧 RemoteViews 的成本远低于漏掉一帧导致组件停在旧状态的代价。
+     * 落盘用 apply()：它同步更新进程内缓存、异步刷盘，读侧（组件合成）立刻能看到新值，
+     * 又不会把磁盘 fsync 压在播放事件的热路径上。commit() 的同步写盘只留给极少数
+     * 需要的收尾路径（[WidgetUpdater.markStopped]），不值得让每次切歌都等一次 fsync。
      */
     private fun publish(context: Context, snapshot: WidgetSnapshot, redraw: Boolean) {
         live = snapshot
-        // write() 内部是 commit()（同步落盘）：服务被划掉/进程被杀时
-        // apply 的异步落盘会丢，组件会退回旧帧或被空帧覆盖。这里同步写盘，
-        // 不走协程序号门也不异步竞速。重绘也同步走：上一帧必定落地，
-        // 不再有中间帧丢弃导致的“组件停在旧状态”。
         runCatching { WidgetStateStore.write(context, snapshot) }
         if (redraw) runCatching { scope.launch { WidgetHub.updateAll(context) } }
     }
@@ -326,14 +363,21 @@ object WidgetUpdater {
     }
 
     /**
-     * 4×1 胶囊的背景层是实时进度条：播放中每秒推进一次快照里的播放位置，只重绘胶囊。
-     * 暂停/停止立刻停掉，不空转。
+     * 组件刚被添加到桌面（或系统重建组件）时补一下进度 ticker：
+     * 之前只有播放事件才会启动它，用户在播放中途加组件时进度条会停住不动。
+     */
+    fun ensureProgressTicker(context: Context) {
+        if (ticker?.isActive == true) return
+        val app = context.applicationContext
+        tickProgress(app, current(app).isPlaying)
+    }
+
+    /**
+     * 4×1 胶囊的背景层是实时进度条：播放中每秒对齐一次真实播放位置，只重绘胶囊。
      *
-     * 播放进度不同步的主因：ticker 是“每秒从内存快照推算一格”的伪动画，
-     * 它对齐的是采集时的快照。而 seek/切歌/暂停后，播放器里的真实位置已经变了，
-     * 下一次真实事件来之前，这台伪动画继续按旧快照往前推——于是胶囊条
-     * 永远追不上 App 内的实际进度。修法是“真实帧来了就重置 ticker
-     * 的基准”，每轮 tick 只在新基准上往前算，不凭旧快照硬推。
+     * 不能靠「按快照外推」：seek、缓冲停顿、倍速、循环回开头都不会产生组件监听的状态事件，
+     * 外推出来的位置会越漂越远——这正是「组件进度和 App 不同步」。所以每轮 tick 都向
+     * 播放器要一次 currentPosition，读不到才退回外推。
      */
     private fun tickProgress(context: Context, playing: Boolean) {
         // 每次状态变化（暂停/切歌/加载/重加重）都重启 ticker，
@@ -341,6 +385,8 @@ object WidgetUpdater {
         ticker?.cancel()
         ticker = null
         if (!playing) return
+        // 桌面上没有胶囊实例就没人要这条进度：不为空转的 1s 重组买单。
+        if (!WidgetHub.hasInstance(context, CapsuleWidgetReceiver::class.java)) return
         ticker = scope.launch {
             while (isActive) {
                 delay(1000)
@@ -348,9 +394,14 @@ object WidgetUpdater {
                 // 暂停/时长未知就停：不让错误进度污染胶囊。
                 if (!snapshot.isPlaying || snapshot.durationMs <= 0L) break
                 val now = SystemClock.elapsedRealtime()
-                val position = (snapshot.positionMs + (now - snapshot.progressAt).coerceAtLeast(0L))
-                    .coerceAtMost(snapshot.durationMs)
-                val next = snapshot.copy(positionMs = position, progressAt = now)
+                // 以播放器真实位置为准；读不到（播放器已释放）才退回外推。
+                val realPosition = readPlayerPosition()
+                val position = realPosition
+                    ?: (snapshot.positionMs + (now - snapshot.progressAt).coerceAtLeast(0L))
+                val next = snapshot.copy(
+                    positionMs = position.coerceIn(0L, snapshot.durationMs),
+                    progressAt = now,
+                )
                 live = next
                 WidgetStateStore.write(context, next)
                 runCatching { WidgetHub.updateCapsule(context) }
@@ -358,12 +409,42 @@ object WidgetUpdater {
         }
     }
 
-    private suspend fun favoriteIds(context: Context): List<Long> =
-        runCatching { context.favoriteSongIdsDatastore.data.first().songIdsList }
-            .getOrDefault(emptyList())
+    /** 在播放器线程上读一次真实播放位置；读失败返回 null（不影响 ticker 继续走外推）。 */
+    private suspend fun readPlayerPosition(): Long? {
+        val player = playerRef?.get() ?: return null
+        return runCatching {
+            // 播放器是 PlaybackService 在主线程 build 的，applicationLooper 就是主线程，
+            // 在主线程读才能通过 media3 的线程校验。
+            withContext(Dispatchers.Main) {
+                player.currentPosition.coerceAtLeast(0L)
+            }
+        }.getOrNull()
+    }
 
-    private suspend fun cookie(context: Context): String? =
-        runCatching { context.dataStore.data.first()[ncmCookieKey] }.getOrNull()
+    private suspend fun favoriteIds(context: Context, force: Boolean = false): List<Long> {
+        val now = SystemClock.elapsedRealtime()
+        // 事件成串到达时不用每次都去 DataStore 取一遍收藏列表：短 TTL 缓存即可，
+        // 真正收藏/取消收藏的路径会 force=true 覆盖。
+        if (!force && likedAt != 0L && now - likedAt < 5_000L) return likedCache
+        likedCache = runCatching { context.favoriteSongIdsDatastore.data.first().songIdsList }
+            .getOrDefault(likedCache)
+        likedAt = now
+        return likedCache
+    }
+
+    private suspend fun cookie(context: Context, force: Boolean = false): String? {
+        val now = SystemClock.elapsedRealtime()
+        if (!force && cookieAt != 0L && now - cookieAt < 10_000L) return cookieCache
+        cookieCache = runCatching { context.dataStore.data.first()[ncmCookieKey] }.getOrNull()
+        cookieAt = now
+        return cookieCache
+    }
+
+    /** 收藏 / 登录态的短 TTL 缓存：避免每个播放事件都打一遍 DataStore。 */
+    private var likedCache: List<Long> = emptyList()
+    private var likedAt = 0L
+    private var cookieCache: String? = null
+    private var cookieAt = 0L
 }
 
 object WidgetHub {
@@ -387,6 +468,14 @@ object WidgetHub {
         refresh(context.applicationContext, CapsuleWidget, CapsuleWidgetReceiver::class.java)
     }
 
+    /** 桌面上是否有这款组件的实例。给「没人用就别干活」的省电判断用。 */
+    fun hasInstance(context: Context, receiver: Class<out GlanceAppWidgetReceiver>): Boolean =
+        runCatching {
+            AppWidgetManager.getInstance(context)
+                .getAppWidgetIds(ComponentName(context, receiver))
+                .isNotEmpty()
+        }.getOrDefault(false)
+
     private suspend fun refresh(
         context: Context,
         widget: GlanceAppWidget,
@@ -400,14 +489,17 @@ object WidgetHub {
             IntArray(0)
         }
         if (ids.isEmpty()) {
-            WidgetDebug.log("${receiver.simpleName}: 桌面上没有实例")
             return
         }
         val glanceManager = GlanceAppWidgetManager(context)
         ids.forEach { rawId ->
             runCatching {
                 widget.update(context, glanceManager.getGlanceIdBy(rawId))
-            }.onFailure { WidgetDebug.log("update #$rawId failed: $it") }
+            }.onFailure {
+                // 这里的失败以前只有一行 Log.d：RemoteViews 超 Binder 上限、合成异常都被吞掉，
+                // 组件停在旧帧却查不到原因。至少要在 logcat 里是 error 级别。
+                WidgetDebug.error("update #$rawId failed", it)
+            }
         }
     }
 

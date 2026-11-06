@@ -54,4 +54,8 @@ object WidgetDebug {
     fun log(message: String) {
         Log.d(TAG, message)
     }
+
+    fun error(message: String, throwable: Throwable? = null) {
+        Log.e(TAG, message, throwable)
+    }
 }

@@ -68,7 +68,7 @@ object WidgetMedia {
             MediaController.Builder(app, token).buildAsync()
         }
         return try {
-            val controller = withContext(Dispatchers.IO) { future.get(6, TimeUnit.SECONDS) }
+            val controller = withContext(Dispatchers.IO) { future.get(3, TimeUnit.SECONDS) }
             try {
                 withContext(Dispatchers.Main) { block(controller) }
             } finally {
@@ -93,13 +93,23 @@ class WidgetPlayPauseAction : ActionCallback {
         // 等播放器线程事件回来才刷会有 100~200ms 延迟，观感就是“点了没反应”。
         WidgetUpdater.cancelPending()
         val nextPlayingState = WidgetUpdater.optimisticPlayPause(app)
-        val controller = WidgetMedia.withController(app) { controller ->
+        val acted = WidgetMedia.withController(app) { controller ->
+            // App 进程被系统回收过：会话里没有队列，pause/play 打上去是静默成功但什么都不会发生，
+            // 用户看到的就是「按钮根本没用」。这种情况直接把用户带回 App，让它的播放列表恢复流程重建队列。
+            if (controller.mediaItemCount == 0) return@withController false
             if (controller.isPlaying || controller.playWhenReady) {
                 controller.pause()
             } else {
                 if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
                 controller.play()
             }
+            true
+        } ?: false
+        if (!acted) {
+            // 没会话/连不上：把乐观帧翻回去，别让图标停在错误状态，然后打开 App。
+            WidgetUpdater.pushPlayingFrame(app, !nextPlayingState)
+            WidgetMedia.openApp(app, openPlayer = false)
+            return
         }
         // 300ms 后兜底对齐一次真实态，避免乐观帧没被事件覆盖。
         WidgetUpdater.pushPlayingFrame(app, nextPlayingState)
@@ -112,10 +122,16 @@ class WidgetNextAction : ActionCallback {
         // 切歌前先清掉 pending：否则上一轮 drain 的 0 延迟合并会把旧歌直接推到组件，
         // 再等真实切换事件回来就是二次刷新。清掉后只走新事件的 drain。
         WidgetUpdater.cancelPending()
-        WidgetMedia.withController(app) { controller ->
+        val acted = WidgetMedia.withController(app) { controller ->
+            if (controller.mediaItemCount == 0) return@withController false
             controller.seekToNextMediaItem()
             if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
             controller.play()
+            true
+        } ?: false
+        if (!acted) {
+            WidgetMedia.openApp(app, openPlayer = false)
+            return
         }
         // 兜底：真实事件（EVENT_MEDIA_ITEM_TRANSITION）回来后 WidgetUpdater.refresh
         // 按 0 延迟 drain 立即推；若事件被吞（如空帧防护拦截），这里 800ms 后强制重绘一次。
@@ -127,10 +143,16 @@ class WidgetPrevAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val app = context.applicationContext
         WidgetUpdater.cancelPending()
-        WidgetMedia.withController(app) { controller ->
+        val acted = WidgetMedia.withController(app) { controller ->
+            if (controller.mediaItemCount == 0) return@withController false
             controller.seekToPreviousMediaItem()
             if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
             controller.play()
+            true
+        } ?: false
+        if (!acted) {
+            WidgetMedia.openApp(app, openPlayer = false)
+            return
         }
         WidgetUpdater.poke(app)
     }

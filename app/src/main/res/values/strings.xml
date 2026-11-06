@@ -139,4 +139,5 @@
     <string name="widget_empty_loading_hint">正在准备播放</string>
     <string name="widget_unknown_artist">未知艺人</string>
     <string name="widget_unknown_album">未知专辑</string>
+    <string name="widget_buffering">缓冲中 · %1$s</string>
 </resources>

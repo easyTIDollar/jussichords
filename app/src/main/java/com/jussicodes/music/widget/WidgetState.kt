@@ -53,8 +53,15 @@ data class WidgetSnapshot(
         else -> context.getString(com.jussicodes.music.R.string.widget_empty_no_song_hint)
     }
 
-    fun artistLine(context: Context): String =
-        artist.ifBlank { context.getString(com.jussicodes.music.R.string.widget_unknown_artist) }
+    fun artistLine(context: Context): String {
+        val name = artist.ifBlank { context.getString(com.jussicodes.music.R.string.widget_unknown_artist) }
+        // 缓冲/换源时给出可见反馈，别让组件看起来「点了没反应」。
+        return if (isLoading && isPlaying) {
+            context.getString(com.jussicodes.music.R.string.widget_buffering, name)
+        } else {
+            name
+        }
+    }
 
     fun artistAlbumLine(context: Context): String {
         val a = artist.ifBlank { context.getString(com.jussicodes.music.R.string.widget_unknown_artist) }
@@ -100,6 +107,14 @@ object WidgetStateStore {
         )
     }
 
+    /**
+     * 写快照。
+     *
+     * 用 apply()：进程内缓存同步更新（组件合成立刻能读到新帧），磁盘异步刷盘。
+     * 之前的 commit() 是每次播放事件、每秒进度 tick 都同步 fsync 一次，
+     * 等于把磁盘 IO 顶在点歌/切歌的热路径上。真正的收尾场景（服务销毁）
+     * 由系统在 service onDestroy 之后执行 QueuedWork.waitToFinish() 保证落盘。
+     */
     fun write(context: Context, snapshot: WidgetSnapshot) {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
@@ -117,8 +132,6 @@ object WidgetStateStore {
             .putLong(K_POSITION, snapshot.positionMs)
             .putLong(K_DURATION, snapshot.durationMs)
             .putLong(K_PROGRESS_AT, snapshot.progressAt)
-            // 用 commit() 而不是 apply()：服务被划掉/进程被系统杀掉时 apply 的异步落盘可能丢，
-            // 组件就会退回上一次的旧帧（用户看到的「关掉 App 播放信息没了」）。
-            .commit()
+            .apply()
     }
 }

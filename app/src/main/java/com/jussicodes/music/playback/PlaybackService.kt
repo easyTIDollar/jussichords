@@ -110,6 +110,9 @@ class PlaybackService : MediaSessionService() {
                     Player.EVENT_MEDIA_METADATA_CHANGED,
                     Player.EVENT_PLAYBACK_STATE_CHANGED,
                     Player.EVENT_TIMELINE_CHANGED,
+                    // seek / 重播 / 循环回到开头：只加这一条，组件进度才会跟着拖动的进度条走，
+                    // 否则要等下一次状态变化才对齐（用户看到的就是「组件和 App 不同步」）。
+                    Player.EVENT_POSITION_DISCONTINUITY,
                 )
             ) {
                 WidgetUpdater.refresh(applicationContext, player)
@@ -788,8 +791,9 @@ class PlaybackService : MediaSessionService() {
             release()
             mediaSession = null
         }
-        // 同步补一帧重绘，确保“关掉 App 后组件停在暂停态、歌信息还在”能落地。
-        runBlocking { WidgetHub.updateAll(applicationContext) }
+        // 同步补一帧重绘的工作交给 WidgetUpdater 的对象级 scope：
+        // 这里以前是 runBlocking{ WidgetHub.updateAll(...) }，onDestroy 在主线程序，
+        // 拉 launcher 的 Glance 合成会把服务销毁卡住几百毫秒甚至更久（启动下一首时更明显）。
         scope.cancel()
         super.onDestroy()
     }

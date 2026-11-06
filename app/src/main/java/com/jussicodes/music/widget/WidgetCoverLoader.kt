@@ -21,10 +21,27 @@ import kotlinx.coroutines.withContext
 import java.util.Collections
 import java.io.ByteArrayOutputStream
 
-enum class CoverStyle { ROUNDED, CIRCLE }
+/**
+ * 封面目标像素按组件实际绘制尺寸给。
+ *
+ * Glance 每一帧都把位图塞进 RemoteViews 走 Binder：512×512 ARGB_8888 正好 1,048,576 字节，
+ * 加上 Bundle/RemoteViews 头就超过 Binder 单次事务上限（TransactionTooLargeException），
+ * updateAppWidget 直接失败——表现为组件永远停在旧帧或「加载中」。桌面组件最大也就 2×2 格，
+ * 按 dp 实际像素出图足够清晰，体积还小一个数量级。
+ */
+enum class CoverStyle(val px: Int) {
+    /** 经典 4×2：66dp 封面，3x 屏约 198px。 */
+    ROUNDED(224),
+
+    /** 方形 2×2：整格铺满封面，3x 屏约 330px。 */
+    LARGE(320),
+
+    /** 胶囊 4×1：40dp 圆形封面，3x 屏约 120px。 */
+    CIRCLE(160),
+}
 
 /**
- * 封面加载：Coil（复用 App 已有的 ImageLoader / 磁盘缓存）→ 方形裁切 → 缩到 ≤512px
+ * 封面加载：Coil（复用 App 已有的 ImageLoader / 磁盘缓存）→ 方形裁切 → 缩到组件实际尺寸
  * → JPEG 压缩再解码（顺便得到软件位图，RemoteViews 才能跨进程传）
  * → 按组件样式画圆角 / 圆形。结果进内存 LruCache。
  *
@@ -34,8 +51,7 @@ enum class CoverStyle { ROUNDED, CIRCLE }
  * 所以合成只读 [cached]，没命中交给 [prefetch] 在后台补，补完再推一帧。
  */
 object WidgetCoverLoader {
-    private const val MAX_PX = 512
-    private const val JPEG_QUALITY = 86
+    private const val JPEG_QUALITY = 82
     private const val CACHE_BYTES = 12 * 1024 * 1024
 
     /** 同一张图失败后 60s 内不再重试，避免每次刷新都打一遍网络。 */
@@ -95,7 +111,7 @@ object WidgetCoverLoader {
     ): Bitmap? = withContext(Dispatchers.IO) {
         val request = ImageRequest.Builder(context)
             .data(url)
-            .size(MAX_PX)
+            .size(style.px)
             .build()
         val raw = (SingletonImageLoader.get(context).execute(request) as? SuccessResult)
             ?.image?.toBitmap() ?: return@withContext null
@@ -105,7 +121,7 @@ object WidgetCoverLoader {
         } else {
             raw
         }
-        val square = squareCrop(loaded)
+        val square = squareCrop(loaded, style.px)
 
         val bytes = ByteArrayOutputStream().use { out ->
             square.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
@@ -120,14 +136,14 @@ object WidgetCoverLoader {
         }
     }
 
-    private fun squareCrop(src: Bitmap): Bitmap {
+    private fun squareCrop(src: Bitmap, maxPx: Int): Bitmap {
         val side = minOf(src.width, src.height)
         if (side <= 0) return src
         val x = (src.width - side) / 2
         val y = (src.height - side) / 2
         val cropped = Bitmap.createBitmap(src, x, y, side, side)
-        if (side <= MAX_PX) return cropped
-        val scaled = Bitmap.createScaledBitmap(cropped, MAX_PX, MAX_PX, true)
+        if (side <= maxPx) return cropped
+        val scaled = Bitmap.createScaledBitmap(cropped, maxPx, maxPx, true)
         if (scaled !== cropped && cropped !== src) cropped.recycle()
         return scaled
     }

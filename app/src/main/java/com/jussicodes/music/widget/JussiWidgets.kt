@@ -17,7 +17,6 @@ import androidx.glance.GlanceModifier
 import androidx.glance.GlanceId
 import androidx.glance.Image
 import androidx.glance.ImageProvider
-import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -66,42 +65,37 @@ abstract class BaseMusicWidget(
     override val sizeMode: SizeMode = sizes
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        // 上一次合成如果抛过异常，Glance 会直接关掉 session、组件停在旧 RemoteViews 上。
-        // 这时先画一张错误卡（把异常本身写在组件里），比默默卡住好定位得多。
-        val error = WidgetDebug.recentError(context)
-        if (error != null) {
-            provideContent { ErrorCard(error) }
+        // 进程内实时帧优先：播放服务还活着时它一定是最新状态，不依赖落盘
+        val snapshot = WidgetUpdater.current(context)
+        val cover = if (snapshot.hasSong) {
+            WidgetCoverLoader.cached(snapshot, coverStyle, cornerRatio)
         } else {
-            // 进程内实时帧优先：播放服务还活着时它一定是最新状态，不依赖落盘
-            val snapshot = WidgetUpdater.current(context)
-            val cover = if (snapshot.hasSong) {
-                WidgetCoverLoader.cached(snapshot, coverStyle, cornerRatio)
+            null
+        }
+        if (snapshot.hasSong && cover == null) {
+            // 合成里只读缓存，缺图交给后台补；补好后再推一帧，绝不让网络阻塞合成。
+            WidgetCoverLoader.prefetch(context, snapshot, coverStyle, cornerRatio) {
+                WidgetHub.updateAll(context)
+            }
+        }
+        // 播放中新增组件时把进度 ticker 接上，不然进度条要等下一次播放事件才会动。
+        WidgetUpdater.ensureProgressTicker(context)
+        provideContent {
+            val prefs = currentState<Preferences>()
+            val overrideSong = prefs[WidgetLikeKeys.SongId]
+            val liked = if (overrideSong != null && overrideSong == snapshot.songId && snapshot.songId != 0L) {
+                prefs[WidgetLikeKeys.Value] ?: snapshot.isLiked
             } else {
-                null
+                snapshot.isLiked
             }
-            if (snapshot.hasSong && cover == null) {
-                // 合成里只读缓存，缺图交给后台补；补好后再推一帧，绝不让网络阻塞合成。
-                WidgetCoverLoader.prefetch(context, snapshot, coverStyle, cornerRatio) {
-                    WidgetHub.updateAll(context)
-                }
-            }
-            provideContent {
-                val prefs = currentState<Preferences>()
-                val overrideSong = prefs[WidgetLikeKeys.SongId]
-                val liked = if (overrideSong != null && overrideSong == snapshot.songId && snapshot.songId != 0L) {
-                    prefs[WidgetLikeKeys.Value] ?: snapshot.isLiked
-                } else {
-                    snapshot.isLiked
-                }
-                WidgetBody(
-                    style = style,
-                    snapshot = snapshot,
-                    liked = liked,
-                    cover = cover,
-                    palette = WidgetPalette.of(context),
-                    context = context,
-                )
-            }
+            WidgetBody(
+                style = style,
+                snapshot = snapshot,
+                liked = liked,
+                cover = cover,
+                palette = WidgetPalette.of(context),
+                context = context,
+            )
         }
     }
 
@@ -128,7 +122,7 @@ object ClassicWidget : BaseMusicWidget(
 )
 
 object SquareWidget : BaseMusicWidget(
-    WidgetStyle.SQUARE, CoverStyle.ROUNDED, 0.18f, SizeMode.Responsive(WidgetSizes.Square)
+    WidgetStyle.SQUARE, CoverStyle.LARGE, 0.18f, SizeMode.Responsive(WidgetSizes.Square)
 )
 
 object CapsuleWidget : BaseMusicWidget(
@@ -148,30 +142,6 @@ private fun WidgetBody(
         WidgetStyle.CLASSIC -> ClassicLayout(snapshot, liked, cover, palette, context)
         WidgetStyle.SQUARE -> SquareLayout(snapshot, liked, cover, palette, context)
         WidgetStyle.CAPSULE -> CapsuleLayout(snapshot, liked, cover, palette, context)
-    }
-}
-
-/**
- * 合成异常兜底视图：把异常类名 + message 直接画在组件上。
- * 只用于定位问题，10 分钟窗口后自动恢复成正常布局。
- */
-@Composable
-private fun ErrorCard(error: String) {
-    val palette = WidgetPalette.of(LocalContext.current)
-    Box(modifier = roundedCard(palette.card).fillMaxSize().padding(12.dp)) {
-        Column(modifier = GlanceModifier.fillMaxSize()) {
-            Text(
-                text = "组件渲染异常",
-                maxLines = 1,
-                style = titleStyle(palette.onCard, 13.sp),
-            )
-            Spacer(GlanceModifier.height(4.dp))
-            Text(
-                text = error,
-                maxLines = 4,
-                style = bodyStyle(palette.secondary, 10.sp),
-            )
-        }
     }
 }
 
@@ -349,38 +319,44 @@ private fun ClassicLayout(
         }
 
         if (snapshot.hasSong) {
+            // 窄屏（250dp 的最小格子）放不下 5 个按钮：44dp×5 已经吃掉整行宽度，
+            // 图标会挤在一起。这里按可用宽度收敛按钮数量和点击区尺寸。
+            val wide = size.width >= 300.dp
+            val controlSize = if (wide) 44.dp else 40.dp
             Row(
                 modifier = GlanceModifier.fillMaxWidth().height(48.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ControlIcon(
                     R.drawable.ic_widget_prev, "上一首", prevAction(), palette.onCard,
-                    size = 44.dp,
+                    size = controlSize,
                 )
                 ControlIcon(
                     iconRes = if (snapshot.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
                     description = if (snapshot.isPlaying) "暂停" else "播放",
                     action = playPauseAction(),
                     tint = palette.onCard,
-                    size = 44.dp,
+                    size = controlSize,
                 )
                 ControlIcon(
                     R.drawable.ic_widget_next, "下一首", nextAction(), palette.onCard,
-                    size = 44.dp,
+                    size = controlSize,
                 )
-                // 私人 FM 入口：FM 模式里高亮，普通播放里当快捷键用
-                ControlIcon(
-                    R.drawable.ic_widget_fm, "私人FM", fmAction(),
-                    tint = if (snapshot.isFm) palette.accent else palette.secondary,
-                    size = 44.dp,
-                )
+                // 私人 FM 入口：窄屏先让位给基础控制
+                if (wide) {
+                    ControlIcon(
+                        R.drawable.ic_widget_fm, "私人FM", fmAction(),
+                        tint = if (snapshot.isFm) palette.accent else palette.secondary,
+                        size = controlSize,
+                    )
+                }
                 Spacer(GlanceModifier.defaultWeight())
                 ControlIcon(
                     iconRes = if (liked) R.drawable.ic_favorite_fill else R.drawable.ic_favorite,
                     description = if (liked) "取消喜欢" else "喜欢",
                     action = likeAction(),
                     tint = if (liked) palette.accent else palette.secondary,
-                    size = 44.dp,
+                    size = controlSize,
                 )
             }
         }
@@ -500,8 +476,16 @@ private fun CapsuleLayout(
     context: Context,
 ) {
     val size = LocalSize.current
-    val buttons = if (snapshot.hasSong) (if (snapshot.isFm) 2 else 3) else 0
-    val textWidth = size.width - 20.dp - 48.dp - 8.dp - (48.dp * buttons) - 4.dp
+    // 4×1 最小只有 250dp：40dp 封面 + 3 个 48dp 按钮 + 间距后只剩 30 多 dp，
+    // 歌名会被裁成一个省略号。窄屏只保留「播放 / 下一首」，宽屏才加「上一首」。
+    val wide = size.width >= 300.dp
+    val showPrev = snapshot.hasSong && !snapshot.isFm && wide
+    val buttons = when {
+        !snapshot.hasSong -> 0
+        showPrev -> 3
+        else -> 2
+    }
+    val textWidth = size.width - 20.dp - 40.dp - 8.dp - (48.dp * buttons) - 8.dp
 
     Box(modifier = roundedCard(palette.card).fillMaxSize()) {
         // 实时进度：和 App 迷你播放器一样，用主题色半透明把整条胶囊从左往右填满
@@ -556,7 +540,7 @@ private fun CapsuleLayout(
                 }
             }
             if (snapshot.hasSong) {
-                if (!snapshot.isFm) ControlIcon(R.drawable.ic_widget_prev, "上一首", prevAction(), palette.onCard)
+                if (showPrev) ControlIcon(R.drawable.ic_widget_prev, "上一首", prevAction(), palette.onCard)
                 ControlIcon(
                     iconRes = if (snapshot.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
                     description = if (snapshot.isPlaying) "暂停" else "播放",
