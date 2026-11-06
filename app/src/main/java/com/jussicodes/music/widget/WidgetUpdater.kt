@@ -559,7 +559,7 @@ object WidgetHub {
             IntArray(0)
         }
         val glanceManager = GlanceAppWidgetManager(context)
-        var glanceIds = rawIds.mapNotNull { rawId ->
+        var glanceIds: List<GlanceId> = rawIds.toList().mapNotNull { rawId ->
             runCatching { glanceManager.getGlanceIdBy(rawId) }.getOrNull()
         }
         if (glanceIds.isEmpty()) {
