@@ -13,8 +13,12 @@ import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.toBitmap
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Collections
 import java.io.ByteArrayOutputStream
 
 enum class CoverStyle { ROUNDED, CIRCLE }
@@ -22,32 +26,65 @@ enum class CoverStyle { ROUNDED, CIRCLE }
 /**
  * 封面加载：Coil（复用 App 已有的 ImageLoader / 磁盘缓存）→ 方形裁切 → 缩到 ≤512px
  * → JPEG 压缩再解码（顺便得到软件位图，RemoteViews 才能跨进程传）
- * → 按组件样式画圆角 / 圆形 / 黑胶。结果进内存 LruCache，同一首歌的多次组件刷新不重复解码。
+ * → 按组件样式画圆角 / 圆形。结果进内存 LruCache。
+ *
+ * 关键约束：**合成（provideGlance）里绝不发起网络请求**。
+ * 合成是 Glance 的一帧事务，下一次 update 会取消它；只要在里面 await 一次网络，
+ * 弱网或图源超时时组件就一直「没合成完」，观感就是状态彻底不同步。
+ * 所以合成只读 [cached]，没命中交给 [prefetch] 在后台补，补完再推一帧。
  */
 object WidgetCoverLoader {
     private const val MAX_PX = 512
     private const val JPEG_QUALITY = 86
     private const val CACHE_BYTES = 12 * 1024 * 1024
 
+    /** 同一张图失败后 60s 内不再重试，避免每次刷新都打一遍网络。 */
+    private const val FAIL_TTL_MS = 60_000L
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private val cache = object : LruCache<String, Bitmap>(CACHE_BYTES) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 
-    suspend fun load(
+    private val pending: MutableSet<String> = Collections.synchronizedSet(mutableSetOf())
+    private val failedAt: MutableMap<String, Long> = Collections.synchronizedMap(mutableMapOf())
+
+    private fun key(snapshot: WidgetSnapshot, style: CoverStyle, cornerRatio: Float): String =
+        "${snapshot.songId}|${snapshot.coverUrl.hashCode()}|$style|$cornerRatio"
+
+    /** 只查内存缓存：命中同步返回。合成路径唯一允许的取图方式。 */
+    fun cached(snapshot: WidgetSnapshot, style: CoverStyle, cornerRatio: Float): Bitmap? {
+        if (snapshot.coverUrl.isBlank()) return null
+        return cache.get(key(snapshot, style, cornerRatio))
+    }
+
+    /** 后台补图，成功后回调（用来重绘一帧）。重复调用安全。 */
+    fun prefetch(
         context: Context,
         snapshot: WidgetSnapshot,
         style: CoverStyle,
         cornerRatio: Float,
-    ): Bitmap? {
-        val url = snapshot.coverUrl
-        if (url.isBlank()) return null
-        val key = "${snapshot.songId}|${url.hashCode()}|$style|$cornerRatio"
-        cache.get(key)?.let { return it }
-        val bitmap = withContext(Dispatchers.IO) {
-            runCatching { decode(context, url, style, cornerRatio) }.getOrNull()
-        } ?: return null
-        cache.put(key, bitmap)
-        return bitmap
+        onReady: suspend () -> Unit,
+    ) {
+        if (snapshot.coverUrl.isBlank()) return
+        val app = context.applicationContext
+        val k = key(snapshot, style, cornerRatio)
+        if (cache.get(k) != null) return
+        val now = System.currentTimeMillis()
+        failedAt[k]?.let { if (now - it < FAIL_TTL_MS) return }
+        if (!pending.add(k)) return
+        scope.launch {
+            val bitmap = runCatching { decode(app, snapshot.coverUrl, style, cornerRatio) }.getOrNull()
+            pending.remove(k)
+            if (bitmap == null) {
+                failedAt[k] = System.currentTimeMillis()
+                return@launch
+            }
+            cache.put(k, bitmap)
+            failedAt.remove(k)
+            runCatching { onReady() }
+        }
     }
 
     private suspend fun decode(
@@ -55,16 +92,16 @@ object WidgetCoverLoader {
         url: String,
         style: CoverStyle,
         cornerRatio: Float,
-    ): Bitmap? {
+    ): Bitmap? = withContext(Dispatchers.IO) {
         val request = ImageRequest.Builder(context)
             .data(url)
             .size(MAX_PX)
             .build()
         val raw = (SingletonImageLoader.get(context).execute(request) as? SuccessResult)
-            ?.image?.toBitmap() ?: return null
+            ?.image?.toBitmap() ?: return@withContext null
         // Coil 3 不再提供 allowHardware，硬件位图无法跨进程塞进 RemoteViews，这里统一转软件位图。
         val loaded = if (raw.config == Bitmap.Config.HARDWARE) {
-            raw.copy(Bitmap.Config.ARGB_8888, false) ?: return null
+            raw.copy(Bitmap.Config.ARGB_8888, false) ?: return@withContext null
         } else {
             raw
         }
@@ -77,7 +114,7 @@ object WidgetCoverLoader {
         val compressed = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: square
         val software = if (compressed.isMutable) compressed else compressed.copy(Bitmap.Config.ARGB_8888, true)
 
-        return when (style) {
+        when (style) {
             CoverStyle.ROUNDED -> round(software, software.width * cornerRatio)
             CoverStyle.CIRCLE -> circle(software)
         }

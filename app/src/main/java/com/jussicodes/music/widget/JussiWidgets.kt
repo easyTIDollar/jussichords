@@ -13,10 +13,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.Preferences
 import androidx.glance.ColorFilter
-import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.GlanceId
 import androidx.glance.Image
 import androidx.glance.ImageProvider
+import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -43,6 +44,11 @@ import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.jussicodes.music.R
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 enum class WidgetStyle { CLASSIC, SQUARE, CAPSULE }
 
@@ -60,28 +66,59 @@ abstract class BaseMusicWidget(
     override val sizeMode: SizeMode = sizes
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val snapshot = WidgetStateStore.read(context)
-        val cover = if (snapshot.hasSong) {
-            WidgetCoverLoader.load(context, snapshot, coverStyle, cornerRatio)
+        // 上一次合成如果抛过异常，Glance 会直接关掉 session、组件停在旧 RemoteViews 上。
+        // 这时先画一张错误卡（把异常本身写在组件里），比默默卡住好定位得多。
+        val error = WidgetDebug.recentError(context)
+        if (error != null) {
+            provideContent { ErrorCard(error) }
         } else {
-            null
-        }
-        provideContent {
-            val prefs = currentState<Preferences>()
-            val overrideSong = prefs[WidgetLikeKeys.SongId]
-            val liked = if (overrideSong != null && overrideSong == snapshot.songId && snapshot.songId != 0L) {
-                prefs[WidgetLikeKeys.Value] ?: snapshot.isLiked
+            // 进程内实时帧优先：播放服务还活着时它一定是最新状态，不依赖落盘
+            val snapshot = WidgetUpdater.current(context)
+            val cover = if (snapshot.hasSong) {
+                WidgetCoverLoader.cached(snapshot, coverStyle, cornerRatio)
             } else {
-                snapshot.isLiked
+                null
             }
-            WidgetBody(
-                style = style,
-                snapshot = snapshot,
-                liked = liked,
-                cover = cover,
-                palette = WidgetPalette.of(context),
-                context = context,
-            )
+            if (snapshot.hasSong && cover == null) {
+                // 合成里只读缓存，缺图交给后台补；补好后再推一帧，绝不让网络阻塞合成。
+                WidgetCoverLoader.prefetch(context, snapshot, coverStyle, cornerRatio) {
+                    WidgetHub.updateAll(context)
+                }
+            }
+            provideContent {
+                val prefs = currentState<Preferences>()
+                val overrideSong = prefs[WidgetLikeKeys.SongId]
+                val liked = if (overrideSong != null && overrideSong == snapshot.songId && snapshot.songId != 0L) {
+                    prefs[WidgetLikeKeys.Value] ?: snapshot.isLiked
+                } else {
+                    snapshot.isLiked
+                }
+                WidgetBody(
+                    style = style,
+                    snapshot = snapshot,
+                    liked = liked,
+                    cover = cover,
+                    palette = WidgetPalette.of(context),
+                    context = context,
+                )
+            }
+        }
+    }
+
+    /**
+     * 合成异常兜底：记下异常 + 重新画一帧（provideGlance 检测到记录就渲染错误卡）。
+     * 不抛出去，否则 Glance 会复用默认行为（保留旧帧，什么也不显示）。
+     */
+    override fun onCompositionError(
+        context: Context,
+        glanceId: GlanceId,
+        appWidgetId: Int,
+        throwable: Throwable,
+    ) {
+        WidgetDebug.record(context, throwable)
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+            delay(200)
+            runCatching { update(context, glanceId) }
         }
     }
 }
@@ -91,7 +128,7 @@ object ClassicWidget : BaseMusicWidget(
 )
 
 object SquareWidget : BaseMusicWidget(
-    WidgetStyle.SQUARE, CoverStyle.CIRCLE, 0f, SizeMode.Responsive(WidgetSizes.Square)
+    WidgetStyle.SQUARE, CoverStyle.ROUNDED, 0.18f, SizeMode.Responsive(WidgetSizes.Square)
 )
 
 object CapsuleWidget : BaseMusicWidget(
@@ -114,6 +151,30 @@ private fun WidgetBody(
     }
 }
 
+/**
+ * 合成异常兜底视图：把异常类名 + message 直接画在组件上。
+ * 只用于定位问题，10 分钟窗口后自动恢复成正常布局。
+ */
+@Composable
+private fun ErrorCard(error: String) {
+    val palette = WidgetPalette.of(LocalContext.current)
+    Box(modifier = roundedCard(palette.card).fillMaxSize().padding(12.dp)) {
+        Column(modifier = GlanceModifier.fillMaxSize()) {
+            Text(
+                text = "组件渲染异常",
+                maxLines = 1,
+                style = titleStyle(palette.onCard, 13.sp),
+            )
+            Spacer(GlanceModifier.height(4.dp))
+            Text(
+                text = error,
+                maxLines = 4,
+                style = bodyStyle(palette.secondary, 10.sp),
+            )
+        }
+    }
+}
+
 // —————————————————————— 通用零件 ——————————————————————
 
 @Composable
@@ -132,32 +193,6 @@ private fun ControlIcon(
             provider = ImageProvider(iconRes),
             contentDescription = description,
             modifier = GlanceModifier.size(24.dp),
-            colorFilter = ColorFilter.tint(ColorProvider(tint)),
-        )
-    }
-}
-
-/** 圆底图标按钮（YouTube Music 那种）：胶囊/圆形底 + 单色图标。 */
-@Composable
-private fun CircleButton(
-    iconRes: Int,
-    description: String,
-    action: androidx.glance.action.Action,
-    background: Color,
-    tint: Color,
-    size: Dp,
-    iconSize: Dp = 20.dp,
-) {
-    Box(
-        modifier = GlanceModifier.size(size)
-            .then(roundedCard(background, radius = size * 0.5f, drawable = R.drawable.widget_circle))
-            .clickable(action),
-        contentAlignment = Alignment.Center,
-    ) {
-        Image(
-            provider = ImageProvider(iconRes),
-            contentDescription = description,
-            modifier = GlanceModifier.size(iconSize),
             colorFilter = ColorFilter.tint(ColorProvider(tint)),
         )
     }
@@ -352,7 +387,7 @@ private fun ClassicLayout(
     }
 }
 
-// —————————————————————— 2. 方形 2×2（1:1，YouTube Music 风格按钮） ——————————————————————
+// —————————————————————— 2. 方形 2×2 ——————————————————————
 
 @Composable
 private fun SquareLayout(
@@ -363,24 +398,17 @@ private fun SquareLayout(
     context: Context,
 ) {
     val size = LocalSize.current
-    val art = size.width - 26.dp
-    val scrimHeight = 52.dp
+    val textWidth = size.width - 26.dp - 52.dp
+    val scrimHeight = if (size.height < 170.dp) 58.dp else 66.dp
 
     Box(modifier = roundedCard(palette.card).fillMaxSize()) {
         if (snapshot.hasSong) {
-            // 圆形封面，居中偏上：1:1 画布里的主视觉
-            Box(
-                modifier = GlanceModifier.fillMaxSize().padding(bottom = scrimHeight),
-                contentAlignment = Alignment.Center,
-            ) {
-                Cover(
-                    cover = cover,
-                    modifier = GlanceModifier.size(art).clickable(openPlayerAction(context)),
-                    palette = palette,
-                    iconSize = 32.dp,
-                    circle = true,
-                )
-            }
+            Cover(
+                cover = cover,
+                modifier = GlanceModifier.fillMaxSize(),
+                palette = palette,
+                iconSize = 32.dp,
+            )
         } else {
             Box(
                 modifier = GlanceModifier.fillMaxSize()
@@ -396,77 +424,65 @@ private fun SquareLayout(
             }
         }
 
-        // 右上角：YouTube Music 那种圆底爱心
-        if (snapshot.hasSong) {
-            Box(
-                modifier = GlanceModifier.fillMaxSize().padding(8.dp),
-                contentAlignment = Alignment.TopEnd,
-            ) {
-                CircleButton(
-                    iconRes = if (liked) R.drawable.ic_favorite_fill else R.drawable.ic_favorite,
-                    description = if (liked) "取消喜欢" else "喜欢",
-                    action = likeAction(),
-                    background = Color.Black.copy(alpha = 0.32f),
-                    tint = if (liked) palette.accent else Color.White,
-                    size = 34.dp,
-                    iconSize = 18.dp,
-                )
-            }
-        }
-
         Column(modifier = GlanceModifier.fillMaxSize()) {
+            Row(
+                modifier = GlanceModifier.fillMaxWidth().height(52.dp).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Spacer(GlanceModifier.defaultWeight())
+                if (snapshot.hasSong) {
+                    ControlIcon(
+                        iconRes = if (liked) R.drawable.ic_favorite_fill else R.drawable.ic_favorite,
+                        description = if (liked) "取消喜欢" else "喜欢",
+                        action = likeAction(),
+                        tint = if (liked) palette.accent else Color.White,
+                    )
+                }
+            }
             Spacer(GlanceModifier.defaultWeight())
             Row(
                 modifier = GlanceModifier.fillMaxWidth().height(scrimHeight)
                     .background(
                         imageProvider = ImageProvider(R.drawable.widget_scrim_bottom),
                         contentScale = ContentScale.FillBounds,
-                    ),
+                    )
+                    .clickable(openPlayerAction(context)),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(
-                    modifier = GlanceModifier.defaultWeight().padding(start = 14.dp)
-                        .clickable(openPlayerAction(context)),
-                ) {
+                Column(modifier = GlanceModifier.defaultWeight().padding(start = 14.dp)) {
                     if (snapshot.hasSong) {
                         Text(
-                            text = ellipsize(context, snapshot.title, size.width - 96.dp, 14f, bold = true),
+                            text = ellipsize(context, snapshot.title, textWidth, 15f, bold = true),
                             maxLines = 1,
-                            style = titleStyle(Color.White, 14.sp),
+                            style = titleStyle(Color.White, 15.sp),
                         )
                         Spacer(GlanceModifier.height(2.dp))
                         Text(
-                            text = ellipsize(context, snapshot.artistLine(context), size.width - 96.dp, 11f),
+                            text = ellipsize(context, snapshot.artistLine(context), textWidth, 12f),
                             maxLines = 1,
-                            style = bodyStyle(Color.White.copy(alpha = 0.82f), 11.sp),
+                            style = bodyStyle(Color.White.copy(alpha = 0.82f), 12.sp),
                         )
                     } else {
                         Text(
-                            text = ellipsize(context, snapshot.statusTitle(context), size.width - 40.dp, 14f, bold = true),
+                            text = ellipsize(context, snapshot.statusTitle(context), textWidth, 14f, bold = true),
                             maxLines = 1,
                             style = titleStyle(Color.White, 14.sp),
                         )
                         Spacer(GlanceModifier.height(2.dp))
                         Text(
-                            text = ellipsize(context, snapshot.statusHint(context), size.width - 40.dp, 11f),
+                            text = ellipsize(context, snapshot.statusHint(context), textWidth, 11f),
                             maxLines = 1,
                             style = bodyStyle(Color.White.copy(alpha = 0.78f), 11.sp),
                         )
                     }
                 }
                 if (snapshot.hasSong) {
-                    // 右下角：实心圆底的播放/暂停键
-                    Box(modifier = GlanceModifier.padding(end = 10.dp)) {
-                        CircleButton(
-                            iconRes = if (snapshot.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
-                            description = if (snapshot.isPlaying) "暂停" else "播放",
-                            action = playPauseAction(),
-                            background = palette.accent,
-                            tint = Color.White,
-                            size = 42.dp,
-                            iconSize = 22.dp,
-                        )
-                    }
+                    ControlIcon(
+                        iconRes = if (snapshot.isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
+                        description = if (snapshot.isPlaying) "暂停" else "播放",
+                        action = playPauseAction(),
+                        tint = Color.White,
+                    )
                 }
             }
         }

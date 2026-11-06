@@ -1,11 +1,14 @@
 package com.jussicodes.music.widget
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import androidx.glance.appwidget.AppWidgetReceiver
 import androidx.glance.appwidget.GlanceAppWidget
-import androidx.glance.appwidget.updateAll
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.media3.common.Player
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.ncmCookieKey
@@ -61,6 +64,20 @@ object WidgetUpdater {
     @Volatile
     private var version = 0
 
+    @Volatile
+    private var publishSeq = 0L
+
+    /**
+     * 进程内实时快照。合成组件时优先读它，其次才是 SharedPreferences。
+     * 播放器还活着的时候，这边一定是当前帧——不依赖落盘是否成功。
+     */
+    @Volatile
+    var live: WidgetSnapshot? = null
+        private set
+
+    /** 组件合成时要用的状态：先看内存里的实时帧，没有再退回落盘快照。 */
+    fun current(context: Context): WidgetSnapshot = live ?: WidgetStateStore.read(context)
+
     /**
      * 播放事件入口。
      *
@@ -85,26 +102,17 @@ object WidgetUpdater {
         val app = context.applicationContext
         mutex.withLock {
             runCatching {
-                val snapshot = WidgetStateStore.read(app)
-                val cookie = cookie(app)
-                val loggedIn = !cookie.isNullOrBlank()
+                val snapshot = current(app)
+                val loggedIn = !cookie(app).isNullOrBlank()
                 // 没有播放会话时也必须同步登录标记：否则空状态会一直停在「未登录」，
                 // 用户明明已在 App 内登录，组件却永远提示去登录。
-                if (!snapshot.hasSession) {
-                    if (loggedIn != snapshot.loggedIn) {
-                        WidgetStateStore.write(app, snapshot.copy(loggedIn = loggedIn))
-                        WidgetHub.updateAll(app)
-                    }
-                    return@runCatching
+                val liked = if (snapshot.hasSession && snapshot.songId != 0L) {
+                    snapshot.songId in favoriteIds(app)
+                } else {
+                    false
                 }
-                val ids = favoriteIds(app)
-                val liked = snapshot.songId != 0L && snapshot.songId in ids
                 if (liked == snapshot.isLiked && loggedIn == snapshot.loggedIn) return@runCatching
-                WidgetStateStore.write(
-                    app,
-                    snapshot.copy(isLiked = liked, loggedIn = loggedIn)
-                )
-                WidgetHub.updateAll(app)
+                publish(app, snapshot.copy(isLiked = liked, loggedIn = loggedIn), redraw = true)
             }
         }
     }
@@ -114,11 +122,10 @@ object WidgetUpdater {
         val app = context.applicationContext
         mutex.withLock {
             runCatching {
-                val snapshot = WidgetStateStore.read(app)
+                val snapshot = current(app)
                 val loggedIn = !cookie(app).isNullOrBlank()
                 if (loggedIn == snapshot.loggedIn) return@runCatching
-                WidgetStateStore.write(app, snapshot.copy(loggedIn = loggedIn))
-                WidgetHub.updateAll(app)
+                publish(app, snapshot.copy(loggedIn = loggedIn), redraw = true)
             }
         }
     }
@@ -138,17 +145,25 @@ object WidgetUpdater {
         scope.launch {
             mutex.withLock {
                 runCatching {
-                    val snapshot = WidgetStateStore.read(app)
+                    val snapshot = current(app)
                     tickProgress(app, false)
                     if (!snapshot.isPlaying && !snapshot.isLoading) return@runCatching
-                    WidgetStateStore.write(app, snapshot.copy(isPlaying = false, isLoading = false))
-                    WidgetHub.updateAll(app)
+                    // 只清播放态，歌曲信息留着：关掉 App 后组件仍显示「上次播放的歌」。
+                    publish(
+                        app,
+                        snapshot.copy(
+                            isPlaying = false,
+                            isLoading = false,
+                            progressAt = SystemClock.elapsedRealtime(),
+                        ),
+                        redraw = true,
+                    )
                 }
             }
         }
     }
 
-    private fun capture(player: Player): PlayerSnapshot? = runCatching {
+    private fun capture(player: Player): PlayerSnapshot? = try {
         val item = player.currentMediaItem
         val metadata = item?.mediaMetadata
         val extras = metadata?.extras
@@ -169,7 +184,11 @@ object WidgetUpdater {
             durationMs = player.duration.coerceAtLeast(0L),
             progressAt = SystemClock.elapsedRealtime(),
         )
-    }.getOrNull()
+    } catch (t: Throwable) {
+        // 读播放器失败（线程不对 / 播放器已释放）：留个痕迹，别静默吞。
+        WidgetDebug.log("capture failed: $t")
+        null
+    }
 
     private fun submit(context: Context, snapshot: PlayerSnapshot?) {
         // 读失败（线程不对 / 播放器已释放）就保持上一帧，绝不把组件清空。
@@ -211,11 +230,29 @@ object WidgetUpdater {
             durationMs = snapshot.durationMs,
             progressAt = snapshot.progressAt,
         )
-        // 内容没变就不重绘：回到前台、收藏列表刷新等事件不必再推一次 RemoteViews。
-        if (WidgetStateStore.read(context) == next) return
-        WidgetStateStore.write(context, next)
-        WidgetHub.updateAll(context)
+        WidgetDebug.log(
+            "commit playing=${next.isPlaying} song=${next.songId} title=${next.title} " +
+                "dur=${next.durationMs} liked=${next.isLiked} loggedIn=$loggedIn"
+        )
+        publish(context, next, redraw = true)
         tickProgress(context, next.isPlaying)
+    }
+
+    /**
+     * 统一发布点：先更新内存帧（组件合成直接读它），再落盘，最后重绘。
+     *
+     * 不做「内容没变就跳过」：切歌/暂停这类事件本来就该重绘一次，
+     * 而多推一帧 RemoteViews 的成本远低于漏掉一帧导致组件停在旧状态的代价。
+     */
+    private fun publish(context: Context, snapshot: WidgetSnapshot, redraw: Boolean) {
+        live = snapshot
+        val seq = ++publishSeq
+        scope.launch {
+            // 已经有更新的帧在排队，就别拿旧帧覆盖落盘（也不再多推一帧 RemoteViews）。
+            if (seq != publishSeq) return@launch
+            runCatching { WidgetStateStore.write(context, snapshot) }
+            if (redraw && seq == publishSeq) runCatching { WidgetHub.updateAll(context) }
+        }
     }
 
     /**
@@ -230,15 +267,20 @@ object WidgetUpdater {
         }
         if (ticker?.isActive == true) return
         ticker = scope.launch {
+            val songId = current(context).songId
             while (isActive) {
                 delay(1000)
-                val snapshot = WidgetStateStore.read(context)
+                val snapshot = current(context)
+                // 切歌/暂停/时长未知都停：宁可少推帧，也不要把别的歌的进度写回去。
                 if (!snapshot.isPlaying || snapshot.durationMs <= 0L) break
+                if (songId != 0L && snapshot.songId != songId) break
                 val now = SystemClock.elapsedRealtime()
                 val position = (snapshot.positionMs + (now - snapshot.progressAt).coerceAtLeast(0L))
                     .coerceAtMost(snapshot.durationMs)
-                WidgetStateStore.write(context, snapshot.copy(positionMs = position, progressAt = now))
-                runCatching { CapsuleWidget.updateAll(context) }
+                val next = snapshot.copy(positionMs = position, progressAt = now)
+                live = next
+                WidgetStateStore.write(context, next)
+                runCatching { WidgetHub.updateCapsule(context) }
             }
         }
     }
@@ -255,9 +297,51 @@ object WidgetHub {
     val widgets: List<GlanceAppWidget>
         get() = listOf(ClassicWidget, SquareWidget, CapsuleWidget)
 
+    /**
+     * 逐实例刷新。
+     *
+     * 不用 `GlanceAppWidget.updateAll(context)`：它靠 Glance 内部的「widget 类 → receiver」注册表
+     * 反查 id，注册表缺失时返回空列表且不报错——组件就再也不刷新了。
+     * 这里直接按 receiver 组件名向 AppWidgetManager 取 id，链路短、失败可见。
+     */
     suspend fun updateAll(context: Context) {
-        widgets.forEach { widget ->
-            runCatching { widget.updateAll(context) }
+        val app = context.applicationContext
+        pairings.forEach { (widget, receiver) -> refresh(app, widget, receiver) }
+    }
+
+    /** 只刷新胶囊：进度条每秒推一次，没必要连带另外两款一起重绘。 */
+    suspend fun updateCapsule(context: Context) {
+        refresh(context.applicationContext, CapsuleWidget, CapsuleWidgetReceiver::class.java)
+    }
+
+    private suspend fun refresh(
+        context: Context,
+        widget: GlanceAppWidget,
+        receiver: Class<out AppWidgetReceiver>,
+    ) {
+        val manager = AppWidgetManager.getInstance(context)
+        val ids = runCatching {
+            manager.getAppWidgetIds(ComponentName(context, receiver))
+        }.getOrElse {
+            WidgetDebug.log("getAppWidgetIds(${receiver.simpleName}) failed: ${it.message}")
+            IntArray(0)
+        }
+        if (ids.isEmpty()) {
+            WidgetDebug.log("${receiver.simpleName}: 桌面上没有实例")
+            return
+        }
+        val glanceManager = GlanceAppWidgetManager(context)
+        ids.forEach { rawId ->
+            runCatching {
+                widget.update(context, glanceManager.getGlanceIdBy(rawId))
+            }.onFailure { WidgetDebug.log("update #$rawId failed: $it") }
         }
     }
+
+    private val pairings: List<Pair<GlanceAppWidget, Class<out AppWidgetReceiver>>>
+        get() = listOf(
+            ClassicWidget to ClassicWidgetReceiver::class.java,
+            SquareWidget to SquareWidgetReceiver::class.java,
+            CapsuleWidget to CapsuleWidgetReceiver::class.java,
+        )
 }

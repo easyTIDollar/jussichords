@@ -755,6 +755,8 @@ class PlaybackService : MediaSessionService() {
         observeAudioEffectMode()
         observeAudioEffectParams()
         DesktopLyricManager.syncService(this)
+        // 服务刚起来就对齐一次：媒体会话恢复（如系统重建服务）时组件也该立刻显示当前歌。
+        WidgetUpdater.refresh(applicationContext, player)
     }
 
     override fun onDestroy() {

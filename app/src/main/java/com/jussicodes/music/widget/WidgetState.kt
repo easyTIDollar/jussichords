@@ -115,6 +115,8 @@ object WidgetStateStore {
             .putLong(K_POSITION, snapshot.positionMs)
             .putLong(K_DURATION, snapshot.durationMs)
             .putLong(K_PROGRESS_AT, snapshot.progressAt)
-            .apply()
+            // 用 commit() 而不是 apply()：服务被划掉/进程被系统杀掉时 apply 的异步落盘可能丢，
+            // 组件就会退回上一次的旧帧（用户看到的「关掉 App 播放信息没了」）。
+            .commit()
     }
 }

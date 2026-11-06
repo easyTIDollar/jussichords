@@ -122,7 +122,7 @@ class WidgetPrevAction : ActionCallback {
 class WidgetLikeAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val app = context.applicationContext
-        val snapshot = WidgetStateStore.read(app)
+        val snapshot = WidgetUpdater.current(app)
         val songId = snapshot.songId
         if (songId == 0L) return
         val target = !snapshot.isLiked
