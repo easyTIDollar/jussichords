@@ -314,7 +314,12 @@ class MainActivity : ComponentActivity() {
         // 没有播放事件也要跟上（内部会比对，未变化就不重绘）。
         lifecycleScope.launch { WidgetUpdater.syncFavoriteFlags(this@MainActivity) }
         // 兜底再对齐一次播放态：进程被系统回收过、或服务刚恢复时，组件可能还停在旧快照。
-        WidgetUpdater.refresh(this@MainActivity, playerState?.player)
+        // onResume 可能先于 Compose 里 playerState 的赋值：player 为 null 时 refresh
+        // 会静默返回，冷启动回前台的这次对齐就失效了——等一拍再取一次。
+        lifecycleScope.launch {
+            val player = playerState?.player ?: run { delay(300); playerState?.player }
+            WidgetUpdater.refresh(this@MainActivity, player)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

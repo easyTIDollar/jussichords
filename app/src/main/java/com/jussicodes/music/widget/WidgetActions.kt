@@ -76,6 +76,10 @@ object WidgetMedia {
                 withContext(Dispatchers.Main) { runCatching { controller.release() } }
             }
         } catch (t: Throwable) {
+            // 连接超时 / 会话不可用：调用方拿到 null 走回滚，但这里必须留痕，
+            // 否则「点了没反应」查不到原因。
+            WidgetDebug.error("MediaController connect/act failed", t)
+            WidgetDebug.event(app, "ctrl FAIL ${t.javaClass.simpleName}: ${t.message?.take(80)}")
             null
         } finally {
             withContext(Dispatchers.Main) { runCatching { MediaController.releaseFuture(future) } }
@@ -95,6 +99,7 @@ class WidgetPlayPauseAction : ActionCallback {
         WidgetUpdater.cancelPending()
         val nextPlayingState = WidgetUpdater.optimisticPlayPause(app)
         WidgetDebug.event(app, "action play/pause optimistic=$nextPlayingState")
+        val beforeVersion = WidgetUpdater.currentVersion()
         val acted = WidgetMedia.withController(app) { controller ->
             // App 进程被系统回收过：会话里没有队列。磁盘上存着上次的队列就让它走
             // MediaSession.Callback.onPlaybackResumption 直接续播，不用把用户拽进 App。
@@ -118,8 +123,9 @@ class WidgetPlayPauseAction : ActionCallback {
             WidgetMedia.openApp(app, openPlayer = false)
             return
         }
-        // 300ms 后兜底对齐一次真实态，避免乐观帧没被事件覆盖。
-        WidgetUpdater.pushPlayingFrame(app, nextPlayingState)
+        // 300ms 后兜底对齐一次真实态，避免乐观帧没被事件覆盖；
+        // 期间真实事件已提交过帧（version 变了）就不再用乐观值覆盖真实状态。
+        WidgetUpdater.pushPlayingFrame(app, nextPlayingState, beforeVersion)
     }
 }
 

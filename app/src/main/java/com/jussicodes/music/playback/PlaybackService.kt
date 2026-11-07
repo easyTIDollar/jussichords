@@ -927,9 +927,11 @@ class PlaybackService : MediaSessionService() {
         observeAudioEffectParams()
         DesktopLyricManager.syncService(this)
         // 服务刚起来：播放器刚 build 完、队列还没恢复时 currentMediaItem=null。
-        // 空快照即时提交会把磁盘上“上次播放的歌”覆盖掉——“关掉 App 后组件
-        // 变“暂无播放歌曲”、播放控件全没了，主源就是这里。这里只做重绘对齐：
-        // 从磁盘读回已有快照刷新一帧显示，不通过 capture 提交空帧。
+        // 这里做一次初始对齐：capture 读出的空帧会命中 commit 的空帧防护——磁盘上
+        // 有歌就保留歌曲信息、只把 isPlaying/isLoading 清零（进程被杀后组件停在
+        // 「播放中」，服务重启后先对齐到真实状态）。队列恢复 / 播放事件到达后由
+        // widgetStateListener 推真实帧，不会停留在这次的对齐帧上。
+        scope.launch { WidgetUpdater.refresh(applicationContext, player) }
     }
 
     override fun onDestroy() {
@@ -947,6 +949,8 @@ class PlaybackService : MediaSessionService() {
             player.removeListener(queuePersistListener)
             player.removeListener(widgetStateListener)
             player.removeListener(recoveryListener)
+            player.removeListener(durationVerifyListener)
+            player.removeListener(prefetchListener)
             // 服务销毁前结算并排空未上报的播放历史事件。
             playbackHistoryReporter?.let { reporter ->
                 playbackHistorySession.finish(SystemClock.elapsedRealtime())?.let { completed ->

@@ -198,14 +198,22 @@ object WidgetUpdater {
         return next
     }
 
+    /** 乐观翻转前/后的版本号：真实播放事件每次 submit 都会 +1。 */
+    fun currentVersion(): Int = version
+
     /**
      * 真实状态到达后对齐：把 [isPlaying]（播放器真实态）覆盖回快照。
      * 调用方在点按钮 300ms 后兜底调用一次，避免乐观帧没被真实事件覆盖。
+     *
+     * [sinceVersion] 是乐观翻转时的版本号：这之后只要有任何真实播放事件提交过帧
+     * （比如播放失败自动停下、服务已回真实 isPlaying），就绝不再用乐观值覆盖
+     * 真实状态——旧实现会把失败后的「已暂停」又强行改回「播放中」。
      */
-    fun pushPlayingFrame(context: Context, isPlaying: Boolean) {
+    fun pushPlayingFrame(context: Context, isPlaying: Boolean, sinceVersion: Int = Int.MIN_VALUE) {
         val app = context.applicationContext
         scope.launch {
             delay(300)
+            if (sinceVersion != Int.MIN_VALUE && version != sinceVersion) return@launch
             val snapshot = current(app)
             // 已经是真实态就跳过，避免多推一次 RemoteViews。
             if (snapshot.isPlaying == isPlaying) return@launch
@@ -312,7 +320,24 @@ object WidgetUpdater {
             // 靠 version 循环继续合并同轮事件，不靠 sleep 合。
             val target = version
             val snapshot = latest ?: break
-            mutex.withLock { runCatching { commit(context, snapshot) } }
+            var ok = false
+            // commit 失败（DataStore 抖动、瞬时 Binder 失败）不能静默丢帧：以前
+            // runCatching 把异常吞掉还照样标记 committed，组件停在旧帧且查无原因。
+            // 现在记日志 + 有限次数退避重试；重试期间不标记 committed。
+            for (attempt in 0 until COMMIT_MAX_ATTEMPTS) {
+                runCatching { mutex.withLock { commit(context, snapshot) } }
+                    .onSuccess { ok = true }
+                    .onFailure {
+                        WidgetDebug.error("widget commit failed (attempt $attempt)", it)
+                        WidgetDebug.event(
+                            context,
+                            "commit FAIL ${it.javaClass.simpleName}: ${it.message?.take(80)}"
+                        )
+                    }
+                if (ok) break
+                delay(200L shl attempt)
+            }
+            if (!ok) break
             committed = target
         }
     }
@@ -501,9 +526,19 @@ object WidgetUpdater {
     private var likedAt = 0L
     private var cookieCache: String? = null
     private var cookieAt = 0L
+
+    private companion object {
+        /** 单帧提交失败的最大重试次数（200ms / 400ms 退避），重试完仍失败才放弃这一帧。 */
+        const val COMMIT_MAX_ATTEMPTS = 3
+    }
 }
 
 object WidgetHub {
+    private companion object {
+        /** 单实例更新失败的最大重试次数（250ms / 500ms 退避），仍失败则保留上一帧。 */
+        const val UPDATE_MAX_ATTEMPTS = 3
+    }
+
     val widgets: List<GlanceAppWidget>
         get() = listOf(ClassicWidget, SquareWidget, CapsuleWidget)
 
@@ -578,18 +613,26 @@ object WidgetHub {
             return
         }
         glanceIds.forEach { glanceId ->
-            runCatching {
-                widget.update(context, glanceId)
-            }.onSuccess {
-                WidgetDebug.event(context, "upd ${receiver.simpleName} ok")
-            }.onFailure {
-                // 这里的失败以前只有一行 Log.d：RemoteViews 超 Binder 上限、合成异常都被吞掉，
-                // 组件停在旧帧却查不到原因。至少要在 logcat 里是 error 级别。
-                WidgetDebug.error("update ${receiver.simpleName} failed", it)
-                WidgetDebug.event(
-                    context,
-                    "upd ${receiver.simpleName} FAIL ${it.javaClass.simpleName}: ${it.message?.take(80)}"
-                )
+            var done = false
+            // 单个实例更新失败做有限次数退避重试（瞬时 Binder / 事务失败可恢复）；
+            // 一个实例失败不影响其他实例，也不会把整体刷新拖太久。
+            for (attempt in 0 until UPDATE_MAX_ATTEMPTS) {
+                runCatching {
+                    widget.update(context, glanceId)
+                }.onSuccess {
+                    done = true
+                    WidgetDebug.event(context, "upd ${receiver.simpleName} ok")
+                }.onFailure {
+                    // 这里的失败以前只有一行 Log.d：RemoteViews 超 Binder 上限、合成异常都被吞掉，
+                    // 组件停在旧帧却查不到原因。至少要在 logcat 里是 error 级别。
+                    WidgetDebug.error("update ${receiver.simpleName} failed (attempt $attempt)", it)
+                    WidgetDebug.event(
+                        context,
+                        "upd ${receiver.simpleName} FAIL ${it.javaClass.simpleName}: ${it.message?.take(80)}"
+                    )
+                }
+                if (done) break
+                delay(250L * (attempt + 1))
             }
         }
     }
