@@ -73,8 +73,6 @@ import com.jussicodes.music.utils.enumPreference
 import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.preference
 import com.jussicodes.music.utils.toEnum
-import com.jussicodes.music.widget.WidgetHub
-import com.jussicodes.music.widget.WidgetUpdater
 import com.jussicodes.music.BuildConfig
 import com.rcmiku.ncmapi.api.player.PlayUrlSkip
 import com.rcmiku.ncmapi.api.player.SongLevel
@@ -103,28 +101,6 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var favoriteSongIds: List<Long> by mutableStateOf(emptyList())
-
-    /**
-     * 桌面小组件刷新：只在播放状态 / 曲目 / 元数据 / 队列变化时推一次快照，
-     * 组件侧不做定时轮询。事件会成串到达，WidgetUpdater 内部合并。
-     */
-    private val widgetStateListener = object : Player.Listener {
-        override fun onEvents(player: Player, events: Player.Events) {
-            if (events.containsAny(
-                    Player.EVENT_IS_PLAYING_CHANGED,
-                    Player.EVENT_MEDIA_ITEM_TRANSITION,
-                    Player.EVENT_MEDIA_METADATA_CHANGED,
-                    Player.EVENT_PLAYBACK_STATE_CHANGED,
-                    Player.EVENT_TIMELINE_CHANGED,
-                    // seek / 重播 / 循环回到开头：只加这一条，组件进度才会跟着拖动的进度条走，
-                    // 否则要等下一次状态变化才对齐（用户看到的就是「组件和 App 不同步」）。
-                    Player.EVENT_POSITION_DISCONTINUITY,
-                )
-            ) {
-                WidgetUpdater.refresh(applicationContext, player)
-            }
-        }
-    }
 
     /** 播放队列落盘：进程被杀后媒体会话还能把上次的队列和进度恢复出来。 */
     private val queueStore by lazy { PlaybackQueueStore.get(this) }
@@ -897,8 +873,6 @@ class PlaybackService : MediaSessionService() {
                 if (mediaSession?.player?.isPlaying == true) persistQueue()
             }
         }
-        // 桌面小组件：播放/暂停、切歌、缓冲变化主动刷新
-        player.addListener(widgetStateListener)
         // 弱网恢复：同曲退避重试 + 网络恢复后续播
         player.addListener(recoveryListener)
         // 音源时长校验：解析出的直链与歌曲元数据时长不符 → 拉黑该链并换源重试
@@ -926,28 +900,17 @@ class PlaybackService : MediaSessionService() {
         observeAudioEffectMode()
         observeAudioEffectParams()
         DesktopLyricManager.syncService(this)
-        // 服务刚起来：播放器刚 build 完、队列还没恢复时 currentMediaItem=null。
-        // 这里做一次初始对齐：capture 读出的空帧会命中 commit 的空帧防护——磁盘上
-        // 有歌就保留歌曲信息、只把 isPlaying/isLoading 清零（进程被杀后组件停在
-        // 「播放中」，服务重启后先对齐到真实状态）。队列恢复 / 播放事件到达后由
-        // widgetStateListener 推真实帧，不会停留在这次的对齐帧上。
-        scope.launch { WidgetUpdater.refresh(applicationContext, player) }
     }
 
     override fun onDestroy() {
         reloadJob?.cancel()
         recoveryJob?.cancel()
         unregisterNetworkCallback()
-        // 服务没了就不会再有播放：组件不能继续停在「正在播放」。
-        // 先同步清播放态（保留歌曲信息），再在尾部补一次同步重绘；协程里的
-        // 落盘/重绘在 scope.cancel() 后不保证跑完。
-        WidgetUpdater.markStopped(applicationContext)
-        // 服务销毁前把队列落盘：下次冷启动/杀进程后组件点播放才能接着放。
+        // 服务销毁前把队列落盘：下次冷启动/杀进程后还能接着放。
         persistQueue()
         mediaSession?.run {
             player.removeListener(playbackHistoryListener)
             player.removeListener(queuePersistListener)
-            player.removeListener(widgetStateListener)
             player.removeListener(recoveryListener)
             player.removeListener(durationVerifyListener)
             player.removeListener(prefetchListener)
@@ -965,9 +928,6 @@ class PlaybackService : MediaSessionService() {
             release()
             mediaSession = null
         }
-        // 同步补一帧重绘的工作交给 WidgetUpdater 的对象级 scope：
-        // 这里以前是 runBlocking{ WidgetHub.updateAll(...) }，onDestroy 在主线程序，
-        // 拉 launcher 的 Glance 合成会把服务销毁卡住几百毫秒甚至更久（启动下一首时更明显）。
         scope.cancel()
         super.onDestroy()
     }
@@ -1023,7 +983,6 @@ class PlaybackService : MediaSessionService() {
                 .collect { favoriteSongs ->
                     favoriteSongIds = favoriteSongs.songIdsList
                     updateCustomLayout()
-                    WidgetUpdater.refresh(applicationContext, mediaSession?.player)
                 }
         }
     }

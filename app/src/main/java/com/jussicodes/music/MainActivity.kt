@@ -49,7 +49,6 @@ import com.jussicodes.music.utils.downloadSources
 import com.jussicodes.music.utils.normalizedSourceId
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.rememberPreference
-import com.jussicodes.music.widget.WidgetUpdater
 import com.rcmiku.ncmapi.utils.FileProvider
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
@@ -75,7 +74,6 @@ class MainActivity : ComponentActivity() {
             window.isNavigationBarContrastEnforced = false
         }
         playerController = PlayerController
-        consumeWidgetIntent(intent)
         // Android 13+ 通知权限：媒体通知是前台服务的可见凭证，权限被拒会显著提升
         // 系统杀后台概率。仅在「用户还没永久拒绝」时弹一次系统授权框，之后不再骚扰。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -310,34 +308,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // 回到前台时校准组件的登录 / 红心标记：登录状态可能在 App 内刚刚变化，
-        // 没有播放事件也要跟上（内部会比对，未变化就不重绘）。
-        lifecycleScope.launch { WidgetUpdater.syncFavoriteFlags(this@MainActivity) }
-        // 兜底再对齐一次播放态：进程被系统回收过、或服务刚恢复时，组件可能还停在旧快照。
-        // onResume 可能先于 Compose 里 playerState 的赋值：player 为 null 时 refresh
-        // 会静默返回，冷启动回前台的这次对齐就失效了——等一拍再取一次。
-        lifecycleScope.launch {
-            val player = playerState?.player ?: run { delay(300); playerState?.player }
-            WidgetUpdater.refresh(this@MainActivity, player)
-        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        consumeWidgetIntent(intent)
-    }
-
-    /** 桌面小组件点封面/文字时带 OPEN_PLAYER 进来：请求把迷你播放条展开成全屏播放页。 */
-    private fun consumeWidgetIntent(intent: Intent?) {
-        if (intent?.getBooleanExtra(EXTRA_OPEN_PLAYER, false) == true) {
-            intent.removeExtra(EXTRA_OPEN_PLAYER)
-            com.jussicodes.music.utils.PlayerExpandBus.expand()
-        }
-    }
-
-    companion object {
-        const val EXTRA_OPEN_PLAYER = "com.jussicodes.music.extra.OPEN_PLAYER"
     }
 }
 
