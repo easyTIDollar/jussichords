@@ -527,17 +527,13 @@ object WidgetUpdater {
     private var cookieCache: String? = null
     private var cookieAt = 0L
 
-    private companion object {
-        /** 单帧提交失败的最大重试次数（200ms / 400ms 退避），重试完仍失败才放弃这一帧。 */
-        const val COMMIT_MAX_ATTEMPTS = 3
-    }
+    /** 单帧提交失败的最大重试次数（200ms / 400ms 退避），重试完仍失败才放弃这一帧。 */
+    private const val COMMIT_MAX_ATTEMPTS = 3
 }
 
 object WidgetHub {
-    private companion object {
-        /** 单实例更新失败的最大重试次数（250ms / 500ms 退避），仍失败则保留上一帧。 */
-        const val UPDATE_MAX_ATTEMPTS = 3
-    }
+    /** 单实例更新失败的最大重试次数（250ms / 500ms 退避），仍失败则保留上一帧。 */
+    private const val UPDATE_MAX_ATTEMPTS = 3
 
     val widgets: List<GlanceAppWidget>
         get() = listOf(ClassicWidget, SquareWidget, CapsuleWidget)
