@@ -97,9 +97,11 @@ class WidgetPlayPauseAction : ActionCallback {
         // 乐观翻转：点按钮立刻重绘图标，后台真实事件到达后再对齐一次。
         // 等播放器线程事件回来才刷会有 100~200ms 延迟，观感就是“点了没反应”。
         WidgetUpdater.cancelPending()
+        // 版本号必须在乐观翻转之前取：翻转后、读版本前若恰好有真实 Player 事件
+        // 提交过帧，sinceVersion 会记成新版本，300ms 兜底就仍有覆盖真实态的机会。
+        val beforeVersion = WidgetUpdater.currentVersion()
         val nextPlayingState = WidgetUpdater.optimisticPlayPause(app)
         WidgetDebug.event(app, "action play/pause optimistic=$nextPlayingState")
-        val beforeVersion = WidgetUpdater.currentVersion()
         val acted = WidgetMedia.withController(app) { controller ->
             // App 进程被系统回收过：会话里没有队列。磁盘上存着上次的队列就让它走
             // MediaSession.Callback.onPlaybackResumption 直接续播，不用把用户拽进 App。
