@@ -175,7 +175,7 @@ class DesktopLyricService : Service() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // 旋转/分屏/折叠屏：可用区域变了，按比例重新落位（位置比例本身允许落在屏幕外）。
+        // 旋转/分屏/折叠屏：按当前可用区域重新居中，避免旧竖屏位置比例套到横屏。
         contentWidthPx = measureContentWidth()
         relayout()
         positionControlWindow()
@@ -403,10 +403,11 @@ class DesktopLyricService : Service() {
         if (current == currentLineText && secondary == secondaryLineText) return
         currentLineText = current
         secondaryLineText = secondary
-        currentLineView?.text = current
+        currentLineView?.text = current.ifBlank { "暂无歌词" }
         secondaryLineView?.text = secondary
-        // INVISIBLE 而不是 GONE：保留副行高度，窗口高度和基线都不会跳。
+        // 副行隐藏时仍然保留占位，但主行单行时不再预留主行第二行的高度；高度由 relayout 计算。
         secondaryLineView?.visibility = if (secondary.isBlank()) View.INVISIBLE else View.VISIBLE
+        relayout()
     }
 
     /** 歌词窗是否应该出现（播过 + App 不在前台）。 */
@@ -440,7 +441,7 @@ class DesktopLyricService : Service() {
             gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
             includeFontPadding = false
             maxLines = 2
-            minLines = 2
+            minLines = 1
             ellipsize = TextUtils.TruncateAt.END
             setLineSpacing(0f, 1.06f)
             text = currentLineText.orEmpty().ifBlank { "暂无歌词" }
@@ -539,8 +540,33 @@ class DesktopLyricService : Service() {
         val secondaryMetrics = secondaryPaint.fontMetrics
         val secondaryLineHeight = (secondaryMetrics.descent - secondaryMetrics.ascent) * 1.04f
         val strokeSlack = currentStyle.primaryStrokeWidth(density).toInt()
-        return dp(16) * 2 + (mainLineHeight * 2f).toInt() + dp(6) +
-            secondaryLineHeight.toInt() + strokeSlack + dp(2)
+        // 主行实际行数由当前文本换行决定；短句只有一行，不能再按两行撑高。
+        val mainLines = visualLineCount(currentLineText.orEmpty().ifBlank { "暂无歌词" }, currentLineView?.width ?: 1, currentStyle.fontSizeSp)
+        val hasSecondary = !secondaryLineText.isNullOrBlank()
+        return if (hasSecondary) {
+            dp(16) * 2 + (mainLineHeight * mainLines).toInt() + dp(6) +
+                secondaryLineHeight.toInt() + strokeSlack + dp(2)
+        } else {
+            dp(16) * 2 + (mainLineHeight * mainLines).toInt() + strokeSlack + dp(2)
+        }
+    }
+
+    private fun visualLineCount(text: String, widthPx: Int, fontSizeSp: Float): Int {
+        if (widthPx < dp(24) || text.isBlank()) return 1
+        val paint = measureTextPaint(fontSizeSp)
+        val available = (widthPx - dp(48)).coerceAtLeast(dp(1))
+        var lines = 1
+        var currentWidth = 0f
+        for (char in text) {
+            val charWidth = paint.measureText(char.toString())
+            if (currentWidth + charWidth > available && currentWidth > 0f) {
+                lines += 1
+                currentWidth = charWidth
+            } else {
+                currentWidth += charWidth
+            }
+        }
+        return lines.coerceIn(1, 2)
     }
 
     private fun measureTextPaint(fontSizeSp: Float): TextPaint =
@@ -570,10 +596,11 @@ class DesktopLyricService : Service() {
         val width = computeLyricWidth()
         val height = computeLyricHeight()
         if (params.width == width && params.height == height) return
-        // 以窗口中心为锚点。整窗宽度是按「本首歌最长行」算的，换歌会变宽/变窄；
-        // 只保住左上角的话，窗口内部居中的文字会整体左移右移（用户说的「切歌左移错位」）。
-        val centerX = params.x + params.width / 2
-        val centerY = params.y + params.height / 2
+        // 竖屏常态 / 横屏旋转：都按可用区域重新居中。旧 fraction 是竖屏拖出来的位置比例，
+        // 横屏直接套用会导致中心不在横屏可见区域里，视觉上就是左上/偏左。
+        val area = screenArea()
+        val centerX = area.left + (area.right - area.left) / 2
+        val centerY = area.top + (area.bottom - area.top) / 2
         params.width = width
         params.height = height
         params.x = centerX - width / 2
