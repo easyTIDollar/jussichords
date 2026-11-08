@@ -175,7 +175,7 @@ class DesktopLyricService : Service() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // 旋转/分屏/横竖屏切换：横向居中、纵向贴近顶部；不再用竖屏旧 fraction 被横屏带偏。
+        // 旋转/分屏只重算内容宽度；不强制改成顶部居中，避免旋转后位置丢失。
         contentWidthPx = measureContentWidth()
         relayout()
         positionControlWindow()
@@ -596,14 +596,12 @@ class DesktopLyricService : Service() {
         val width = computeLyricWidth()
         val height = computeLyricHeight()
         if (params.width == width && params.height == height) return
-        // 顶部居中：横向按可用区域居中，纵向贴近可用区域顶部（默认高度中心 yFraction=0.1）。
-        val area = screenArea()
-        val centerX = area.left + (area.right - area.left) / 2
-        val topY = (area.top + (area.bottom - area.top) * DesktopLyricDefaultYFraction - height / 2f).toInt()
+        // 默认位才顶部居中；已手动拖过的位置由 xFraction/yFraction（persistPosition 写入）决定。
+        // 旧代码的 relayout 把位置硬改回去，播放时表现为每次歌词更新都“跳回默认位置”。
         params.width = width
         params.height = height
-        params.x = centerX - width / 2
-        params.y = topY
+        params.x = xFromFraction(width)
+        params.y = yFromFraction(height)
         runCatching { windowManager.updateViewLayout(root, params) }
         persistPosition()
         positionControlWindow()
