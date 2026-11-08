@@ -158,7 +158,7 @@ abstract class BaseMusicWidget(private val widgetLayout: WidgetLayout) : GlanceA
 
 // —————————————————————— 尺寸分档 ——————————————————————
 
-internal enum class WidgetLayout { CARD, TILE, BANNER, CAPSULE }
+enum class WidgetLayout { CARD, TILE, BANNER, CAPSULE }
 
 private fun coverStyleFor(layout: WidgetLayout): CoverStyle = when (layout) {
     WidgetLayout.CARD -> CoverStyle.THUMB
