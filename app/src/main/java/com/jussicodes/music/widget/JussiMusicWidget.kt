@@ -79,23 +79,27 @@ class JussiMusicWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Responsive(WidgetSizes.All)
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        // 进程内实时帧优先：播放服务还活着时它一定是最新状态，不依赖落盘。
-        val snapshot = WidgetUpdater.current(context)
         // 合成跑到这里就说明桌面上一定有实例：把「有人用」的判定钉死，
         // 别因为某些 ROM 上 AppWidgetManager 查询为空而把整条刷新链路掐掉。
         WidgetUpdater.markAlive()
-        val composeDigest = "${snapshot.songId}|${snapshot.isPlaying}|${snapshot.title.take(12)}"
-        if (composeDigest != lastComposeDigest) {
-            lastComposeDigest = composeDigest
-            WidgetDebug.event(context, "compose $composeDigest")
-        }
         // 组件刚添加 / 系统重建时补一下进度 ticker。
         WidgetUpdater.ensureProgressTicker(context)
 
         provideContent {
+            // 关键：快照必须在这里取，不能提到 provideGlance 顶层。
+            // Glance 用 remember 缓存 runGlance（一个常驻 channelFlow），provideGlance 只跑一次；
+            // 之后每次刷新只是重放这个内容 lambda，闭包捕获的外层变量永远停在首帧。
+            // 之前「红心能变、切歌不变」就是这个原因：红心值在 lambda 内部读 state，快照在外部捕获。
+            val snapshot = WidgetUpdater.current(context)
             val size = LocalSize.current
             val layout = layoutFor(size)
             val coverStyle = coverStyleFor(layout)
+            val digest = "${snapshot.songId}|${snapshot.isPlaying}|${snapshot.title.take(12)}"
+            if (digest != lastComposeDigest) {
+                lastComposeDigest = digest
+                WidgetDebug.event(context, "compose $digest")
+            }
+            // 读 state 有两个作用：拿红心乐观值，同时让内容在 state 变化时重放。
             val prefs = currentState<Preferences>()
             // 红心乐观覆盖：只对本实例、当前这首歌生效。
             val overrideSong = prefs[WidgetLikeKeys.SongId]
