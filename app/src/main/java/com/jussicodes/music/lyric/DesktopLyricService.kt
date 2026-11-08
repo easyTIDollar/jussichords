@@ -1074,6 +1074,8 @@ class DesktopLyricService : Service() {
     private class StrokeTextView(context: Context) : TextView(context) {
         private var strokeColor: Int = Color.BLACK
         private var strokeWidthPx: Float = 0f
+        /** 描边专用画笔：绝不复用/改动 TextView 内部的 mTextPaint。 */
+        private val strokePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
 
         fun setStrokeColor(color: Int) {
             if (color == strokeColor) return
@@ -1088,23 +1090,37 @@ class DesktopLyricService : Service() {
         }
 
         override fun onDraw(canvas: Canvas) {
-            // 描边/填充两遍都必须直改 paint，绝不能走 setTextColor：
-            // setTextColor 在颜色真实变化时内部会 invalidate()，而这里正在 draw——
-            // 等于每画完一帧就把下一帧排进 vsync，悬浮窗以满刷新率无限重绘
-            // （实测 ~120fps 常驻：主线程 + RenderThread + GPU 全被拖住，后台暂停也不停）。
-            // 直改 paint.color 不触发任何 invalidate，循环从根上断掉。
-            val fillColor = currentTextColor
-            if (strokeWidthPx > 0f) {
-                paint.style = Paint.Style.STROKE
-                paint.strokeWidth = strokeWidthPx
-                paint.color = strokeColor
-                super.onDraw(canvas)
-                paint.style = Paint.Style.FILL
-                paint.strokeWidth = 0f
-                paint.color = fillColor
-            } else {
-                paint.color = fillColor
+            // 描边层：用独立画笔逐行手绘，先于填充层。
+            // 两个禁忌都不能碰：
+            // 1) setTextColor()：颜色真实变化会 invalidate()，在 draw 过程中调用等于把
+            //    下一帧排进 vsync——悬浮窗会以满刷新率无限重绘（已实际踩过）。
+            // 2) 直改 paint.color 再走 super.onDraw()：TextView 内部绘制前会用当前
+            //    文字色重设画笔，描边色被覆盖成填充色（描边显示成白色，已实际踩过）。
+            val layout = layout
+            if (strokeWidthPx > 0f && layout != null && text.isNotEmpty()) {
+                strokePaint.set(paint)
+                strokePaint.style = Paint.Style.STROKE
+                strokePaint.strokeWidth = strokeWidthPx
+                strokePaint.color = strokeColor
+                val txt = text.toString()
+                for (i in 0 until layout.lineCount) {
+                    val start = layout.getLineStart(i)
+                    val end = layout.getLineEnd(i)
+                    if (end <= start) continue
+                    var line = txt.substring(start, end)
+                    // 省略号是画的时候临时替换的，不在 layout 文本里，这里对齐补上。
+                    val ellipsisCount = layout.getEllipsisCount(i)
+                    if (ellipsisCount > 0) line = txt.substring(start, end - ellipsisCount) + "…"
+                    if (line.isBlank()) continue
+                    canvas.drawText(
+                        line,
+                        layout.getLineLeft(i),
+                        layout.getLineBaseline(i).toFloat(),
+                        strokePaint,
+                    )
+                }
             }
+            // 填充层照旧走 TextView 自绘（颜色就是 currentTextColor，无任何改动）。
             super.onDraw(canvas)
         }
     }
