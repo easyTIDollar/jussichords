@@ -732,6 +732,8 @@ class PlaybackService : MediaSessionService() {
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
+        // 组件看「播放服务在不在」来决定这帧要不要显示播放态，越早知道越好。
+        WidgetUpdater.markServiceRunning()
         setMediaNotificationProvider(
             DefaultMediaNotificationProvider(
                 this,

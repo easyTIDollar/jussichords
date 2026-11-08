@@ -91,7 +91,31 @@ object WidgetUpdater {
         private set
 
     /** 组件合成时要用的状态：先看内存里的实时帧，没有再退回落盘快照。 */
-    fun current(context: Context): WidgetSnapshot = live ?: WidgetStateStore.read(context)
+    fun current(context: Context): WidgetSnapshot {
+        val snapshot = live ?: WidgetStateStore.read(context)
+        // 播放服务已经不在（正常销毁、被系统回收、进程被杀后重新合成）：
+        // 磁盘上很可能还留着上一帧的「播放中」，这里以「没在播」为准。
+        // 光靠 onDestroy 清态不够——进程被直接杀掉时 onDestroy 根本不会跑。
+        if (!serviceRunning && snapshot.isPlaying) {
+            return snapshot.copy(isPlaying = false, isLoading = false)
+        }
+        return snapshot
+    }
+
+    /**
+     * 播放服务是否还活着。Glance 合成跑在同一个进程里，所以这个标志是可靠的：
+     * 进程死了标志自然回到 false，不需要任何 IPC。
+     */
+    @Volatile
+    private var serviceRunning = false
+
+    fun markServiceRunning() {
+        serviceRunning = true
+    }
+
+    fun markServiceStopped() {
+        serviceRunning = false
+    }
 
     /** 桌面上到底有没有组件实例。结果缓存 10s，避免每次播放事件都问一遍 AppWidgetManager。 */
     @Volatile
@@ -253,22 +277,17 @@ object WidgetUpdater {
      */
     fun markStopped(context: Context) {
         val app = context.applicationContext
-        if (!isActive(app)) return
         tickProgress(app, false)
         playerRef = null
-        val snapshot = current(app)
-        // 只清播放态，歌曲信息留着：关掉 App 后组件仍显示「上次播放的歌」。
-        // 这里只写内存帧 + 在对象级 scope 上重绘，不在主线程上同步 fsync 或阻塞等 Glance 合成——
-        // onDestroy 是在主线程跑的，同步 updateAll 会把服务销毁卡住几百毫秒。
-        if (!snapshot.isPlaying && !snapshot.isLoading) return
-        publishNow(
-            app,
-            snapshot.copy(
-                isPlaying = false,
-                isLoading = false,
-                progressAt = SystemClock.elapsedRealtime(),
-            ),
+        markServiceStopped()
+        // 无条件写盘 + 重绘：以前「内存帧已经是暂停态」就直接 return，
+        // 结果磁盘和桌面上残留的播放态没人覆盖，组件会一直显示「正在播放」。
+        val stopped = current(app).copy(
+            isPlaying = false,
+            isLoading = false,
+            progressAt = SystemClock.elapsedRealtime(),
         )
+        publishNow(app, stopped)
         scope.launch { runCatching { WidgetHub.updateAll(app) } }
     }
 
