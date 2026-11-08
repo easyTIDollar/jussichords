@@ -550,7 +550,8 @@ private fun drawStrokedText(
     strokeScale: Float
 ) {
     if (text.isEmpty()) return
-    val strokeWidth = sizePx * 0.17f * strokeScale
+    // 与 DesktopLyricStyle.StrokeRatio 同值，预览/实际同一描边粗细。
+    val strokeWidth = sizePx * 0.08f * strokeScale
     if (strokeWidth > 0.05f) {
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = strokeWidth

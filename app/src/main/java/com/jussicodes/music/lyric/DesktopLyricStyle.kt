@@ -39,11 +39,22 @@ data class DesktopLyricStyle(
     val secondaryTextColor: Int
         get() = Color.argb(204, Color.red(textColor), Color.green(textColor), Color.blue(textColor))
 
-    /** 主行描边宽度（px），随字号、屏幕密度与描边倍数缩放；倍数为 0 时不描边。 */
-    fun primaryStrokeWidth(density: Float): Float = fontSizeSp * density * 0.17f * strokeScale.coerceAtLeast(0f)
+    /**
+     * Stroke width as a fraction of text size. 0.17 is far too thick for
+     * Chinese glyphs: counters (口/日/目) close up and adjacent characters
+     * bleed into each other, which reads as "糊成一团". Typical workable
+     * values are 0.05~0.08. Settings preview uses the same ratio so the
+     * preview stays WYSIWYG.
+     */
+    companion object {
+        const val StrokeRatio = 0.08f
+    }
 
-    /** 副行描边宽度（px）：与设置页预览同为 0.17 比例，否则所见非实际。 */
-    fun secondaryStrokeWidth(density: Float): Float = fontSizeSp * density * 0.17f * strokeScale.coerceAtLeast(0f)
+    /** 主行描边宽度（px），随字号、屏幕密度与描边倍数缩放；倍数为 0 时不描边。 */
+    fun primaryStrokeWidth(density: Float): Float = fontSizeSp * density * StrokeRatio * strokeScale.coerceAtLeast(0f)
+
+    /** 副行描边宽度（px）：与设置页预览同为 0.08 比例，否则所见非实际。 */
+    fun secondaryStrokeWidth(density: Float): Float = fontSizeSp * density * StrokeRatio * strokeScale.coerceAtLeast(0f)
 
     /** 副行描边色：沿用描边色，透明度略降。 */
     val secondaryStrokeColor: Int
