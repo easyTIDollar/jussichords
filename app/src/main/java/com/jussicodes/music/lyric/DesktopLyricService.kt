@@ -1076,26 +1076,35 @@ class DesktopLyricService : Service() {
         private var strokeWidthPx: Float = 0f
 
         fun setStrokeColor(color: Int) {
+            if (color == strokeColor) return
             strokeColor = color
             invalidate()
         }
 
         fun setStrokeWidth(widthPx: Float) {
+            if (widthPx == strokeWidthPx) return
             strokeWidthPx = widthPx
             invalidate()
         }
 
         override fun onDraw(canvas: Canvas) {
+            // 描边/填充两遍都必须直改 paint，绝不能走 setTextColor：
+            // setTextColor 在颜色真实变化时内部会 invalidate()，而这里正在 draw——
+            // 等于每画完一帧就把下一帧排进 vsync，悬浮窗以满刷新率无限重绘
+            // （实测 ~120fps 常驻：主线程 + RenderThread + GPU 全被拖住，后台暂停也不停）。
+            // 直改 paint.color 不触发任何 invalidate，循环从根上断掉。
             val fillColor = currentTextColor
             if (strokeWidthPx > 0f) {
                 paint.style = Paint.Style.STROKE
                 paint.strokeWidth = strokeWidthPx
-                setTextColor(strokeColor)
+                paint.color = strokeColor
                 super.onDraw(canvas)
+                paint.style = Paint.Style.FILL
+                paint.strokeWidth = 0f
+                paint.color = fillColor
+            } else {
+                paint.color = fillColor
             }
-            paint.style = Paint.Style.FILL
-            paint.strokeWidth = 0f
-            setTextColor(fillColor)
             super.onDraw(canvas)
         }
     }

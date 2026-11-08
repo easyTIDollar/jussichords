@@ -34,4 +34,15 @@ internal object WidgetRegistry {
         TileWidget() to TileWidgetReceiver::class.java,
         CapsuleWidget() to CapsuleWidgetReceiver::class.java,
     )
+
+    /**
+     * 每秒进度 tick 只推这些：布局里真的画了进度线/进度条（Card、Tile、Banner）。
+     * Capsule 没有任何逐秒内容，跟着 tick 重绘是白付一份合成 + RemoteViews + Binder，
+     * 四档全推时这份成本每秒都在烧（launcher 30%+ 的主要来源之一）。
+     */
+    val progressTickers: List<Pair<GlanceAppWidget, Class<out GlanceAppWidgetReceiver>>> = listOf(
+        CardWidget() to CardWidgetReceiver::class.java,
+        BannerWidget() to BannerWidgetReceiver::class.java,
+        TileWidget() to TileWidgetReceiver::class.java,
+    )
 }

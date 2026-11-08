@@ -494,7 +494,8 @@ object WidgetUpdater {
                 )
                 live = next
                 WidgetStateStore.write(context, next)
-                runCatching { WidgetHub.updateAll(context) }
+                // 只重绘画进度线的组件（Card/Tile/Banner）；Capsule 等真实事件来时再刷。
+                runCatching { WidgetHub.updateAll(context, progressOnly = true) }
             }
         }
     }
@@ -573,9 +574,11 @@ object WidgetHub {
      * 反查 id，注册表缺失时返回空列表且不报错——组件就再也不刷新了。
      * 这里直接按 receiver 组件名向 AppWidgetManager 取 id，链路短、失败可见。
      */
-    suspend fun updateAll(context: Context) {
+    suspend fun updateAll(context: Context, progressOnly: Boolean = false) {
         val app = context.applicationContext
-        pairings.forEach { (widget, receiver) -> refresh(app, widget, receiver) }
+        // 进度 tick 专用：只推布局里真的画了进度线的那几档（见 WidgetRegistry.progressTickers）。
+        val targets = if (progressOnly) WidgetRegistry.progressTickers else pairings
+        targets.forEach { (widget, receiver) -> refresh(app, widget, receiver) }
     }
 
     /** 桌面上是否有这款组件的实例。给「没人用就别干活」的省电判断用。 */
