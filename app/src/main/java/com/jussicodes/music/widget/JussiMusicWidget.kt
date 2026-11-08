@@ -602,13 +602,13 @@ private fun ProgressLine(snapshot: WidgetSnapshot, palette: WidgetPalette, inset
         Box(
             modifier = GlanceModifier.fillMaxWidth().height(2.dp)
                 .background(palette.track),
-        )
+        ) {}
         Box(
             modifier = GlanceModifier.height(2.dp)
                 // Glance 没有 fillMaxWidth(fraction)，按实测宽度自己乘。
                 .width(width * fraction)
                 .background(palette.accent),
-        )
+        ) {}
     }
 }
 
