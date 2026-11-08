@@ -435,14 +435,14 @@ class DesktopLyricService : Service() {
             setStrokeWidth(style.primaryStrokeWidth(resources.displayMetrics.density))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, style.fontSizeSp)
             typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
+            // 水平居中只排文字；垂直置顶，避免 CENTER_VERTICAL 的 voffsetText 使手绘描边层
+            // 与填充层在不同基线上对不齐（描边错位/像投影）。
+            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
             includeFontPadding = false
             maxLines = 2
             minLines = 2
             ellipsize = TextUtils.TruncateAt.END
             setLineSpacing(0f, 1.06f)
-            // 自绘阴影：右下 3dp、55% 黑，替代机型会渲染错位的 setShadowLayer。
-            setShadowColor(adjustAlpha(Color.BLACK, 0.55f), dp(3).toFloat(), dp(3).toFloat())
             text = currentLineText.orEmpty().ifBlank { "暂无歌词" }
         }
         secondaryLineView = StrokeTextView(this).apply {
@@ -451,13 +451,12 @@ class DesktopLyricService : Service() {
             setStrokeWidth(style.secondaryStrokeWidth(resources.displayMetrics.density))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, style.secondaryFontSizeSp)
             typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
             includeFontPadding = false
             maxLines = 1
             minLines = 1
             ellipsize = TextUtils.TruncateAt.END
             setLineSpacing(0f, 1.04f)
-            setShadowColor(adjustAlpha(Color.BLACK, 0.45f), dp(2).toFloat(), dp(2).toFloat())
             text = secondaryLineText.orEmpty()
             visibility = if (secondaryLineText.isNullOrBlank()) View.INVISIBLE else View.VISIBLE
         }
@@ -672,12 +671,15 @@ class DesktopLyricService : Service() {
             view.setTextColor(newStyle.textColor)
             view.setStrokeWidth(newStyle.primaryStrokeWidth(resources.displayMetrics.density))
             view.setStrokeColor(newStyle.strokeColor)
+            // 保证从旧 build 升级/旧状态恢复时也保持置顶对齐；改其一要检查开窗和样式更新两处。
+            view.gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
         }
         secondaryLineView?.let { view ->
             view.setTextSize(TypedValue.COMPLEX_UNIT_SP, newStyle.secondaryFontSizeSp)
             view.setTextColor(newStyle.secondaryTextColor)
             view.setStrokeWidth(newStyle.secondaryStrokeWidth(resources.displayMetrics.density))
             view.setStrokeColor(newStyle.secondaryStrokeColor)
+            view.gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
         }
         if (previous.locked != newStyle.locked) {
             if (newStyle.locked) panelExpanded = false
@@ -1079,14 +1081,6 @@ class DesktopLyricService : Service() {
         /** 描边专用画笔：绝不复用/改动 TextView 内部的 mTextPaint。 */
         private val strokePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
 
-        // 阴影层：彻底弃用 TextView.setShadowLayer。部分机型会把 shadowLayer 渲染成
-        // 不透明、方向错位的实心文字副本（模糊与透明度全被吞掉），表现就是"阴影
-        // 飞出去半个字"。这里改为自绘：同一份 layout，显式 dp 偏移，画在哪完全可控。
-        private var shadowColor: Int = Color.TRANSPARENT
-        private var shadowDxPx: Float = 0f
-        private var shadowDyPx: Float = 0f
-        private val shadowPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
-
         fun setStrokeColor(color: Int) {
             if (color == strokeColor) return
             strokeColor = color
@@ -1099,61 +1093,36 @@ class DesktopLyricService : Service() {
             invalidate()
         }
 
-        fun setShadowColor(color: Int, dxPx: Float, dyPx: Float) {
-            if (color == shadowColor && dxPx == shadowDxPx && dyPx == shadowDyPx) return
-            shadowColor = color
-            shadowDxPx = dxPx
-            shadowDyPx = dyPx
-            invalidate()
-        }
-
-        private fun drawLayer(
-            canvas: Canvas,
-            layout: Layout,
-            paint: TextPaint,
-            dx: Float,
-            dy: Float,
-        ) {
-            val txt = text.toString()
-            for (i in 0 until layout.lineCount) {
-                val start = layout.getLineStart(i)
-                val end = layout.getLineEnd(i)
-                if (end <= start) continue
-                var line = txt.substring(start, end)
-                // 省略号是画的时候临时替换的，不在 layout 文本里，这里对齐补上。
-                val ellipsisCount = layout.getEllipsisCount(i)
-                if (ellipsisCount > 0) line = txt.substring(start, end - ellipsisCount) + "…"
-                if (line.isBlank()) continue
-                canvas.drawText(
-                    line,
-                    layout.getLineLeft(i) + dx,
-                    layout.getLineBaseline(i).toFloat() + dy,
-                    paint,
-                )
-            }
-        }
-
         override fun onDraw(canvas: Canvas) {
-            // 自绘层统一用独立画笔逐行手绘，先于填充层，绝不碰 setTextColor()/paint.color。
+            // 描边层用独立画笔逐行手绘，先于填充层，绝不碰 setTextColor()/paint.color。
             // 两个禁忌都不能碰：
             // 1) setTextColor()：颜色真实变化会 invalidate()，在 draw 过程中调用等于把
             //    下一帧排进 vsync——悬浮窗会以满刷新率无限重绘（已实际踩过）。
             // 2) 直改 paint.color 再走 super.onDraw()：TextView 内部绘制前会用当前
             //    文字色重设画笔，描边色被覆盖成填充色（描边显示成白色，已实际踩过）。
+            // 3) 不能再加“描边 + 自绘阴影/投影”层：用户要求只有描边；偏移副本会像错位阴影。
             val layout = layout
-            if (layout != null && text.isNotEmpty()) {
-                if (Color.alpha(shadowColor) > 0) {
-                    shadowPaint.set(paint)
-                    shadowPaint.style = Paint.Style.FILL
-                    shadowPaint.color = shadowColor
-                    drawLayer(canvas, layout, shadowPaint, shadowDxPx, shadowDyPx)
-                }
-                if (strokeWidthPx > 0f) {
-                    strokePaint.set(paint)
-                    strokePaint.style = Paint.Style.STROKE
-                    strokePaint.strokeWidth = strokeWidthPx
-                    strokePaint.color = strokeColor
-                    drawLayer(canvas, layout, strokePaint, 0f, 0f)
+            if (strokeWidthPx > 0f && layout != null && text.isNotEmpty()) {
+                strokePaint.set(paint)
+                strokePaint.style = Paint.Style.STROKE
+                strokePaint.strokeWidth = strokeWidthPx
+                strokePaint.color = strokeColor
+                val txt = text.toString()
+                for (i in 0 until layout.lineCount) {
+                    val start = layout.getLineStart(i)
+                    val end = layout.getLineEnd(i)
+                    if (end <= start) continue
+                    var line = txt.substring(start, end)
+                    // 省略号是画的时候临时替换的，不在 layout 文本里，这里对齐补上。
+                    val ellipsisCount = layout.getEllipsisCount(i)
+                    if (ellipsisCount > 0) line = txt.substring(start, end - ellipsisCount) + "…"
+                    if (line.isBlank()) continue
+                    canvas.drawText(
+                        line,
+                        layout.getLineLeft(i),
+                        layout.getLineBaseline(i).toFloat(),
+                        strokePaint,
+                    )
                 }
             }
             // 填充层照旧走 TextView 自绘（颜色就是 currentTextColor，无任何改动）。

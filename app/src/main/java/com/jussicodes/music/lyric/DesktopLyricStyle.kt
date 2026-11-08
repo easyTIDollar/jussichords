@@ -42,8 +42,8 @@ data class DesktopLyricStyle(
     /** 主行描边宽度（px），随字号、屏幕密度与描边倍数缩放；倍数为 0 时不描边。 */
     fun primaryStrokeWidth(density: Float): Float = fontSizeSp * density * 0.17f * strokeScale.coerceAtLeast(0f)
 
-    /** 副行描边宽度（px）。 */
-    fun secondaryStrokeWidth(density: Float): Float = fontSizeSp * density * 0.11f * strokeScale.coerceAtLeast(0f)
+    /** 副行描边宽度（px）：与设置页预览同为 0.17 比例，否则所见非实际。 */
+    fun secondaryStrokeWidth(density: Float): Float = fontSizeSp * density * 0.17f * strokeScale.coerceAtLeast(0f)
 
     /** 副行描边色：沿用描边色，透明度略降。 */
     val secondaryStrokeColor: Int

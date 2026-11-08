@@ -468,7 +468,7 @@ private fun PreviewCard(
     }
 }
 
-/** 在预览卡片里画主行 + 副行，几何与 DesktopLyricService 一致。 */
+/** 在预览卡片里画主行 + 副行，几何与 DesktopLyricService 一致：只描边、没有投影/偏移副本。 */
 private fun DrawScope.drawLyricPreview(
     paint: TextPaint,
     primaryText: String,
