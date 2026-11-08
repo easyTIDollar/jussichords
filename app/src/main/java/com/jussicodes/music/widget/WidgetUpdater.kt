@@ -287,7 +287,10 @@ object WidgetUpdater {
             isPlaying = player.playWhenReady && player.playbackState != Player.STATE_IDLE,
             isFm = extras?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME) ==
                 MediaSessionConstants.SOURCE_PERSONAL_FM,
-            isLoading = player.isLoading,
+            // 不用 player.isLoading：它读的是 PlaybackInfo.loading，切歌/预加载窗口里
+            // 经常已经正常出声了还挂着 true，组件就会一直显示「缓冲中」。
+            // 只认真正的 STATE_BUFFERING。
+            isLoading = player.playbackState == Player.STATE_BUFFERING && player.playWhenReady,
             positionMs = player.currentPosition.coerceAtLeast(0L),
             durationMs = player.duration.coerceAtLeast(0L),
             progressAt = SystemClock.elapsedRealtime(),

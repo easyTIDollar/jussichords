@@ -59,7 +59,9 @@ data class WidgetSnapshot(
      */
     fun subtitle(context: Context): String {
         val name = artist.ifBlank { context.getString(R.string.widget_unknown_artist) }
-        val line = if (isLoading && isPlaying) {
+        // 只有「刚切过去、进度还停在 0」才算缓冲提示。
+        // 一旦开始走位就只说艺人——正常播放时不允许出现「缓冲中」。
+        val line = if (isLoading && isPlaying && positionMs <= 0L) {
             context.getString(R.string.widget_buffering, name)
         } else {
             name
