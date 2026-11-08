@@ -50,12 +50,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 /**
  * Jussi 桌面组件。
  *
  * 只有一件事：**把“正在放什么”和最基本的操作放到桌面上**。
- * 按钮预算：播放/暂停、上一首、下一首（播放控件）、喜欢、私人 FM；点封面/文字进播放页。
+ * 按钮预算：播放/暂停、上一首、下一曲（播放控件）、喜欢、私人 FM；点封面/文字进播放页。
  * 没有音量、没有列表、没有设置项——组件不是第二个 App。
  *
  * 视觉与 App 同源：
@@ -63,10 +64,15 @@ import kotlinx.coroutines.launch
  * - 强调色 = 封面主色，播放键是强调色实心圆（对应播放页的 FilledIconButton 语言）；
  * - 圆角、字号、行距都和播放页的封面卡对齐。
  *
- * 三档布局按 [LocalSize] 自动切换，桌面拉伸时不会出现“按钮挤成一排”的中间态：
- * - 4×2 宽卡：左侧封面 + 右侧曲目信息，底部一条控制行 + 一条细进度线；
- * - 2×2 方形：封面铺满、底部压暗，标题两行 + 圆形播放键，喜欢 / FM 收在右上角；
- * - 4×1 窄条：圆形小封面 + 单行曲目信息 + 播放 / 喜欢（够宽才加下一首），进度线贴卡底。
+ * 四档布局按 [LocalSize] 自动切换：
+ * - 4×2 双列卡：左大封面 + 右三行（歌曲信息 / 进度与时长 / 控制行）；
+ * - 4×1 横条：整卡背景即进度，左侧小封面 + 信息 + 控制键 + 竖线 + 快捷键；
+ * - 2×2 方块：上方大封面（左右半区点击切歌）+ 信息 + 短进度 + 三键居中；
+ * - 2×1 胶囊：小封面 + 微型信息 + 按宽度预算排布的控制键。
+ *
+ * 两处平台限制（RemoteViews 决定，不是没做）：
+ * - 进度条不能拖动，改为 5 段热区「点哪跳哪」；
+ * - 封面不能滑动，2×2 用左右两半点击代替左滑/右滑切歌。
  */
 class JussiMusicWidget : GlanceAppWidget() {
 
@@ -89,7 +95,6 @@ class JussiMusicWidget : GlanceAppWidget() {
             // 关键：快照必须在这里取，不能提到 provideGlance 顶层。
             // Glance 用 remember 缓存 runGlance（一个常驻 channelFlow），provideGlance 只跑一次；
             // 之后每次刷新只是重放这个内容 lambda，闭包捕获的外层变量永远停在首帧。
-            // 之前「红心能变、切歌不变」就是这个原因：红心值在 lambda 内部读 state，快照在外部捕获。
             val snapshot = WidgetUpdater.current(context)
             val size = LocalSize.current
             val layout = layoutFor(size)
@@ -124,7 +129,7 @@ class JussiMusicWidget : GlanceAppWidget() {
             )
 
             Box(modifier = GlanceModifier.fillMaxSize()) {
-                WidgetBody(snapshot, liked, cover, palette, context, layout)
+                WidgetBody(snapshot, liked, cover, palette, context, layout, size)
             }
         }
     }
@@ -147,32 +152,34 @@ class JussiMusicWidget : GlanceAppWidget() {
     }
 }
 
-private enum class WidgetLayout { CARD, SQUARE, STRIP }
+// —————————————————————— 尺寸分档 ——————————————————————
+
+private enum class WidgetLayout { CARD, TILE, BANNER, CAPSULE }
 
 /**
- * 尺寸 → 布局。
- *
- * 只有三档，阈值取在候选尺寸之间（见 [WidgetSizes]），不会在拖拽中途落到第四种形态：
- * - 高度不到 100dp 一定是 4×1；
- * - 接近正方形（宽 ≤ 260dp 且高 ≥ 宽 × 0.85）走封面满铺；
- * - 其余是宽卡。
+ * 尺寸 → 布局。阈值取在候选尺寸之间（见 [WidgetSizes]），拖拽中途不会落到第五种形态：
+ * - 高度不足 100dp 是横条家族：够宽就是 4×1，很窄就是 2×1；
+ * - 高度够但宽度不足 210dp 是 2×2 方块；
+ * - 其余是 4×2 双列卡。
  */
 private fun layoutFor(size: DpSize): WidgetLayout = when {
-    size.height <= 100.dp -> WidgetLayout.STRIP
-    size.width <= 260.dp && size.height >= size.width * 0.85f -> WidgetLayout.SQUARE
+    size.height <= 100.dp && size.width <= 210.dp -> WidgetLayout.CAPSULE
+    size.height <= 100.dp -> WidgetLayout.BANNER
+    size.width <= 210.dp -> WidgetLayout.TILE
     else -> WidgetLayout.CARD
 }
 
 private fun coverStyleFor(layout: WidgetLayout): CoverStyle = when (layout) {
     WidgetLayout.CARD -> CoverStyle.THUMB
-    WidgetLayout.SQUARE -> CoverStyle.FULL
-    WidgetLayout.STRIP -> CoverStyle.CIRCLE
+    WidgetLayout.TILE -> CoverStyle.FULL
+    WidgetLayout.BANNER, WidgetLayout.CAPSULE -> CoverStyle.SMALL
 }
 
+/** 封面圆角比例：四档都是「方形圆角」，按各自尺寸算像素，别在小图上切出大圆角。 */
 private fun coverRatio(style: CoverStyle): Float = when (style) {
-    CoverStyle.THUMB -> 0.22f
-    CoverStyle.FULL -> 0f
-    CoverStyle.CIRCLE -> 0f
+    CoverStyle.THUMB -> 0.17f
+    CoverStyle.FULL -> 0.15f
+    CoverStyle.SMALL -> 0.22f
 }
 
 @Composable
@@ -183,16 +190,24 @@ private fun WidgetBody(
     palette: WidgetPalette,
     context: Context,
     layout: WidgetLayout,
+    size: DpSize,
 ) {
     when (layout) {
-        WidgetLayout.CARD -> CardLayout(snapshot, liked, cover, palette, context)
-        WidgetLayout.SQUARE -> SquareLayout(snapshot, liked, cover, palette, context)
-        WidgetLayout.STRIP -> StripLayout(snapshot, liked, cover, palette, context)
+        WidgetLayout.CARD -> CardLayout(snapshot, liked, cover, palette, context, size)
+        WidgetLayout.TILE -> TileLayout(snapshot, liked, cover, palette, context, size)
+        WidgetLayout.BANNER -> BannerLayout(snapshot, liked, cover, palette, context, size)
+        WidgetLayout.CAPSULE -> CapsuleLayout(snapshot, liked, cover, palette, context, size)
     }
 }
 
-// —————————————————————— 布局 1：4×2 宽卡 ——————————————————————
+// —————————————————————— 布局 1：4×2 双列卡 ——————————————————————
 
+/**
+ * 左侧大封面；右侧自上而下：歌曲信息（居中）/ 进度与时长 / 控制栏。
+ *
+ * 控制栏横跨整卡宽度：250dp 规格减去内边距和封面后，右列只剩 130dp 上下，
+ * 五个按钮塞不进那一列。横跨后左右两侧都能均匀分布，点击区也不会互相挤压。
+ */
 @Composable
 private fun CardLayout(
     snapshot: WidgetSnapshot,
@@ -200,231 +215,136 @@ private fun CardLayout(
     cover: Bitmap?,
     palette: WidgetPalette,
     context: Context,
+    size: DpSize,
 ) {
-    val size = LocalSize.current
     val pad = if (size.height < 130.dp) 12.dp else 14.dp
-    // 封面跟卡片高度走，但给控制行留出 46dp，避免小格子把封面压成一条。
-    val coverSize = ((size.height - pad * 2 - 50.dp).value)
-        .coerceIn(56f, 88f).dp
-    val controls = if (size.width >= 270.dp) 3 else 1
-    val textWidth = size.width - pad * 2 - coverSize - 14.dp
+    val coverSize = (size.height - pad * 2 - 46.dp).coerceIn(60.dp, 104.dp)
+    val rightWidth = size.width - pad * 2 - coverSize - 14.dp
+    val playSize = if (size.height < 130.dp) 44.dp else 48.dp
+    val sideSize = if (size.height < 130.dp) 32.dp else 34.dp
 
     Column(
         modifier = roundedCard(palette.card)
             .fillMaxSize()
-            .padding(pad)
-            .clickable(openTargetAction(context, snapshot)),
+            .padding(pad),
     ) {
         Row(
-            modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+            modifier = GlanceModifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CoverArt(
                 cover = cover,
                 palette = palette,
-                modifier = GlanceModifier.size(coverSize),
-                radius = WidgetTokens.CoverRadius,
-                iconSize = 22.dp,
+                modifier = GlanceModifier.size(coverSize)
+                    .clickable(openTargetAction(context, snapshot)),
+                radius = 16.dp,
+                iconSize = 24.dp,
             )
             Spacer(GlanceModifier.width(14.dp))
-            Column(modifier = GlanceModifier.defaultWeight()) {
+            Column(
+                modifier = GlanceModifier.width(rightWidth),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
                 if (snapshot.hasSong) {
                     Text(
-                        text = ellipsize(context, snapshot.title, textWidth, 15f, medium = true),
+                        text = ellipsize(context, snapshot.title, rightWidth, 15f, medium = true),
                         maxLines = 1,
                         style = titleStyle(palette.onCard, 15.sp),
                     )
                     Spacer(GlanceModifier.height(4.dp))
                     Text(
-                        text = ellipsize(context, snapshot.subtitle(context), textWidth, 12f),
+                        text = ellipsize(context, snapshot.subtitle(context), rightWidth, 12f),
                         maxLines = 1,
                         style = bodyStyle(palette.secondary, 12.sp),
                     )
                 } else {
-                    EmptyCopy(snapshot, palette, context, textWidth)
+                    EmptyCopy(snapshot, palette, context, rightWidth)
                 }
+                Spacer(GlanceModifier.height(10.dp))
+                ProgressRow(snapshot, palette, rightWidth)
             }
         }
 
-        Spacer(GlanceModifier.height(6.dp))
-        ProgressLine(snapshot, palette)
+        Spacer(GlanceModifier.defaultWeight())
 
-        if (snapshot.hasSong) {
-            Row(
-                modifier = GlanceModifier.fillMaxWidth().height(46.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (controls == 3) {
-                    BareIcon(R.drawable.ic_widget_prev, R.string.widget_action_prev, prevAction(), palette.onCard)
-                }
-                PlayButton(snapshot.isPlaying, palette, 40.dp)
-                if (controls == 3) {
-                    BareIcon(R.drawable.ic_widget_next, R.string.widget_action_next, nextAction(), palette.onCard)
-                }
-                Spacer(GlanceModifier.defaultWeight())
+        Row(
+            modifier = GlanceModifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (snapshot.hasSong) {
                 BareIcon(
-                    iconRes = R.drawable.ic_widget_fm,
-                    descriptionRes = R.string.widget_action_fm,
-                    action = fmAction(),
-                    tint = if (snapshot.isFm) palette.accent else palette.secondary,
+                    iconRes = R.drawable.ic_widget_prev,
+                    descriptionRes = R.string.widget_action_prev,
+                    action = prevAction(),
+                    tint = palette.onCard,
+                    size = sideSize,
+                    iconSize = 20.dp,
                 )
-                Spacer(GlanceModifier.width(4.dp))
-                LikeIcon(liked, palette)
             }
-        }
-    }
-}
-
-// —————————————————————— 布局 2：2×2 方形 ——————————————————————
-
-@Composable
-private fun SquareLayout(
-    snapshot: WidgetSnapshot,
-    liked: Boolean,
-    cover: Bitmap?,
-    palette: WidgetPalette,
-    context: Context,
-) {
-    val size = LocalSize.current
-    val pad = 14.dp
-    val textWidth = size.width - pad * 2 - 52.dp
-
-    Box(
-        modifier = roundedCard(palette.card)
-            .fillMaxSize()
-            .clickable(openTargetAction(context, snapshot)),
-    ) {
-        if (snapshot.hasSong) {
-            CoverArt(
-                cover = cover,
-                palette = palette,
-                modifier = GlanceModifier.fillMaxSize(),
-                radius = 0.dp,
-                iconSize = 30.dp,
-                fill = true,
-            )
-            // 底部压暗：标题直接压在封面上，靠它保证可读性。
-            Box(
-                modifier = GlanceModifier.fillMaxSize().background(
-                    imageProvider = ImageProvider(R.drawable.widget_scrim_bottom),
-                    contentScale = ContentScale.FillBounds,
+            Spacer(GlanceModifier.width(2.dp))
+            PlayButton(snapshot.isPlaying, palette, playSize)
+            Spacer(GlanceModifier.width(2.dp))
+            if (snapshot.hasSong) {
+                BareIcon(
+                    iconRes = R.drawable.ic_widget_next,
+                    descriptionRes = R.string.widget_action_next,
+                    action = nextAction(),
+                    tint = palette.onCard,
+                    size = sideSize,
+                    iconSize = 20.dp,
                 )
-            ) {}
-        } else {
-            Box(
-                modifier = GlanceModifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Image(
-                        provider = ImageProvider(R.drawable.ic_music_note),
-                        contentDescription = null,
-                        modifier = GlanceModifier.size(30.dp),
-                        colorFilter = ColorFilter.tint(ColorProvider(palette.secondary.copy(alpha = 0.55f))),
-                    )
-                }
-            }
-        }
-
-        Column(modifier = GlanceModifier.fillMaxSize().padding(pad)) {
-            // 顶部右角：私人 FM / 喜欢。两张小图标放在封面之上，靠投影和压暗都省了。
-            Row(
-                modifier = GlanceModifier.fillMaxWidth().height(34.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Spacer(GlanceModifier.defaultWeight())
-                if (snapshot.hasSong) {
-                    BareIcon(
-                        iconRes = R.drawable.ic_widget_fm,
-                        descriptionRes = R.string.widget_action_fm,
-                        action = fmAction(),
-                        tint = if (snapshot.isFm) palette.accent else Color.White.copy(alpha = 0.86f),
-                        size = 34.dp,
-                        iconSize = 19.dp,
-                    )
-                    LikeIcon(
-                        liked = liked,
-                        palette = palette,
-                        tintOverride = if (liked) palette.accent else Color.White.copy(alpha = 0.86f),
-                        size = 34.dp,
-                        iconSize = 20.dp,
-                    )
-                }
             }
             Spacer(GlanceModifier.defaultWeight())
-            Row(
-                modifier = GlanceModifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = GlanceModifier.defaultWeight()) {
-                    if (snapshot.hasSong) {
-                        Text(
-                            text = ellipsize(context, snapshot.title, textWidth, 15f, medium = true),
-                            maxLines = 1,
-                            style = titleStyle(Color.White, 15.sp),
-                        )
-                        Spacer(GlanceModifier.height(3.dp))
-                        Text(
-                            text = ellipsize(context, snapshot.subtitle(context), textWidth, 11.5f),
-                            maxLines = 1,
-                            style = bodyStyle(Color.White.copy(alpha = 0.82f), 11.5.sp),
-                        )
-                    } else {
-                        Text(
-                            text = ellipsize(context, snapshot.statusTitle(context), textWidth, 14f, medium = true),
-                            maxLines = 1,
-                            style = titleStyle(palette.onCard, 14.sp),
-                        )
-                        Spacer(GlanceModifier.height(3.dp))
-                        Text(
-                            text = ellipsize(context, snapshot.statusHint(context), textWidth, 11f),
-                            maxLines = 1,
-                            style = bodyStyle(palette.secondary, 11.sp),
-                        )
-                    }
-                }
-                if (snapshot.hasSong) {
-                    Spacer(GlanceModifier.width(6.dp))
-                    PlayButton(snapshot.isPlaying, palette, 44.dp)
-                }
-            }
-            if (snapshot.hasSong) {
-                Spacer(GlanceModifier.height(8.dp))
-                ProgressLine(snapshot, palette)
-            }
+            BareIcon(
+                iconRes = R.drawable.ic_widget_fm,
+                descriptionRes = R.string.widget_action_fm,
+                action = fmAction(),
+                tint = if (snapshot.isFm) palette.accent else palette.secondary,
+                size = sideSize,
+                iconSize = 20.dp,
+            )
+            Spacer(GlanceModifier.width(2.dp))
+            LikeIcon(liked, palette, size = sideSize, iconSize = 20.dp)
         }
     }
 }
 
-// —————————————————————— 布局 3：4×1 窄条 ——————————————————————
+// —————————————————————— 布局 2：4×1 横条（整卡进度） ——————————————————————
 
+/**
+ * 整卡背景当进度条：底层铺一条按播放比例拉伸的强调色填充，上层照常排内容。
+ * 参考的是 App 内悬浮小播放器那套「背景即进度」的视觉。
+ *
+ * 宽度只有 250dp 时五个按钮必须收紧到 28dp，否则文字会被挤成一个字。
+ */
 @Composable
-private fun StripLayout(
+private fun BannerLayout(
     snapshot: WidgetSnapshot,
     liked: Boolean,
     cover: Bitmap?,
     palette: WidgetPalette,
     context: Context,
+    size: DpSize,
 ) {
-    val size = LocalSize.current
     val pad = 10.dp
-    // 4×1 最小只有 250dp：封面 38 + 歌名 + 两个 40dp 点击区就到头了，
-    // 够宽（≥ 310dp）再加一个「下一首」，宁可少一个次要按钮，也不要挤成一排点不准的图标。
-    val showNext = snapshot.hasSong && size.width >= 310.dp
-    val buttons = when {
-        !snapshot.hasSong -> 0
-        showNext -> 3
-        else -> 2
-    }
-    val textWidth = size.width - pad * 2 - 38.dp - 10.dp - (40.dp * buttons) - 4.dp
+    val coverSize = (size.height - pad * 2).coerceIn(32.dp, 46.dp)
+    val btn = if (size.width < 300.dp) 28.dp else 32.dp
+    val iconSize = if (size.width < 300.dp) 16.dp else 18.dp
+    val buttons = if (snapshot.hasSong) 5 else 0
+    val textWidth = (size.width - pad * 2 - coverSize - 8.dp - btn * buttons - 18.dp)
+        .coerceAtLeast(24.dp)
 
     Box(modifier = roundedCard(palette.card).fillMaxSize()) {
-        // 进度线贴卡底：窄条没地方放横向进度，用底边这一条表示“放到哪了”。
-        if (snapshot.hasSong) {
-            Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) {
-                ProgressLine(snapshot, palette, inset = pad)
-            }
+        // 背景进度：播放到哪，整张卡就亮到哪。
+        if (snapshot.hasSong && snapshot.durationMs > 0L) {
+            val fraction = snapshot.progress().coerceIn(0f, 1f)
+            Box(
+                modifier = GlanceModifier.width(size.width * fraction)
+                    .fillMaxHeight()
+                    .background(palette.accent.copy(alpha = if (palette.isDark) 0.30f else 0.18f)),
+            ) {}
         }
+
         Row(
             modifier = GlanceModifier.fillMaxSize().padding(horizontal = pad),
             verticalAlignment = Alignment.CenterVertically,
@@ -432,53 +352,275 @@ private fun StripLayout(
             CoverArt(
                 cover = cover,
                 palette = palette,
-                modifier = GlanceModifier.size(38.dp).clickable(openTargetAction(context, snapshot)),
-                radius = 19.dp,
+                modifier = GlanceModifier.size(coverSize)
+                    .clickable(openTargetAction(context, snapshot)),
+                radius = coverSize / 4,
                 iconSize = 18.dp,
             )
-            Spacer(GlanceModifier.width(10.dp))
+            Spacer(GlanceModifier.width(8.dp))
             Column(
-                modifier = GlanceModifier.defaultWeight()
+                modifier = GlanceModifier.width(textWidth)
                     .clickable(openTargetAction(context, snapshot)),
             ) {
                 if (snapshot.hasSong) {
                     Text(
-                        text = ellipsize(context, snapshot.title, textWidth, 14f, medium = true),
-                        maxLines = 1,
-                        style = titleStyle(palette.onCard, 14.sp),
-                    )
-                    Text(
-                        text = ellipsize(context, snapshot.subtitle(context), textWidth, 11f),
-                        maxLines = 1,
-                        style = bodyStyle(palette.secondary, 11.sp),
-                    )
-                } else {
-                    Text(
-                        text = ellipsize(context, snapshot.statusTitle(context), textWidth, 13f, medium = true),
+                        text = ellipsize(context, snapshot.title, textWidth, 13f, medium = true),
                         maxLines = 1,
                         style = titleStyle(palette.onCard, 13.sp),
                     )
                     Text(
-                        text = ellipsize(context, snapshot.statusHint(context), textWidth, 10.5f),
+                        text = ellipsize(context, snapshot.subtitle(context), textWidth, 10.5f),
                         maxLines = 1,
                         style = bodyStyle(palette.secondary, 10.5.sp),
                     )
-                }
-            }
-            if (snapshot.hasSong) {
-                LikeIcon(liked, palette, size = 40.dp, iconSize = 21.dp)
-                PlayButton(snapshot.isPlaying, palette, 36.dp)
-                if (showNext) {
-                    BareIcon(
-                        iconRes = R.drawable.ic_widget_next,
-                        descriptionRes = R.string.widget_action_next,
-                        action = nextAction(),
-                        tint = palette.onCard,
-                        size = 40.dp,
-                        iconSize = 22.dp,
+                } else {
+                    Text(
+                        text = ellipsize(context, snapshot.statusTitle(context), textWidth, 12.5f, medium = true),
+                        maxLines = 1,
+                        style = titleStyle(palette.onCard, 12.5.sp),
                     )
                 }
             }
+
+            if (snapshot.hasSong) {
+                BareIcon(
+                    iconRes = R.drawable.ic_widget_prev,
+                    descriptionRes = R.string.widget_action_prev,
+                    action = prevAction(),
+                    tint = palette.onCard,
+                    size = btn,
+                    iconSize = iconSize,
+                )
+                PlayButton(snapshot.isPlaying, palette, btn + 4.dp)
+                BareIcon(
+                    iconRes = R.drawable.ic_widget_next,
+                    descriptionRes = R.string.widget_action_next,
+                    action = nextAction(),
+                    tint = palette.onCard,
+                    size = btn,
+                    iconSize = iconSize,
+                )
+                VDivider(palette.track)
+                BareIcon(
+                    iconRes = R.drawable.ic_widget_fm,
+                    descriptionRes = R.string.widget_action_fm,
+                    action = fmAction(),
+                    tint = if (snapshot.isFm) palette.accent else palette.secondary,
+                    size = btn,
+                    iconSize = iconSize,
+                )
+                LikeIcon(liked, palette, size = btn, iconSize = iconSize)
+            }
+        }
+    }
+}
+
+// —————————————————————— 布局 3：2×2 方块 ——————————————————————
+
+/**
+ * 自上而下：大封面（占上半，左右半区点击即上一首/下一首）、歌名歌手、短进度与时长、三键居中。
+ * 封面用 weight 吃掉剩余高度，2×2 拉伸成 3×3 也不会把文字挤掉。
+ */
+@Composable
+private fun TileLayout(
+    snapshot: WidgetSnapshot,
+    liked: Boolean,
+    cover: Bitmap?,
+    palette: WidgetPalette,
+    context: Context,
+    size: DpSize,
+) {
+    val pad = 12.dp
+    val inner = size.width - pad * 2
+    val playSize = if (size.height < 170.dp) 38.dp else 42.dp
+    val sideSize = if (size.height < 170.dp) 30.dp else 34.dp
+
+    Column(
+        modifier = roundedCard(palette.card)
+            .fillMaxSize()
+            .padding(pad),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
+            CoverArt(
+                cover = cover,
+                palette = palette,
+                modifier = GlanceModifier.fillMaxSize(),
+                radius = 14.dp,
+                iconSize = 26.dp,
+                fill = true,
+            )
+            // 封面左右半区：点左边上一首、点右边下一首（远程视图收不到滑动手势，用它代替）。
+            if (snapshot.hasSong) {
+                Row(modifier = GlanceModifier.fillMaxSize()) {
+                    Box(
+                        modifier = GlanceModifier.fillMaxHeight().defaultWeight()
+                            .clickable(prevAction()),
+                    ) {}
+                    Box(
+                        modifier = GlanceModifier.fillMaxHeight().defaultWeight()
+                            .clickable(nextAction()),
+                    ) {}
+                }
+            }
+        }
+
+        Spacer(GlanceModifier.height(8.dp))
+        if (snapshot.hasSong) {
+            Text(
+                text = ellipsize(context, snapshot.title, inner, 13f, medium = true),
+                maxLines = 1,
+                style = titleStyle(palette.onCard, 13.sp),
+                modifier = GlanceModifier.clickable(openTargetAction(context, snapshot)),
+            )
+            Spacer(GlanceModifier.height(2.dp))
+            Text(
+                text = ellipsize(context, snapshot.subtitle(context), inner, 10.5f),
+                maxLines = 1,
+                style = bodyStyle(palette.secondary, 10.5.sp),
+                modifier = GlanceModifier.clickable(openTargetAction(context, snapshot)),
+            )
+            Spacer(GlanceModifier.height(6.dp))
+            ProgressRow(snapshot, palette, inner, compact = true)
+        } else {
+            Text(
+                text = ellipsize(context, snapshot.statusTitle(context), inner, 13f, medium = true),
+                maxLines = 1,
+                style = titleStyle(palette.onCard, 13.sp),
+                modifier = GlanceModifier.clickable(openTargetAction(context, snapshot)),
+            )
+        }
+
+        Spacer(GlanceModifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (snapshot.hasSong) {
+                BareIcon(
+                    iconRes = R.drawable.ic_widget_prev,
+                    descriptionRes = R.string.widget_action_prev,
+                    action = prevAction(),
+                    tint = palette.onCard,
+                    size = sideSize,
+                    iconSize = 18.dp,
+                )
+                Spacer(GlanceModifier.width(6.dp))
+            }
+            PlayButton(snapshot.isPlaying, palette, playSize)
+            if (snapshot.hasSong) {
+                Spacer(GlanceModifier.width(6.dp))
+                BareIcon(
+                    iconRes = R.drawable.ic_widget_next,
+                    descriptionRes = R.string.widget_action_next,
+                    action = nextAction(),
+                    tint = palette.onCard,
+                    size = sideSize,
+                    iconSize = 18.dp,
+                )
+            }
+        }
+    }
+}
+
+// —————————————————————— 布局 4：2×1 胶囊 ——————————————————————
+
+/**
+ * 最省空间的一档。2×1 通常只有 110dp 宽，先保证「封面 + 歌名 + 播放键」，
+ * 宽度富裕出来再按 喜欢 → 私人 FM → 上一首/下一首 的顺序补按钮。
+ */
+@Composable
+private fun CapsuleLayout(
+    snapshot: WidgetSnapshot,
+    liked: Boolean,
+    cover: Bitmap?,
+    palette: WidgetPalette,
+    context: Context,
+    size: DpSize,
+) {
+    val pad = 8.dp
+    val coverSize = (size.height - pad * 2).coerceIn(26.dp, 40.dp)
+    val playSize = coverSize
+    val sideSize = coverSize - 4.dp
+
+    val showLike = snapshot.hasSong && size.width >= 170.dp
+    val showFm = snapshot.hasSong && size.width >= 215.dp
+    val showSkip = snapshot.hasSong && size.width >= 275.dp
+
+    var used = coverSize + playSize
+    if (showSkip) used += sideSize * 2
+    if (showFm) used += sideSize
+    if (showLike) used += sideSize
+    val textWidth = (size.width - pad * 2 - used - 8.dp).coerceAtLeast(18.dp)
+
+    Row(
+        modifier = roundedCard(palette.card)
+            .fillMaxSize()
+            .padding(horizontal = pad),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CoverArt(
+            cover = cover,
+            palette = palette,
+            modifier = GlanceModifier.size(coverSize)
+                .clickable(openTargetAction(context, snapshot)),
+            radius = coverSize / 4,
+            iconSize = 14.dp,
+        )
+        Spacer(GlanceModifier.width(7.dp))
+        Column(
+            modifier = GlanceModifier.width(textWidth)
+                .clickable(openTargetAction(context, snapshot)),
+        ) {
+            if (snapshot.hasSong) {
+                Text(
+                    text = ellipsize(context, snapshot.title, textWidth, 11.5f, medium = true),
+                    maxLines = 1,
+                    style = titleStyle(palette.onCard, 11.5.sp),
+                )
+                Text(
+                    text = ellipsize(context, snapshot.subtitle(context), textWidth, 9.5f),
+                    maxLines = 1,
+                    style = bodyStyle(palette.secondary, 9.5.sp),
+                )
+            } else {
+                Text(
+                    text = ellipsize(context, snapshot.statusTitle(context), textWidth, 11f, medium = true),
+                    maxLines = 1,
+                    style = titleStyle(palette.onCard, 11.sp),
+                )
+            }
+        }
+        if (showSkip) {
+            BareIcon(
+                iconRes = R.drawable.ic_widget_prev,
+                descriptionRes = R.string.widget_action_prev,
+                action = prevAction(),
+                tint = palette.onCard,
+                size = sideSize,
+                iconSize = 15.dp,
+            )
+        }
+        PlayButton(snapshot.isPlaying, palette, playSize)
+        if (showSkip) {
+            BareIcon(
+                iconRes = R.drawable.ic_widget_next,
+                descriptionRes = R.string.widget_action_next,
+                action = nextAction(),
+                tint = palette.onCard,
+                size = sideSize,
+                iconSize = 15.dp,
+            )
+        }
+        if (showFm) {
+            BareIcon(
+                iconRes = R.drawable.ic_widget_fm,
+                descriptionRes = R.string.widget_action_fm,
+                action = fmAction(),
+                tint = if (snapshot.isFm) palette.accent else palette.secondary,
+                size = sideSize,
+                iconSize = 15.dp,
+            )
+        }
+        if (showLike) {
+            LikeIcon(liked, palette, size = sideSize, iconSize = 15.dp)
         }
     }
 }
@@ -551,9 +693,20 @@ private fun LikeIcon(
     )
 }
 
+/** 1dp 竖分隔线：把「播放控件」和「快捷功能」分开。 */
+@Composable
+private fun VDivider(color: Color) {
+    Spacer(GlanceModifier.width(6.dp))
+    Box(
+        modifier = GlanceModifier.width(1.dp).height(18.dp)
+            .background(color),
+    ) {}
+    Spacer(GlanceModifier.width(6.dp))
+}
+
 /**
- * 封面。缺图时画一块同色占位（不让组件出现空洞），有图就按样式裁好的圆角/圆图直接贴。
- * [fill] 用于方形满铺：铺满容器、不参与圆角（圆角由卡片裁）。
+ * 封面。缺图时画一块同色占位（不让组件出现空洞），有图就按样式裁好的圆角图直接贴。
+ * [fill] 用于 2×2 的满容器封面：铺满容器，圆角由外层裁。
  */
 @Composable
 private fun CoverArt(
@@ -597,29 +750,87 @@ private fun CoverArt(
 }
 
 /**
- * 细进度线。
+ * 进度行：`当前时间 ──条── 总时长`。
  *
- * Glance 画不了动画，实时感靠 WidgetUpdater 的 1s ticker：每轮把真实播放位置写进快照再重绘。
- * 没有时长（直播 / 解析中）就不画，免得停在 0% 让人以为卡住了。
+ * RemoteViews 不支持拖动，所以条本身切 5 段热区，点哪一段就跳到哪里（精度 20%）。
+ * 没有时长（直播 / 还在解析）就画一条静态底线，时间位显示 --:--。
  */
 @Composable
-private fun ProgressLine(snapshot: WidgetSnapshot, palette: WidgetPalette, inset: Dp = 0.dp) {
-    if (!snapshot.hasSong || snapshot.durationMs <= 0L) return
-    val fraction = snapshot.progress().coerceIn(0f, 1f)
-    val width = (LocalSize.current.width - inset * 2).coerceAtLeast(0.dp)
+private fun ProgressRow(
+    snapshot: WidgetSnapshot,
+    palette: WidgetPalette,
+    width: Dp,
+    compact: Boolean = false,
+) {
+    val timeWidth = if (compact) 26.dp else 30.dp
+    val gap = if (compact) 4.dp else 6.dp
+    val barWidth = (width - timeWidth * 2 - gap * 2).coerceAtLeast(20.dp)
+    val fontSize = if (compact) 9f else 10f
+    val hasDuration = snapshot.hasSong && snapshot.durationMs > 0L
+
+    Row(
+        modifier = GlanceModifier.width(width),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = if (hasDuration) {
+                formatClock((snapshot.progress() * snapshot.durationMs).toLong())
+            } else {
+                "--:--"
+            },
+            maxLines = 1,
+            style = bodyStyle(palette.secondary, fontSize.sp),
+            modifier = GlanceModifier.width(timeWidth),
+        )
+        Spacer(GlanceModifier.width(gap))
+        SeekBar(palette, barWidth, snapshot.progress().coerceIn(0f, 1f), hasDuration)
+        Spacer(GlanceModifier.width(gap))
+        Text(
+            text = if (hasDuration) formatClock(snapshot.durationMs) else "--:--",
+            maxLines = 1,
+            style = bodyStyle(palette.secondary, fontSize.sp),
+            modifier = GlanceModifier.width(timeWidth),
+        )
+    }
+}
+
+/**
+ * 细进度条 + 5 段点击热区。
+ * Glance 画不了动画，实时感靠 WidgetUpdater 的 1s ticker。
+ */
+@Composable
+private fun SeekBar(
+    palette: WidgetPalette,
+    width: Dp,
+    fraction: Float,
+    hasDuration: Boolean,
+) {
+    val height = 3.dp
     Box(
-        modifier = GlanceModifier.fillMaxWidth().height(2.dp).padding(horizontal = inset),
+        modifier = GlanceModifier.width(width).height(14.dp),
+        contentAlignment = Alignment.CenterStart,
     ) {
         Box(
-            modifier = GlanceModifier.fillMaxWidth().height(2.dp)
+            modifier = GlanceModifier.width(width).height(height)
                 .background(palette.track),
         ) {}
-        Box(
-            modifier = GlanceModifier.height(2.dp)
-                // Glance 没有 fillMaxWidth(fraction)，按实测宽度自己乘。
-                .width(width * fraction)
-                .background(palette.accent),
-        ) {}
+        if (fraction > 0f) {
+            Box(
+                modifier = GlanceModifier.width(width * fraction).height(height)
+                    .background(palette.accent),
+            ) {}
+        }
+        if (hasDuration) {
+            // 点击热区铺满整条，分五段：点哪跳哪。
+            Row(modifier = GlanceModifier.width(width).height(14.dp)) {
+                repeat(5) { index ->
+                    Box(
+                        modifier = GlanceModifier.defaultWeight().fillMaxHeight()
+                            .clickable(seekAction((index + 0.5f) / 5f)),
+                    ) {}
+                }
+            }
+        }
     }
 }
 
@@ -641,6 +852,19 @@ private fun EmptyCopy(
         maxLines = 1,
         style = bodyStyle(palette.secondary, 12.sp),
     )
+}
+
+/** 毫秒 → m:ss（超过一小时补 h:mm:ss）。 */
+private fun formatClock(ms: Long): String {
+    val total = (ms / 1000L).coerceAtLeast(0L)
+    val hours = total / 3600L
+    val minutes = (total % 3600L) / 60L
+    val seconds = total % 60L
+    return if (hours > 0L) {
+        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format(Locale.US, "%d:%02d", minutes, seconds)
+    }
 }
 
 /**

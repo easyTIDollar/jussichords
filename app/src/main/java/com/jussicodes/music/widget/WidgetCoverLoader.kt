@@ -38,8 +38,8 @@ enum class CoverStyle(val px: Int) {
     /** 方形 2×2：整格铺满封面，3x 屏约 330px。 */
     FULL(320),
 
-    /** 窄条 4×1：40dp 圆形封面，3x 屏约 120px。 */
-    CIRCLE(144),
+    /** 4×1 横条 / 2×1 胶囊：32~46dp 小方封面，3x 屏约 120px。 */
+    SMALL(144),
 }
 
 /**
@@ -160,8 +160,8 @@ object WidgetCoverLoader {
         val compressed = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: square
         val software = if (compressed.isMutable) compressed else compressed.copy(Bitmap.Config.ARGB_8888, true)
         return when (style) {
-            CoverStyle.CIRCLE -> circle(software)
-            CoverStyle.THUMB, CoverStyle.FULL -> round(software, software.width * cornerRatio)
+            CoverStyle.SMALL, CoverStyle.THUMB, CoverStyle.FULL ->
+                round(software, software.width * cornerRatio)
         }
     }
 

@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.glance.GlanceId
 import androidx.glance.action.Action
 import androidx.glance.action.ActionParameters
+import androidx.glance.action.actionParametersOf
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.action.actionStartActivity
@@ -32,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 /** 红心乐观状态：只在本组件实例上立即翻转，同步结果回来后清掉 / 由真实数据覆盖。 */
 object WidgetLikeKeys {
@@ -270,6 +272,45 @@ class WidgetOpenAppAction : ActionCallback {
         WidgetMedia.openApp(context, openPlayer = false)
     }
 }
+
+/** 进度条点击跳转的参数：0~1 的播放比例。 */
+object WidgetSeekKey {
+    /** 百分比 0~100：ActionParameters 跨进程要过 Bundle，整数最稳。 */
+    val Percent = ActionParameters.Key<Int>("widget_seek_percent")
+}
+
+/**
+ * 点进度条跳转。
+ *
+ * RemoteViews 里没有可拖动的 SeekBar，Glance 也没有 Slider，所以进度条被切成 5 段热区：
+ * 点第 n 段就跳到 (n + 0.5) / 5 的位置。精度不如拖动，但「想往回听一点」这件事能用。
+ */
+class WidgetSeekAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val percent = parameters[WidgetSeekKey.Percent] ?: return
+        val fraction = percent / 100f
+        val app = context.applicationContext
+        WidgetUpdater.cancelPending()
+        val acted = WidgetMedia.withController(app) { controller ->
+            val duration = controller.duration
+            if (duration <= 0L) return@withController false
+            if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
+            controller.seekTo((duration * fraction).toLong().coerceIn(0L, duration))
+            true
+        } ?: false
+        WidgetDebug.event(app, "action seek f=$fraction acted=$acted")
+        if (!acted) {
+            WidgetMedia.openApp(app, openPlayer = true)
+            return
+        }
+        WidgetUpdater.poke(app)
+    }
+}
+
+internal fun seekAction(fraction: Float): Action =
+    actionRunCallback<WidgetSeekAction>(
+        actionParametersOf(WidgetSeekKey.Percent to (fraction * 100f).roundToInt())
+    )
 
 internal fun playPauseAction(): Action = actionRunCallback<WidgetPlayPauseAction>()
 internal fun nextAction(): Action = actionRunCallback<WidgetNextAction>()

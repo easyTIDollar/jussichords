@@ -113,13 +113,26 @@ fun Color.blend(other: Color, ratio: Float): Color =
 /**
  * 组件的候选尺寸。
  *
- * 只声明三档，各自对应一种布局：宽条 4×2 / 方形 2×2 / 窄条 4×1。
+ * 声明四档，各自对应一种布局：4×2 双列卡 / 2×2 方块 / 4×1 横条 / 2×1 胶囊。
  * 桌面拉伸时 Glance 会吸附到最近的候选尺寸，布局分支就不会落到中间态。
  */
 object WidgetSizes {
-    val Card = setOf(DpSize(250.dp, 120.dp), DpSize(300.dp, 140.dp), DpSize(340.dp, 160.dp))
-    val Square = setOf(DpSize(150.dp, 150.dp), DpSize(180.dp, 180.dp), DpSize(230.dp, 230.dp))
-    val Strip = setOf(DpSize(250.dp, 64.dp), DpSize(300.dp, 72.dp), DpSize(350.dp, 80.dp))
+    /** 4×2 双列卡。 */
+    val Card = setOf(DpSize(250.dp, 120.dp), DpSize(320.dp, 150.dp))
 
-    val All: Set<DpSize> = Card + Square + Strip
+    /** 2×2 方块。 */
+    val Tile = setOf(DpSize(155.dp, 155.dp), DpSize(190.dp, 190.dp))
+
+    /** 4×1 横条（整卡进度）。 */
+    val Banner = setOf(DpSize(250.dp, 64.dp), DpSize(320.dp, 76.dp))
+
+    /** 2×1 胶囊。 */
+    val Capsule = setOf(DpSize(110.dp, 56.dp), DpSize(160.dp, 60.dp))
+
+    /**
+     * 候选尺寸不是越多越好：Responsive 模式下 Glance 会为**每个**候选尺寸各生成一份
+     * RemoteViews 再一起推给 launcher。尺寸越多，每帧合成与 Binder 传输越重，
+     * 切歌就会发顿。每档留两个代表尺寸（标准 + 大号）足够，中间值由 launcher 拉伸。
+     */
+    val All: Set<DpSize> = Card + Tile + Banner + Capsule
 }
