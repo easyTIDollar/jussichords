@@ -70,6 +70,12 @@ import kotlinx.coroutines.launch
  */
 class JussiMusicWidget : GlanceAppWidget() {
 
+    companion object {
+        /** 上一次合成时记下的帧摘要：只在内容真的变了时写一条日志。 */
+        @Volatile
+        private var lastComposeDigest: String = ""
+    }
+
     override val sizeMode: SizeMode = SizeMode.Responsive(WidgetSizes.All)
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -78,10 +84,11 @@ class JussiMusicWidget : GlanceAppWidget() {
         // 合成跑到这里就说明桌面上一定有实例：把「有人用」的判定钉死，
         // 别因为某些 ROM 上 AppWidgetManager 查询为空而把整条刷新链路掐掉。
         WidgetUpdater.markAlive()
-        WidgetDebug.log(
-            "compose id=${id.hashCode()} song=${snapshot.songId} play=${snapshot.isPlaying} " +
-                "load=${snapshot.isLoading} has=${snapshot.hasSong}"
-        )
+        val composeDigest = "${snapshot.songId}|${snapshot.isPlaying}|${snapshot.title.take(12)}"
+        if (composeDigest != lastComposeDigest) {
+            lastComposeDigest = composeDigest
+            WidgetDebug.event(context, "compose $composeDigest")
+        }
         // 组件刚添加 / 系统重建时补一下进度 ticker。
         WidgetUpdater.ensureProgressTicker(context)
 

@@ -11,6 +11,8 @@ import androidx.glance.GlanceId
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.media3.common.Player
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.ncmCookieKey
@@ -523,6 +525,22 @@ object WidgetHub {
     /** 单实例更新失败的最大重试次数（250ms / 500ms 退避），仍失败则保留上一帧。 */
     private const val UPDATE_MAX_ATTEMPTS = 3
 
+    /**
+     * 帧令牌。
+     *
+     * Glance 的重组由**组件自己的 state** 驱动：session 收到 UpdateGlanceState 才重跑
+     * provideGlance，而 `GlanceAppWidget.update()` 本身只意味着“去读一次 state”。
+     * 只改进程内快照 / SharedPreferences、不写 Glance state，画面就会永远停在首帧——
+     * 典型症状正是「点红心能变（红心会写 state），切歌不变」。
+     * 所以每次推送前必须先写一个变化的令牌。
+     */
+    private val FrameToken = intPreferencesKey("widget_frame_token")
+    private val frameSeq = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** 上一次推送时记下的帧摘要：只在内容真的变了时写一条日志，避免每秒 tick 冲掉环形缓冲。 */
+    @Volatile
+    private var lastPushDigest: String = ""
+
     val widgets: List<GlanceAppWidget>
         get() = listOf(JussiMusicWidget())
 
@@ -587,9 +605,20 @@ object WidgetHub {
             // 一个实例失败不影响其他实例，也不会把整体刷新拖太久。
             for (attempt in 0 until UPDATE_MAX_ATTEMPTS) {
                 runCatching {
+                    // 先写令牌触发重组，再让 Glance 推一帧。
+                    updateAppWidgetState(context, glanceId) { prefs ->
+                        prefs[FrameToken] = frameSeq.incrementAndGet()
+                    }
                     widget.update(context, glanceId)
                 }.onSuccess {
                     done = true
+                    val frame = WidgetUpdater.current(context)
+                    val digest = "${frame.songId}|${frame.isPlaying}|${frame.title.take(12)}"
+                    if (digest != lastPushDigest) {
+                        lastPushDigest = digest
+                        // 和 JussiMusicWidget 里的 "compose ..." 对读：有 push 没 compose = 没重组。
+                        WidgetDebug.event(context, "push ${receiver.simpleName} $digest")
+                    }
                 }.onFailure {
                     // RemoteViews 超 Binder 上限、合成异常都在这里；至少要在 logcat 里是 error 级别。
                     WidgetDebug.error("update ${receiver.simpleName} failed (attempt $attempt)", it)

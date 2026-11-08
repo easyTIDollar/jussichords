@@ -125,8 +125,8 @@
     <string name="msg_chat_general_hint">点击查看</string>
 
     <!-- 桌面小组件 -->
-    <string name="widget_name">Jussi 播放器</string>
-    <string name="widget_desc">正在播放的歌曲、播放控件、红心与私人 FM</string>
+    <string name="widget_name">播放卡片</string>
+    <string name="widget_desc">当前歌曲、播放控件、红心与私人 FM</string>
     <string name="widget_empty_no_song">暂无播放歌曲</string>
     <string name="widget_empty_no_song_hint">点击打开 App 选一首歌</string>
     <string name="widget_empty_not_logged_in">未登录</string>
