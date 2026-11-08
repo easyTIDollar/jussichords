@@ -179,13 +179,23 @@ fun KaraokeLyricRow(
     val currentPositionProviderState = rememberUpdatedState(currentPositionProvider)
     // 裁剪路径复用：Path 背后是原生对象且带 finalizer，避免每帧新建制造 GC 压力
     val reusableClipPath = remember { Path() }
-    // 逐帧心跳：利用 withFrameNanos 跑满屏幕 60Hz/120Hz 刷新率，解决 50ms 轮询导致的 20Hz 扫色卡顿
+    // 逐帧心跳：利用 withFrameNanos 驱动卡拉OK扫色，解决 50ms 轮询导致的 20Hz 扫色卡顿。
     var frameTick by remember(text, lineTimeMs) { mutableLongStateOf(0L) }
 
     LaunchedEffect(isPlaying, text, lineTimeMs, isActive, advancedEffect) {
         if (isPlaying && isActive) {
+            var lastFrameNanos = 0L
+            var submitThisFrame = true
             while (true) {
-                withFrameNanos { frameNano -> frameTick = frameNano }
+                withFrameNanos { frameNano ->
+                    // 高刷屏(≥90Hz)隔帧提交：扫色仍有 ≥45fps，观感无差，但逐帧心跳的
+                    // 重组+重绘成本减半——它原本跑满 120Hz，和播放页上滑转场动画抢主线程。
+                    // 60Hz 屏幕逐帧提交，行为不变。
+                    val highRefresh = lastFrameNanos != 0L && frameNano - lastFrameNanos < 12_000_000L
+                    lastFrameNanos = frameNano
+                    if (!highRefresh || submitThisFrame) frameTick = frameNano
+                    submitThisFrame = !submitThisFrame
+                }
             }
         }
     }

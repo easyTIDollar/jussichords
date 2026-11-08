@@ -17,6 +17,7 @@ import androidx.media3.common.Player
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
+import com.jussicodes.music.utils.AppVisibilityTracker
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.utils.json
@@ -483,6 +484,10 @@ object WidgetUpdater {
                 if (!snapshot.isPlaying || snapshot.durationMs <= 0L) break
                 // 息屏时没人看进度线：跳过这一轮重绘，别在后台纯烧 CPU/Binder。
                 if (!screenOn(context)) continue
+                // App 在前台时同样没人看组件：每秒 3 次 Glance 全量重组 + RemoteViews
+                // 推送正好砸在用户的拖动/转场动画帧里（实测上滑播放页掉到个位数帧率）。
+                // 跳过写盘与重绘，回桌面的第一秒 tick 会立刻补上真实位置。
+                if (AppVisibilityTracker.isAppInForeground.value) continue
                 val now = SystemClock.elapsedRealtime()
                 // 以播放器真实位置为准；读不到（播放器已释放）才退回外推。
                 val realPosition = readPlayerPosition()
