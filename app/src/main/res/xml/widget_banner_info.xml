@@ -1,13 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 4×1 横条：整卡背景即进度。 -->
+<!-- 4×1 横条：整卡背景即进度。尺寸固定，桌面不可拉伸。 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/widget_desc"
     android:initialLayout="@layout/glance_default_loading_layout"
     android:minHeight="56dp"
-    android:minResizeHeight="48dp"
-    android:minResizeWidth="220dp"
     android:minWidth="250dp"
-    android:resizeMode="horizontal|vertical"
+    android:resizeMode="none"
     android:targetCellHeight="1"
     android:targetCellWidth="4"
     android:updatePeriodMillis="0"

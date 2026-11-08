@@ -7,7 +7,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.ColorUtils
 import androidx.glance.ColorFilter
@@ -110,29 +109,3 @@ fun roundedCard(
 fun Color.blend(other: Color, ratio: Float): Color =
     Color(ColorUtils.blendARGB(toArgb(), other.toArgb(), ratio.coerceIn(0f, 1f)))
 
-/**
- * 组件的候选尺寸。
- *
- * 声明四档，各自对应一种布局：4×2 双列卡 / 2×2 方块 / 4×1 横条 / 2×1 胶囊。
- * 桌面拉伸时 Glance 会吸附到最近的候选尺寸，布局分支就不会落到中间态。
- */
-object WidgetSizes {
-    /** 4×2 双列卡。 */
-    val Card = setOf(DpSize(250.dp, 120.dp), DpSize(320.dp, 150.dp))
-
-    /** 2×2 方块。 */
-    val Tile = setOf(DpSize(155.dp, 155.dp), DpSize(190.dp, 190.dp))
-
-    /** 4×1 横条（整卡进度）。 */
-    val Banner = setOf(DpSize(250.dp, 64.dp), DpSize(320.dp, 76.dp))
-
-    /** 2×1 胶囊。 */
-    val Capsule = setOf(DpSize(110.dp, 56.dp), DpSize(160.dp, 60.dp))
-
-    /**
-     * 候选尺寸不是越多越好：Responsive 模式下 Glance 会为**每个**候选尺寸各生成一份
-     * RemoteViews 再一起推给 launcher。尺寸越多，每帧合成与 Binder 传输越重，
-     * 切歌就会发顿。每档留两个代表尺寸（标准 + 大号）足够，中间值由 launcher 拉伸。
-     */
-    val All: Set<DpSize> = Card + Tile + Banner + Capsule
-}

@@ -499,7 +499,7 @@ object WidgetUpdater {
                 )
                 live = next
                 WidgetStateStore.write(context, next)
-                // 只重绘画进度线的组件（Card/Tile/Banner）；Capsule 等真实事件来时再刷。
+                // 只重绘画进度线的三个组件；不在 tick 里推的组件等真实事件来时再刷。
                 runCatching { WidgetHub.updateAll(context, progressOnly = true) }
             }
         }

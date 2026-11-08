@@ -29,16 +29,16 @@ import java.util.Collections
  * Glance 每一帧都把位图塞进 RemoteViews 走 Binder：512×512 ARGB_8888 正好 1,048,576 字节，
  * 加上 Bundle/RemoteViews 头就超过 Binder 单次事务上限（TransactionTooLargeException），
  * updateAppWidget 直接失败——表现为组件永远停在旧帧或「加载中」。
- * 桌面组件最大也就 2×2 格，按 dp 实际像素出图足够清晰，体积还小一个数量级。
+ * 桌面组件最大也就 2×3 格，按 dp 实际像素出图足够清晰，体积还小一个数量级。
  */
 enum class CoverStyle(val px: Int) {
     /** 宽条 4×2：左侧 84dp 封面，3x 屏约 252px。 */
     THUMB(240),
 
-    /** 方形 2×2：整格铺满封面，3x 屏约 330px。 */
+    /** 方形 2×3：整格铺满封面，3x 屏约 330px。 */
     FULL(320),
 
-    /** 4×1 横条 / 2×1 胶囊：32~46dp 小方封面，3x 屏约 120px。 */
+    /** 4×1 横条：32~46dp 小方封面，3x 屏约 120px。 */
     SMALL(144),
 }
 

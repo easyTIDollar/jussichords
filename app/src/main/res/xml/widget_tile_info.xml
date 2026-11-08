@@ -1,14 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 2×2 方块：上大封面（左右点按切歌）+ 信息 + 进度 + 三键。 -->
+<!-- 2×3 竖版方块：上大封面（左右点按切歌）+ 信息 + 进度 + 三键。尺寸固定，桌面不可拉伸。 -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/widget_desc"
     android:initialLayout="@layout/glance_default_loading_layout"
-    android:minHeight="110dp"
-    android:minResizeHeight="90dp"
-    android:minResizeWidth="90dp"
+    android:minHeight="180dp"
     android:minWidth="110dp"
-    android:resizeMode="horizontal|vertical"
-    android:targetCellHeight="2"
+    android:resizeMode="none"
+    android:targetCellHeight="3"
     android:targetCellWidth="2"
     android:updatePeriodMillis="0"
     android:widgetCategory="home_screen" />

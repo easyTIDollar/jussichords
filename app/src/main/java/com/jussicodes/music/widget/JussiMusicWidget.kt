@@ -65,15 +65,15 @@ import java.util.Locale
  * - 强调色 = 封面主色，播放键是强调色实心圆（对应播放页的 FilledIconButton 语言）；
  * - 圆角、字号、行距都和播放页的封面卡对齐。
  *
- * 四档布局按 [LocalSize] 自动切换：
+ * 三档布局按 [LocalSize] 排：三款组件各自固定尺寸、桌面不可拉伸，尺寸只用于按实际
+ * 格子像素微调字号与控件，不再靠拉伸切换布局。
  * - 4×2 双列卡：左大封面 + 右三行（歌曲信息 / 进度与时长 / 控制行）；
  * - 4×1 横条：整卡背景即进度，左侧小封面 + 信息 + 控制键 + 竖线 + 快捷键；
- * - 2×2 方块：上方大封面（左右半区点击切歌）+ 信息 + 短进度 + 三键居中；
- * - 2×1 胶囊：小封面 + 微型信息 + 按宽度预算排布的控制键。
+ * - 2×3 竖版方块：上方大封面（左右半区点击切歌）+ 信息 + 短进度 + 三键居中。
  *
  * 两处平台限制（RemoteViews 决定，不是没做）：
  * - 进度条不能拖动，改为 5 段热区「点哪跳哪」；
- * - 封面不能滑动，2×2 用左右两半点击代替左滑/右滑切歌。
+ * - 封面不能滑动，2×3 用左右两半点击代替左滑/右滑切歌。
  */
 abstract class BaseMusicWidget(private val widgetLayout: WidgetLayout) : GlanceAppWidget() {
 
@@ -84,8 +84,8 @@ abstract class BaseMusicWidget(private val widgetLayout: WidgetLayout) : GlanceA
     }
 
     /**
-     * 每个桌面小组件是独立条目（4×2 / 4×1 / 2×2 / 2×1 各一个），
-     * 骨架由子类钉死，所以只用 Exact 按真实尺寸排，不再做尺寸猜测。
+     * 每个桌面小组件是独立条目（4×2 / 4×1 / 2×3 各一个），
+     * 骨架由子类钉死、XML 里 resizeMode=none，所以只用 Exact 按真实尺寸排，不再做尺寸猜测。
      */
     override val sizeMode: SizeMode = SizeMode.Exact
 
@@ -158,15 +158,15 @@ abstract class BaseMusicWidget(private val widgetLayout: WidgetLayout) : GlanceA
 
 // —————————————————————— 尺寸分档 ——————————————————————
 
-enum class WidgetLayout { CARD, TILE, BANNER, CAPSULE }
+enum class WidgetLayout { CARD, TILE, BANNER }
 
 private fun coverStyleFor(layout: WidgetLayout): CoverStyle = when (layout) {
     WidgetLayout.CARD -> CoverStyle.THUMB
     WidgetLayout.TILE -> CoverStyle.FULL
-    WidgetLayout.BANNER, WidgetLayout.CAPSULE -> CoverStyle.SMALL
+    WidgetLayout.BANNER -> CoverStyle.SMALL
 }
 
-/** 封面圆角比例：四档都是「方形圆角」，按各自尺寸算像素，别在小图上切出大圆角。 */
+/** 封面圆角比例：三档都是「方形圆角」，按各自尺寸算像素，别在小图上切出大圆角。 */
 private fun coverRatio(style: CoverStyle): Float = when (style) {
     CoverStyle.THUMB -> 0.17f
     CoverStyle.FULL -> 0.15f
@@ -187,7 +187,6 @@ private fun WidgetBody(
         WidgetLayout.CARD -> CardLayout(snapshot, liked, cover, palette, context, size)
         WidgetLayout.TILE -> TileLayout(snapshot, liked, cover, palette, context, size)
         WidgetLayout.BANNER -> BannerLayout(snapshot, liked, cover, palette, context, size)
-        WidgetLayout.CAPSULE -> CapsuleLayout(snapshot, liked, cover, palette, context, size)
     }
 }
 
@@ -418,11 +417,12 @@ private fun BannerLayout(
     }
 }
 
-// —————————————————————— 布局 3：2×2 方块 ——————————————————————
+// —————————————————————— 布局 3：2×3 竖版方块 ——————————————————————
 
 /**
  * 自上而下：大封面（占上半，左右半区点击即上一首/下一首）、歌名歌手、短进度与时长、三键居中。
- * 封面用 weight 吃掉剩余高度，2×2 拉伸成 3×3 也不会把文字挤掉。
+ * 固定 2×3：封面用 weight 吃掉多出来的高度。不同启动器一格高度差异不小（180~270dp），
+ * 按钮尺寸按实际高度分两档，宽度永远按 inner 算，不写死某台设备的像素。
  */
 @Composable
 private fun TileLayout(
@@ -435,8 +435,9 @@ private fun TileLayout(
 ) {
     val pad = 12.dp
     val inner = size.width - pad * 2
-    val playSize = if (size.height < 170.dp) 38.dp else 42.dp
-    val sideSize = if (size.height < 170.dp) 30.dp else 34.dp
+    val tall = size.height >= 210.dp
+    val playSize = if (tall) 46.dp else 42.dp
+    val sideSize = if (tall) 36.dp else 32.dp
 
     Column(
         modifier = roundedCard(palette.card)
@@ -523,112 +524,6 @@ private fun TileLayout(
     }
 }
 
-// —————————————————————— 布局 4：2×1 胶囊 ——————————————————————
-
-/**
- * 最省空间的一档。2×1 通常只有 110dp 宽，先保证「封面 + 歌名 + 播放键」，
- * 宽度富裕出来再按 喜欢 → 私人 FM → 上一首/下一首 的顺序补按钮。
- */
-@Composable
-private fun CapsuleLayout(
-    snapshot: WidgetSnapshot,
-    liked: Boolean,
-    cover: Bitmap?,
-    palette: WidgetPalette,
-    context: Context,
-    size: DpSize,
-) {
-    val pad = 8.dp
-    val coverSize = (size.height - pad * 2).coerceIn(26.dp, 40.dp)
-    val playSize = coverSize
-    val sideSize = coverSize - 4.dp
-
-    // 按钮从宽到窄逐个回收：爱心 → 收音机 → 上一曲/下一曲，播放键永远保留。
-    val showLike = snapshot.hasSong && size.width >= 150.dp
-    val showFm = snapshot.hasSong && size.width >= 180.dp
-    val showSkip = snapshot.hasSong && size.width >= 215.dp
-
-    var used = coverSize + playSize
-    if (showSkip) used += sideSize * 2
-    if (showFm) used += sideSize
-    if (showLike) used += sideSize
-    val textWidth = (size.width - pad * 2 - used - 8.dp).coerceAtLeast(18.dp)
-
-    Row(
-        modifier = roundedCard(palette.card)
-            .fillMaxSize()
-            .padding(horizontal = pad),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CoverArt(
-            cover = cover,
-            palette = palette,
-            modifier = GlanceModifier.size(coverSize)
-                .clickable(openTargetAction(context, snapshot)),
-            radius = coverSize / 4,
-            iconSize = 14.dp,
-        )
-        Spacer(GlanceModifier.width(7.dp))
-        Column(
-            modifier = GlanceModifier.width(textWidth)
-                .clickable(openTargetAction(context, snapshot)),
-        ) {
-            if (snapshot.hasSong) {
-                Text(
-                    text = ellipsize(context, snapshot.title, textWidth, 11.5f, medium = true),
-                    maxLines = 1,
-                    style = titleStyle(palette.onCard, 11.5.sp),
-                )
-                Text(
-                    text = ellipsize(context, snapshot.subtitle(context), textWidth, 9.5f),
-                    maxLines = 1,
-                    style = bodyStyle(palette.secondary, 9.5.sp),
-                )
-            } else {
-                Text(
-                    text = ellipsize(context, snapshot.statusTitle(context), textWidth, 11f, medium = true),
-                    maxLines = 1,
-                    style = titleStyle(palette.onCard, 11.sp),
-                )
-            }
-        }
-        if (showSkip) {
-            BareIcon(
-                iconRes = R.drawable.ic_widget_prev,
-                descriptionRes = R.string.widget_action_prev,
-                action = prevAction(),
-                tint = palette.onCard,
-                size = sideSize,
-                iconSize = 15.dp,
-            )
-        }
-        PlayButton(snapshot.isPlaying, palette, playSize)
-        if (showSkip) {
-            BareIcon(
-                iconRes = R.drawable.ic_widget_next,
-                descriptionRes = R.string.widget_action_next,
-                action = nextAction(),
-                tint = palette.onCard,
-                size = sideSize,
-                iconSize = 15.dp,
-            )
-        }
-        if (showFm) {
-            BareIcon(
-                iconRes = R.drawable.ic_widget_fm,
-                descriptionRes = R.string.widget_action_fm,
-                action = fmAction(),
-                tint = if (snapshot.isFm) palette.accent else palette.secondary,
-                size = sideSize,
-                iconSize = 15.dp,
-            )
-        }
-        if (showLike) {
-            LikeIcon(liked, palette, size = sideSize, iconSize = 15.dp)
-        }
-    }
-}
-
 // —————————————————————— 通用零件 ——————————————————————
 
 private fun titleStyle(color: Color, size: TextUnit): TextStyle =
@@ -710,7 +605,7 @@ private fun VDivider(color: Color) {
 
 /**
  * 封面。缺图时画一块同色占位（不让组件出现空洞），有图就按样式裁好的圆角图直接贴。
- * [fill] 用于 2×2 的满容器封面：铺满容器，圆角由外层裁。
+ * [fill] 用于 2×3 的满容器封面：铺满容器，圆角由外层裁。
  */
 @Composable
 private fun CoverArt(
@@ -931,7 +826,7 @@ private fun ellipsize(
 internal fun openTargetAction(context: Context, snapshot: WidgetSnapshot): Action =
     if (snapshot.hasSong) openPlayerAction(context) else openAppAction(context)
 
-// —————————————————————— 四个独立的桌面小组件 ——————————————————————
+// —————————————————————— 三个独立的桌面小组件 ——————————————————————
 
 /** 4×2：横向双列卡（左大封面 + 右三层）。 */
 class CardWidget : BaseMusicWidget(WidgetLayout.CARD)
@@ -939,8 +834,5 @@ class CardWidget : BaseMusicWidget(WidgetLayout.CARD)
 /** 4×1：横向扁长条，整卡背景即进度。 */
 class BannerWidget : BaseMusicWidget(WidgetLayout.BANNER)
 
-/** 2×2：方正卡片，纵向居中层叠。 */
+/** 2×3：竖版卡片，封面在上、控件在下。 */
 class TileWidget : BaseMusicWidget(WidgetLayout.TILE)
-
-/** 2×1：紧凑横向胶囊。 */
-class CapsuleWidget : BaseMusicWidget(WidgetLayout.CAPSULE)
