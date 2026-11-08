@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -49,6 +50,7 @@ import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.parseLrc
 import com.jussicodes.music.utils.parseYrc
 import com.rcmiku.ncmapi.api.player.PlayerApi
+import kotlin.math.ceil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -1103,21 +1105,99 @@ class DesktopLyricService : Service() {
         private var strokeColor: Int = Color.BLACK
         private var strokeWidthPx: Float = 0f
         /** 描边专用画笔：绝不复用/改动 TextView 内部的 mTextPaint。 */
-        private val strokePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+        private val strokePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            // 转折处圆接：粗体中文的直角笔画不会顶出一根硬刺
+            strokeJoin = Paint.Join.ROUND
+        }
+
+        /**
+         * 描边 + 填充一次性画进一张位图，之后每帧只贴图。
+         *
+         * 桌面歌词是常驻悬浮窗、按满刷新率重绘的，但文字本身每换一句才变一次；
+         * 原实现每帧都要跑两遍全行文字绘制（描边一遍 + TextView 填充一遍），
+         * 绝大多数帧画出来的东西和上一帧一模一样。缓存后 onDraw 只剩一次 1:1
+         * drawBitmap，文字绘制只在换句/改样式时发生一次。
+         */
+        private var cache: Bitmap? = null
+        /** 位图相对 View 向外多留的像素：描边以笔画中心向两侧扩，外侧那半圈必须留位置。 */
+        private var cacheInset = 0
+
+        private fun invalidateCache() {
+            // 不 recycle：硬件加速下上一帧的贴图可能还在渲染管线里，recycle 会撞
+            // "trying to use a recycled bitmap"。置空交给 GC，一张图 1MB 级、换句频率几秒一次，无压力。
+            cache = null
+            invalidate()
+        }
 
         fun setStrokeColor(color: Int) {
             if (color == strokeColor) return
             strokeColor = color
-            invalidate()
+            invalidateCache()
         }
 
         fun setStrokeWidth(widthPx: Float) {
             if (widthPx == strokeWidthPx) return
             strokeWidthPx = widthPx
-            invalidate()
+            invalidateCache()
+        }
+
+        // 文字由 TextView 内部改（setText 是 final，不能拦），走 onTextChanged 回调让位图失效，
+        // 否则会一直贴着旧的字。
+        override fun onTextChanged(text: CharSequence?, start: Int, lengthBefore: Int, lengthAfter: Int) {
+            super.onTextChanged(text, start, lengthBefore, lengthAfter)
+            invalidateCache()
+        }
+
+        override fun setTextColor(color: Int) {
+            super.setTextColor(color)
+            invalidateCache()
+        }
+
+        override fun setTextSize(unit: Int, size: Float) {
+            super.setTextSize(unit, size)
+            invalidateCache()
+        }
+
+        override fun setLineSpacing(add: Float, mult: Float) {
+            super.setLineSpacing(add, mult)
+            invalidateCache()
+        }
+
+        override fun setTypeface(tf: Typeface?) {
+            super.setTypeface(tf)
+            invalidateCache()
+        }
+
+        override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+            super.onSizeChanged(w, h, oldw, oldh)
+            if (w != oldw || h != oldh) invalidateCache()
         }
 
         override fun onDraw(canvas: Canvas) {
+            val w = width
+            val h = height
+            if (w <= 0 || h <= 0) return
+            // 描边是沿笔画中心线内外各扩 strokeWidth/2，位图不留这一圈就会把外侧描边裁掉，
+            // 效果会变成“描边只有一半粗”。+1 给抗锯齿边缘留一点余量。
+            val inset = ceil(strokeWidthPx / 2f).toInt() + 1
+            val bw = w + inset * 2
+            val bh = h + inset * 2
+            val hit = cache
+            if (hit != null && hit.width == bw && hit.height == bh && cacheInset == inset) {
+                canvas.drawBitmap(hit, -inset.toFloat(), -inset.toFloat(), null)
+                return
+            }
+            val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+            val bmpCanvas = Canvas(bmp)
+            bmpCanvas.translate(inset.toFloat(), inset.toFloat())
+            drawLyric(bmpCanvas)
+            cache = bmp
+            cacheInset = inset
+            canvas.drawBitmap(bmp, -inset.toFloat(), -inset.toFloat(), null)
+        }
+
+        /** 真正的内容绘制：先描边层，再让 TextView 画填充层。 */
+        private fun drawLyric(canvas: Canvas) {
             // 描边层用独立画笔逐行手绘，先于填充层，绝不碰 setTextColor()/paint.color。
             // 两个禁忌都不能碰：
             // 1) setTextColor()：颜色真实变化会 invalidate()，在 draw 过程中调用等于把
