@@ -175,7 +175,7 @@ class DesktopLyricService : Service() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // 旋转/分屏/折叠屏：按当前可用区域重新居中，避免旧竖屏位置比例套到横屏。
+        // 旋转/分屏/横竖屏切换：横向居中、纵向贴近顶部；不再用竖屏旧 fraction 被横屏带偏。
         contentWidthPx = measureContentWidth()
         relayout()
         positionControlWindow()
@@ -596,15 +596,14 @@ class DesktopLyricService : Service() {
         val width = computeLyricWidth()
         val height = computeLyricHeight()
         if (params.width == width && params.height == height) return
-        // 竖屏常态 / 横屏旋转：都按可用区域重新居中。旧 fraction 是竖屏拖出来的位置比例，
-        // 横屏直接套用会导致中心不在横屏可见区域里，视觉上就是左上/偏左。
+        // 顶部居中：横向按可用区域居中，纵向贴近可用区域顶部（默认高度中心 yFraction=0.1）。
         val area = screenArea()
         val centerX = area.left + (area.right - area.left) / 2
-        val centerY = area.top + (area.bottom - area.top) / 2
+        val topY = (area.top + (area.bottom - area.top) * DesktopLyricDefaultYFraction - height / 2f).toInt()
         params.width = width
         params.height = height
         params.x = centerX - width / 2
-        params.y = centerY - height / 2
+        params.y = topY
         runCatching { windowManager.updateViewLayout(root, params) }
         persistPosition()
         positionControlWindow()
