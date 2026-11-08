@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 组件卡片底：26dp 圆角，运行时用 tint 上色；API<31 靠这里的圆角保证外观 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FFFFFFFF" />
+    <corners android:radius="26dp" />
+</shape>

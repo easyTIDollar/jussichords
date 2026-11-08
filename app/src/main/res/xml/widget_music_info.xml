@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  一款组件、三种尺寸：
+  4×2 宽卡（默认） / 2×2 方形 / 4×1 窄条，由 Glance 按实际尺寸分支。
+  不锁死 resizeMode：用户可以把卡片拉大，布局会跟着换。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/widget_desc"
+    android:initialLayout="@layout/glance_default_loading_layout"
+    android:minHeight="64dp"
+    android:minResizeHeight="60dp"
+    android:minResizeWidth="220dp"
+    android:minWidth="250dp"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellHeight="2"
+    android:targetCellWidth="4"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

@@ -80,6 +80,14 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // 系统深浅色切换时重染桌面小组件（RemoteViews 不会自动跟着换色）
+        applicationScope.launch {
+            com.jussicodes.music.widget.WidgetUpdater.redraw(this@JetMeloApp)
+        }
+    }
+
     @androidx.annotation.OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
@@ -173,6 +181,8 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                     } else {
                         CookieProvider.clear()
                     }
+                    // 登录态一变就同步到桌面小组件：否则没播放过歌的用户加组件后会一直看到「未登录」。
+                    com.jussicodes.music.widget.WidgetUpdater.syncLoginFlag(this@JetMeloApp)
                     // 关键路径让路首屏：冷启动时首屏在「我的」页，
                     // 探索页已有 loadCache() 磁盘缓存铺底，预热延迟 2.5 秒错峰，
                     // 避免冷启动瞬间与首屏个人信息/歌单请求争夺网络与 CPU。

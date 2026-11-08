@@ -86,6 +86,19 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- 桌面小组件：一款组件三种尺寸（4×2 / 2×2 / 4×1） -->
+        <receiver
+            android:name=".widget.MusicWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_music_info" />
+        </receiver>
+
     </application>
 
 </manifest>
