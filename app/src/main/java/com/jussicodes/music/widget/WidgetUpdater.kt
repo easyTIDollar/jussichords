@@ -564,7 +564,7 @@ object WidgetHub {
     private var lastPushDigest: String = ""
 
     val widgets: List<GlanceAppWidget>
-        get() = listOf(JussiMusicWidget())
+        get() = WidgetRegistry.all.map { it.first }
 
     /**
      * 逐实例刷新。
@@ -588,7 +588,7 @@ object WidgetHub {
 
     /** 组件在桌面上有没有实例。 */
     fun hasAnyInstance(context: Context): Boolean =
-        hasInstance(context, MusicWidgetReceiver::class.java)
+        WidgetRegistry.all.any { hasInstance(context, it.second) }
 
     private suspend fun refresh(
         context: Context,
@@ -638,7 +638,7 @@ object WidgetHub {
                     val digest = "${frame.songId}|${frame.isPlaying}|${frame.title.take(12)}"
                     if (digest != lastPushDigest) {
                         lastPushDigest = digest
-                        // 和 JussiMusicWidget 里的 "compose ..." 对读：有 push 没 compose = 没重组。
+                        // 和各组件里的 "compose ..." 对读：有 push 没 compose = 没重组。
                         WidgetDebug.event(context, "push ${receiver.simpleName} $digest")
                     }
                 }.onFailure {
@@ -656,5 +656,5 @@ object WidgetHub {
     }
 
     private val pairings: List<Pair<GlanceAppWidget, Class<out GlanceAppWidgetReceiver>>>
-        get() = listOf(JussiMusicWidget() to MusicWidgetReceiver::class.java)
+        get() = WidgetRegistry.all
 }

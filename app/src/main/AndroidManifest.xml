@@ -88,15 +88,51 @@
 
         <!-- 桌面小组件：一款组件三种尺寸（4×2 / 2×2 / 4×1） -->
         <receiver
-            android:name=".widget.MusicWidgetReceiver"
+            android:name=".widget.CardWidgetReceiver"
             android:exported="true"
-            android:label="@string/widget_name">
+            android:label="@string/widget_card_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/widget_music_info" />
+                android:resource="@xml/widget_card_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.BannerWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_banner_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_banner_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.TileWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_tile_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_tile_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.CapsuleWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_capsule_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_capsule_info" />
         </receiver>
 
     </application>

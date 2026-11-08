@@ -98,11 +98,13 @@ object WidgetDebug {
         if (manager == null) {
             appendLine("AppWidgetManager: 取不到")
         } else {
-            val ids = runCatching {
-                manager.getAppWidgetIds(ComponentName(app, MusicWidgetReceiver::class.java))
-                    .joinToString(",")
-            }.getOrElse { "err:${it.javaClass.simpleName}" }
-            appendLine("实例: [$ids]")
+            val ids = WidgetRegistry.all.joinToString(" / ") { (widget, receiver) ->
+                val raw = runCatching {
+                    manager.getAppWidgetIds(ComponentName(app, receiver)).joinToString(",")
+                }.getOrElse { "err:${it.javaClass.simpleName}" }
+                "${receiver.simpleName.removeSuffix("WidgetReceiver")}[$raw]"
+            }
+            appendLine("实例: $ids")
         }
         val snapshot = runCatching { WidgetUpdater.current(app) }.getOrNull()
         appendLine(
