@@ -973,6 +973,9 @@ class PlaybackService : MediaSessionService() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         // 只在「没有任何前台播放」时才停服务；正在放歌时划掉任务页不该连播一起断。
         if (!isPlaybackOngoing) {
+            // 先同步把「已暂停」推给桌面再停服务：stopSelf 之后进程随时可能被回收，
+            // 异步重绘来不及跑，组件就会一直停在暂停图标（用户看到的「关了 App 还是 ⏸️」）。
+            WidgetUpdater.markStoppedNow(applicationContext)
             pauseAllPlayersAndStopSelf()
         }
     }

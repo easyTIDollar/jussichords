@@ -29,9 +29,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.lang.ref.WeakReference
 
 /**
@@ -292,6 +294,27 @@ object WidgetUpdater {
         scope.launch { runCatching { WidgetHub.updateAll(app) } }
     }
 
+    /**
+     * 同步版停止收尾：服务停掉后进程可能立刻被系统回收，异步重绘经常来不及跑，
+     * 桌面就停在最后一帧的暂停图标上。这里阻塞等 RemoteViews 推完（最多 [timeoutMs]），
+     * 只在「用户划掉任务 / 服务即将销毁」时调用，正常播放路径不走。
+     */
+    fun markStoppedNow(context: Context, timeoutMs: Long = 500) {
+        val app = context.applicationContext
+        tickProgress(app, false)
+        playerRef = null
+        markServiceStopped()
+        val stopped = current(app).copy(
+            isPlaying = false,
+            isLoading = false,
+            progressAt = SystemClock.elapsedRealtime(),
+        )
+        publishNow(app, stopped)
+        runBlocking {
+            withTimeoutOrNull(timeoutMs) { runCatching { WidgetHub.updateAll(app) } }
+        }
+    }
+
     private fun capture(player: Player): PlayerSnapshot? = try {
         val item = player.currentMediaItem
         val metadata = item?.mediaMetadata
@@ -304,7 +327,10 @@ object WidgetUpdater {
             // 这个回调就在播放器线程（= 主线程），点歌那一下会连着来一串事件。
             songJson = extras?.getString("song"),
             coverUrl = metadata?.artworkUri?.toString().orEmpty(),
-            isPlaying = player.playWhenReady && player.playbackState != Player.STATE_IDLE,
+            // 用 media3 的 isPlaying：它已经排除 STATE_ENDED / 暂停 / 被抑制的情况。
+            // 以前写的是 playWhenReady && state != IDLE，歌放完后 playWhenReady 仍是
+            // true、state=ENDED，组件就永远停在「正在播放」的暂停图标上。
+            isPlaying = player.isPlaying,
             isFm = extras?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME) ==
                 MediaSessionConstants.SOURCE_PERSONAL_FM,
             // 不用 player.isLoading：它读的是 PlaybackInfo.loading，切歌/预加载窗口里

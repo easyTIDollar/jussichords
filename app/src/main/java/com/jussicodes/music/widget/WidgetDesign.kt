@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.Build
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -17,6 +16,7 @@ import androidx.glance.background
 import androidx.glance.layout.ContentScale
 import androidx.glance.unit.ColorProvider
 import com.jussicodes.music.R
+import com.jussicodes.music.ui.theme.artworkColorScheme
 
 /**
  * 桌面组件的视觉基线。
@@ -55,31 +55,24 @@ data class WidgetPalette(
         fun of(context: Context, seedArgb: Int): WidgetPalette {
             val dark = (context.resources.configuration.uiMode and
                 Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-            val seed = if (seedArgb != 0) Color(seedArgb) else WidgetTokens.FallbackSeed
 
-            return if (dark) {
-                val accent = seed.blend(Color.White, 0.32f)
-                WidgetPalette(
-                    isDark = true,
-                    card = Color(0xFF15131A).blend(seed, 0.26f),
-                    onCard = Color(0xFFF4F1F7),
-                    secondary = Color(0xFFB0A9B8),
-                    accent = accent,
-                    onAccent = if (accent.luminance() > 0.55f) Color(0xFF191521) else Color.White,
-                    track = Color.White.copy(alpha = 0.16f),
-                )
-            } else {
-                val accent = seed.blend(Color.Black, 0.18f)
-                WidgetPalette(
-                    isDark = false,
-                    card = Color(0xFFFCF9FC).blend(seed, 0.14f),
-                    onCard = Color(0xFF17141C),
-                    secondary = Color(0xFF6A636F),
-                    accent = accent,
-                    onAccent = if (accent.luminance() > 0.55f) Color(0xFF17141C) else Color.White,
-                    track = Color.Black.copy(alpha = 0.12f),
-                )
-            }
+            // 首选 App 写过来的最终色板：卡片底=surfaceContainer、强调色=primary、
+            // 文字=onSurface/onSurfaceVariant，和播放页取的是同一套 MaterialTheme。
+            WidgetPaletteStore.load(context, dark)?.let { return it }
+
+            // 回落（App 从未组合过主题，例如刚装完就加组件）：用同一个封面种子色
+            // 跑 App 的 createLight/DarkScheme，公式一致，只是少了壁纸/主页背景来源。
+            val seed = if (seedArgb != 0) Color(seedArgb) else WidgetTokens.FallbackSeed
+            val scheme = artworkColorScheme(seed, dark)
+            return WidgetPalette(
+                isDark = dark,
+                card = scheme.surfaceContainer,
+                onCard = scheme.onSurface,
+                secondary = scheme.onSurfaceVariant,
+                accent = scheme.primary,
+                onAccent = scheme.onPrimary,
+                track = scheme.onSurface.copy(alpha = if (dark) 0.16f else 0.12f),
+            )
         }
     }
 }

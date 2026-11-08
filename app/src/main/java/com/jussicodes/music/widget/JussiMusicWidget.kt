@@ -270,11 +270,20 @@ private fun CardLayout(
             ProgressRow(snapshot, palette, rightWidth, compact = true)
             Spacer(GlanceModifier.height(4.dp))
 
-            // 下层：主控制区 + 副控制区
+            // 下层：私人 FM 贴左、红心贴右，播放组被两个等权空隙夹在右列正中间。
             Row(
                 modifier = GlanceModifier.fillMaxWidth().height(playSize),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                BareIcon(
+                    iconRes = R.drawable.ic_widget_fm,
+                    descriptionRes = R.string.widget_action_fm,
+                    action = fmAction(),
+                    tint = if (snapshot.isFm) palette.accent else palette.secondary,
+                    size = quickSize,
+                    iconSize = 12.dp,
+                )
+                Spacer(GlanceModifier.defaultWeight())
                 if (snapshot.hasSong) {
                     BareIcon(
                         iconRes = R.drawable.ic_widget_prev,
@@ -297,14 +306,6 @@ private fun CardLayout(
                     )
                 }
                 Spacer(GlanceModifier.defaultWeight())
-                BareIcon(
-                    iconRes = R.drawable.ic_widget_fm,
-                    descriptionRes = R.string.widget_action_fm,
-                    action = fmAction(),
-                    tint = if (snapshot.isFm) palette.accent else palette.secondary,
-                    size = quickSize,
-                    iconSize = 12.dp,
-                )
                 LikeIcon(liked, palette, size = quickSize, iconSize = 12.dp)
             }
         }
@@ -330,11 +331,21 @@ private fun BannerLayout(
 ) {
     val pad = 10.dp
     val coverSize = (size.height - pad * 2).coerceIn(32.dp, 46.dp)
-    val btn = if (size.width < 300.dp) 28.dp else 32.dp
-    val iconSize = if (size.width < 300.dp) 16.dp else 18.dp
-    val buttons = if (snapshot.hasSong) 5 else 0
-    val textWidth = (size.width - pad * 2 - coverSize - 8.dp - btn * buttons - 18.dp)
-        .coerceAtLeast(24.dp)
+    val narrow = size.width < 300.dp
+    val btn = if (narrow) 26.dp else 32.dp
+    val iconSize = if (narrow) 15.dp else 18.dp
+    // 宽度不够就收起私人 FM，红心永远保留。5 个按钮 + 分隔线在 250dp 规格下
+    // 必定溢出，而溢出被裁掉的正好是最后一个红心——看起来就是「少了红心按钮」。
+    val showFm = size.width >= 268.dp
+    val buttonCount = when {
+        !snapshot.hasSong -> 0
+        showFm -> 4 // prev / play / next / fm
+        else -> 3 // prev / play / next
+    }
+    val dividerWidth = if (showFm) 13.dp else 0.dp
+    // play 键比其它键宽 4dp，再留 6dp 安全余量，保证最后一个按钮不越界。
+    val textWidth = (size.width - pad * 2 - coverSize - 8.dp - dividerWidth -
+        btn * buttonCount - 4.dp - 6.dp).coerceAtLeast(20.dp)
 
     Box(modifier = roundedCard(palette.card).fillMaxSize()) {
         // 背景进度：播放到哪，整张卡就亮到哪。
@@ -402,15 +413,17 @@ private fun BannerLayout(
                     size = btn,
                     iconSize = iconSize,
                 )
-                VDivider(palette.track)
-                BareIcon(
-                    iconRes = R.drawable.ic_widget_fm,
-                    descriptionRes = R.string.widget_action_fm,
-                    action = fmAction(),
-                    tint = if (snapshot.isFm) palette.accent else palette.secondary,
-                    size = btn,
-                    iconSize = iconSize,
-                )
+                if (showFm) {
+                    VDivider(palette.track)
+                    BareIcon(
+                        iconRes = R.drawable.ic_widget_fm,
+                        descriptionRes = R.string.widget_action_fm,
+                        action = fmAction(),
+                        tint = if (snapshot.isFm) palette.accent else palette.secondary,
+                        size = btn,
+                        iconSize = iconSize,
+                    )
+                }
                 LikeIcon(liked, palette, size = btn, iconSize = iconSize)
             }
         }
@@ -421,8 +434,8 @@ private fun BannerLayout(
 
 /**
  * 自上而下：大封面（占上半，左右半区点击即上一首/下一首）、歌名歌手、短进度与时长、三键居中。
- * 固定 2×3：封面用 weight 吃掉多出来的高度。不同启动器一格高度差异不小（180~270dp），
- * 按钮尺寸按实际高度分两档，宽度永远按 inner 算，不写死某台设备的像素。
+ * 固定 2×3：封面用 weight 吃掉多出来的高度；按钮尺寸永远按可用宽度反推，
+ * 2 格宽（~110dp）时自动缩到 34/24dp，3 键才放得下、不会被卡片边缘裁掉。
  */
 @Composable
 private fun TileLayout(
@@ -433,11 +446,14 @@ private fun TileLayout(
     context: Context,
     size: DpSize,
 ) {
-    val pad = 12.dp
+    val pad = 10.dp
     val inner = size.width - pad * 2
-    val tall = size.height >= 210.dp
-    val playSize = if (tall) 46.dp else 42.dp
-    val sideSize = if (tall) 36.dp else 32.dp
+    // 2 格宽只有 ~110dp：三个按钮必须按可用宽度反推。以前固定 42+32+32 再加间距
+    // 约 118dp，比 inner 还宽，左右两个键被卡片边缘直接裁掉——用户看到的
+    // 「播放控件被裁切」就是这个溢出。
+    val gap = if (inner < 100.dp) 4.dp else 6.dp
+    val playSize = (inner * 0.38f).coerceIn(30.dp, 46.dp)
+    val sideSize = ((inner - playSize - gap * 2) / 2).coerceIn(20.dp, 36.dp)
 
     Column(
         modifier = roundedCard(palette.card)
@@ -469,7 +485,7 @@ private fun TileLayout(
             }
         }
 
-        Spacer(GlanceModifier.height(8.dp))
+        Spacer(GlanceModifier.height(6.dp))
         if (snapshot.hasSong) {
             Text(
                 text = ellipsize(context, snapshot.title, inner, 13f, medium = true),
@@ -484,7 +500,7 @@ private fun TileLayout(
                 style = bodyStyle(palette.secondary, 10.5.sp),
                 modifier = GlanceModifier.clickable(openTargetAction(context, snapshot)),
             )
-            Spacer(GlanceModifier.height(6.dp))
+            Spacer(GlanceModifier.height(4.dp))
             ProgressRow(snapshot, palette, inner, compact = true)
         } else {
             Text(
@@ -495,7 +511,7 @@ private fun TileLayout(
             )
         }
 
-        Spacer(GlanceModifier.height(6.dp))
+        Spacer(GlanceModifier.height(4.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (snapshot.hasSong) {
                 BareIcon(
@@ -506,11 +522,11 @@ private fun TileLayout(
                     size = sideSize,
                     iconSize = 18.dp,
                 )
-                Spacer(GlanceModifier.width(6.dp))
+                Spacer(GlanceModifier.width(gap))
             }
             PlayButton(snapshot.isPlaying, palette, playSize)
             if (snapshot.hasSong) {
-                Spacer(GlanceModifier.width(6.dp))
+                Spacer(GlanceModifier.width(gap))
                 BareIcon(
                     iconRes = R.drawable.ic_widget_next,
                     descriptionRes = R.string.widget_action_next,

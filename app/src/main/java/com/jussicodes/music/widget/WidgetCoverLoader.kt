@@ -62,6 +62,9 @@ object WidgetCoverLoader {
     /** 同一张图失败后 60s 内不再重试，避免每次刷新都打一遍网络。 */
     private const val FAIL_TTL_MS = 60_000L
 
+    /** 与 App 的 ArtworkThemeSeed.SampleSize 一致。 */
+    private const val SEED_SAMPLE_PX = 72
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val cache = object : LruCache<String, Bitmap>(CACHE_BYTES) {
@@ -133,11 +136,22 @@ object WidgetCoverLoader {
             raw
         }
         val square = squareCrop(loaded, style.px)
-        // 取色放在缩略图上做（成本固定），结果和播放页用大图算出来的种子色一致。
-        val seed = runCatching { extractArtworkSeed(square)?.toArgb() ?: 0 }.getOrDefault(0)
+        // 取色放在缩略图上做（成本固定），并且缩到 App 的 72×72 采样尺寸再算——
+        // 采样尺寸不同会选出不同色相桶，组件和 App 就会是两种颜色。
+        val seed = runCatching {
+            extractArtworkSeed(square.scaleForSeed())?.toArgb() ?: 0
+        }.getOrDefault(0)
 
         Decoded(decorate(square, style, cornerRatio), seed)
     }
+
+    /** 缩到 App 取色的采样尺寸（72×72）：采样尺寸不同会落到不同色相桶。 */
+    private fun Bitmap.scaleForSeed(): Bitmap =
+        if (width == SEED_SAMPLE_PX && height == SEED_SAMPLE_PX) {
+            this
+        } else {
+            Bitmap.createScaledBitmap(this, SEED_SAMPLE_PX, SEED_SAMPLE_PX, true)
+        }
 
     private fun squareCrop(src: Bitmap, maxPx: Int): Bitmap {
         val side = minOf(src.width, src.height)
