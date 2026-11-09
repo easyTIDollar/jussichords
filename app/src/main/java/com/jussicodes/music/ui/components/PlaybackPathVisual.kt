@@ -58,10 +58,10 @@ internal object PathPalette {
     val verify = 0xFFF5A623.toInt()
 
     fun of(stage: PathStage): Int = when (stage) {
-        PathPathStage.CACHE -> cache
-        PathPathStage.RESOLVE -> resolve
-        PathPathStage.PLAYER -> player
-        PathPathStage.VERIFY -> verify
+        PathStage.CACHE -> cache
+        PathStage.RESOLVE -> resolve
+        PathStage.PLAYER -> player
+        PathStage.VERIFY -> verify
     }
 }
 

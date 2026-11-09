@@ -315,8 +315,9 @@ class PlaybackPathOverlayService : Service() {
                     }
                     if (!moved) return false
                     val metrics = resources.displayMetrics
-                    lp.x = (startX + deltaX.toInt())
-                        .coerceIn(-dp(40), metrics.widthPixels - v.width + dp(40))
+                    val minX = -dp(40)
+                    val maxX = maxOf(minX + 1, metrics.widthPixels - v.width + dp(40))
+                    lp.x = (startX + deltaX.toInt()).coerceIn(minX, maxX)
                     lp.y = (startY + deltaY.toInt())
                         .coerceIn(0, (metrics.heightPixels - v.height).coerceAtLeast(0))
                     runCatching { windowManager.updateViewLayout(v, lp) }
