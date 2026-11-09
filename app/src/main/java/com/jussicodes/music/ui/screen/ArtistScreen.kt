@@ -233,7 +233,6 @@ fun ArtistScreen(
         ?: artistTopSongState?.songs?.firstOrNull()?.al?.picUrl
         ?: artistAlbumList.itemSnapshotList.items.firstOrNull()?.picUrl
         ?: artistHeadInfoState?.data?.artist?.picUrl
-    val avatarUrl = artistHeadInfoState?.data?.artist?.picUrl ?: heroUrl
 
     // 横屏（矮屏）走左右分栏：左栏沉浸区 + 右栏内容浏览区。
     // 竖屏保持「顶部横幅 + 三 tab」的单列堆叠，两套布局互不影响。
@@ -410,17 +409,6 @@ fun ArtistScreen(
                                 .aspectRatio(4f / 3f)
                                 .clickable(enabled = heroUrl != null) {
                                     previewArtistImageUrl = heroUrl
-                                }
-                        )
-                        CoverAsyncImage(
-                            url = avatarUrl,
-                            size = CoverImageSize.MEDIUM,
-                            shape = CircleShape,
-                            modifier = Modifier
-                                .padding(12.dp)
-                                .size(84.dp)
-                                .clickable(enabled = avatarUrl != null) {
-                                    previewArtistImageUrl = avatarUrl
                                 }
                         )
                     }
