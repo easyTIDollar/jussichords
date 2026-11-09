@@ -89,15 +89,18 @@ object PlaybackPath {
      */
     fun focus(songId: String?) = synchronized(lock) {
         val id = songId.orEmpty()
-        if (sameSong(id, focusSongId) && id.isNotBlank()) return@synchronized
+        // 解析有可能比切歌事件先到（预取命中缓存时尤其常见）：同曲已有链路就留住，别再清一遍。
+        val keepChain = sameSong(id, this.songId) && steps.isNotEmpty()
         focusSongId = id
-        this.songId = id
-        startedAt = 0L
-        quality = ""
-        route = ""
-        outcome = ""
-        finished = false
-        steps.clear()
+        if (!keepChain) {
+            this.songId = id
+            startedAt = 0L
+            quality = ""
+            route = ""
+            outcome = ""
+            finished = false
+            steps.clear()
+        }
         publish()
     }
 

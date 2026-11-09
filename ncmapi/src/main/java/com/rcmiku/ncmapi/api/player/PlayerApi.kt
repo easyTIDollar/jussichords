@@ -159,12 +159,24 @@ object PlayerApi {
             ?: LocalSources.AUTO
         val chain = if (chosen == LocalSources.AUTO) LocalSources.DIRECT_KEYS else listOf(chosen)
         for (m in chain) {
+            val t0 = System.currentTimeMillis()
             val url = LocalSourceFetcher.fetch(m, songId, songLevel)
-            if (url == null) continue
+            val cost = System.currentTimeMillis() - t0
+            if (url == null) {
+                PlayUrlTrace.emit(songId, "直连源 $m", "未命中 · ${cost}ms", listOf("直连", songLevel.value))
+                continue
+            }
             if (PlayUrlSkip.blocks(skipUrls, url)) {
+                PlayUrlTrace.emit(songId, "直连源 $m", "返回已拉黑的坏链，跳过 · ${cost}ms", listOf("直连", songLevel.value))
                 Log.d("PlayerApi", "Local source '$m' skipped (rejected by duration check) songId=$songId")
                 continue
             }
+            PlayUrlTrace.emit(
+                songId,
+                "直连源 $m",
+                "命中 ${PlayUrlTrace.hostOf(url)} · ${cost}ms",
+                listOf("直连", songLevel.value)
+            )
             Log.d("PlayerApi", "Local source '$m' hit for songId=$songId")
             return url
         }
