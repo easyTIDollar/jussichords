@@ -22,7 +22,6 @@ import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
-import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
@@ -1220,11 +1219,11 @@ class PlaybackService : MediaSessionService() {
  * 直接失败再换源重试，观感就是「点了要等很久才开始出声」。
  * 改成惰性工厂后，每次 open 都拿当时最新的 cookie，冷启动也不再错过登录态。
  */
+@UnstableApi
 private class CookieAwareHttpDataSourceFactory(
     private val cookieProvider: () -> String,
 ) : HttpDataSource.Factory {
 
-    private var transferListener: TransferListener? = null
     private var extraProperties: Map<String, String> = emptyMap()
 
     override fun createDataSource(): HttpDataSource {
@@ -1241,7 +1240,6 @@ private class CookieAwareHttpDataSourceFactory(
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(30_000)
             .setDefaultRequestProperties(props)
-            .setTransferListener(transferListener)
             .createDataSource()
     }
 
@@ -1249,11 +1247,6 @@ private class CookieAwareHttpDataSourceFactory(
         defaultRequestProperties: Map<String, String>
     ): HttpDataSource.Factory {
         extraProperties = defaultRequestProperties
-        return this
-    }
-
-    override fun setTransferListener(listener: TransferListener?): HttpDataSource.Factory {
-        transferListener = listener
         return this
     }
 }
