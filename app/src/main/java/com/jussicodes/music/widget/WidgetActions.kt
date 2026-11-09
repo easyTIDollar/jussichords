@@ -31,8 +31,12 @@ import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
 import com.jussicodes.music.utils.FavoriteSongIdsUtil
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.account.AccountApi
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
@@ -64,6 +68,8 @@ fun openAppAction(context: Context): Action = actionStartActivity(WidgetIntents.
 @UnstableApi
 object WidgetMedia {
 
+    private val releaseScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
     suspend fun <T> withController(context: Context, block: suspend (MediaController) -> T): T? {
         val app = context.applicationContext
         val token = SessionToken(app, ComponentName(app, PlaybackService::class.java))
@@ -77,13 +83,28 @@ object WidgetMedia {
         val timeoutSec = withContext(Dispatchers.IO) {
             if (runCatching { PlaybackQueueStore.get(app).hasQueue() }.getOrDefault(false)) 6L else 3L
         }
+        var deferredRelease = false
         return try {
             val controller = withContext(Dispatchers.IO) { future.get(timeoutSec, TimeUnit.SECONDS) }
             PlaybackTrace.mark(app, "ctrl ready")
+            // 队列为空＝这次点击会走 MediaSession.Callback.onPlaybackResumption。
+            // media3 的恢复是**异步**的：回调返回后才 setMediaItems + prepare + play。
+            // 我们如果在 play() 之后立刻 release，服务就出现「没有 controller、也还没开始播」
+            // 的窗口，media3 会 stopSelf 把恢复掐断 —— 诊断日志里就是 svc ready 反复出现
+            // （点了没声，再点一次服务又重建，最后要等十几秒）。所以这条路要把控制器多留 2.5s。
+            val resuming = withContext(Dispatchers.Main) { controller.mediaItemCount == 0 }
             try {
                 withContext(Dispatchers.Main) { block(controller) }
             } finally {
-                withContext(Dispatchers.Main) { runCatching { controller.release() } }
+                if (resuming) {
+                    deferredRelease = true
+                    releaseScope.launch {
+                        delay(2_500)
+                        runCatching { controller.release() }
+                    }
+                } else {
+                    withContext(Dispatchers.Main) { runCatching { controller.release() } }
+                }
             }
         } catch (t: Throwable) {
             // 连接超时 / 会话不可用：调用方拿到 null 走回滚，但这里必须留痕，
@@ -92,7 +113,10 @@ object WidgetMedia {
             WidgetDebug.event(app, "ctrl FAIL ${t.javaClass.simpleName}: ${t.message?.take(80)}")
             null
         } finally {
-            withContext(Dispatchers.Main) { runCatching { MediaController.releaseFuture(future) } }
+            // 延迟释放的路径不能再 releaseFuture：那会立刻把控制器拆掉，恢复又被掐断。
+            if (!deferredRelease) {
+                withContext(Dispatchers.Main) { runCatching { MediaController.releaseFuture(future) } }
+            }
         }
     }
 
