@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.net.toUri
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -22,6 +23,7 @@ import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
@@ -32,6 +34,8 @@ import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.metadata.MetadataOutput
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.text.TextOutput
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 import androidx.media3.session.CommandButton
@@ -574,6 +578,56 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * 播放器侧的读盘打点：解析完成到「首块数据可播放」之间是一段没有任何埋点的黑箱
+     * （DNS/TLS、首字节、写缓存分片、解码器初始化），线上出现「地址有了但一直不响」时
+     * 只能靠这一行定位是 CDN 慢、还是我们自己的缓存/解码慢。
+     */
+    @OptIn(UnstableApi::class)
+    private val loadTraceListener = object : AnalyticsListener {
+        private var firstBytesSong = ""
+        private var loadErrorSong = ""
+
+        override fun onLoadCompleted(
+            eventTime: AnalyticsListener.EventTime,
+            loadEventInfo: LoadEventInfo,
+            mediaLoadData: MediaLoadData,
+        ) {
+            if (mediaLoadData.dataType != C.DATA_TYPE_MEDIA) return
+            if (loadEventInfo.bytesLoaded <= 0) return
+            val songId = mediaSession?.player?.currentMediaItem?.mediaId ?: return
+            if (firstBytesSong == songId) return
+            firstBytesSong = songId
+            val cacheHit = runCatching { loadEventInfo.uri.scheme == "file" }.getOrDefault(false)
+            PlaybackPath.stepFor(
+                songId,
+                "首块数据到达",
+                "${loadEventInfo.bytesLoaded / 1024}KB" + if (cacheHit) " · 本地缓存" else "",
+                listOf("播放器"),
+                PlaybackPath.Status.OK,
+            )
+        }
+
+        override fun onLoadError(
+            eventTime: AnalyticsListener.EventTime,
+            loadEventInfo: LoadEventInfo,
+            mediaLoadData: MediaLoadData,
+            error: java.io.IOException,
+        ) {
+            if (mediaLoadData.dataType != C.DATA_TYPE_MEDIA) return
+            val songId = mediaSession?.player?.currentMediaItem?.mediaId ?: return
+            if (loadErrorSong == songId) return
+            loadErrorSong = songId
+            PlaybackPath.stepFor(
+                songId,
+                "读取中断",
+                "${error.javaClass.simpleName} · ${error.message.orEmpty().take(60)}",
+                listOf("播放器"),
+                PlaybackPath.Status.FAIL,
+            )
+        }
+    }
+
     /** 见 [bufferStallWarnMs]：卡缓冲看门狗。 */
     private val bufferWatchdog = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -604,6 +658,14 @@ class PlaybackService : MediaSessionService() {
             if (player.playbackState != Player.STATE_BUFFERING) return@launch
             if (player.currentMediaItem?.mediaId != songId) return@launch
             if (!player.playWhenReady) return@launch
+
+            // 解析还没结束时播放器本来就停在 BUFFERING（地址都还没拿到），
+            // 那不是卡死，是解析慢——重新计时，让「缓冲卡住」只报告真的卡在读数据上。
+            val chain = PlaybackPath.snapshot()
+            if (chain.outcome.isBlank() && chain.steps.isNotEmpty()) {
+                startBufferWatch(songId)
+                return@launch
+            }
 
             val observation = ResolveGuard.observe(songId)
             val detail = buildString {
@@ -1229,6 +1291,7 @@ class PlaybackService : MediaSessionService() {
         player.addListener(pathListener)
         // 卡缓冲看门狗：异常路径看不到的「一直转圈」在这里留证据并自救
         player.addListener(bufferWatchdog)
+        player.addAnalyticsListener(loadTraceListener)
         player.addListener(personalFmRefillListener)
         // 音源时长校验：解析出的直链与歌曲元数据时长不符 → 拉黑该链并换源重试
         player.addListener(durationVerifyListener)
