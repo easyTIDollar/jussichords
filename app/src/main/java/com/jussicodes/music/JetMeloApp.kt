@@ -92,6 +92,8 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // 封面请求尺寸按屏幕密度换算：所有 toCoverImageUrl 调用点默认读这里。
+        com.jussicodes.music.utils.CoverDensity.init(this)
         // 主题种子色缓存要在首帧前可用（同步读一张极小的 SharedPreferences 表）。
         com.jussicodes.music.ui.theme.ArtworkSeedCache.preload(this)
         // 播放直链磁盘缓存：冷启动（桌面组件/蓝牙续播）直接命中上次解析结果，
@@ -243,7 +245,9 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
 
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         return ImageLoader.Builder(context)
-            .crossfade(true)
+            // 全局关闭淡入：列表/封面大多命中磁盘或内存缓存，crossfade 会让「已经有的图」
+            // 也从透明渐显 100ms，滚动和切页观感上就是慢。需要动画的单个位置自己开。
+            .crossfade(false)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .memoryCache {
                 MemoryCache.Builder()

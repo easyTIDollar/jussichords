@@ -128,6 +128,8 @@ import com.jussicodes.music.utils.formatPlayCount
 import com.jussicodes.music.utils.formatTimestamp
 import com.jussicodes.music.viewModel.PlaylistScreenViewModel
 import com.jussicodes.music.utils.PlaylistCoverSyncBus
+import com.jussicodes.music.utils.CoverImageSize
+import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.utils.withPlaylistCoverCacheBuster
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.Playlist
@@ -442,10 +444,17 @@ fun PlaylistScreen(
                         cover = {
                             with(sharedTransitionScope) {
                                 AsyncImage(
-                                    model = detail.playlist.coverImgUrl.withPlaylistCoverCacheBuster(
-                                        playlistCoverVersions[detail.playlist.id] ?: 0L
-                                    ),
+                                    // 头图按 200dp 档请求：以前是原图（几百 KB），
+                                    // 每次进歌单都要多下一次。
+                                    model = detail.playlist.coverImgUrl
+                                        .toCoverImageUrl(CoverImageSize.DETAIL)
+                                        ?.withPlaylistCoverCacheBuster(
+                                            playlistCoverVersions[detail.playlist.id] ?: 0L
+                                        ),
                                     contentDescription = detail.playlist.name,
+                                    placeholder = androidx.compose.ui.graphics.painter.ColorPainter(
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                    ),
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
                                         .sharedElement(

@@ -11,6 +11,7 @@ import coil3.size.Size
 import com.jussicodes.music.utils.ApiServerErrorNotifier
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.FavoriteSongIdsUtil
+import com.jussicodes.music.utils.coverMemoryKey
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.rcmiku.ncmapi.api.account.AccountApi
@@ -206,23 +207,34 @@ object ExplorePreloader {
         val listPx = CoverImageSize.LIST.pixels(density)
         val gridPx = CoverImageSize.GRID.pixels(density)
 
-        fun enqueue(url: String?, px: Int) {
+        fun enqueue(url: String?, size: CoverImageSize, px: Int) {
             if (url.isNullOrBlank()) return
             runCatching {
                 loader.enqueue(
                     ImageRequest.Builder(context)
                         .data(url)
                         .size(Size(px, px))
+                        // 与列表展示用同一个 key，预取才算真的「预」到：否则只省网络，
+                        // 首帧仍要重新解码。
+                        .memoryCacheKey(coverMemoryKey(url, size))
                         .build()
                 )
             }
         }
 
         songs.take(PREFETCH_SONGS).forEach { song ->
-            enqueue(song.al.picUrl.toCoverImageUrl(CoverImageSize.LIST, density), listPx)
+            enqueue(
+                song.al.picUrl.toCoverImageUrl(CoverImageSize.LIST, density),
+                CoverImageSize.LIST,
+                listPx
+            )
         }
         playlists.take(PREFETCH_PLAYLISTS).forEach { playlist ->
-            enqueue(playlist.picUrl.toCoverImageUrl(CoverImageSize.GRID, density), gridPx)
+            enqueue(
+                playlist.picUrl.toCoverImageUrl(CoverImageSize.GRID, density),
+                CoverImageSize.GRID,
+                gridPx
+            )
         }
     }
 

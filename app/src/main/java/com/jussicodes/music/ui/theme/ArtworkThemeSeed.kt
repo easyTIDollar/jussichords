@@ -34,6 +34,8 @@ internal fun rememberArtworkSeed(artwork: Any?): Color? {
                 val request = ImageRequest.Builder(context)
                     .data(artwork)
                     .allowHardware(false)
+                    // 只采样 72×72 取色：不限尺寸会把整张封面（512 或内嵌原图）解码一遍。
+                    .size(SampleSize, SampleSize)
                     .build()
                 val result = context.imageLoader.execute(request) as? SuccessResult
                 result?.image
@@ -72,6 +74,8 @@ internal fun rememberHomeBgSeed(path: String): Color? {
                 val request = ImageRequest.Builder(context)
                     .data(model)
                     .allowHardware(false)
+                    // 只采样 72×72 取色：不限尺寸会把整张封面（512 或内嵌原图）解码一遍。
+                    .size(SampleSize, SampleSize)
                     .build()
                 val result = context.imageLoader.execute(request) as? SuccessResult
                 result?.image

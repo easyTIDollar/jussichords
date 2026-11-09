@@ -20,6 +20,7 @@ import com.jussicodes.music.constants.ListThumbnailSize
 import com.jussicodes.music.constants.ThumbnailCornerRadius
 import com.jussicodes.music.constants.detailCoverSize
 import com.jussicodes.music.utils.CoverImageSize
+import com.jussicodes.music.utils.coverMemoryKey
 import com.jussicodes.music.utils.toCoverImageUrl
 
 /**
@@ -37,6 +38,9 @@ private fun coverModel(url: Any?, size: CoverImageSize): Any? {
     return remember(url, size, density) {
         ImageRequest.Builder(context)
             .data(url.toCoverImageUrl(size, density))
+            .size(size.pixels(density), size.pixels(density))
+            // 与 ExplorePreloader 的预取共用同一把 key，预取的图才能直接被这里命中。
+            .memoryCacheKey(coverMemoryKey(url, size))
             .crossfade(false)
             .build()
     }

@@ -118,6 +118,7 @@ import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.formatPlayCount
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.ArtistScreenViewModel
+import com.jussicodes.music.ui.components.CoverAsyncImage
 import com.rcmiku.ncmapi.model.Song
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -411,14 +412,13 @@ fun ArtistScreen(
                                     previewArtistImageUrl = heroUrl
                                 }
                         )
-                        AsyncImage(
-                            model = avatarUrl.toCoverImageUrl(CoverImageSize.LIST),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
+                        CoverAsyncImage(
+                            url = avatarUrl,
+                            size = CoverImageSize.MEDIUM,
+                            shape = CircleShape,
                             modifier = Modifier
                                 .padding(12.dp)
                                 .size(84.dp)
-                                .clip(CircleShape)
                                 .clickable(enabled = avatarUrl != null) {
                                     previewArtistImageUrl = avatarUrl
                                 }

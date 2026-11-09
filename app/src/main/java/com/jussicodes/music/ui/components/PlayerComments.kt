@@ -90,6 +90,7 @@ import com.jussicodes.music.ui.icons.Delete
 import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.FavoriteFill
 import com.jussicodes.music.ui.icons.FilterList
+import com.jussicodes.music.utils.CoverImageSize
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.comment.CommentApi
 import com.rcmiku.ncmapi.model.Comment
@@ -759,13 +760,12 @@ private fun CommentItem(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.Top
     ) {
-        AsyncImage(
-            model = comment.user.avatarUrl,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
+        CoverAsyncImage(
+            url = comment.user.avatarUrl,
+            size = CoverImageSize.LIST,
+            shape = MaterialTheme.shapes.small,
             modifier = Modifier
                 .size(36.dp)
-                .clip(MaterialTheme.shapes.small)
                 .clickable { if (comment.user.userId != 0L) onUserClick(comment.user.userId) }
         )
         Spacer(Modifier.width(10.dp))
@@ -1044,13 +1044,12 @@ private fun FloorReplyItem(
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.Top
     ) {
-        AsyncImage(
-            model = floor.user.avatarUrl,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
+        CoverAsyncImage(
+            url = floor.user.avatarUrl,
+            size = CoverImageSize.AVATAR,
+            shape = MaterialTheme.shapes.small,
             modifier = Modifier
                 .size(28.dp)
-                .clip(MaterialTheme.shapes.small)
                 .clickable { if (floor.user.userId != 0L) onUserClick(floor.user.userId) }
         )
         Spacer(Modifier.width(8.dp))

@@ -225,7 +225,7 @@ fun ExploreScreen(
                                 ),
                                 userScrollEnabled = !(yieldToHomePager && !gridState.canScrollBackward)
                             ) {
-                                itemsIndexed(it.data.dailySongs) { _, song ->
+                                itemsIndexed(it.data.dailySongs, key = { _, song -> song.id }) { _, song ->
                                     SongListItem(
                                         isPlaying = isPlaying,
                                         isActive = currentMediaId == song.id,
@@ -268,7 +268,7 @@ fun ExploreScreen(
                                 state = playlistRowState,
                                 userScrollEnabled = !(yieldToHomePager && !playlistRowState.canScrollBackward)
                             ) {
-                                items(it.result) { playlist ->
+                                items(it.result, key = { playlist -> playlist.id }) { playlist ->
 
                                     PlaylistGridItem(
                                         playlist = playlist,

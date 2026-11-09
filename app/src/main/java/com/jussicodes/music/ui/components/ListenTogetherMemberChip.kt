@@ -26,6 +26,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.jussicodes.music.data.LTMember
+import com.jussicodes.music.utils.CoverImageSize
 
 private val AvatarSize = 30.dp
 
@@ -133,10 +134,10 @@ private fun ListenTogetherAvatar(
             .border(2.dp, outline.copy(alpha = 0.9f * overallAlpha), CircleShape)
     ) {
         if (member != null) {
-            AsyncImage(
-                model = member.avatarUrl,
+            CoverAsyncImage(
+                url = member.avatarUrl,
+                size = CoverImageSize.AVATAR,
                 contentDescription = member.nickname,
-                contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
         }
