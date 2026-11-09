@@ -598,7 +598,6 @@ class PlaybackService : MediaSessionService() {
                 append("已 ${bufferStallWarnMs / 1000}s 无进展")
                 append(" · 位置 ${formatClock(player.currentPosition)}/${formatClock(player.duration)}")
                 append(" · 已缓冲 ${formatClock(player.bufferedPosition)}")
-                player.playbackException?.let { append(" · 错误 ${it.errorCodeName}") }
                 observation?.let {
                     append(" · ${com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(it.url)}")
                     if (it.retries > 0) append(" · 已换源 ${it.retries} 次")

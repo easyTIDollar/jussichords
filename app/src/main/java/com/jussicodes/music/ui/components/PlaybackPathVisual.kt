@@ -38,44 +38,53 @@ import com.rcmiku.ncmapi.api.player.SongLevel
  */
 
 /** 真实起播链路的四段：缓存 → 解析 → 播放器 → 校验。 */
-internal enum class Stage(val label: String) {
+internal enum class PathStage(val label: String) {
     CACHE("缓存与直达"),
     RESOLVE("解析音源"),
     PLAYER("播放器就绪"),
     VERIFY("校验与兜底"),
 }
 
-/** 固定色板：灰（缓存）· 蓝（解析）· 绿（播放器）· 橙（校验兜底），深浅色下都能区分。 */
-private val CacheColor = Color(0xFF8A93A5)
-private val ResolveColor = Color(0xFF3D7DFF)
-private val PlayerColor = Color(0xFF17B978)
-private val VerifyColor = Color(0xFFF5A623)
+/**
+ * 固定色板：灰（缓存）· 蓝（解析）· 绿（播放器）· 橙（校验兜底）。
+ *
+ * 不用主题色是因为主题从壁纸/封面取色，primary / secondary / tertiary 经常落在同一色相上，
+ * 色带就变成一整块同色。这里存 ARGB，Compose 面板和原生置顶小窗共用同一份。
+ */
+internal object PathPalette {
+    val cache = 0xFF8A93A5.toInt()
+    val resolve = 0xFF3D7DFF.toInt()
+    val player = 0xFF17B978.toInt()
+    val verify = 0xFFF5A623.toInt()
 
-internal val Stage.color: Color
-    get() = when (this) {
-        Stage.CACHE -> CacheColor
-        Stage.RESOLVE -> ResolveColor
-        Stage.PLAYER -> PlayerColor
-        Stage.VERIFY -> VerifyColor
+    fun of(stage: PathStage): Int = when (stage) {
+        PathPathStage.CACHE -> cache
+        PathPathStage.RESOLVE -> resolve
+        PathPathStage.PLAYER -> player
+        PathPathStage.VERIFY -> verify
     }
+}
 
-internal fun stageOf(step: PlaybackPath.Step): Stage {
+internal val PathStage.color: Color
+    get() = Color(PathPalette.of(this))
+
+internal fun stageOf(step: PlaybackPath.Step): PathStage {
     val tags = step.tags
-    if (tags.contains("缓存")) return Stage.CACHE
-    if (tags.contains("校验") || tags.contains("预取") || tags.contains("手动")) return Stage.VERIFY
+    if (tags.contains("缓存")) return PathStage.CACHE
+    if (tags.contains("校验") || tags.contains("预取") || tags.contains("手动")) return PathStage.VERIFY
     if (tags.contains("播放器") || step.name.startsWith("音频数据已就绪") ||
         step.name.startsWith("播放加载失败") || step.name.startsWith("缓冲")
     ) {
-        return Stage.PLAYER
+        return PathStage.PLAYER
     }
-    return Stage.RESOLVE
+    return PathStage.RESOLVE
 }
 
 internal sealed interface RowItem {
-    data class Header(val stage: Stage, val costMs: Long) : RowItem
+    data class Header(val stage: PathStage, val costMs: Long) : RowItem
     data class Step(
         val step: PlaybackPath.Step,
-        val stage: Stage,
+        val stage: PathStage,
         /** 这一步之后到下一步之间的等待时间（最后一步算到面板刷新时刻）。 */
         val gapMs: Long,
         val totalMs: Long,
@@ -84,19 +93,19 @@ internal sealed interface RowItem {
 
 internal class Timeline(
     val rows: List<RowItem>,
-    val stageTotals: List<Pair<Stage, Long>>,
+    val stageTotals: List<Pair<PathStage, Long>>,
 )
 
 /** 把平铺的步骤切成「阶段头 + 步骤」，并算出每一步之后等了多久。 */
 internal fun buildTimeline(steps: List<PlaybackPath.Step>, totalMs: Long): Timeline {
     if (steps.isEmpty()) return Timeline(emptyList(), emptyList())
-    val totals = linkedMapOf<Stage, Long>()
+    val totals = linkedMapOf<PathStage, Long>()
     steps.forEachIndexed { index, step ->
         val end = steps.getOrNull(index + 1)?.atMs ?: totalMs.coerceAtLeast(step.atMs)
         totals[stageOf(step)] = (totals[stageOf(step)] ?: 0L) + (end - step.atMs).coerceAtLeast(0)
     }
     val rows = mutableListOf<RowItem>()
-    var current: Stage? = null
+    var current: PathStage? = null
     steps.forEachIndexed { index, step ->
         val stage = stageOf(step)
         if (stage != current) {
@@ -118,7 +127,7 @@ internal fun buildTimeline(steps: List<PlaybackPath.Step>, totalMs: Long): Timel
 
 @Composable
 internal fun BreakdownBar(
-    totals: List<Pair<Stage, Long>>,
+    totals: List<Pair<PathStage, Long>>,
     compact: Boolean = false,
 ) {
     val sum = totals.sumOf { it.second }.coerceAtLeast(1L)
