@@ -193,11 +193,17 @@ private fun WidgetBody(
 // —————————————————————— 布局 1：4×2 双列卡 ——————————————————————
 
 /**
- * 左侧大方形圆角封面；右侧纵向三层：歌曲信息（居中）/ 进度与时长 / 控制栏。
+ * 左侧 1:1 大圆角方形封面：优先按「卡片可用高度」取边长，只在宽度真挤不下右列时让步，
+ * 垂直居中（Row 的 CenterVertically）。
  *
- * 控制栏严格留在右列：主控制区（上一曲、圆形播放/暂停、下一曲）靠左，
- * 副控制区（收音机、爱心）靠右，中间用可伸缩的空隙自然分开。
- * 250dp 规格下右列只有 130dp，所以按钮尺寸按此反推（34dp 主键 + 22/20dp 副键）。
+ * 右侧纵向三段：
+ * 1. 信息区：歌名（加粗主色）+ 歌手/来源（次要灰度），统一左对齐铺满右列宽度；
+ * 2. 进度区：滑轨撑满右列，两端时间紧贴滑轨端点；
+ * 3. 控制栏：上一曲 / 圆形播放暂停 / 下一曲 居中，私人 FM 贴左、红心贴右，
+ *    两侧由等权空隙对称撑开，左右边距自然等宽。
+ *
+ * 尺寸口径：封面不再按「按钮总宽」反推（那会把封面压小、右列被固定宽度留出大片空白），
+ * 只留一道宽度保护 = 右列至少放得下一行控制键。
  */
 @Composable
 private fun CardLayout(
@@ -212,11 +218,14 @@ private fun CardLayout(
     val sideSize = 22.dp
     val playSize = 34.dp
     val quickSize = 20.dp
-    // 右列必须能放下整整一行按钮，封面再从剩余宽度里取，避免小格子上把按钮挤扁。
-    val controlWidth = sideSize * 2 + playSize + quickSize * 2
-    val coverLimit = size.width - pad * 2 - controlWidth - 10.dp
-    val coverSize = (size.height - pad * 2).coerceAtMost(coverLimit).coerceIn(52.dp, 112.dp)
-    val rightWidth = size.width - pad * 2 - coverSize - 10.dp
+    val gap = 12.dp
+    // 右列最小可用宽：fm + prev + play + next + like 一行放得下，两端再留 8dp 呼吸位。
+    val minRightWidth = sideSize * 2 + playSize + quickSize * 2 + 8.dp
+    val availHeight = (size.height - pad * 2).coerceAtLeast(40.dp)
+    val coverLimit = (size.width - pad * 2 - minRightWidth - gap).coerceAtLeast(40.dp)
+    // 上限 120dp：封面位图按 THUMB(336px) 出图，再大就只是放大模糊。
+    val coverSize = availHeight.coerceAtMost(coverLimit).coerceAtMost(120.dp)
+    val rightWidth = (size.width - pad * 2 - coverSize - gap).coerceAtLeast(minRightWidth)
 
     Row(
         modifier = roundedCard(palette.card).fillMaxSize().padding(pad),
@@ -227,23 +236,23 @@ private fun CardLayout(
             palette = palette,
             modifier = GlanceModifier.size(coverSize)
                 .clickable(openTargetAction(context, snapshot)),
-            radius = 14.dp,
+            radius = (coverSize * 0.16f).coerceAtLeast(10.dp),
             iconSize = 22.dp,
         )
-        Spacer(GlanceModifier.width(10.dp))
+        Spacer(GlanceModifier.width(gap))
 
         Column(modifier = GlanceModifier.width(rightWidth).fillMaxHeight()) {
-            // 上层：歌名 / 歌手，水平居中，垂直方向吃掉剩余空间
+            // 上段：歌名 / 歌手，左对齐铺满右列，垂直居中吃掉剩余空间。
             Column(
                 modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalAlignment = Alignment.CenterHorizontally,
+                horizontalAlignment = Alignment.Start,
             ) {
                 if (snapshot.hasSong) {
                     Text(
                         text = scrollingTitle(context, snapshot.title, rightWidth, 14f),
                         maxLines = 1,
-                        style = titleStyle(palette.onCard, 14.sp),
+                        style = titleStyle(palette.onCard, 14.sp, FontWeight.Bold),
                     )
                     Spacer(GlanceModifier.height(2.dp))
                     Text(
@@ -255,7 +264,7 @@ private fun CardLayout(
                     Text(
                         text = ellipsize(context, snapshot.statusTitle(context), rightWidth, 13f, medium = true),
                         maxLines = 1,
-                        style = titleStyle(palette.onCard, 13.sp),
+                        style = titleStyle(palette.onCard, 13.sp, FontWeight.Bold),
                     )
                     Spacer(GlanceModifier.height(2.dp))
                     Text(
@@ -266,11 +275,12 @@ private fun CardLayout(
                 }
             }
 
-            // 中层：进度条 + 两端时长
+            // 中段：满宽进度条，两端时间紧贴滑轨端点。
+            Spacer(GlanceModifier.height(2.dp))
             ProgressRow(snapshot, palette, rightWidth, compact = true)
-            Spacer(GlanceModifier.height(4.dp))
+            Spacer(GlanceModifier.height(6.dp))
 
-            // 下层：私人 FM 贴左、红心贴右，播放组被两个等权空隙夹在右列正中间。
+            // 下段：私人 FM 贴左、红心贴右，主控制组被两条等权空隙夹在正中间。
             Row(
                 modifier = GlanceModifier.fillMaxWidth().height(playSize),
                 verticalAlignment = Alignment.CenterVertically,
@@ -542,8 +552,11 @@ private fun TileLayout(
 
 // —————————————————————— 通用零件 ——————————————————————
 
-private fun titleStyle(color: Color, size: TextUnit): TextStyle =
-    TextStyle(color = ColorProvider(color), fontSize = size, fontWeight = FontWeight.Medium)
+private fun titleStyle(
+    color: Color,
+    size: TextUnit,
+    weight: FontWeight = FontWeight.Medium,
+): TextStyle = TextStyle(color = ColorProvider(color), fontSize = size, fontWeight = weight)
 
 private fun bodyStyle(color: Color, size: TextUnit): TextStyle =
     TextStyle(color = ColorProvider(color), fontSize = size, fontWeight = FontWeight.Normal)
@@ -665,7 +678,11 @@ private fun CoverArt(
 }
 
 /**
- * 进度行：`当前时间 ──条── 总时长`。
+ * 进度行：`当前时间 ──条── 总时长`，整行撑满给定宽度。
+ *
+ * 两端对齐的口径：Glance 1.1.1 的 Text 没有 textAlign，固定宽的槽位会让右端时长
+ * 在槽内左对齐、和滑轨端点错开。这里把两侧时间槽量成文字实际宽度，
+ * 左时间的右边缘、右时间的左边缘就都紧贴滑轨两端。
  *
  * RemoteViews 不支持拖动，所以条本身切 5 段热区，点哪一段就跳到哪里（精度 20%）。
  * 没有时长（直播 / 还在解析）就画一条静态底线，时间位显示 --:--。
@@ -677,22 +694,25 @@ private fun ProgressRow(
     width: Dp,
     compact: Boolean = false,
 ) {
-    val timeWidth = if (compact) 26.dp else 30.dp
-    val gap = if (compact) 4.dp else 6.dp
-    val barWidth = (width - timeWidth * 2 - gap * 2).coerceAtLeast(20.dp)
+    val context = LocalContext.current
+    val gap = if (compact) 6.dp else 7.dp
     val fontSize = if (compact) 9f else 10f
     val hasDuration = snapshot.hasSong && snapshot.durationMs > 0L
+    val startText = if (hasDuration) {
+        formatClock((snapshot.progress() * snapshot.durationMs).toLong())
+    } else {
+        "--:--"
+    }
+    val endText = if (hasDuration) formatClock(snapshot.durationMs) else "--:--"
+    val timeWidth = clockWidth(context, startText, endText, sizeSp = fontSize).coerceAtLeast(20.dp)
+    val barWidth = (width - (timeWidth + gap) * 2).coerceAtLeast(20.dp)
 
     Row(
         modifier = GlanceModifier.width(width),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = if (hasDuration) {
-                formatClock((snapshot.progress() * snapshot.durationMs).toLong())
-            } else {
-                "--:--"
-            },
+            text = startText,
             maxLines = 1,
             style = bodyStyle(palette.secondary, fontSize.sp),
             modifier = GlanceModifier.width(timeWidth),
@@ -701,12 +721,29 @@ private fun ProgressRow(
         SeekBar(palette, barWidth, snapshot.progress().coerceIn(0f, 1f), hasDuration)
         Spacer(GlanceModifier.width(gap))
         Text(
-            text = if (hasDuration) formatClock(snapshot.durationMs) else "--:--",
+            text = endText,
             maxLines = 1,
             style = bodyStyle(palette.secondary, fontSize.sp),
             modifier = GlanceModifier.width(timeWidth),
         )
     }
+}
+
+/** 时间文字的实际宽度（dp），两端时间共用同一槽宽，避免每秒跳动。 */
+private fun clockWidth(
+    context: Context,
+    startText: String,
+    endText: String,
+    sizeSp: Float,
+): Dp {
+    val metrics = context.resources.displayMetrics
+    val widest = maxOf(
+        measureWidth(context, startText, sizeSp),
+        measureWidth(context, endText, sizeSp),
+        measureWidth(context, "--:--", sizeSp),
+    )
+    // +1dp 余量：测量与实际渲染的取整差可能把末位数字挤掉。
+    return (widest / metrics.density + 1f).dp
 }
 
 /**

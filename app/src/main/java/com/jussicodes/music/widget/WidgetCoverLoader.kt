@@ -32,8 +32,8 @@ import java.util.Collections
  * 桌面组件最大也就 2×3 格，按 dp 实际像素出图足够清晰，体积还小一个数量级。
  */
 enum class CoverStyle(val px: Int) {
-    /** 宽条 4×2：左侧 84dp 封面，3x 屏约 252px。 */
-    THUMB(240),
+    /** 4×2 卡：左侧 1:1 大封面贴合卡片可用高度（最大 120dp），336px ≈ 112dp@3x 仍清晰。 */
+    THUMB(336),
 
     /** 方形 2×3：整格铺满封面，3x 屏约 330px。 */
     FULL(320),
