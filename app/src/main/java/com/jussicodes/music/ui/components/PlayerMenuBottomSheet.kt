@@ -68,6 +68,7 @@ import com.jussicodes.music.playback.audio.AudioEffectMode
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.jussicodes.music.ui.icons.MusicNote
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.Dns
 import com.jussicodes.music.ui.icons.GraphicEq
 import com.jussicodes.music.ui.icons.Headphones
@@ -199,6 +200,14 @@ fun PlayerMenuBottomSheet(
     var directSource by rememberPreference(directSourceKey, LocalSources.AUTO)
     var audioQuality by rememberEnumPreference(audioQualityKey, defaultValue = SongLevel.STANDARD)
     var showQualityDialog by rememberSaveable { mutableStateOf(false) }
+    var showPlaybackPathSheet by rememberSaveable { mutableStateOf(false) }
+    val playbackPath by com.jussicodes.music.playback.PlaybackPath.state.collectAsState()
+    val playbackPathValue = when {
+        playbackPath.steps.isEmpty() -> "查看"
+        !playbackPath.finished -> "解析中"
+        playbackPath.outcome.isNotBlank() -> "已完成"
+        else -> "查看"
+    }
     val qualitySpec = resolveAudioQualitySpec(playerState?.tracks, audioQuality)
     var showSourcePicker by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(directSource) {
@@ -281,7 +290,12 @@ fun PlayerMenuBottomSheet(
                                 onDismiss()
                             },
                             qualityLabel = qualitySpec.label,
-                            onQualityClick = { showQualityDialog = true }
+                            onQualityClick = { showQualityDialog = true },
+                            playbackPathValue = playbackPathValue,
+                            onPlaybackPathClick = {
+                                showPlaybackPathSheet = true
+                                onDismiss()
+                            }
                         )
                     }
                     Column(
@@ -354,7 +368,12 @@ fun PlayerMenuBottomSheet(
                                     onDismiss()
                                 },
                                 qualityLabel = qualitySpec.label,
-                                onQualityClick = { showQualityDialog = true }
+                                onQualityClick = { showQualityDialog = true },
+                                playbackPathValue = playbackPathValue,
+                                onPlaybackPathClick = {
+                                    showPlaybackPathSheet = true
+                                    onDismiss()
+                                }
                             )
                         }
                     }
@@ -483,6 +502,14 @@ fun PlayerMenuBottomSheet(
         openSongListBottomSheet = false
     }, openBottomSheet = openSongListBottomSheet)
 
+    // 播放解析链路：菜单关掉的同时把只读时间线面板顶上来，和「添加到歌单」同一套交互。
+    PlaybackPathSheet(
+        openBottomSheet = showPlaybackPathSheet,
+        onDismiss = { showPlaybackPathSheet = false },
+        songTitle = currentSong?.name,
+        onReResolve = { PlaybackReloadBus.requestReResolve() },
+    )
+
     currentSong?.let { song ->
         ShareSheet(
             payload = SharePayload.SongShare(song),
@@ -566,6 +593,8 @@ private fun AudioMenuSection(
     onSourceClick: () -> Unit,
     qualityLabel: String,
     onQualityClick: () -> Unit,
+    playbackPathValue: String = "查看",
+    onPlaybackPathClick: () -> Unit = {},
 ) {
     MenuGroupContainer {
         MenuRow(
@@ -590,6 +619,15 @@ private fun AudioMenuSection(
             value = sourceLabel,
             iconAlpha = 1f,
             onClick = onSourceClick
+        )
+        MenuDivider()
+        // 解析链路只读面板：点开是「这条歌刚才怎么拿到直链的」时间线 + 重新解析入口。
+        MenuRow(
+            icon = Icons.Outlined.Checklist,
+            title = "播放解析链路",
+            value = playbackPathValue,
+            iconAlpha = 1f,
+            onClick = onPlaybackPathClick
         )
     }
 }

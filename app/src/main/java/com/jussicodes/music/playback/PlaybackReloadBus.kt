@@ -17,11 +17,24 @@ object PlaybackReloadBus {
     private val _requests = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
     val requests: SharedFlow<Unit> = _requests.asSharedFlow()
 
+    /**
+     * 「播放解析链路」面板里的「重新解析当前音乐」。
+     *
+     * 和换源的区别：音源/音质都没变，所以必须把这首歌的直链缓存与音频分片缓存一起清掉，
+     * 否则重新 prepare 会直接命中缓存、压根不走解析，面板上也就不会出现新链路。
+     */
+    private val _forceRequests = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+    val forceRequests: SharedFlow<Unit> = _forceRequests.asSharedFlow()
+
     /** 当前音源代号，参与 cacheKey 计算（由 app 侧在切换时写入）。 */
     @Volatile
     var sourceTag: String = "init"
 
     fun requestReload() {
         _requests.tryEmit(Unit)
+    }
+
+    fun requestReResolve() {
+        _forceRequests.tryEmit(Unit)
     }
 }

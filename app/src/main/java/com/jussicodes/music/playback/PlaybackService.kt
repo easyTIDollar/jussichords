@@ -97,6 +97,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.json
 
@@ -139,6 +140,45 @@ class PlaybackService : MediaSessionService() {
 
     /** 播放队列落盘：进程被杀后媒体会话还能把上次的队列和进度恢复出来。 */
     private val queueStore by lazy { PlaybackQueueStore.get(this) }
+
+    /**
+     * 解析链路面板的播放器侧打点：解析层只写到「拿到直链」，真正「多久出声」在播放器这里。
+     * 只补两类事件 —— 首块可播（READY）与加载失败，其余步骤都由解析层负责。
+     */
+    private var pathReadySong: String? = null
+
+    private val pathListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            pathReadySong = null
+            PlaybackPath.focus(mediaItem?.mediaId)
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState != Player.STATE_READY) return
+            val player = mediaSession?.player ?: return
+            val mediaId = player.currentMediaItem?.mediaId ?: return
+            if (pathReadySong == mediaId) return
+            val snapshot = PlaybackPath.snapshot()
+            // 本地文件不需要解析链路，没开始过的会话不要凭空补一条。
+            if (snapshot.steps.isEmpty()) return
+            pathReadySong = mediaId
+            PlaybackPath.step(
+                "音频数据已就绪",
+                "首块音频可播 · 已交给解码器",
+                listOf("播放器"),
+                PlaybackPath.Status.OK,
+            )
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            PlaybackPath.step(
+                "播放加载失败",
+                "${error.errorCodeName} · ${error.message.orEmpty().take(80)}",
+                listOf("播放器"),
+                PlaybackPath.Status.FAIL,
+            )
+        }
+    }
 
     /**
      * 队列持久化监听：切歌 / 上下架（时间线变化）/ 播放暂停 / 就绪 时写盘。
@@ -792,27 +832,51 @@ class PlaybackService : MediaSessionService() {
 
     // 换源信号 → 重新解析并播放当前这首歌（音源代号已由调用方写进 cacheKey）
     private var reloadJob: kotlinx.coroutines.Job? = null
+    private var reloadForceJob: kotlinx.coroutines.Job? = null
 
     fun observeSourceReloads() {
         reloadJob = scope.launch {
-            PlaybackReloadBus.requests.collect {
-                val player = mediaSession?.player ?: return@collect
-                val item = player.currentMediaItem ?: return@collect
-                // 用户主动换了音源：清掉这首歌上一轮（旧音源）的拉黑集合与重试计数，
-                // 否则新音源会被旧源的坏链记录连坐跳过。
-                item.mediaId.takeIf { it.isNotBlank() }?.let(ResolveGuard::forgetSong)
-                verifiedUrl = null
-                // 必须 stop() → prepare()：prepare() 在非 IDLE 状态直接 return，
-                // pause + seekTo(0) + prepare() 不会重新解析，等于没换源。
-                val pos = player.currentPosition
-                player.stop()
-                if (pos > 0) {
-                    player.seekTo(pos)
-                }
-                player.prepare()
-                player.play()
+            PlaybackReloadBus.requests.collect { reloadCurrent(force = false) }
+        }
+        reloadForceJob = scope.launch {
+            PlaybackReloadBus.forceRequests.collect { reloadCurrent(force = true) }
+        }
+    }
+
+    /**
+     * 重新 prepare 当前歌曲。
+     *
+     * @param force 「重新解析当前音乐」：音源/音质都没变，直链缓存与音频分片缓存必须一起丢掉，
+     *   否则 CacheDataSource 直接命中旧分片，ResolvingDataSource 根本不会被调用，
+     *   面板上也就看不到新的解析链路。
+     */
+    private suspend fun reloadCurrent(force: Boolean) {
+        val player = mediaSession?.player ?: return
+        val item = player.currentMediaItem ?: return
+        // 用户主动换了音源/要求重解析：清掉这首歌上一轮（旧源）的拉黑集合与重试次数，
+        // 否则新音源会被旧源的坏链记录连坐跳过。
+        item.mediaId.takeIf { it.isNotBlank() }?.let(ResolveGuard::forgetSong)
+        verifiedUrl = null
+        val rawUri = item.localConfiguration?.uri?.toString()
+        if (force && rawUri != null) {
+            val qualityTag = audioQuality.value
+            val sourceTag = PlaybackReloadBus.sourceTag
+            PlaybackPath.reset()
+            pathReadySong = null
+            PlayUrlCache.invalidate(rawUri, qualityTag, sourceTag)
+            withContext(Dispatchers.IO) {
+                runCatching { AudioCache.get(this@PlaybackService).removeResource(audioCacheKey(rawUri)) }
             }
         }
+        // 必须 stop() → prepare()：prepare() 在非 IDLE 状态直接 return，
+        // pause + seekTo(0) + prepare() 不会重新解析，等于没换源。
+        val pos = player.currentPosition
+        player.stop()
+        if (pos > 0) {
+            player.seekTo(pos)
+        }
+        player.prepare()
+        player.play()
     }
 
     @OptIn(UnstableApi::class)
@@ -880,10 +944,25 @@ class PlaybackService : MediaSessionService() {
 
                         val resolvedUri = if (cachedUrl != null) {
                             PlaybackTrace.markOnce(this@PlaybackService, "hit", "resolve hit")
+                            PlaybackPath.begin(resolveKey, qualityTag)
+                            PlaybackPath.step(
+                                "命中解析缓存",
+                                com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(cachedUrl),
+                                listOf("缓存"),
+                                PlaybackPath.Status.OK,
+                            )
+                            PlaybackPath.finish("缓存直链 · " + com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(cachedUrl))
                             android.util.Log.d(TAG, "play url cache hit songId=$resolveKey")
                             cachedUrl.toUri()
                         } else {
                             PlaybackTrace.markOnce(this@PlaybackService, "miss", "resolve miss")
+                            PlaybackPath.begin(resolveKey, qualityTag)
+                            PlaybackPath.step(
+                                "开始加载音频",
+                                "播放器连接真实音频地址",
+                                listOf("播放器"),
+                                PlaybackPath.Status.RUNNING,
+                            )
                             // 解析播放地址本身也是一次网络请求，弱网下不能无限期卡住加载线程
                             withTimeout(resolveUrlTimeoutMs) {
                                 updateMediaItemUri(
@@ -983,6 +1062,7 @@ class PlaybackService : MediaSessionService() {
         player.addListener(recoveryListener)
         // 桌面小组件：播放/暂停、切歌、缓冲变化主动刷新
         player.addListener(widgetStateListener)
+        player.addListener(pathListener)
         player.addListener(personalFmRefillListener)
         // 音源时长校验：解析出的直链与歌曲元数据时长不符 → 拉黑该链并换源重试
         player.addListener(durationVerifyListener)

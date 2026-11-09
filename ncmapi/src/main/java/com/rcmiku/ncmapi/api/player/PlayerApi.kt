@@ -7,6 +7,7 @@ import com.rcmiku.ncmapi.api.AudioSources
 import com.rcmiku.ncmapi.api.LocalSourceFetcher
 import com.rcmiku.ncmapi.api.LocalSources
 import com.rcmiku.ncmapi.api.LxSourceBridge
+import com.rcmiku.ncmapi.api.PlayUrlTrace
 import com.rcmiku.ncmapi.api.UNBLOCK_SOURCE
 import com.rcmiku.ncmapi.api.apiClient
 import com.rcmiku.ncmapi.api.apiGet
@@ -49,11 +50,29 @@ object PlayerApi {
         val realId = parsed.first
         val fee = parsed.second
 
+        // 起播链路的每一步都在这里留痕：面板上「哪条分支、等了多久、最后落在哪个域名」全部来自这几行。
+        val startedAt = System.currentTimeMillis()
+        // 带 songId 打点：预取下一首也会走这里，面板靠它区分「当前歌」和「别的歌」。
+        fun trace(name: String, detail: String, tags: List<String>) =
+            PlayUrlTrace.emit(realId, name, detail, tags)
+        trace(
+            "开始解析播放链接",
+            if (fee == 1) "VIP 曲目，走第三方音源" else "普通曲目",
+            listOf("网易云", songLevel.value)
+        )
+
         // 只有 fee==1（VIP/黑胶）需要第三方解灰。fee=0（免费）、fee=8（普通）等其它值
         // 官方直连即可播放，完全不碰 API 服务器。
         // 若开启了 AudioSourceSettings.RESOLVE_ALL，则所有歌曲均走第三方音源解析，未命中再兜底官方。
         if (fee != 1 && !AudioSourceSettings.RESOLVE_ALL) {
-            return apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
+            val result = apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
+            val url = result.getOrNull()?.data?.firstOrNull()?.url
+            trace(
+                "官方直连",
+                "${PlayUrlTrace.hostOf(url).ifBlank { "未返回地址" }} · ${System.currentTimeMillis() - startedAt}ms",
+                listOf("网易云", songLevel.value)
+            )
+            return result
         }
 
         // VIP（fee==1）或全量解析模式：三选一音源（LX 脚本 / 内置直连 / 代理解灰），互斥不串联。
@@ -61,6 +80,11 @@ object PlayerApi {
         val selected = AudioSourceSettings.SELECTED
         val clientSideSelected = selected == AudioSources.LX || selected == AudioSources.DIRECT
         if (clientSideSelected) {
+            trace(
+                "尝试客户端音源",
+                "音源 $selected · 音质 ${songLevel.value}",
+                listOf("网易云", selected)
+            )
             // 试听链（musicrep-ts）不能当命中：脚本降级到官方源时会给 30 秒片段，
             // 直接返回会让播放器「解析成功」然后播一半就断。
             val clientUrl = when (selected) {
@@ -70,24 +94,53 @@ object PlayerApi {
                 ?.takeUnless { PlayUrlSkip.blocks(skipUrls, it) }
             if (!clientUrl.isNullOrBlank()) {
                 Log.d("PlayerApi", "Client source ($selected) resolved songId=$realId")
+                trace(
+                    "客户端音源命中",
+                    "${PlayUrlTrace.hostOf(clientUrl)} · ${System.currentTimeMillis() - startedAt}ms",
+                    listOf(selected, songLevel.value)
+                )
                 return Result.success(SongUrlResponse(data = listOf(
                     SongUrl(id = realId.toLong(), url = clientUrl, br = 320000)
                 )))
             }
+            trace(
+                "客户端音源未命中",
+                "改用官方兜底 · 已跳过 ${skipUrls.size} 条坏链",
+                listOf(selected)
+            )
             Log.w("PlayerApi", "Client source ($selected) missed songId=$realId skipped=${skipUrls.size}, fall back to official url")
         } else {
+            trace("尝试代理解灰", "source=${source ?: UNBLOCK_SOURCE}", listOf("网易云", "解灰"))
             val unblockResult = tryUnblockUrl(realId, source, songLevel)
             // 上次被判定为错源的 url 不再用（否则重试等于原地打转），交给官方兜底。
             val blocked = PlayUrlSkip.blocks(
                 skipUrls,
                 unblockResult.getOrNull()?.data?.firstOrNull()?.url
             )
-            if (unblockResult.hasPlayableUrl() && !blocked) return unblockResult
+            if (unblockResult.hasPlayableUrl() && !blocked) {
+                trace(
+                    "代理解灰命中",
+                    "${PlayUrlTrace.hostOf(unblockResult.getOrNull()?.data?.firstOrNull()?.url)} · ${System.currentTimeMillis() - startedAt}ms",
+                    listOf("解灰", songLevel.value)
+                )
+                return unblockResult
+            }
+            trace(
+                "代理解灰未命中",
+                if (blocked) "返回的是已被拉黑的坏链" else "没有可播地址",
+                listOf("解灰")
+            )
         }
 
         // 最后兜底：官方直连。客户端音源开启时 VIP 歌在此回 30 秒试听占位（账号有会员则完整 url）；
         // 代理音源模式下解灰失败时也是走这条官方直连。
-        return apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
+        val fallback = apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
+        trace(
+            "官方兜底",
+            "${PlayUrlTrace.hostOf(fallback.getOrNull()?.data?.firstOrNull()?.url).ifBlank { "未返回地址" }} · ${System.currentTimeMillis() - startedAt}ms",
+            listOf("网易云", songLevel.value)
+        )
+        return fallback
     }
 
     private fun songUrlParams(songId: String, songLevel: SongLevel, unblock: Boolean): Map<String, Any> =

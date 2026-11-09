@@ -6,6 +6,7 @@ import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.jussicodes.music.constants.MediaSessionConstants
+import com.jussicodes.music.playback.PlaybackPath
 import com.jussicodes.music.playback.ResolveGuard
 import com.rcmiku.ncmapi.api.player.PlayerApi
 import com.rcmiku.ncmapi.api.player.SongLevel
@@ -179,19 +180,28 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
 
     val songId = uri.toResolveKey()
     val idLong = songId.substringBefore("?").toLongOrNull()
+    if (PlaybackPath.begin(songId, songLevel.value)) {
+        PlaybackPath.route("网易云 · " + describeSource())
+    }
     if (context != null && idLong != null) {
         val externalPlayable = com.jussicodes.music.data.external.ExternalPlaylistStore.getPlayableUri(context, idLong)
         if (externalPlayable != null) {
             android.util.Log.i("PlayerApi", "Hit external playlist audio for songId=$songId uri=$externalPlayable")
+            PlaybackPath.stepFor(songId, "命中本地文件", "外部歌单音频", listOf("本地"), PlaybackPath.Status.OK)
+            PlaybackPath.finishFor(songId, "本地文件 · $externalPlayable", PlaybackPath.Status.OK)
             return externalPlayable
         } else if (idLong < 0) {
             // 外部歌曲但物理文件已不存在或无权限，直接终止，不请求网易云
             android.util.Log.w("PlayerApi", "External audio file not found or inaccessible for songId=$songId")
+            PlaybackPath.stepFor(songId, "本地文件缺失", "外部歌曲且文件不存在或无权限", listOf("本地"), PlaybackPath.Status.FAIL)
+            PlaybackPath.finishFor(songId, "外部歌曲文件缺失", PlaybackPath.Status.FAIL)
             return null
         }
         val localPlayable = com.jussicodes.music.data.download.DownloadStore.getCompletedPlayableUri(context, idLong)
         if (localPlayable != null) {
             android.util.Log.i("PlayerApi", "Hit local downloaded audio for songId=$songId uri=$localPlayable")
+            PlaybackPath.stepFor(songId, "命中本地文件", "已下载音频", listOf("本地"), PlaybackPath.Status.OK)
+            PlaybackPath.finishFor(songId, "本地文件 · $localPlayable", PlaybackPath.Status.OK)
             return localPlayable
         }
     }
@@ -199,14 +209,34 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
     // 上次被时长校验判定为错源的直链：解析层会跳过它们，于是重试会升级到下一个脚本/下一个直连源，
     // 而不是把同一根坏链再刷一遍。
     val skipUrls = ResolveGuard.skipUrls(songId)
+    if (skipUrls.isNotEmpty()) {
+        PlaybackPath.stepFor(songId, "跳过已拉黑直链", "上次被时长校验判定为错源：${skipUrls.size} 条", listOf("校验"), PlaybackPath.Status.INFO)
+    }
 
-    suspend fun resolveOnce(): SongUrl? =
-        PlayerApi.songPlayUrlV1(songId, songLevel, skipUrls = skipUrls)
+    suspend fun resolveOnce(): SongUrl? {
+        val t0 = System.currentTimeMillis()
+        val r = PlayerApi.songPlayUrlV1(songId, songLevel, skipUrls = skipUrls)
             .getOrNull()?.data?.firstOrNull()
+        val cost = System.currentTimeMillis() - t0
+        val host = com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(r?.url)
+        PlaybackPath.stepFor(songId, 
+            name = if (r?.url.isNullOrBlank()) "解析未返回地址" else "拿到候选直链",
+            detail = if (host.isBlank()) "空结果 · ${cost}ms" else "$host · ${cost}ms",
+            tags = listOf("网易云"),
+            status = if (r?.url.isNullOrBlank()) PlaybackPath.Status.FAIL else PlaybackPath.Status.OK,
+            costMs = cost,
+        )
+        return r
+    }
 
     fun accept(url: String?, trial: Boolean): Uri? {
         if (url == null) return null
         ResolveGuard.recordResolved(songId, url, trial)
+        PlaybackPath.finishFor(
+            songId = songId,
+            result = (if (trial) "试听片段 · " else "") + com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(url),
+            status = PlaybackPath.Status.OK,
+        )
         return url.toUri()
     }
 
@@ -217,8 +247,19 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
 
     // 完全拿不到直链才重试一次（网络抖动），不再额外 sleep。
     android.util.Log.d("PlayerApi", "play url blank, retry resolve songId=$songId")
+    PlaybackPath.stepFor(songId, "空结果，重试一次", "网络抖动兜底", listOf("重试"), PlaybackPath.Status.RUNNING)
     val second = resolveOnce()
     val secondUrl = second?.url?.takeIf { it.isNotBlank() }
+    if (secondUrl == null) {
+        PlaybackPath.finishFor(songId, "两次解析都没有可播地址", PlaybackPath.Status.FAIL)
+    }
     return accept(secondUrl, trial = second?.isTrialClip() == true)
+}
+
+/** 面板上的路由摘要：当前选的是哪个音源通道。 */
+private fun describeSource(): String = when (com.rcmiku.ncmapi.api.AudioSourceSettings.SELECTED) {
+    com.rcmiku.ncmapi.api.AudioSources.LX -> "LX 脚本音源"
+    com.rcmiku.ncmapi.api.AudioSources.DIRECT -> "内置直连音源"
+    else -> "代理解灰音源"
 }
 
