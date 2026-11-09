@@ -170,7 +170,7 @@ private fun coverStyleFor(layout: WidgetLayout): CoverStyle = when (layout) {
 private fun coverRatio(style: CoverStyle): Float = when (style) {
     CoverStyle.THUMB -> 0.17f
     CoverStyle.FULL -> 0.15f
-    CoverStyle.SMALL -> 0.22f
+    CoverStyle.SMALL -> 0.25f
 }
 
 @Composable
@@ -340,10 +340,13 @@ private fun BannerLayout(
     size: DpSize,
 ) {
     val pad = 10.dp
-    val coverSize = (size.height - pad * 2).coerceIn(32.dp, 46.dp)
+    // 1:1 大圆角封面：直接贴合卡片可用高度。旧版把上限钉在 46dp，
+    // 卡片变高时封面仍是个小方块，和「高度贴合」的要求正好相反。
+    val coverSize = (size.height - pad * 2).coerceIn(28.dp, 72.dp)
     val narrow = size.width < 300.dp
-    val btn = if (narrow) 26.dp else 32.dp
-    val iconSize = if (narrow) 15.dp else 18.dp
+    // 封面贴合整卡高度后会吃掉更多横向空间，窄屏把按钮收小一档，把宽度让给歌名。
+    val btn = if (narrow) 24.dp else 32.dp
+    val iconSize = if (narrow) 14.dp else 18.dp
     // 宽度不够就收起私人 FM，红心永远保留。5 个按钮 + 分隔线在 250dp 规格下
     // 必定溢出，而溢出被裁掉的正好是最后一个红心——看起来就是「少了红心按钮」。
     val showFm = size.width >= 268.dp
@@ -457,13 +460,19 @@ private fun TileLayout(
     size: DpSize,
 ) {
     val pad = 10.dp
-    val inner = size.width - pad * 2
+    val inner = (size.width - pad * 2).coerceAtLeast(60.dp)
     // 2 格宽只有 ~110dp：三个按钮必须按可用宽度反推。以前固定 42+32+32 再加间距
     // 约 118dp，比 inner 还宽，左右两个键被卡片边缘直接裁掉——用户看到的
     // 「播放控件被裁切」就是这个溢出。
     val gap = if (inner < 100.dp) 4.dp else 6.dp
     val playSize = (inner * 0.38f).coerceIn(30.dp, 46.dp)
     val sideSize = ((inner - playSize - gap * 2) / 2).coerceIn(20.dp, 36.dp)
+    // 内容块（标题/副标/进度/按钮）按自然高度预留，封面只取「1:1 方形」与剩余高度里较小的那个。
+    // 旧版封面用 defaultWeight 吃掉所有剩余高度，卡片偏高时内容被往下挤到一起；
+    // 现在封面永远是正方形、内容沿横向铺满卡片，纵向不再互相压缩。
+    val contentHeight = 20.dp + 2.dp + 15.dp + 4.dp + 22.dp + 8.dp + playSize
+    val availHeight = (size.height - pad * 2).coerceAtLeast(80.dp)
+    val coverSide = inner.coerceAtMost((availHeight - contentHeight).coerceAtLeast(40.dp))
 
     Column(
         modifier = roundedCard(palette.card)
@@ -471,7 +480,11 @@ private fun TileLayout(
             .padding(pad),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(modifier = GlanceModifier.fillMaxWidth().defaultWeight()) {
+        // 整块封面点击打开 App（不再左右分区切歌，切歌交给下面控制键）。
+        Box(
+            modifier = GlanceModifier.fillMaxWidth().height(coverSide)
+                .clickable(openTargetAction(context, snapshot)),
+        ) {
             CoverArt(
                 cover = cover,
                 palette = palette,
@@ -480,22 +493,9 @@ private fun TileLayout(
                 iconSize = 26.dp,
                 fill = true,
             )
-            // 封面左右半区：点左边上一首、点右边下一首（远程视图收不到滑动手势，用它代替）。
-            if (snapshot.hasSong) {
-                Row(modifier = GlanceModifier.fillMaxSize()) {
-                    Box(
-                        modifier = GlanceModifier.fillMaxHeight().defaultWeight()
-                            .clickable(prevAction()),
-                    ) {}
-                    Box(
-                        modifier = GlanceModifier.fillMaxHeight().defaultWeight()
-                            .clickable(nextAction()),
-                    ) {}
-                }
-            }
         }
 
-        Spacer(GlanceModifier.height(6.dp))
+        Spacer(GlanceModifier.height(8.dp))
         if (snapshot.hasSong) {
             Text(
                 text = ellipsize(context, snapshot.title, inner, 13f, medium = true),
@@ -521,8 +521,14 @@ private fun TileLayout(
             )
         }
 
-        Spacer(GlanceModifier.height(4.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // 弹性空隙吸收富余高度：信息块紧跟封面，控制键贴底，谁也不靠压缩自己腾地方。
+        Spacer(GlanceModifier.defaultWeight())
+        Spacer(GlanceModifier.height(6.dp))
+        Row(
+            modifier = GlanceModifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Spacer(GlanceModifier.defaultWeight())
             if (snapshot.hasSong) {
                 BareIcon(
                     iconRes = R.drawable.ic_widget_prev,
@@ -546,6 +552,7 @@ private fun TileLayout(
                     iconSize = 18.dp,
                 )
             }
+            Spacer(GlanceModifier.defaultWeight())
         }
     }
 }
