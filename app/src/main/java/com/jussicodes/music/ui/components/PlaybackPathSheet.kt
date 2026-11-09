@@ -122,7 +122,7 @@ fun PlaybackPathSheet(
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = snapshot.route.ifBlank { "网易云 · 等待解析" },
+                    text = snapshot.route.ifBlank { "等待播放" },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
@@ -254,19 +254,19 @@ private fun EmptyState() {
     ) {
         Column {
             Text(
-                text = "0 解析直达",
+                text = "缓存直达 · 本次没有解析",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "这一轮播放没有向音源要地址，所以没有解析记录。通常是：",
+                text = "播放器没向音源要过地址，所以解析层一次都没被调用——这是正常的快，不是卡住。通常是：",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(6.dp))
             listOf(
-                "整首已在分片缓存里，播放器直接读盘",
+                "这首歌听过，整首已在分片缓存里（面板会出现「缓存直达」一行）",
                 "直链缓存还在有效期（内存 30 分钟 / 磁盘 15 分钟）",
                 "已下载或外部歌单的本地文件",
             ).forEach {

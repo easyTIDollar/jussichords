@@ -239,7 +239,7 @@ class PlaybackPathOverlayService : Service() {
         if (steps.isEmpty()) {
             emptyView?.visibility = View.VISIBLE
             emptyView?.text =
-                if (snapshot.totalMs > 0) "0 解析直达（缓存或本地文件）" else "等待起播…"
+                if (snapshot.totalMs > 0) "缓存直达 · 未解析（缓存或本地文件）" else "等待播放…"
             return
         }
         emptyView?.visibility = View.GONE

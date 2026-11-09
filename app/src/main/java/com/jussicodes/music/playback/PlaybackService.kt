@@ -160,8 +160,20 @@ class PlaybackService : MediaSessionService() {
             val mediaId = player.currentMediaItem?.mediaId ?: return
             if (pathReadySong == mediaId) return
             val snapshot = PlaybackPath.snapshot()
-            // 本地文件不需要解析链路，没开始过的会话不要凭空补一条。
-            if (snapshot.steps.isEmpty()) return
+            if (snapshot.steps.isEmpty()) {
+                // 解析层一次都没被调用就 READY 了：整首在分片缓存里、或本地文件直达。
+                // 补一条真实事实，面板才不会空着让人以为「卡在这 0s」。
+                pathReadySong = mediaId
+                PlaybackPath.stepFor(
+                    mediaId,
+                    "缓存直达",
+                    "整首已在分片缓存或本地文件，播放器直接读取（0 次解析）",
+                    listOf("缓存"),
+                    PlaybackPath.Status.OK,
+                )
+                PlaybackPath.resolvedFor(mediaId, "缓存直达 · 未解析")
+                return
+            }
             pathReadySong = mediaId
             PlaybackPath.step(
                 "音频数据已就绪",
