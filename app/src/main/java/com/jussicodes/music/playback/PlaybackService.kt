@@ -1623,16 +1623,13 @@ class PlaybackService : MediaSessionService() {
 private class AutoPlayNextPlayer(player: Player) : ForwardingPlayer(player) {
 
     override fun seekToNext() {
-        seekToNextKeepingPlay { it.seekToNext() }
+        if (!playWhenReady && hasNextMediaItem()) play()
+        super.seekToNext()
     }
 
     override fun seekToNextMediaItem() {
-        seekToNextKeepingPlay { it.seekToNextMediaItem() }
-    }
-
-    private fun seekToNextKeepingPlay(seek: (Player) -> Unit) {
         if (!playWhenReady && hasNextMediaItem()) play()
-        seek(this)
+        super.seekToNextMediaItem()
     }
 }
 
