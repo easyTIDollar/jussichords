@@ -94,6 +94,14 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         instance = this
         // 主题种子色缓存要在首帧前可用（同步读一张极小的 SharedPreferences 表）。
         com.jussicodes.music.ui.theme.ArtworkSeedCache.preload(this)
+        // 播放直链磁盘缓存：冷启动（桌面组件/蓝牙续播）直接命中上次解析结果，
+        // 省掉起播前那次 /song/url 往返。这里只拿 prefs 引用，不读盘。
+        com.jussicodes.music.playback.PlayUrlCache.attach(this)
+        // 音频分片索引库（SimpleCache）在后台预热：它原本在 PlaybackService.onCreate
+        // 主线程上打开，冷启动点播放时要白等一段磁盘 IO。
+        applicationScope.launch {
+            runCatching { com.jussicodes.music.utils.AudioCache.get(this@JetMeloApp) }
+        }
         AppVisibilityTracker.register(this)
         ExplorePreloader.init(this)
         PinnedAlbumStore.init(this)

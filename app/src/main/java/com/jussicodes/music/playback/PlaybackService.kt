@@ -20,7 +20,9 @@ import androidx.media3.common.Player.REPEAT_MODE_ALL
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
@@ -516,6 +518,10 @@ class PlaybackService : MediaSessionService() {
             return
         }
         verifiedUrl = null
+        // 坏源响应（HTML 页 / 404 页 / 被截断的流）可能已经被 CacheDataSource 写进分片缓存。
+        // 现在缓存层在解析层外面、命中就完全不解析，坏字节会比以前更「粘」——
+        // 换源前先把这首歌的缓存条目删掉，否则重试读到的还是同一段坏数据。
+        dropAudioCache(item.localConfiguration?.uri?.toString())
         if (observation.trial || observation.alreadyRejected ||
             !ResolveGuard.rejectAndShouldRetry(observation)
         ) {
@@ -676,6 +682,24 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * 音频分片缓存 key：与 CacheDataSource.Factory 的 cacheKeyFactory 同一口径。
+     * 用 MediaItem 的原始 uri（歌曲级、跨进程稳定），解析出来的直链不参与缓存身份。
+     */
+    private fun audioCacheKey(rawUri: String): String =
+        "v5:$rawUri#${audioQuality.value}#${PlaybackReloadBus.sourceTag}"
+
+    /** 从音频分片缓存里删掉某首歌（当前音质/音源）的条目，坏源换源时用。 */
+    private fun dropAudioCache(rawUri: String?) {
+        val uri = rawUri ?: return
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                AudioCache.get(this@PlaybackService).removeResource(audioCacheKey(uri))
+                android.util.Log.w(TAG, "audio cache dropped for bad source: $uri")
+            }
+        }
+    }
+
     /** 监听网络恢复：之前因弱网停住的，走到这续播。 */
     private fun observeNetworkRecovery() {
         val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return
@@ -767,44 +791,25 @@ class PlaybackService : MediaSessionService() {
 
         val player = ExoPlayer.Builder(this, audioOnlyRenderersFactory)
             .apply {
-                val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-                    .setUserAgent(UserAgentUtil.DEFAULT_USER_AGENT)
-                    // 弱网下别 8s 就判死，给足恢复窗口
-                    .setConnectTimeoutMs(15_000)
-                    .setReadTimeoutMs(30_000)
-                    .setDefaultRequestProperties(
-                        buildMap {
-                            put("Referer", "https://music.163.com/")
-                            put("Origin", "https://music.163.com")
-                            val cookie = CookieProvider.cookie
-                            if (cookie.isNotBlank()) {
-                                put("Cookie", cookie)
-                            }
-                        }
-                    )
+                val httpDataSourceFactory = CookieAwareHttpDataSourceFactory { CookieProvider.cookie }
                 val upstreamFactory = androidx.media3.datasource.DefaultDataSource.Factory(
                     this@PlaybackService,
                     httpDataSourceFactory
                 )
-                val cacheDataSourceFactory = CacheDataSource.Factory()
-                    .setCache(AudioCache.get(this@PlaybackService))
-                    .setUpstreamDataSourceFactory(upstreamFactory)
-                    .setCacheKeyFactory { dataSpec ->
-                        // key 已经是歌曲级标识（resolver 里 setKey("song:…")），这里只补上
-                        // 音质与音源代号：换音质/换源后同一首歌必须落到不同的缓存条目，
-                        // 不能复用旧档位的音频。
-                        "v4:${dataSpec.key ?: dataSpec.uri}#${audioQuality.value}#${PlaybackReloadBus.sourceTag}"
-                    }
-                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                // 解析层放在缓存层「里面」：CacheDataSource 先用歌曲级 key 查本地分片，
+                // 命中就直接读盘，完全不进 resolver。冷启动续播 / 拖进度条时音频分片
+                // 基本都在 512MB LRU 里，于是「起播前必等一次 /song/url 往返」这一步整段消失。
+                // 旧顺序（Resolving 在外、Cache 在内）每次 open 都要先联网解析一次，
+                // 缓存命中与否都得等，这是「冷启动点了要等一截才出声」的主因。
                 val resolvingDataSourceFactory = ResolvingDataSource.Factory(
-                    cacheDataSourceFactory
+                    upstreamFactory
                 ) { dataSpec ->
                     runBlocking {
                         val rawUri = dataSpec.uri
                         val resolveKey = rawUri.toResolveKey()
                         val qualityTag = audioQuality.value
                         val sourceTag = PlaybackReloadBus.sourceTag
-                        // seek 会重新 open 数据流，这里先查内存里的解析结果：同一首歌在
+                        // seek 会重新 open 数据流，这里先查内存/磁盘里的解析结果：同一首歌在
                         // 同一音质/音源下不必反复走网络解析（VIP 歌还可能要等 LX 沙盒）。
                         // 命中前必须过滤已拉黑的坏链，否则换源重放会又把同一条链放一遍。
                         val skipUrls = ResolveGuard.skipUrls(resolveKey)
@@ -846,7 +851,19 @@ class PlaybackService : MediaSessionService() {
                             .build()
                     }
                 }
-                setMediaSourceFactory(DefaultMediaSourceFactory(resolvingDataSourceFactory))
+                val cacheDataSourceFactory = CacheDataSource.Factory()
+                    .setCache(AudioCache.get(this@PlaybackService))
+                    .setUpstreamDataSourceFactory(resolvingDataSourceFactory)
+                    .setCacheKeyFactory { dataSpec ->
+                        // 外层 dataSpec 的 uri 就是 MediaItem 的原始 uri（歌曲级、跨进程稳定），
+                        // 用它当 key，解析出来的直链不参与缓存身份。
+                        // 版本前缀在 audioCacheKey 里是 v5：key 语义变了（v4 及更早的条目不会再被读到）。
+                        this@PlaybackService.audioCacheKey(
+                            dataSpec.key ?: dataSpec.uri.toString()
+                        )
+                    }
+                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                setMediaSourceFactory(DefaultMediaSourceFactory(cacheDataSourceFactory))
                 // 媒体播放身份：USAGE_MEDIA 让系统把它当正经媒体会话；
                 // WAKE_MODE_NETWORK 播放期间持 wakelock/wifilock，
                 // 锁屏/后台走网络流媒体不被 CPU/无线电休眠打断。
@@ -858,15 +875,15 @@ class PlaybackService : MediaSessionService() {
                     /* handleAudioBecomingNoisy = */ true
                 )
                 setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)
-                // 缓冲策略：最小缓冲 15s / 最大 50s；起播只要 1.5s，seek 或断流后
-                // 续播只要 2s（原来是 2.5s / 5s）。后两项直接决定「拖完进度条多久出声」，
-                // 5s 的 after-rebuffer 门槛在弱网下会把一次 seek 拖成十几秒的静默等待。
+                // 缓冲策略：最小缓冲 15s / 最大 50s；起播只要 1.0s，seek 或断流后
+                // 续播只要 1.1s（原来是 1.5s / 5s，后两项直接决定「点完多久出声」）。
+                // 1.5s 的起播门槛在网络一般时也要白攒 1.5 秒音频才肯开口，弱网下更明显。
                 setLoadControl(
                     DefaultLoadControl.Builder()
                         .setBufferDurationsMs(
                             15_000,
                             50_000,
-                            1_500,
+                            1_000,
                             1_100
                         )
                         .build()
@@ -926,7 +943,12 @@ class PlaybackService : MediaSessionService() {
         observeDesktopLyricPreference()
         observeAudioEffectMode()
         observeAudioEffectParams()
-        DesktopLyricManager.syncService(this)
+        // 桌面歌词同步要同步读一次 DataStore（首次读要开文件），冷启动时压在 onCreate
+        // 主线程上会直接推后「服务可连接 + 播放器可播」的时间点。挪到后台错峰执行。
+        scope.launch {
+            delay(300)
+            runCatching { DesktopLyricManager.syncService(this@PlaybackService) }
+        }
         // 服务刚起来：播放器刚 build 完、队列还没恢复时 currentMediaItem=null。
         // 这里做一次初始对齐：空帧会命中 commit 的空帧防护——磁盘上有歌就保留歌曲信息、
         // 只把 isPlaying/isLoading 清零（进程被杀后组件停在「播放中」，服务重启后先对齐到真实状态）。
@@ -1186,5 +1208,52 @@ class PlaybackService : MediaSessionService() {
 
         /** 时长校验：至少播到这么久再采样，避开 VBR 粗估。 */
         private const val DURATION_SAMPLE_AFTER_MS = 4_000L
+    }
+}
+
+/**
+ * 每次创建 DataSource 时都重新读一次登录 cookie。
+ *
+ * 旧写法在 service onCreate 里把 `CookieProvider.cookie` 抓成固定请求头：冷启动
+ * （桌面组件点播放）时 Application 的 DataStore 协程可能还没把 cookie 灌进
+ * CookieProvider，于是整段播放请求都不带 MUSIC_U —— 解析出的地址会降级成试听 /
+ * 直接失败再换源重试，观感就是「点了要等很久才开始出声」。
+ * 改成惰性工厂后，每次 open 都拿当时最新的 cookie，冷启动也不再错过登录态。
+ */
+private class CookieAwareHttpDataSourceFactory(
+    private val cookieProvider: () -> String,
+) : HttpDataSource.Factory {
+
+    private var transferListener: TransferListener? = null
+    private var extraProperties: Map<String, String> = emptyMap()
+
+    override fun createDataSource(): HttpDataSource {
+        val cookie = runCatching { cookieProvider() }.getOrDefault("")
+        val props = buildMap {
+            putAll(extraProperties)
+            put("Referer", "https://music.163.com/")
+            put("Origin", "https://music.163.com")
+            if (cookie.isNotBlank()) put("Cookie", cookie)
+        }
+        return DefaultHttpDataSource.Factory()
+            .setUserAgent(UserAgentUtil.DEFAULT_USER_AGENT)
+            // 弱网下别 8s 就判死，给足恢复窗口
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(30_000)
+            .setDefaultRequestProperties(props)
+            .setTransferListener(transferListener)
+            .createDataSource()
+    }
+
+    override fun setDefaultRequestProperties(
+        defaultRequestProperties: Map<String, String>
+    ): HttpDataSource.Factory {
+        extraProperties = defaultRequestProperties
+        return this
+    }
+
+    override fun setTransferListener(listener: TransferListener?): HttpDataSource.Factory {
+        transferListener = listener
+        return this
     }
 }

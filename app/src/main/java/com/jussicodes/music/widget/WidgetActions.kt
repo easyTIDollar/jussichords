@@ -68,8 +68,15 @@ object WidgetMedia {
         val future = withContext(Dispatchers.Main) {
             MediaController.Builder(app, token).buildAsync()
         }
+        // 进程被回收后第一次点组件（桌面冷启动）：这里要等 Application + PlaybackService.onCreate
+        // （ExoPlayer 构建、音频缓存打开、MediaSession 建立）走完，3s 在低端机/高负载时不够，
+        // 超时的后果是「回滚 + 打开 App」—— 用户看到的就是「点了半天没声音，然后跳进 App」。
+        // 有可恢复队列时说明这条路能直接续播，值得多等一会儿；没有队列就仍然快速回退。
+        val timeoutSec = withContext(Dispatchers.IO) {
+            if (runCatching { PlaybackQueueStore.get(app).hasQueue() }.getOrDefault(false)) 6L else 3L
+        }
         return try {
-            val controller = withContext(Dispatchers.IO) { future.get(3, TimeUnit.SECONDS) }
+            val controller = withContext(Dispatchers.IO) { future.get(timeoutSec, TimeUnit.SECONDS) }
             try {
                 withContext(Dispatchers.Main) { block(controller) }
             } finally {
