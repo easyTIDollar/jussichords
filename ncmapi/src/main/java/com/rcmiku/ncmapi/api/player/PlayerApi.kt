@@ -56,8 +56,8 @@ object PlayerApi {
         fun trace(name: String, detail: String, tags: List<String>) =
             PlayUrlTrace.emit(realId, name, detail, tags)
         trace(
-            "开始解析播放链接",
-            if (fee == 1) "VIP 曲目，走第三方音源" else "普通曲目",
+            "开始解析",
+            if (fee == 1) "VIP 曲目 · 走第三方音源" else "普通曲目 · 官方接口直取",
             listOf("网易云", songLevel.value)
         )
 
@@ -68,8 +68,8 @@ object PlayerApi {
             val result = apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
             val url = result.getOrNull()?.data?.firstOrNull()?.url
             trace(
-                "官方直连",
-                "${PlayUrlTrace.hostOf(url).ifBlank { "未返回地址" }} · ${System.currentTimeMillis() - startedAt}ms",
+                if (url.isNullOrBlank()) "官方接口未返回" else "官方接口命中",
+                "${PlayUrlTrace.hostOf(url).ifBlank { "没有可播地址" }} · ${System.currentTimeMillis() - startedAt}ms",
                 listOf("网易云", songLevel.value)
             )
             return result
@@ -92,8 +92,9 @@ object PlayerApi {
             if (!clientUrl.isNullOrBlank()) {
                 Log.d("PlayerApi", "Client source ($selected) resolved songId=$realId")
                 trace(
-                    "客户端音源命中",
-                    "${PlayUrlTrace.hostOf(clientUrl)} · ${System.currentTimeMillis() - startedAt}ms",
+                    "第三方音源命中",
+                    "${PlayUrlTrace.hostOf(clientUrl)} · ${sourceLabel(selected)} · " +
+                        "${System.currentTimeMillis() - startedAt}ms",
                     listOf(selected, songLevel.value)
                 )
                 return Result.success(SongUrlResponse(data = listOf(
@@ -101,13 +102,13 @@ object PlayerApi {
                 )))
             }
             trace(
-                "客户端音源未命中",
-                "改用官方兜底 · 已跳过 ${skipUrls.size} 条坏链",
+                "第三方音源未命中",
+                "${sourceLabel(selected)} 没给出可播地址 · 跳过 ${skipUrls.size} 条坏链",
                 listOf(selected)
             )
             Log.w("PlayerApi", "Client source ($selected) missed songId=$realId skipped=${skipUrls.size}, fall back to official url")
         } else {
-            trace("尝试代理解灰", "source=${source ?: UNBLOCK_SOURCE}", listOf("网易云", "解灰"))
+            trace("代理解灰", "来源 ${source ?: UNBLOCK_SOURCE}", listOf("网易云", "解灰"))
             val unblockResult = tryUnblockUrl(realId, source, songLevel)
             // 上次被判定为错源的 url 不再用（否则重试等于原地打转），交给官方兜底。
             val blocked = PlayUrlSkip.blocks(
@@ -132,12 +133,22 @@ object PlayerApi {
         // 最后兜底：官方直连。客户端音源开启时 VIP 歌在此回 30 秒试听占位（账号有会员则完整 url）；
         // 代理音源模式下解灰失败时也是走这条官方直连。
         val fallback = apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
+        val fallbackUrl = fallback.getOrNull()?.data?.firstOrNull()?.url
         trace(
-            "官方兜底",
-            "${PlayUrlTrace.hostOf(fallback.getOrNull()?.data?.firstOrNull()?.url).ifBlank { "未返回地址" }} · ${System.currentTimeMillis() - startedAt}ms",
+            if (fallbackUrl.isNullOrBlank()) "官方兜底未返回" else "官方兜底命中",
+            "${PlayUrlTrace.hostOf(fallbackUrl).ifBlank { "没有可播地址" }} · " +
+                "${System.currentTimeMillis() - startedAt}ms",
             listOf("网易云", songLevel.value)
         )
         return fallback
+    }
+
+    /** 音源代号的用户可读名：面板上不该出现 "lx" / "direct" 这种内部值。 */
+    private fun sourceLabel(selected: String): String = when (selected) {
+        AudioSources.LX -> "LX 脚本"
+        AudioSources.DIRECT -> "内置直连"
+        AudioSources.PROXY -> "API 代理"
+        else -> selected
     }
 
     private fun songUrlParams(songId: String, songLevel: SongLevel, unblock: Boolean): Map<String, Any> =

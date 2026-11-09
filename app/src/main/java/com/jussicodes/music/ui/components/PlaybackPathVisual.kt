@@ -279,10 +279,15 @@ internal fun TimelineRow(row: RowItem.Step, showGapBar: Boolean = true) {
                     modifier = Modifier.width(52.dp),
                 )
             }
-            if (step.detail.isNotBlank()) {
+            val detailText = if (step.costMs > 0 && step.detail.isNotBlank()) {
+                "${step.detail} · ${step.costMs}ms"
+            } else {
+                step.detail
+            }
+            if (detailText.isNotBlank()) {
                 Spacer(Modifier.height(1.dp))
                 Text(
-                    text = step.detail,
+                    text = detailText,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

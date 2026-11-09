@@ -263,9 +263,14 @@ class PlaybackPathOverlayService : Service() {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 maxLines = 1
             })
-            if (stepRow.step.detail.isNotBlank()) {
+            val detailText = if (stepRow.step.costMs > 0 && stepRow.step.detail.isNotBlank()) {
+                "${stepRow.step.detail} · ${stepRow.step.costMs}ms"
+            } else {
+                stepRow.step.detail
+            }
+            if (detailText.isNotBlank()) {
                 column.addView(TextView(this).apply {
-                    text = stepRow.step.detail
+                    text = detailText
                     setTextColor(0xFF9EA2AA.toInt())
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
                     maxLines = 2

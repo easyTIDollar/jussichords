@@ -1210,6 +1210,14 @@ class PlaybackService : MediaSessionService() {
                                 sourceTag,
                                 resolvedUri.toString()
                             )
+                            // 链路闭合：这条直链进了缓存，30 分钟内再播这首歌就不会再解析。
+                            PlaybackPath.stepFor(
+                                resolveKey,
+                                "直链已缓存",
+                                "30 分钟内重播不再解析",
+                                listOf("缓存"),
+                                PlaybackPath.Status.OK,
+                            )
                         }
 
                         dataSpec.buildUpon()

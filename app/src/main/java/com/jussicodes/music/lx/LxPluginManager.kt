@@ -354,7 +354,7 @@ object LxPluginManager {
                 if (System.currentTimeMillis() >= deadline) {
                     PlaybackPath.stepFor(songId, 
                         "解析预算耗尽",
-                        "${RESOLVE_BUDGET_MS}ms 内没命中，回落官方直连",
+                        "${RESOLVE_BUDGET_MS}ms 内没命中，回落官方接口兜底",
                         listOf("LX"),
                         PlaybackPath.Status.FAIL,
                     )
