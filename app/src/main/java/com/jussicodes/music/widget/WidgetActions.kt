@@ -3,6 +3,7 @@ package com.jussicodes.music.widget
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -25,6 +26,7 @@ import com.jussicodes.music.constants.userIdKye
 import com.jussicodes.music.extensions.toMediaItemList
 import com.jussicodes.music.playback.PlaybackQueueStore
 import com.jussicodes.music.playback.PlaybackService
+import com.jussicodes.music.playback.PlaybackTrace
 import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
 import com.jussicodes.music.utils.FavoriteSongIdsUtil
 import com.jussicodes.music.utils.dataStore
@@ -77,6 +79,7 @@ object WidgetMedia {
         }
         return try {
             val controller = withContext(Dispatchers.IO) { future.get(timeoutSec, TimeUnit.SECONDS) }
+            PlaybackTrace.mark(app, "ctrl ready")
             try {
                 withContext(Dispatchers.Main) { block(controller) }
             } finally {
@@ -101,6 +104,16 @@ object WidgetMedia {
 class WidgetPlayPauseAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val app = context.applicationContext
+        PlaybackTrace.click(app)
+        // 起播等待期内的重复点击不要再翻成暂停：第一下已经表达了「我要播」，
+        // 1.2s 内再点是「怎么还不出声」，不是「取消」。
+        // 以前这一下会把自己暂停掉 —— 诊断日志里就是「点三次只响一次」。
+        val now = SystemClock.elapsedRealtime()
+        val prev = lastClickAt.getAndSet(now)
+        if (prev != 0L && now - prev < DOUBLE_CLICK_GUARD_MS && WidgetUpdater.current(app).isPlaying) {
+            WidgetDebug.event(app, "action play/pause ignored (repeat ${now - prev}ms)")
+            return
+        }
         // 乐观翻转：点按钮立刻重绘图标，后台真实事件到达后再对齐一次。
         // 等播放器线程事件回来才刷会有 100~200ms 延迟，观感就是“点了没反应”。
         WidgetUpdater.cancelPending()
@@ -135,6 +148,14 @@ class WidgetPlayPauseAction : ActionCallback {
         // 300ms 后兜底对齐一次真实态，避免乐观帧没被事件覆盖；
         // 期间真实事件已提交过帧（version 变了）就不再用乐观值覆盖真实状态。
         WidgetUpdater.pushPlayingFrame(app, nextPlayingState, beforeVersion)
+    }
+
+    private companion object {
+        /** 上一次播放/暂停点击时刻：挡住起播等待期内的误触（第二下会把自己暂停掉）。 */
+        val lastClickAt = java.util.concurrent.atomic.AtomicLong(0L)
+
+        /** 双击保护窗口：第一下点完还没出声时，第二下不该被当成「暂停」。 */
+        const val DOUBLE_CLICK_GUARD_MS = 1_200L
     }
 }
 

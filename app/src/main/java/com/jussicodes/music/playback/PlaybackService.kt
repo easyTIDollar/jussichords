@@ -110,6 +110,15 @@ class PlaybackService : MediaSessionService() {
      */
     private val widgetStateListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
+            // 冷启动起播计时：出了声 / 到达 READY 各记一次（相对组件点击时刻）。
+            if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
+                player.playbackState == Player.STATE_READY
+            ) {
+                PlaybackTrace.markOnce(applicationContext, "ready", "state READY")
+            }
+            if (events.contains(Player.EVENT_IS_PLAYING_CHANGED) && player.isPlaying) {
+                PlaybackTrace.markOnce(applicationContext, "playing", "isPlaying true")
+            }
             if (events.containsAny(
                     Player.EVENT_IS_PLAYING_CHANGED,
                     Player.EVENT_MEDIA_ITEM_TRANSITION,
@@ -816,9 +825,11 @@ class PlaybackService : MediaSessionService() {
                             ?.takeUnless { PlayUrlSkip.blocks(skipUrls, it) }
 
                         val resolvedUri = if (cachedUrl != null) {
+                            PlaybackTrace.markOnce(this@PlaybackService, "hit", "resolve hit")
                             android.util.Log.d(TAG, "play url cache hit songId=$resolveKey")
                             cachedUrl.toUri()
                         } else {
+                            PlaybackTrace.markOnce(this@PlaybackService, "miss", "resolve miss")
                             // 解析播放地址本身也是一次网络请求，弱网下不能无限期卡住加载线程
                             withTimeout(resolveUrlTimeoutMs) {
                                 updateMediaItemUri(
@@ -953,6 +964,7 @@ class PlaybackService : MediaSessionService() {
         // 只把 isPlaying/isLoading 清零（进程被杀后组件停在「播放中」，服务重启后先对齐到真实状态）。
         // 队列恢复 / 播放事件到达后由 widgetStateListener 推真实帧。
         scope.launch { WidgetUpdater.refresh(applicationContext, player) }
+        PlaybackTrace.mark(this, "svc ready")
     }
 
     override fun onDestroy() {
@@ -1112,6 +1124,7 @@ class PlaybackService : MediaSessionService() {
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            PlaybackTrace.mark(this@PlaybackService, "resume start")
             return Futures.transformAsync(
                 queueStore.readAsync(),
                 object : AsyncFunction<PlaybackQueueStore.SavedQueue?, MediaSession.MediaItemsWithStartPosition> {
@@ -1119,10 +1132,15 @@ class PlaybackService : MediaSessionService() {
                         input: PlaybackQueueStore.SavedQueue?
                     ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
                         if (input == null) {
+                            PlaybackTrace.mark(this@PlaybackService, "resume fail: no queue")
                             return Futures.immediateFailedFuture(
                                 IllegalStateException("没有可恢复的播放队列")
                             )
                         }
+                        PlaybackTrace.mark(
+                            this@PlaybackService,
+                            "resume items=${input.mediaItems.size} pos=${input.positionMs}"
+                        )
                         return Futures.immediateFuture(
                             MediaSession.MediaItemsWithStartPosition(
                                 input.mediaItems,
