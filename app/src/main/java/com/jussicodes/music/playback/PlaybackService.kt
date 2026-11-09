@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.net.toUri
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -1310,7 +1311,10 @@ class PlaybackService : MediaSessionService() {
         observeSourceReloads()
         // 一起听会话：挂到全局播放器上，冷启动恢复/创建房间时接管同步。
         ListenTogetherSession.attach(player, this)
-        mediaSession = MediaSession.Builder(this, player)
+        // 会话播放器包一层：暂停时「下一首」自动开播（见 AutoPlayNextPlayer 注释）。
+        // 只包装交给 MediaSession 的那一份，ListenTogetherSession 仍挂原始 ExoPlayer，
+        // 远端同步的 seek 不会被本地的自动播放规则掺进来。
+        mediaSession = MediaSession.Builder(this, AutoPlayNextPlayer(player))
             .setSessionActivity(
                 PendingIntent.getActivity(
                     this,
@@ -1598,6 +1602,37 @@ class PlaybackService : MediaSessionService() {
 
         /** 时长校验：至少播到这么久再采样，避开 VBR 粗估。 */
         private const val DURATION_SAMPLE_AFTER_MS = 4_000L
+    }
+}
+
+/**
+ * 会话播放器包装：暂停状态下「下一首」自动开播。
+ *
+ * media3 1.4.1 的 MediaSession.Callback 里没有 onSeekToNext 这类钩子（1.5 才有），
+ * 控制器发来的 COMMAND_SEEK_TO_NEXT 被直接转发给 player。默认播放器只挪
+ * currentIndex、不动 playWhenReady，于是「暂停时点下一首」会停在新曲的 0 秒，
+ * 用户得再点一次播放才出声。包一层 ForwardingPlayer 是 1.4.1 里唯一能补上这层
+ * 意图的位置，并且播放页按钮 / MiniPlayer 滑动 / 通知栏 / 桌面歌词 / 桌面组件
+ * 都经 MediaSession，一处生效全覆盖。
+ *
+ * 先 play() 再 seek：一起听的 onMediaItemTransition 是同步回调，上报 GOTO 时读
+ * playWhenReady；反序会上报 PAUSE —— 对端跟着暂停而本端在放，两端就不同步了。
+ * 队列末尾（未开循环）没有可切项，保持原状，避免把「没切动」变成「重播当前曲」。
+ */
+@OptIn(UnstableApi::class)
+private class AutoPlayNextPlayer(player: Player) : ForwardingPlayer(player) {
+
+    override fun seekToNext() {
+        seekToNextKeepingPlay { it.seekToNext() }
+    }
+
+    override fun seekToNextMediaItem() {
+        seekToNextKeepingPlay { it.seekToNextMediaItem() }
+    }
+
+    private fun seekToNextKeepingPlay(seek: (Player) -> Unit) {
+        if (!playWhenReady && hasNextMediaItem()) play()
+        seek(this)
     }
 }
 
