@@ -75,6 +75,7 @@ import com.jussicodes.music.viewModel.UserScreenViewModel
 import com.rcmiku.ncmapi.model.Playlist
 import java.io.File
 import com.jussicodes.music.ui.components.ResponsiveAlertDialog
+import com.jussicodes.music.ui.components.CoverAsyncImage
 
 private const val LIKED_PLAYLIST_NAME_FRAGMENT = "\u559c\u6b22"
 
@@ -360,13 +361,12 @@ private fun UserProfileCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            AsyncImage(
-                model = avatarUrl.withAvatarCacheBuster(avatarCacheVersion),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
+            CoverAsyncImage(
+                url = avatarUrl.withAvatarCacheBuster(avatarCacheVersion),
+                size = CoverImageSize.MEDIUM,
+                shape = CircleShape,
                 modifier = Modifier
                     .size(84.dp)
-                    .clip(CircleShape)
                     .clickable(enabled = !avatarUrl.isNullOrBlank(), onClick = onAvatarClick)
             )
             Text(

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 圆形/胶囊底：圆底按钮和进度条填充层共用，API<31 也保证是圆而不是圆角矩形 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#FFFFFFFF" />
+</shape>

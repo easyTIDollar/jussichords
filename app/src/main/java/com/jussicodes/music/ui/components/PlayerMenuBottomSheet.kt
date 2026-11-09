@@ -1,5 +1,6 @@
 ﻿package com.jussicodes.music.ui.components
 
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -57,6 +58,8 @@ import com.jussicodes.music.R
 import com.jussicodes.music.constants.audioSourceKey
 import com.jussicodes.music.constants.directSourceKey
 import com.jussicodes.music.playback.ListenTogetherSession
+import com.jussicodes.music.playback.PlaybackPathOverlayService
+import com.jussicodes.music.lyric.DesktopLyricManager
 import com.jussicodes.music.constants.audioEffectEightDEnabledKey
 import com.jussicodes.music.constants.audioEffectIntensityKey
 import com.jussicodes.music.constants.audioEffectModeKey
@@ -68,6 +71,7 @@ import com.jussicodes.music.playback.audio.AudioEffectMode
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.jussicodes.music.ui.icons.MusicNote
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.Dns
 import com.jussicodes.music.ui.icons.GraphicEq
 import com.jussicodes.music.ui.icons.Headphones
@@ -199,6 +203,14 @@ fun PlayerMenuBottomSheet(
     var directSource by rememberPreference(directSourceKey, LocalSources.AUTO)
     var audioQuality by rememberEnumPreference(audioQualityKey, defaultValue = SongLevel.STANDARD)
     var showQualityDialog by rememberSaveable { mutableStateOf(false) }
+    var showPlaybackPathSheet by rememberSaveable { mutableStateOf(false) }
+    val playbackPath by com.jussicodes.music.playback.PlaybackPath.state.collectAsState()
+    val playbackPathValue = when {
+        playbackPath.steps.isEmpty() -> "查看"
+        !playbackPath.finished -> "解析中"
+        playbackPath.outcome.isNotBlank() -> "已完成"
+        else -> "查看"
+    }
     val qualitySpec = resolveAudioQualitySpec(playerState?.tracks, audioQuality)
     var showSourcePicker by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(directSource) {
@@ -281,7 +293,12 @@ fun PlayerMenuBottomSheet(
                                 onDismiss()
                             },
                             qualityLabel = qualitySpec.label,
-                            onQualityClick = { showQualityDialog = true }
+                            onQualityClick = { showQualityDialog = true },
+                            playbackPathValue = playbackPathValue,
+                            onPlaybackPathClick = {
+                                showPlaybackPathSheet = true
+                                onDismiss()
+                            }
                         )
                     }
                     Column(
@@ -354,7 +371,12 @@ fun PlayerMenuBottomSheet(
                                     onDismiss()
                                 },
                                 qualityLabel = qualitySpec.label,
-                                onQualityClick = { showQualityDialog = true }
+                                onQualityClick = { showQualityDialog = true },
+                                playbackPathValue = playbackPathValue,
+                                onPlaybackPathClick = {
+                                    showPlaybackPathSheet = true
+                                    onDismiss()
+                                }
                             )
                         }
                     }
@@ -483,6 +505,27 @@ fun PlayerMenuBottomSheet(
         openSongListBottomSheet = false
     }, openBottomSheet = openSongListBottomSheet)
 
+    // 可视化播放解析：菜单关掉的同时把只读时间线面板顶上来，和「添加到歌单」同一套交互。
+    PlaybackPathSheet(
+        openBottomSheet = showPlaybackPathSheet,
+        onDismiss = { showPlaybackPathSheet = false },
+        songTitle = currentSong?.name,
+        onReResolve = { PlaybackReloadBus.requestReResolve() },
+        onPinWindow = {
+            if (DesktopLyricManager.canDrawOverlays(context)) {
+                runCatching {
+                    context.startService(
+                        Intent(context, PlaybackPathOverlayService::class.java)
+                    )
+                }
+            } else {
+                // 复用桌面歌词的悬浮窗权限流程，不新开一套引导
+                runCatching { DesktopLyricManager.requestOverlayPermission(context) }
+                Toast.makeText(context, "授予「显示在其他应用上层」后，再点一次置顶小窗", Toast.LENGTH_LONG).show()
+            }
+        },
+    )
+
     currentSong?.let { song ->
         ShareSheet(
             payload = SharePayload.SongShare(song),
@@ -566,6 +609,8 @@ private fun AudioMenuSection(
     onSourceClick: () -> Unit,
     qualityLabel: String,
     onQualityClick: () -> Unit,
+    playbackPathValue: String = "查看",
+    onPlaybackPathClick: () -> Unit = {},
 ) {
     MenuGroupContainer {
         MenuRow(
@@ -590,6 +635,15 @@ private fun AudioMenuSection(
             value = sourceLabel,
             iconAlpha = 1f,
             onClick = onSourceClick
+        )
+        MenuDivider()
+        // 解析链路只读面板：点开是「这条歌刚才怎么拿到直链的」时间线 + 重新解析入口。
+        MenuRow(
+            icon = Icons.Outlined.Checklist,
+            title = "可视化播放解析",
+            value = playbackPathValue,
+            iconAlpha = 1f,
+            onClick = onPlaybackPathClick
         )
     }
 }

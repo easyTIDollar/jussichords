@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 方形/黑胶组件的底部压暗遮罩：顶部透明 → 底部 90% 黑，底部圆角与卡片一致 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:endColor="#E6000000"
+        android:startColor="#00000000"
+        android:type="linear" />
+    <corners
+        android:bottomLeftRadius="26dp"
+        android:bottomRightRadius="26dp" />
+</shape>

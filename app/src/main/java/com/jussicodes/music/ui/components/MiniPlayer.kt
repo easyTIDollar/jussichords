@@ -1,19 +1,20 @@
 package com.jussicodes.music.ui.components
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.basicMarquee
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -40,6 +42,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -112,6 +116,8 @@ fun MiniPlayer(
     val miniPlayerCorner = if (isPillProgress) 26.dp else 16.dp
     val miniPlayerShape = if (isPillProgress) RoundedCornerShape(26.dp) else RoundedCornerShape(topStart = miniPlayerCorner, topEnd = miniPlayerCorner)
     val openProgress = (-animatedPlayerDragOffsetY / swipePreviewLimitPx).coerceIn(0f, 1f)
+    // 平滑进度：position 是 MainScreen 1s 轮询一次的采样值，直接当进度用会一秒跳一格
+    val smoothProgress = rememberSmoothProgress(position, duration)
     SideEffect {
         onDragProgressChange(openProgress)
     }
@@ -262,17 +268,22 @@ fun MiniPlayer(
 
                 // 悬浮胶囊底栏模式：以小播放器自身作为流体进度条（主题色半透明充盈）
                 if (isPillProgress) {
-                    val progressFraction = (position.toFloat() / duration.coerceAtLeast(1L)).coerceIn(0f, 1f)
+                    val pillColor = MaterialTheme.colorScheme.primary
+                    val combinedProgress = maxOf(openProgress, dragProgress)
+                    val fillAlpha = (1f - combinedProgress * 2.5f).coerceIn(0f, 1f)
                     Box(
                         modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(progressFraction)
-                            .background(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
-                            )
-                            .graphicsLayer {
-                                val combinedProgress = maxOf(openProgress, dragProgress)
-                                alpha = (1f - combinedProgress * 2.5f).coerceIn(0f, 1f)
+                            .fillMaxSize()
+                            // 在 draw 阶段读进度：只触发重绘，不像 fillMaxWidth(fraction)
+                            // 那样每帧 relayout 整个胶囊底板
+                            .drawBehind {
+                                if (fillAlpha <= 0f) return@drawBehind
+                                val fraction = smoothProgress.value.coerceIn(0f, 1f)
+                                if (fraction <= 0f) return@drawBehind
+                                drawRect(
+                                    color = pillColor.copy(alpha = 0.20f * fillAlpha),
+                                    size = Size(size.width * fraction, size.height)
+                                )
                             }
                     )
                 }
@@ -302,7 +313,7 @@ fun MiniPlayer(
                 }
                 if (!isPillProgress) {
                     LinearProgressIndicator(
-                        progress = { (position.toFloat() / duration).coerceIn(0f, 1f) },
+                        progress = { smoothProgress.value },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(3.dp)
@@ -457,4 +468,46 @@ fun MiniMediaInfo(
             }
         }
     }
+}
+
+/**
+ * 小播放器进度条的平滑插值。
+ *
+ * position 来自 MainScreen 里 `delay(1000)` 的轮询采样，直接映射成进度就是一秒跳一格。
+ * 播放本身是恒速的，所以在两次采样之间做 1s 的 [LinearEasing] 补间，斜率与真实时间轴
+ * 一致，视觉上连续推进；seek / 切歌 / 后台恢复造成的跳变则直接 snap 落位，否则会看到
+ * 进度条缓慢爬行过去。
+ *
+ * 返回 [Animatable] 而不是 Float：调用方必须在绘制阶段读取 value
+ * （[LinearProgressIndicator] 的 `progress = {}`、`Modifier.drawBehind`），
+ * 否则每帧读 state 会让整个 MiniPlayer 每帧重组，反而制造卡顿。
+ */
+@Composable
+private fun rememberSmoothProgress(
+    positionMs: Long,
+    durationMs: Long,
+): Animatable<Float, AnimationVector1D> {
+    val target = if (durationMs > 0L) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    val progress = remember { Animatable(target) }
+    var lastPositionMs by remember { mutableLongStateOf(positionMs) }
+    var initialized by remember { mutableStateOf(false) }
+    LaunchedEffect(positionMs, durationMs) {
+        // duration 未知（切歌瞬间 -1）时不介入，保持当前值避免进度条闪回 0
+        if (durationMs <= 0L) return@LaunchedEffect
+        if (!initialized) {
+            initialized = true
+            lastPositionMs = positionMs
+            progress.snapTo(target)
+            return@LaunchedEffect
+        }
+        val step = positionMs - lastPositionMs
+        lastPositionMs = positionMs
+        // 正常播放每 tick 前进约 1s，超出这个跨度就是 seek / 切歌 / 后台恢复
+        if (step < -300L || step > 1600L) {
+            progress.snapTo(target)
+        } else {
+            progress.animateTo(target, tween(durationMillis = 1000, easing = LinearEasing))
+        }
+    }
+    return progress
 }

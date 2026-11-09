@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -238,12 +239,11 @@ fun ArtistListItem(
 ) = ListItem(
     title = artist.name,
     thumbnailContent = {
-        AsyncImage(
-            model = artist.cover.toCoverImageUrl(CoverImageSize.LIST),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
+        CoverAsyncImage(
+            url = artist.cover,
+            size = CoverImageSize.LIST,
+            shape = CircleShape,
             modifier = Modifier
-                .clip(CircleShape)
                 .size(ListThumbnailSize)
                 .then(onThumbnailClick?.let { Modifier.clickable(onClick = it) } ?: Modifier)
         )
@@ -264,13 +264,11 @@ fun AlbumListItem(
         album.size
     ) + " " + album.artists.joinToString("/") { it.name },
     thumbnailContent = {
-        AsyncImage(
-            model = album.picUrl.toCoverImageUrl(CoverImageSize.LIST),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .clip(RoundedCornerShape(ThumbnailCornerRadius))
-                .size(ListThumbnailSize)
+        CoverAsyncImage(
+            url = album.picUrl,
+            size = CoverImageSize.LIST,
+            shape = RoundedCornerShape(ThumbnailCornerRadius),
+            modifier = Modifier.size(ListThumbnailSize)
         )
     },
     trailingContent = trailingContent,
@@ -303,13 +301,11 @@ fun VoiceListItem(
     title = voice.name,
     subtitle = stringResource(R.string.voice_count, voice.programCount),
     thumbnailContent = {
-        AsyncImage(
-            model = voice.picUrl.toCoverImageUrl(CoverImageSize.LIST),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .clip(RoundedCornerShape(ThumbnailCornerRadius))
-                .size(ListThumbnailSize)
+        CoverAsyncImage(
+            url = voice.picUrl,
+            size = CoverImageSize.LIST,
+            shape = RoundedCornerShape(ThumbnailCornerRadius),
+            modifier = Modifier.size(ListThumbnailSize)
         )
     },
     trailingContent = trailingContent,
@@ -330,13 +326,11 @@ fun PlaylistListItem(
         )
     },
     thumbnailContent = {
-        AsyncImage(
-            model = playlist.picUrl.toCoverImageUrl(CoverImageSize.LIST),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .clip(RoundedCornerShape(ThumbnailCornerRadius))
-                .size(ListThumbnailSize)
+        CoverAsyncImage(
+            url = playlist.picUrl,
+            size = CoverImageSize.LIST,
+            shape = RoundedCornerShape(ThumbnailCornerRadius),
+            modifier = Modifier.size(ListThumbnailSize)
         )
     },
     trailingContent = trailingContent,
@@ -356,13 +350,11 @@ fun PlaylistV1ListItem(
         playlist.trackCount
     ),
     thumbnailContent = {
-        AsyncImage(
-            model = playlist.coverImgUrl.toCoverImageUrl(CoverImageSize.LIST),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .clip(RoundedCornerShape(ThumbnailCornerRadius))
-                .size(ListThumbnailSize)
+        CoverAsyncImage(
+            url = playlist.coverImgUrl,
+            size = CoverImageSize.LIST,
+            shape = RoundedCornerShape(ThumbnailCornerRadius),
+            modifier = Modifier.size(ListThumbnailSize)
         )
     },
     trailingContent = trailingContent,
@@ -469,16 +461,23 @@ fun SongListItem(
     badges = badges,
     thumbnailContent = {
         val context = androidx.compose.ui.platform.LocalContext.current
-        val effectiveThumbnail = androidx.compose.runtime.remember(song.id, song.al.picUrl) {
+        val density = androidx.compose.ui.platform.LocalDensity.current.density
+        // 列表只做「本地缓存文件 / 外部歌单封面」两步查询，不解析音频内嵌封面：
+        // 那一步要 MediaMetadataRetriever 读整个音频文件，在组合阶段同步执行会把主线程拖住。
+        // 拿不到本地封面就直接用按密度换算过的网络 URL 兜底。
+        val remoteThumbnail = androidx.compose.runtime.remember(song.id, song.al.picUrl, density) {
+            song.al.picUrl.toCoverImageUrl(CoverImageSize.LIST, density)?.toString()
+        }
+        val effectiveThumbnail = androidx.compose.runtime.remember(song.id, remoteThumbnail) {
             com.jussicodes.music.data.offline.OfflineMusicMetadataManager.getOfflineCover(
                 context,
                 song.id,
-                song.al.picUrl.toCoverImageUrl(CoverImageSize.LIST)?.toString()
+                remoteThumbnail,
+                allowExtract = false
             )
         }
         ItemThumbnail(
             thumbnailUrl = effectiveThumbnail,
-            cacheKey = song.al.pic.toString(),
             albumIndex = albumIndex,
             isActive = isActive,
             isPlaying = isPlaying,
@@ -508,7 +507,6 @@ fun RadioListItem(
     thumbnailContent = {
         ItemThumbnail(
             thumbnailUrl = radio.coverUrl.toCoverImageUrl(CoverImageSize.LIST),
-            cacheKey = radio.coverUrl,
             albumIndex = albumIndex,
             isActive = isActive,
             isPlaying = isPlaying,
@@ -539,7 +537,6 @@ fun CloudSongListItem(
     thumbnailContent = {
         ItemThumbnail(
             thumbnailUrl = cloudSong.simpleSong.al?.picUrl.toCoverImageUrl(CoverImageSize.LIST),
-            cacheKey = cloudSong.simpleSong.al?.pic.toString(),
             albumIndex = albumIndex,
             isActive = isActive,
             isPlaying = isPlaying,
@@ -569,7 +566,6 @@ fun MediaItemListItem(
     thumbnailContent = {
         ItemThumbnail(
             thumbnailUrl = mediaMetadata.artworkUri.toString(),
-            cacheKey = mediaMetadata.artworkUri.toString(),
             albumIndex = albumIndex,
             isActive = isActive,
             isPlaying = isPlaying,
@@ -585,7 +581,6 @@ fun MediaItemListItem(
 @Composable
 fun ItemThumbnail(
     thumbnailUrl: Any?,
-    cacheKey: String?,
     isActive: Boolean,
     isPlaying: Boolean,
     shape: Shape,
@@ -608,16 +603,11 @@ fun ItemThumbnail(
                 )
             }
         } else {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(thumbnailUrl)
-                    .crossfade(true)
-                    .placeholderMemoryCacheKey(cacheKey)
-                    .memoryCacheKey(cacheKey)
-                    .build(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.clip(shape)
+            CoverAsyncImage(
+                url = thumbnailUrl,
+                size = CoverImageSize.LIST,
+                shape = shape,
+                modifier = Modifier.fillMaxSize(),
             )
         }
 

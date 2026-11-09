@@ -1,0 +1,228 @@
+package com.jussicodes.music.widget
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.BitmapShader
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Shader
+import android.util.LruCache
+import androidx.compose.ui.graphics.toArgb
+import coil3.SingletonImageLoader
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.toBitmap
+import com.jussicodes.music.ui.theme.extractArtworkSeed
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.util.Collections
+
+/**
+ * 封面目标像素按组件实际绘制尺寸给。
+ *
+ * Glance 每一帧都把位图塞进 RemoteViews 走 Binder：512×512 ARGB_8888 正好 1,048,576 字节，
+ * 加上 Bundle/RemoteViews 头就超过 Binder 单次事务上限（TransactionTooLargeException），
+ * updateAppWidget 直接失败——表现为组件永远停在旧帧或「加载中」。
+ * 桌面组件最大也就 2×3 格，按 dp 实际像素出图足够清晰，体积还小一个数量级。
+ */
+enum class CoverStyle(val px: Int) {
+    /** 4×2 卡：左侧 1:1 大封面贴合卡片可用高度（最大 120dp），336px ≈ 112dp@3x 仍清晰。 */
+    THUMB(336),
+
+    /** 方形 2×3：整格铺满封面，3x 屏约 330px。 */
+    FULL(320),
+
+    /** 4×1 横条：封面贴合可用高度（最大 72dp），216px = 72dp@3x。 */
+    SMALL(216),
+}
+
+/**
+ * 封面加载：Coil（复用 App 已有的 ImageLoader / 磁盘缓存）→ 方形裁切 → 缩到组件实际尺寸
+ * → JPEG 压缩再解码（顺便得到软件位图，RemoteViews 才能跨进程传）
+ * → 按组件样式画圆角 / 圆形。结果进内存 LruCache。
+ *
+ * 关键约束：**合成（provideGlance）里绝不发起网络请求**。
+ * 合成是 Glance 的一帧事务，下一次 update 会取消它；只要在里面 await 一次网络，
+ * 弱网或图源超时时组件就一直「没合成完」，观感就是状态彻底不同步。
+ * 所以合成只读 [cached]，没命中交给 [prefetch] 在后台补，补完再推一帧。
+ *
+ * 同一次解码顺手算出封面主色（和 App 播放页同一个取色函数），存进 [WidgetStateStore]，
+ * 组件底色因此能和 App 内的动态主题对上。
+ */
+object WidgetCoverLoader {
+    private const val JPEG_QUALITY = 82
+    private const val CACHE_BYTES = 12 * 1024 * 1024
+
+    /**
+     * 同一张图失败后的冷却时间。
+     * 以前是 60s：封面一旦失败（弱网、CDN 抖动），组件就一直停在占位图，
+     * 而 prefetch 只在新事件到来时才被调 —— 用户不去切歌/暂停就永远等不到重试，
+     * 观感就是「封面加载失败就再也不加载了」。现在配合 [RETRY_DELAYS_MS] 自动退避重试。
+     */
+    private const val FAIL_TTL_MS = 5_000L
+
+    /** 失败后自动重试的退避间隔；用完就等下一次事件（或超过冷却）再来。 */
+    private val RETRY_DELAYS_MS = longArrayOf(1_500L, 4_000L, 10_000L)
+
+    /** 与 App 的 ArtworkThemeSeed.SampleSize 一致。 */
+    private const val SEED_SAMPLE_PX = 72
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val cache = object : LruCache<String, Bitmap>(CACHE_BYTES) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+    }
+
+    private val pending: MutableSet<String> = Collections.synchronizedSet(mutableSetOf())
+    private val failedAt: MutableMap<String, Long> = Collections.synchronizedMap(mutableMapOf())
+
+    private fun key(snapshot: WidgetSnapshot, style: CoverStyle, cornerRatio: Float): String =
+        "${snapshot.songId}|${snapshot.coverUrl.hashCode()}|$style|$cornerRatio"
+
+    /** 只查内存缓存：命中同步返回。合成路径唯一允许的取图方式。 */
+    fun cached(snapshot: WidgetSnapshot, style: CoverStyle, cornerRatio: Float): Bitmap? {
+        if (snapshot.coverUrl.isBlank()) return null
+        return cache.get(key(snapshot, style, cornerRatio))
+    }
+
+    /** 后台补图，成功后回调（用来重绘一帧）。重复调用安全。 */
+    fun prefetch(
+        context: Context,
+        snapshot: WidgetSnapshot,
+        style: CoverStyle,
+        cornerRatio: Float,
+        onReady: suspend () -> Unit,
+    ) {
+        if (snapshot.coverUrl.isBlank()) return
+        val app = context.applicationContext
+        val k = key(snapshot, style, cornerRatio)
+        if (cache.get(k) != null) return
+        val now = System.currentTimeMillis()
+        failedAt[k]?.let { if (now - it < FAIL_TTL_MS) return }
+        if (!pending.add(k)) return
+        scope.launch {
+            try {
+                var attempt = 0
+                while (true) {
+                    val decoded =
+                        runCatching { decode(app, snapshot.coverUrl, style, cornerRatio) }.getOrNull()
+                    if (decoded != null) {
+                        cache.put(k, decoded.bitmap)
+                        failedAt.remove(k)
+                        // 封面主色和样式无关：三种布局共用一张 coverUrl，谁先解开谁算，算过就不再算。
+                        if (decoded.seed != 0) {
+                            WidgetStateStore.writeSeed(app, snapshot.coverUrl, decoded.seed)
+                        }
+                        runCatching { onReady() }
+                        return@launch
+                    }
+                    failedAt[k] = System.currentTimeMillis()
+                    // 失败不再「记一笔就撒手」：组件没有定时轮询，prefetch 只由播放事件触发，
+                    // 不自动重试就会一直挂着占位图（用户说的「封面加载失败不会自动加载」）。
+                    // 退避重试 3 次，成功那次会 onReady 重绘一帧。
+                    if (attempt >= RETRY_DELAYS_MS.size) return@launch
+                    delay(RETRY_DELAYS_MS[attempt])
+                    attempt++
+                    // 已经切歌/换封面了，就别再为上一张图耗流量。
+                    if (WidgetUpdater.current(app).songId != snapshot.songId) return@launch
+                }
+            } finally {
+                pending.remove(k)
+            }
+        }
+    }
+
+    private class Decoded(val bitmap: Bitmap, val seed: Int)
+
+    private suspend fun decode(
+        context: Context,
+        url: String,
+        style: CoverStyle,
+        cornerRatio: Float,
+    ): Decoded? = withContext(Dispatchers.IO) {
+        val request = ImageRequest.Builder(context)
+            .data(url)
+            .size(style.px)
+            .build()
+        val raw = (SingletonImageLoader.get(context).execute(request) as? SuccessResult)
+            ?.image?.toBitmap() ?: return@withContext null
+        // Coil 3 的位图可能是硬件位图，无法跨进程塞进 RemoteViews，这里统一转软件位图。
+        val loaded = if (raw.config == Bitmap.Config.HARDWARE) {
+            raw.copy(Bitmap.Config.ARGB_8888, false) ?: return@withContext null
+        } else {
+            raw
+        }
+        val square = squareCrop(loaded, style.px)
+        // 取色放在缩略图上做（成本固定），并且缩到 App 的 72×72 采样尺寸再算——
+        // 采样尺寸不同会选出不同色相桶，组件和 App 就会是两种颜色。
+        val seed = runCatching {
+            extractArtworkSeed(square.scaleForSeed())?.toArgb() ?: 0
+        }.getOrDefault(0)
+
+        Decoded(decorate(square, style, cornerRatio), seed)
+    }
+
+    /** 缩到 App 取色的采样尺寸（72×72）：采样尺寸不同会落到不同色相桶。 */
+    private fun Bitmap.scaleForSeed(): Bitmap =
+        if (width == SEED_SAMPLE_PX && height == SEED_SAMPLE_PX) {
+            this
+        } else {
+            Bitmap.createScaledBitmap(this, SEED_SAMPLE_PX, SEED_SAMPLE_PX, true)
+        }
+
+    private fun squareCrop(src: Bitmap, maxPx: Int): Bitmap {
+        val side = minOf(src.width, src.height)
+        if (side <= 0) return src
+        val x = (src.width - side) / 2
+        val y = (src.height - side) / 2
+        val cropped = Bitmap.createBitmap(src, x, y, side, side)
+        if (side <= maxPx) return cropped
+        val scaled = Bitmap.createScaledBitmap(cropped, maxPx, maxPx, true)
+        if (scaled !== cropped && cropped !== src) cropped.recycle()
+        return scaled
+    }
+
+    /** JPEG 压一遍：跨进程传输的体积与 Binder 上限直接相关，先压再画。 */
+    private fun decorate(square: Bitmap, style: CoverStyle, cornerRatio: Float): Bitmap {
+        val bytes = ByteArrayOutputStream().use { out ->
+            square.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+            out.toByteArray()
+        }
+        val compressed = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: square
+        val software = if (compressed.isMutable) compressed else compressed.copy(Bitmap.Config.ARGB_8888, true)
+        return when (style) {
+            CoverStyle.SMALL, CoverStyle.THUMB, CoverStyle.FULL ->
+                round(software, software.width * cornerRatio)
+        }
+    }
+
+    private fun round(src: Bitmap, radiusPx: Float): Bitmap {
+        val size = src.width
+        val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        }
+        val r = radiusPx.coerceIn(0f, size / 2f)
+        canvas.drawRoundRect(RectF(0f, 0f, size.toFloat(), size.toFloat()), r, r, paint)
+        return out
+    }
+
+    private fun circle(src: Bitmap): Bitmap {
+        val size = src.width
+        val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        }
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+        return out
+    }
+}

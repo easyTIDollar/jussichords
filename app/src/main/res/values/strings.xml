@@ -123,4 +123,24 @@
     <string name="msg_chat_album_hint">点击查看专辑</string>
     <string name="msg_chat_mv_hint">点击观看 MV</string>
     <string name="msg_chat_general_hint">点击查看</string>
+
+    <!-- 桌面小组件 -->
+    <string name="widget_card_name">播放卡片 · 4×2</string>
+    <string name="widget_banner_name">播放横条 · 4×1</string>
+    <string name="widget_tile_name">播放方块 · 2×3</string>
+    <string name="widget_desc">当前歌曲、播放控件、红心与私人 FM</string>
+    <string name="widget_empty_no_song">暂无播放歌曲</string>
+    <string name="widget_empty_no_song_hint">点击打开 App 选一首歌</string>
+    <string name="widget_empty_not_logged_in">未登录</string>
+    <string name="widget_empty_not_logged_in_hint">点击打开 App 登录账号</string>
+    <string name="widget_empty_loading">加载中…</string>
+    <string name="widget_empty_loading_hint">正在准备播放</string>
+    <string name="widget_unknown_artist">未知艺人</string>
+    <string name="widget_buffering">缓冲中 · %1$s</string>
+    <string name="widget_fm_subtitle">私人 FM · %1$s</string>
+    <string name="widget_action_prev">上一首</string>
+    <string name="widget_action_next">下一首</string>
+    <string name="widget_action_like">喜欢</string>
+    <string name="widget_action_unlike">取消喜欢</string>
+    <string name="widget_action_fm">私人 FM</string>
 </resources>

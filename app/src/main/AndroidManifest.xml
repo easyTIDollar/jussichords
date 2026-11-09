@@ -68,6 +68,11 @@
             android:name=".lyric.DesktopLyricService"
             android:exported="false" />
 
+        <!-- 可视化播放解析的置顶小窗（系统悬浮窗，权限复用桌面歌词那套） -->
+        <service
+            android:name=".playback.PlaybackPathOverlayService"
+            android:exported="false" />
+
         <service
             android:name=".download.DownloadService"
             android:exported="false"
@@ -85,6 +90,43 @@
             android:name=".utils.UpdateDownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- 桌面小组件：三个固定尺寸条目（4×2 / 4×1 / 2×3），resizeMode=none，不可拉伸 -->
+        <receiver
+            android:name=".widget.CardWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_card_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_card_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.BannerWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_banner_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_banner_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.TileWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_tile_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_tile_info" />
+        </receiver>
 
     </application>
 

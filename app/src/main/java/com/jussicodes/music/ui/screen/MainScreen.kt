@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -40,7 +41,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -120,9 +120,13 @@ import com.jussicodes.music.utils.SettingsAppearanceBus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 import com.jussicodes.music.ui.components.ResponsiveAlertDialog
+
+/** 带「撤销」的反馈条自动消失时间：Indefinite 绝不自动关闭，被遮挡时等于永久卡住。 */
+private const val UndoSnackbarTimeoutMillis = 6_000L
 
 @Composable
 fun MainScreen() {
@@ -199,41 +203,8 @@ fun MainScreen() {
     var bgImgAspect by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(effectiveHomeBg.path) { bgImgAspect = 0f }
 
-    LaunchedEffect(
-        playerState?.currentMediaItem,
-        playerState?.mediaItemIndex,
-        playerState?.timeline?.windowCount,
-        playerState?.playbackState
-    ) {
-        val player = playerState?.player ?: return@LaunchedEffect
-        val sourceName = playerState.currentMediaItem?.mediaMetadata?.extras
-            ?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME)
-        if (sourceName != PERSONAL_FM_SOURCE) return@LaunchedEffect
-
-        val isEnded = playerState.playbackState == Player.STATE_ENDED
-        val itemCount = player.mediaItemCount
-        val shouldPreload = itemCount > 0 && player.currentMediaItemIndex >= itemCount - 2
-        if (!isEnded && !shouldPreload) return@LaunchedEffect
-
-        PersonalFmQueueLoader.load().onSuccess { songs ->
-            val existingIds = (0 until player.mediaItemCount)
-                .mapTo(mutableSetOf()) { player.getMediaItemAt(it).mediaId }
-            val newSongs = songs.filter { it.id.toString() !in existingIds }
-            if (newSongs.isNotEmpty()) {
-                val wasEnded = player.playbackState == Player.STATE_ENDED
-                val startIndex = player.mediaItemCount
-                player.addMediaItems(
-                    newSongs.toMediaItemList(
-                        sourceName = PERSONAL_FM_SOURCE,
-                        sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM
-                    )
-                )
-                if (wasEnded) {
-                    player.playMediaAt(startIndex)
-                }
-            }
-        }
-    }
+    // 私人 FM 的续队列逻辑已下沉到 PlaybackService（personalFmRefillListener）：
+    // 桌面小组件直接起播时 App 没有 Compose 树，写在这里就没人补队列，播完首批 3 首就停。
 
     LaunchedEffect(playerState, isPlaying, lifecycleOwner) {
         val player = playerState?.player ?: return@LaunchedEffect
@@ -318,30 +289,36 @@ fun MainScreen() {
     LaunchedEffect(Unit) {
         coroutineScope.launch {
             MenuSnackbarBus.events.collect { event ->
+                // 新反馈顶掉正在展示的旧反馈：撤销条不再永久驻留，
+                // 连续操作（如连着移除几首）时消息也不会排队积压。
+                snackbarHostState.currentSnackbarData?.dismiss()
                 val undo = event.onUndo
                 val label = event.undoLabel
                 if (undo != null && label != null) {
-                    // material3 1.3.1 的 showSnackbar 没有 withAction 参数：
-                    // 传 actionLabel + Indefinite，等用户点击返回 ActionPerformed 再执行撤销。
-                    val result = snackbarHostState.showSnackbar(
-                        message = event.message,
-                        actionLabel = label,
-                        duration = SnackbarDuration.Indefinite,
-                    )
+                    // 带「撤销」的反馈：仍旧用 Indefinite 等用户点击，但套 6s 超时。
+                    // 纯 Indefinite 一旦用户没注意到（被小播放器/底栏遮住时几乎必然）
+                    // 就永不消失，还会堵住后面所有反馈。
+                    val result = withTimeoutOrNull(UndoSnackbarTimeoutMillis) {
+                        snackbarHostState.showSnackbar(
+                            message = event.message,
+                            actionLabel = label,
+                            duration = SnackbarDuration.Indefinite,
+                        )
+                    }
                     if (result == SnackbarResult.ActionPerformed) {
                         undo()
                     }
                 } else {
-                    snackbarHostState.showSnackbar(event.message)
+                    snackbarHostState.showSnackbar(
+                        message = event.message,
+                        duration = SnackbarDuration.Short,
+                    )
                 }
             }
         }
     }
 
     Scaffold(
-        snackbarHost = {
-            SnackbarHost(hostState = snackbarHostState)
-        },
         bottomBar = {
             // Compact 用底栏；Medium/Expanded 改左侧竖排导航栏（见 content 里的 Row）。
             // 悬浮胶囊底栏改在 content 顶层浮动挂载，让主页背景与列表直接延伸到底部手势栏，胶囊外完全透明；
@@ -636,6 +613,28 @@ fun MainScreen() {
                         }
                     )
                 }
+            }
+
+            // 反馈条宿主：Scaffold 自带的 snackbarHost 会被 content 内 zIndex 更高的小播放器
+            // 与悬浮胶囊底栏压在下面（撤销按钮点不到、条看上去就是卡在下层不消失）。
+            // 这里挂到 content 顶层，并把底边抬到小播放器之上，保证反馈与「撤销」始终可见可点。
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(3f),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier
+                        .widthIn(max = 640.dp)
+                        .padding(
+                            start = 12.dp,
+                            end = 12.dp,
+                            bottom = miniBottomPadding +
+                                (if (showMiniPlayerChrome) MiniPlayerHeight else 0.dp)
+                        )
+                )
             }
 
             // 主页背景沉浸式编辑模式：draft 非 null 时接管全屏手势 + 底部参数面板。

@@ -468,7 +468,7 @@ private fun PreviewCard(
     }
 }
 
-/** 在预览卡片里画主行 + 副行，几何与 DesktopLyricService 一致。 */
+/** 在预览卡片里画主行 + 副行，几何与 DesktopLyricService 一致：只描边、没有投影/偏移副本。 */
 private fun DrawScope.drawLyricPreview(
     paint: TextPaint,
     primaryText: String,
@@ -550,7 +550,8 @@ private fun drawStrokedText(
     strokeScale: Float
 ) {
     if (text.isEmpty()) return
-    val strokeWidth = sizePx * 0.17f * strokeScale
+    // 与 DesktopLyricStyle.StrokeRatio 同值，预览/实际同一描边粗细。
+    val strokeWidth = sizePx * 0.08f * strokeScale
     if (strokeWidth > 0.05f) {
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = strokeWidth

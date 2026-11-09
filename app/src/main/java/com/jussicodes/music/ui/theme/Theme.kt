@@ -1,5 +1,6 @@
 package com.jussicodes.music.ui.theme
 
+import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
@@ -9,6 +10,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
@@ -20,6 +22,7 @@ import com.jussicodes.music.constants.homeBgImageKey
 import com.jussicodes.music.constants.themeColorSourceKey
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
+import com.jussicodes.music.widget.WidgetPaletteStore
 
 @Composable
 fun JetMeloTheme(
@@ -43,32 +46,38 @@ fun JetMeloTheme(
     )
     // 仅 HOME_BG 来源时喂真实路径，其余传空串 → 种子 null，回落壁纸配色。
     val homeBgSeed = rememberHomeBgSeed(if (useHomeBg) homeBgPath else "")
-    val colorScheme = remember(
+    // 浅色/深色两套都算出来：当前用哪套由 darkTheme 决定，另一套给桌面组件在
+    // 系统深浅色切换时直接取用（组件不在 App 组合树里，拿不到 MaterialTheme）。
+    val schemes = remember(
         artworkSeed,
         homeBgSeed,
-        darkTheme,
         useArtwork,
         useHomeBg,
         dynamicColorAvailable,
         context,
     ) {
-        val generatedScheme = when {
-            useHomeBg && homeBgSeed != null -> {
-                if (darkTheme) createDarkScheme(homeBgSeed) else createLightScheme(homeBgSeed)
-            }
-
-            useArtwork && artworkSeed != null -> {
-                if (darkTheme) createDarkScheme(artworkSeed) else createLightScheme(artworkSeed)
-            }
-
-            dynamicColorAvailable -> {
-                if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            }
-
-            darkTheme -> createDarkScheme(DefaultThemeSeed)
-            else -> createLightScheme(DefaultThemeSeed)
-        }
-        generatedScheme.withNeutralTextColors()
+        resolveScheme(
+            dark = false,
+            context = context,
+            useArtwork = useArtwork,
+            artworkSeed = artworkSeed,
+            useHomeBg = useHomeBg,
+            homeBgSeed = homeBgSeed,
+            dynamicColorAvailable = dynamicColorAvailable,
+        ) to resolveScheme(
+            dark = true,
+            context = context,
+            useArtwork = useArtwork,
+            artworkSeed = artworkSeed,
+            useHomeBg = useHomeBg,
+            homeBgSeed = homeBgSeed,
+            dynamicColorAvailable = dynamicColorAvailable,
+        )
+    }
+    val colorScheme = if (darkTheme) schemes.second else schemes.first
+    // 桌面组件和 App 用同一套最终配色：把两套色板写进组件可同步读取的小表。
+    SideEffect {
+        WidgetPaletteStore.publish(context.applicationContext, schemes.first, schemes.second)
     }
 
     MaterialTheme(
@@ -77,6 +86,39 @@ fun JetMeloTheme(
         content = content
     )
 }
+
+/**
+ * 主题色板解析：壁纸动态色 / 封面种子色 / 主页背景图种子色 / 默认种子色，四选一。
+ * App 与桌面组件共用这一条路径，避免两边各算各的颜色。
+ */
+private fun resolveScheme(
+    dark: Boolean,
+    context: Context,
+    useArtwork: Boolean,
+    artworkSeed: Color?,
+    useHomeBg: Boolean,
+    homeBgSeed: Color?,
+    dynamicColorAvailable: Boolean,
+): ColorScheme {
+    val generated = when {
+        useHomeBg && homeBgSeed != null ->
+            if (dark) createDarkScheme(homeBgSeed) else createLightScheme(homeBgSeed)
+
+        useArtwork && artworkSeed != null ->
+            if (dark) createDarkScheme(artworkSeed) else createLightScheme(artworkSeed)
+
+        dynamicColorAvailable ->
+            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+
+        dark -> createDarkScheme(DefaultThemeSeed)
+        else -> createLightScheme(DefaultThemeSeed)
+    }
+    return generated.withNeutralTextColors()
+}
+
+/** 组件侧没有主题上下文时的回落：用同一个封面种子色生成 App 同款色板。 */
+internal fun artworkColorScheme(seed: Color, dark: Boolean): ColorScheme =
+    (if (dark) createDarkScheme(seed) else createLightScheme(seed)).withNeutralTextColors()
 
 private val DefaultThemeSeed = Color(0xFF6650A4)
 

@@ -13,13 +13,13 @@ suspend fun saveRemoteImage(context: Context, imageUrl: String): Result<Unit> = 
         val extension = imageUrl.substringBefore('?').substringAfterLast('.', "jpg")
             .lowercase().takeIf { it in setOf("jpg", "jpeg", "png", "webp") } ?: "jpg"
         val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, "Mooic_${System.currentTimeMillis()}.$extension")
+            put(MediaStore.Images.Media.DISPLAY_NAME, "jussichords_${System.currentTimeMillis()}.$extension")
             put(MediaStore.Images.Media.MIME_TYPE, when (extension) {
                 "png" -> "image/png"
                 "webp" -> "image/webp"
                 else -> "image/jpeg"
             })
-            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Mooic")
+            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/jussichords")
             put(MediaStore.Images.Media.IS_PENDING, 1)
         }
         val resolver = context.contentResolver

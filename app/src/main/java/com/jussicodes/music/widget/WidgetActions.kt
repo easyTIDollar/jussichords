@@ -1,0 +1,369 @@
+package com.jussicodes.music.widget
+
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.os.SystemClock
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.glance.GlanceId
+import androidx.glance.action.Action
+import androidx.glance.action.ActionParameters
+import androidx.glance.action.actionParametersOf
+import androidx.glance.appwidget.action.ActionCallback
+import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.action.actionStartActivity
+import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.jussicodes.music.MainActivity
+import com.jussicodes.music.constants.MediaSessionConstants
+import com.jussicodes.music.constants.libraryPlaylistRefreshTokenKey
+import com.jussicodes.music.constants.userIdKye
+import com.jussicodes.music.extensions.toMediaItemList
+import com.jussicodes.music.playback.PlaybackQueueStore
+import com.jussicodes.music.playback.PlaybackService
+import com.jussicodes.music.playback.PlaybackTrace
+import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
+import com.jussicodes.music.utils.FavoriteSongIdsUtil
+import com.jussicodes.music.utils.dataStore
+import com.rcmiku.ncmapi.api.account.AccountApi
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
+
+/** 红心乐观状态：只在本组件实例上立即翻转，同步结果回来后清掉 / 由真实数据覆盖。 */
+object WidgetLikeKeys {
+    val SongId = longPreferencesKey("widget_like_song_id")
+    val Value = booleanPreferencesKey("widget_like_value")
+}
+
+object WidgetIntents {
+    fun app(context: Context, openPlayer: Boolean = false): Intent =
+        Intent(context, MainActivity::class.java).apply {
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
+            if (openPlayer) putExtra(MainActivity.EXTRA_OPEN_PLAYER, true)
+        }
+}
+
+fun openAppAction(context: Context): Action = actionStartActivity(WidgetIntents.app(context))
+
+/**
+ * 小组件动作统一走 MediaController：连的就是 App 正在用的 PlaybackService / MediaSession，
+ * 播放队列、换源、私人 FM 续播全都复用同一套逻辑。
+ */
+@UnstableApi
+object WidgetMedia {
+
+    private val releaseScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    suspend fun <T> withController(context: Context, block: suspend (MediaController) -> T): T? {
+        val app = context.applicationContext
+        val token = SessionToken(app, ComponentName(app, PlaybackService::class.java))
+        val future = withContext(Dispatchers.Main) {
+            MediaController.Builder(app, token).buildAsync()
+        }
+        // 进程被回收后第一次点组件（桌面冷启动）：这里要等 Application + PlaybackService.onCreate
+        // （ExoPlayer 构建、音频缓存打开、MediaSession 建立）走完，3s 在低端机/高负载时不够，
+        // 超时的后果是「回滚 + 打开 App」—— 用户看到的就是「点了半天没声音，然后跳进 App」。
+        // 有可恢复队列时说明这条路能直接续播，值得多等一会儿；没有队列就仍然快速回退。
+        val timeoutSec = withContext(Dispatchers.IO) {
+            if (runCatching { PlaybackQueueStore.get(app).hasQueue() }.getOrDefault(false)) 6L else 3L
+        }
+        var deferredRelease = false
+        return try {
+            val controller = withContext(Dispatchers.IO) { future.get(timeoutSec, TimeUnit.SECONDS) }
+            PlaybackTrace.mark(app, "ctrl ready")
+            // 队列为空＝这次点击会走 MediaSession.Callback.onPlaybackResumption。
+            // media3 的恢复是**异步**的：回调返回后才 setMediaItems + prepare + play。
+            // 我们如果在 play() 之后立刻 release，服务就出现「没有 controller、也还没开始播」
+            // 的窗口，media3 会 stopSelf 把恢复掐断 —— 诊断日志里就是 svc ready 反复出现
+            // （点了没声，再点一次服务又重建，最后要等十几秒）。所以这条路要把控制器多留 2.5s。
+            val resuming = withContext(Dispatchers.Main) { controller.mediaItemCount == 0 }
+            try {
+                withContext(Dispatchers.Main) { block(controller) }
+            } finally {
+                if (resuming) {
+                    deferredRelease = true
+                    releaseScope.launch {
+                        delay(2_500)
+                        runCatching { controller.release() }
+                    }
+                } else {
+                    withContext(Dispatchers.Main) { runCatching { controller.release() } }
+                }
+            }
+        } catch (t: Throwable) {
+            // 连接超时 / 会话不可用：调用方拿到 null 走回滚，但这里必须留痕，
+            // 否则「点了没反应」查不到原因。
+            WidgetDebug.error("MediaController connect/act failed", t)
+            WidgetDebug.event(app, "ctrl FAIL ${t.javaClass.simpleName}: ${t.message?.take(80)}")
+            null
+        } finally {
+            // 延迟释放的路径不能再 releaseFuture：那会立刻把控制器拆掉，恢复又被掐断。
+            if (!deferredRelease) {
+                withContext(Dispatchers.Main) { runCatching { MediaController.releaseFuture(future) } }
+            }
+        }
+    }
+
+    suspend fun openApp(context: Context, openPlayer: Boolean = true) {
+        runCatching { context.startActivity(WidgetIntents.app(context, openPlayer)) }
+    }
+}
+
+class WidgetPlayPauseAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val app = context.applicationContext
+        PlaybackTrace.click(app)
+        // 起播等待期内的重复点击不要再翻成暂停：第一下已经表达了「我要播」，
+        // 1.2s 内再点是「怎么还不出声」，不是「取消」。
+        // 以前这一下会把自己暂停掉 —— 诊断日志里就是「点三次只响一次」。
+        val now = SystemClock.elapsedRealtime()
+        val prev = lastClickAt.getAndSet(now)
+        if (prev != 0L && now - prev < DOUBLE_CLICK_GUARD_MS && WidgetUpdater.current(app).isPlaying) {
+            WidgetDebug.event(app, "action play/pause ignored (repeat ${now - prev}ms)")
+            return
+        }
+        // 乐观翻转：点按钮立刻重绘图标，后台真实事件到达后再对齐一次。
+        // 等播放器线程事件回来才刷会有 100~200ms 延迟，观感就是“点了没反应”。
+        WidgetUpdater.cancelPending()
+        // 版本号必须在乐观翻转之前取：翻转后、读版本前若恰好有真实 Player 事件
+        // 提交过帧，sinceVersion 会记成新版本，300ms 兜底就仍有覆盖真实态的机会。
+        val beforeVersion = WidgetUpdater.currentVersion()
+        val nextPlayingState = WidgetUpdater.optimisticPlayPause(app)
+        WidgetDebug.event(app, "action play/pause optimistic=$nextPlayingState")
+        val acted = WidgetMedia.withController(app) { controller ->
+            // App 进程被系统回收过：会话里没有队列。磁盘上存着上次的队列就让它走
+            // MediaSession.Callback.onPlaybackResumption 直接续播，不用把用户拽进 App。
+            if (controller.mediaItemCount == 0) {
+                if (!PlaybackQueueStore.get(app).hasQueue()) return@withController false
+                controller.play()
+                return@withController true
+            }
+            if (controller.isPlaying || controller.playWhenReady) {
+                controller.pause()
+            } else {
+                if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
+                controller.play()
+            }
+            true
+        } ?: false
+        if (!acted) {
+            // 没会话/连不上：把乐观帧翻回去，别让图标停在错误状态，然后打开 App。
+            WidgetUpdater.pushPlayingFrame(app, !nextPlayingState)
+            WidgetDebug.event(app, "action play/pause 失败 -> openApp")
+            WidgetMedia.openApp(app, openPlayer = false)
+            return
+        }
+        // 300ms 后兜底对齐一次真实态，避免乐观帧没被事件覆盖；
+        // 期间真实事件已提交过帧（version 变了）就不再用乐观值覆盖真实状态。
+        WidgetUpdater.pushPlayingFrame(app, nextPlayingState, beforeVersion)
+    }
+
+    private companion object {
+        /** 上一次播放/暂停点击时刻：挡住起播等待期内的误触（第二下会把自己暂停掉）。 */
+        val lastClickAt = java.util.concurrent.atomic.AtomicLong(0L)
+
+        /** 双击保护窗口：第一下点完还没出声时，第二下不该被当成「暂停」。 */
+        const val DOUBLE_CLICK_GUARD_MS = 1_200L
+    }
+}
+
+class WidgetNextAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val app = context.applicationContext
+        // 切歌前先清掉 pending：否则上一轮 drain 的 0 延迟合并会把旧歌直接推到组件。
+        WidgetUpdater.cancelPending()
+        val acted = WidgetMedia.withController(app) { controller ->
+            if (controller.mediaItemCount == 0) {
+                // 会话里没有队列，但磁盘上存着上次的：先让它续播，别把人直接拽进 App。
+                if (!PlaybackQueueStore.get(app).hasQueue()) return@withController false
+                controller.play()
+                return@withController true
+            }
+            controller.seekToNextMediaItem()
+            if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
+            controller.play()
+            true
+        } ?: false
+        WidgetDebug.event(app, "action next acted=$acted")
+        if (!acted) {
+            WidgetMedia.openApp(app, openPlayer = false)
+            return
+        }
+        // 兜底：真实事件（EVENT_MEDIA_ITEM_TRANSITION）回来后 refresh 立即推；
+        // 若事件被吞（如空帧防护拦截），这里 800ms 后强制重绘一次。
+        WidgetUpdater.poke(app)
+    }
+}
+
+class WidgetPrevAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val app = context.applicationContext
+        WidgetUpdater.cancelPending()
+        val acted = WidgetMedia.withController(app) { controller ->
+            if (controller.mediaItemCount == 0) {
+                // 会话里没有队列，但磁盘上存着上次的：先让它续播，别把人直接拽进 App。
+                if (!PlaybackQueueStore.get(app).hasQueue()) return@withController false
+                controller.play()
+                return@withController true
+            }
+            controller.seekToPreviousMediaItem()
+            if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
+            controller.play()
+            true
+        } ?: false
+        WidgetDebug.event(app, "action prev acted=$acted")
+        if (!acted) {
+            WidgetMedia.openApp(app, openPlayer = false)
+            return
+        }
+        WidgetUpdater.poke(app)
+    }
+}
+
+class WidgetLikeAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val app = context.applicationContext
+        val snapshot = WidgetUpdater.current(app)
+        val songId = snapshot.songId
+        if (songId == 0L) return
+        val target = !snapshot.isLiked
+
+        // 1. 立即反馈：本组件先翻转。
+        updateAppWidgetState(app, glanceId) { prefs ->
+            prefs[WidgetLikeKeys.SongId] = songId
+            prefs[WidgetLikeKeys.Value] = target
+        }
+        WidgetHub.updateAll(app)
+
+        // 2. 真正落库（和 App 内同一个 /song/like 接口），失败则回滚。
+        val ok = WidgetLike.setLiked(app, songId, target)
+
+        // 3. 清掉乐观值，以真实收藏状态重绘；失败时自然回到原样。
+        updateAppWidgetState(app, glanceId) { prefs ->
+            if (prefs[WidgetLikeKeys.SongId] == songId) {
+                prefs.remove(WidgetLikeKeys.SongId)
+                prefs.remove(WidgetLikeKeys.Value)
+            }
+        }
+        WidgetUpdater.syncFavoriteFlags(app)
+        if (!ok) WidgetHub.updateAll(app)
+    }
+}
+
+object WidgetLike {
+    suspend fun setLiked(context: Context, songId: Long, like: Boolean): Boolean {
+        val uid = runCatching { context.dataStore.data.first()[userIdKye] }.getOrNull()
+        val result = runCatching {
+            AccountApi.songLike(like = like, songId = songId, userId = uid)
+        }.getOrNull() ?: return false
+        if (result.isFailure) return false
+        runCatching {
+            if (like) {
+                FavoriteSongIdsUtil.addSongId(context, songId)
+            } else {
+                FavoriteSongIdsUtil.removeSongId(context, songId)
+            }
+            context.dataStore.edit { prefs ->
+                prefs[libraryPlaylistRefreshTokenKey] = System.currentTimeMillis()
+            }
+        }
+        return true
+    }
+}
+
+/** 私人 FM 入口：已经在放 FM 就打开播放页，否则沿用 App 的 FM 队列加载器开播。 */
+class WidgetPersonalFmAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val app = context.applicationContext
+        val snapshot = WidgetUpdater.current(app)
+        // 已经在放私人 FM：点它不该重新拉一批，直接把人送到播放页。
+        if (snapshot.isFm && snapshot.songId != 0L) {
+            WidgetMedia.openApp(app, openPlayer = true)
+            return
+        }
+        val songs = runCatching { PersonalFmQueueLoader.load().getOrThrow() }.getOrNull()
+        if (songs.isNullOrEmpty()) {
+            WidgetMedia.openApp(app)
+            return
+        }
+        val started = WidgetMedia.withController(app) { controller ->
+            controller.setMediaItems(
+                songs.toMediaItemList(
+                    sourceName = MediaSessionConstants.SOURCE_PERSONAL_FM,
+                    sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM,
+                )
+            )
+            controller.prepare()
+            controller.play()
+        } != null
+        if (!started) WidgetMedia.openApp(app)
+    }
+}
+
+/** 卡片空白处 / 空状态点击：进 App。 */
+class WidgetOpenAppAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        WidgetMedia.openApp(context, openPlayer = false)
+    }
+}
+
+/** 进度条点击跳转的参数：0~1 的播放比例。 */
+object WidgetSeekKey {
+    /** 百分比 0~100：ActionParameters 跨进程要过 Bundle，整数最稳。 */
+    val Percent = ActionParameters.Key<Int>("widget_seek_percent")
+}
+
+/**
+ * 点进度条跳转。
+ *
+ * RemoteViews 里没有可拖动的 SeekBar，Glance 也没有 Slider，所以进度条被切成 5 段热区：
+ * 点第 n 段就跳到 (n + 0.5) / 5 的位置。精度不如拖动，但「想往回听一点」这件事能用。
+ */
+class WidgetSeekAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val percent = parameters[WidgetSeekKey.Percent] ?: return
+        val fraction = percent / 100f
+        val app = context.applicationContext
+        WidgetUpdater.cancelPending()
+        val acted = WidgetMedia.withController(app) { controller ->
+            val duration = controller.duration
+            if (duration <= 0L) return@withController false
+            if (controller.playbackState == Player.STATE_IDLE) controller.prepare()
+            controller.seekTo((duration * fraction).toLong().coerceIn(0L, duration))
+            true
+        } ?: false
+        WidgetDebug.event(app, "action seek f=$fraction acted=$acted")
+        if (!acted) {
+            WidgetMedia.openApp(app, openPlayer = true)
+            return
+        }
+        WidgetUpdater.poke(app)
+    }
+}
+
+internal fun seekAction(fraction: Float): Action =
+    actionRunCallback<WidgetSeekAction>(
+        actionParametersOf(WidgetSeekKey.Percent to (fraction * 100f).roundToInt())
+    )
+
+internal fun playPauseAction(): Action = actionRunCallback<WidgetPlayPauseAction>()
+internal fun nextAction(): Action = actionRunCallback<WidgetNextAction>()
+internal fun prevAction(): Action = actionRunCallback<WidgetPrevAction>()
+internal fun likeAction(): Action = actionRunCallback<WidgetLikeAction>()
+internal fun fmAction(): Action = actionRunCallback<WidgetPersonalFmAction>()

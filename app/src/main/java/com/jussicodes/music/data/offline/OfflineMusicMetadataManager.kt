@@ -99,10 +99,20 @@ object OfflineMusicMetadataManager {
      * 获取离线可用的封面（断网下优先保证不空白）：
      * 1. 检查本地独立封面缓存；
      * 2. 外部歌曲检查本地提取封面；
-     * 3. 已下载歌曲从音频文件提取内嵌封面（APIC / PICTURE）；
+     * 3. 已下载歌曲从音频文件提取内嵌封面（APIC / PICTURE）—— [allowExtract] = false 时跳过；
      * 4. 兜底返回原在线 URL。
+     *
+     * 第三步要 [MediaMetadataRetriever] 把整个音频文件读一遍，属于重 IO。列表在 Compose
+     * 组合阶段同步调用本方法，一次滚动命中十几个 item，只要其中几首已下载而封面缓存缺失，
+     * 主线程就会被拖住几十到几百毫秒。列表只需要一张缩略图，拿不到本地缓存直接回落到网络图；
+     * 播放页/详情页仍走完整链路。
      */
-    fun getOfflineCover(context: Context, songId: Long, fallbackUrl: String? = null): Any? {
+    fun getOfflineCover(
+        context: Context,
+        songId: Long,
+        fallbackUrl: String? = null,
+        allowExtract: Boolean = true,
+    ): Any? {
         // 1. 本地封面缓存文件存在
         val coverFile = File(getCoverCacheDir(context), "$songId.jpg")
         if (coverFile.exists() && coverFile.length() > 0) {
@@ -115,13 +125,15 @@ object OfflineMusicMetadataManager {
             return extSong.coverUri
         }
 
-        // 3. 尝试从已下载的物理音频文件提取内嵌封面并缓存
-        val task = DownloadStore.getCompletedTask(songId)
-        if (task != null) {
-            val embeddedCover = extractEmbeddedCover(context, task.filePath, task.fileUri)
-            if (embeddedCover != null && embeddedCover.isNotEmpty()) {
-                saveDownloadedCover(context, songId, embeddedCover)
-                if (coverFile.exists()) return coverFile
+        // 3. 尝试从已下载的物理音频文件提取内嵌封面并缓存（列表路径跳过）
+        if (allowExtract) {
+            val task = DownloadStore.getCompletedTask(songId)
+            if (task != null) {
+                val embeddedCover = extractEmbeddedCover(context, task.filePath, task.fileUri)
+                if (embeddedCover != null && embeddedCover.isNotEmpty()) {
+                    saveDownloadedCover(context, songId, embeddedCover)
+                    if (coverFile.exists()) return coverFile
+                }
             }
         }
 

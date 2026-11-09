@@ -80,10 +80,30 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // 系统深浅色切换时重染桌面小组件（RemoteViews 不会自动跟着换色）
+        applicationScope.launch {
+            com.jussicodes.music.widget.WidgetUpdater.redraw(this@JetMeloApp)
+        }
+    }
+
     @androidx.annotation.OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // 封面请求尺寸按屏幕密度换算：所有 toCoverImageUrl 调用点默认读这里。
+        com.jussicodes.music.utils.CoverDensity.init(this)
+        // 主题种子色缓存要在首帧前可用（同步读一张极小的 SharedPreferences 表）。
+        com.jussicodes.music.ui.theme.ArtworkSeedCache.preload(this)
+        // 播放直链磁盘缓存：冷启动（桌面组件/蓝牙续播）直接命中上次解析结果，
+        // 省掉起播前那次 /song/url 往返。这里只拿 prefs 引用，不读盘。
+        com.jussicodes.music.playback.PlayUrlCache.attach(this)
+        // 音频分片索引库（SimpleCache）在后台预热：它原本在 PlaybackService.onCreate
+        // 主线程上打开，冷启动点播放时要白等一段磁盘 IO。
+        applicationScope.launch {
+            runCatching { com.jussicodes.music.utils.AudioCache.get(this@JetMeloApp) }
+        }
         AppVisibilityTracker.register(this)
         ExplorePreloader.init(this)
         PinnedAlbumStore.init(this)
@@ -102,6 +122,12 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         com.jussicodes.music.lx.LxPluginManager.init(this)
         com.rcmiku.ncmapi.api.LxSourceBridge.resolver = { songId, songLevel, skipUrls ->
             com.jussicodes.music.lx.LxPluginManager.resolveUrl(songId, songLevel, skipUrls)
+        }
+        // ncmapi 里的解析分支（官方/客户端音源/解灰/兜底）只负责吐事件，
+        // 统一汇进 PlaybackPath —— 播放页「可视化播放解析」面板就是这条链的回放。
+        // 事件带 songId：预取下一首也会走解析，不能让它混进当前歌的时间线。
+        com.rcmiku.ncmapi.api.PlayUrlTrace.sink = { songId, name, detail, tags ->
+            com.jussicodes.music.playback.PlaybackPath.stepFor(songId, name, detail, tags)
         }
         // 关键路径让路首屏：WebView 初始化在主线程耗时极高（数百毫秒），
         // 启动延迟 4 秒等待首屏完全渲染并静止后，再后台预热沙盒；
@@ -171,6 +197,8 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                     } else {
                         CookieProvider.clear()
                     }
+                    // 登录态一变就同步到桌面小组件：否则没播放过歌的用户加组件后会一直看到「未登录」。
+                    com.jussicodes.music.widget.WidgetUpdater.syncLoginFlag(this@JetMeloApp)
                     // 关键路径让路首屏：冷启动时首屏在「我的」页，
                     // 探索页已有 loadCache() 磁盘缓存铺底，预热延迟 2.5 秒错峰，
                     // 避免冷启动瞬间与首屏个人信息/歌单请求争夺网络与 CPU。
@@ -217,7 +245,9 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
 
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         return ImageLoader.Builder(context)
-            .crossfade(true)
+            // 全局关闭淡入：列表/封面大多命中磁盘或内存缓存，crossfade 会让「已经有的图」
+            // 也从透明渐显 100ms，滚动和切页观感上就是慢。需要动画的单个位置自己开。
+            .crossfade(false)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .memoryCache {
                 MemoryCache.Builder()

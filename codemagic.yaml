@@ -1,0 +1,33 @@
+workflows:
+  canary:
+    name: Canary Build
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      java: 17
+    scripts:
+      - name: Set permissions
+        script: |
+          chmod +x gradlew
+      - name: Build Canary APK
+        script: |
+          set -e
+          TS="$(date -u +%Y%m%d-%H%M%S)"
+          SUFFIX="-canary.${TS}"
+          echo "Building Canary variant with suffix: $SUFFIX"
+
+          # 确保 keystore 存在（仓库根目录默认已有）
+          if [ ! -f canary-keystore.jks ]; then
+            echo "Generating fallback canary-keystore.jks..."
+            keytool -genkeypair -v -keystore canary-keystore.jks -alias jussichords-canary -keyalg RSA -keysize 2048 -validity 10000 -storepass jussichords-canary -keypass jussichords-canary -dname "CN=jussichords-canary, OU=jussichords, O=jussichords, L=Unknown, ST=Unknown, C=CN"
+          fi
+
+          ./gradlew assembleCanary --stacktrace --no-daemon "-PCANARY_VERSION_SUFFIX=$SUFFIX"
+
+          # 归档产物
+          mkdir -p output
+          find app/build/outputs/apk/canary -name "*.apk" -exec cp {} output/jussichords-canary.apk \;
+          echo "Canary APK built successfully:"
+          ls -lh output/
+    artifacts:
+      - output/*.apk

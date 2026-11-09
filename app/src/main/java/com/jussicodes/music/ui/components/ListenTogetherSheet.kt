@@ -49,6 +49,7 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.playback.ListenTogetherSession
 import com.jussicodes.music.ui.icons.Crown
 import com.jussicodes.music.ui.icons.Users
+import com.jussicodes.music.utils.CoverImageSize
 
 /**
  * 一起听底部面板：未进房时提供「创建房间 / 粘贴官方邀请链接进房」，
@@ -130,12 +131,12 @@ fun ListenTogetherSheet(
                         Spacer(modifier = Modifier.weight(1f))
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             room.members.take(4).forEach { member ->
-                                AsyncImage(
-                                    model = member.avatarUrl,
+                                CoverAsyncImage(
+                                    url = member.avatarUrl,
+                                    size = CoverImageSize.AVATAR,
+                                    shape = CircleShape,
                                     contentDescription = member.nickname,
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .clip(CircleShape)
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
                             if (room.members.size > 4) {

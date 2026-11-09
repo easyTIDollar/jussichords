@@ -175,6 +175,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
 import com.jussicodes.music.ui.components.ResponsiveAlertDialog
+import com.jussicodes.music.widget.WidgetDiagDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -386,6 +387,7 @@ fun SettingsScreen(
     var showCookieDialog by remember { mutableStateOf(false) }
     var showGithubSourceDialog by remember { mutableStateOf(false) }
     var showApiServerDialog by remember { mutableStateOf(false) }
+    var showWidgetDiag by remember { mutableStateOf(false) }
     var apiServerStatuses by remember { mutableStateOf<List<ApiServerStatus>>(emptyList()) }
     var apiServerListJson by rememberPreference(
         apiServerListKey,
@@ -761,6 +763,12 @@ fun SettingsScreen(
                 }
             ),
             SettingItemData(
+                title = "小组件诊断",
+                subtitle = "桌面组件不刷新 / 按钮没反应时，把这里的内容复制出来",
+                imageVector = Icons.Outlined.Description,
+                onClick = { showWidgetDiag = true }
+            ),
+            SettingItemData(
                 title = if (updating) "正在检查" else "检查更新",
                 subtitle = "v${BuildConfig.VERSION_NAME}",
                 // 上次检查失败的原因直接挂在这一行：之前失败是完全静默的，
@@ -1026,6 +1034,10 @@ fun SettingsScreen(
                 }
             }
         )
+    }
+
+    if (showWidgetDiag) {
+        WidgetDiagDialog(onDismiss = { showWidgetDiag = false })
     }
 
     if (showGithubSourceDialog) {

@@ -1,6 +1,7 @@
 package com.jussicodes.music.lx
 
 import android.content.Context
+import com.jussicodes.music.playback.PlaybackPath
 import com.rcmiku.ncmapi.api.player.PlayUrlSkip
 import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.model.Song
@@ -324,12 +325,23 @@ object LxPluginManager {
         val startedAt = System.currentTimeMillis()
         val enabled = LxPluginStore.snapshot().filter { it.isEnabled }
         if (enabled.isEmpty()) {
+            PlaybackPath.stepFor(songId, "LX 音源不可用", "没有启用的脚本", listOf("LX"), PlaybackPath.Status.FAIL)
             android.util.Log.w(TAG, "no enabled plugin, skip lx songId=$songId")
             return null
+        }
+        // 只有一个脚本时不用单独播报：下一行「脚本命中」已经写了名字，多一行只是噪音。
+        if (enabled.size > 1) {
+            PlaybackPath.stepFor(songId, 
+                "LX 脚本音源",
+                "${enabled.size} 个启用脚本 · ${enabled.joinToString("/") { it.name }}",
+                listOf("LX"),
+                PlaybackPath.Status.RUNNING,
+            )
         }
         // 元信息取不到就不试解析；网络抖动导致的单次失败很常见，重试一次再放弃。
         val song = fetchSong(songId) ?: fetchSong(songId)
         if (song == null) {
+            PlaybackPath.stepFor(songId, "歌曲元信息获取失败", "两次请求都没拿到 song detail", listOf("LX"), PlaybackPath.Status.FAIL)
             android.util.Log.w(TAG, "song detail unavailable after 2 attempts, skip lx songId=$songId")
             return null
         }
@@ -340,6 +352,12 @@ object LxPluginManager {
         for (item in enabled) {
             for (quality in candidatesFor(item, qualityCandidates)) {
                 if (System.currentTimeMillis() >= deadline) {
+                    PlaybackPath.stepFor(songId, 
+                        "解析预算耗尽",
+                        "${RESOLVE_BUDGET_MS}ms 内没命中，回落官方接口兜底",
+                        listOf("LX"),
+                        PlaybackPath.Status.FAIL,
+                    )
                     android.util.Log.w(
                         TAG,
                         "resolve budget ${RESOLVE_BUDGET_MS}ms exhausted songId=$songId " +
@@ -351,24 +369,56 @@ object LxPluginManager {
                 val url = engine?.resolveUrl(item.id, musicInfo, quality)
                 val cost = System.currentTimeMillis() - t0
                 when {
-                    url.isNullOrBlank() ->
+                    url.isNullOrBlank() -> {
+                        PlaybackPath.stepFor(songId, 
+                            item.name,
+                            "未命中 · ${quality}",
+                            listOf("LX", quality),
+                            PlaybackPath.Status.INFO,
+                            cost,
+                        )
                         android.util.Log.w(TAG, "plugin '${item.name}' miss songId=$songId quality=$quality cost=${cost}ms")
+                    }
                     // 脚本降级到官方试听链时不能当命中，继续下一个
-                    url.contains("musicrep-ts", ignoreCase = true) ->
+                    url.contains("musicrep-ts", ignoreCase = true) -> {
+                        PlaybackPath.stepFor(songId, 
+                            item.name,
+                            "返回试听片段，跳过 · ${quality}",
+                            listOf("LX", quality),
+                            PlaybackPath.Status.FAIL,
+                            cost,
+                        )
                         android.util.Log.w(TAG, "plugin '${item.name}' returned trial clip, try next songId=$songId")
+                    }
                     // 播放器侧时长校验判定这条链不是这首歌的完整音频：跳过它
-                    PlayUrlSkip.blocks(skipUrls, url) ->
+                    PlayUrlSkip.blocks(skipUrls, url) -> {
+                        PlaybackPath.stepFor(songId, 
+                            item.name,
+                            "返回的地址已被时长校验拉黑 · ${quality}",
+                            listOf("LX", quality),
+                            PlaybackPath.Status.FAIL,
+                            cost,
+                        )
                         android.util.Log.w(
                             TAG,
                             "plugin '${item.name}' url rejected by duration check, try next songId=$songId"
                         )
+                    }
                     else -> {
+                        PlaybackPath.stepFor(songId, 
+                            item.name,
+                            "命中 · ${quality}",
+                            listOf("LX", quality),
+                            PlaybackPath.Status.OK,
+                            cost,
+                        )
                         android.util.Log.i(TAG, "plugin '${item.name}' hit songId=$songId quality=$quality cost=${cost}ms")
                         return url
                     }
                 }
             }
         }
+        PlaybackPath.stepFor(songId, "LX 全部未命中", "所有脚本/档位都试过了", listOf("LX"), PlaybackPath.Status.FAIL)
         android.util.Log.w(
             TAG,
             "all plugins missed songId=$songId levels=$qualityCandidates plugins=${enabled.size} " +

@@ -57,6 +57,7 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Tune
 import com.jussicodes.music.ui.components.AudioQualityProbeDialog
+import com.jussicodes.music.ui.components.CoverAsyncImage
 import com.jussicodes.music.ui.components.ProbeDialogMode
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -149,6 +150,7 @@ import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.components.DownloadQualityDialog
 import com.jussicodes.music.ui.components.JussiDropdownMenu
 import com.jussicodes.music.ui.components.JussiMenuItem
+import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.rememberPreference
 import com.rcmiku.ncmapi.model.Artist
 import com.rcmiku.ncmapi.model.Song
@@ -1955,13 +1957,11 @@ private fun DownloadedSongItem(
                 task.coverUrl
             )
         }
-        AsyncImage(
-            model = offlineCover,
-            contentDescription = null,
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(8.dp)),
-            contentScale = ContentScale.Crop
+        CoverAsyncImage(
+            url = offlineCover,
+            size = CoverImageSize.LIST,
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.size(48.dp)
         )
 
         Spacer(Modifier.width(12.dp))
@@ -2230,13 +2230,11 @@ private fun DownloadingSongItem(
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AsyncImage(
-            model = task.coverUrl,
-            contentDescription = null,
-            modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(8.dp)),
-            contentScale = ContentScale.Crop
+        CoverAsyncImage(
+            url = task.coverUrl,
+            size = CoverImageSize.LIST,
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.size(48.dp)
         )
 
         Spacer(Modifier.width(12.dp))
@@ -2883,13 +2881,11 @@ private fun DownloadedGroupCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (group.coverUrl.isNotBlank()) {
-                    AsyncImage(
-                        model = group.coverUrl,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(50.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop
+                    CoverAsyncImage(
+                        url = group.coverUrl,
+                        size = CoverImageSize.LIST,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.size(50.dp)
                     )
                 } else {
                     Box(
@@ -3029,13 +3025,11 @@ private fun ExternalPlaylistCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (playlist.coverUrl.isNotBlank()) {
-                    AsyncImage(
-                        model = playlist.coverUrl,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(50.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop
+                    CoverAsyncImage(
+                        url = playlist.coverUrl,
+                        size = CoverImageSize.LIST,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.size(50.dp)
                     )
                 } else {
                     Box(
@@ -3184,13 +3178,11 @@ private fun ExternalSongItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (!song.coverUri.isNullOrBlank()) {
-            AsyncImage(
-                model = song.coverUri,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(6.dp)),
-                contentScale = ContentScale.Crop
+            CoverAsyncImage(
+                url = song.coverUri,
+                size = CoverImageSize.LIST,
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.size(42.dp)
             )
         } else {
             Box(

@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -14,6 +15,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.IBinder
 import android.text.TextPaint
+import android.text.Layout
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
@@ -48,6 +50,7 @@ import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.parseLrc
 import com.jussicodes.music.utils.parseYrc
 import com.rcmiku.ncmapi.api.player.PlayerApi
+import kotlin.math.ceil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -174,7 +177,7 @@ class DesktopLyricService : Service() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // 旋转/分屏/折叠屏：可用区域变了，按比例重新落位（位置比例本身允许落在屏幕外）。
+        // 旋转/分屏只重算内容宽度；不强制改成顶部居中，避免旋转后位置丢失。
         contentWidthPx = measureContentWidth()
         relayout()
         positionControlWindow()
@@ -402,10 +405,11 @@ class DesktopLyricService : Service() {
         if (current == currentLineText && secondary == secondaryLineText) return
         currentLineText = current
         secondaryLineText = secondary
-        currentLineView?.text = current
+        currentLineView?.text = current.ifBlank { "暂无歌词" }
         secondaryLineView?.text = secondary
-        // INVISIBLE 而不是 GONE：保留副行高度，窗口高度和基线都不会跳。
+        // 副行隐藏时仍然保留占位，但主行单行时不再预留主行第二行的高度；高度由 relayout 计算。
         secondaryLineView?.visibility = if (secondary.isBlank()) View.INVISIBLE else View.VISIBLE
+        relayout()
     }
 
     /** 歌词窗是否应该出现（播过 + App 不在前台）。 */
@@ -434,13 +438,14 @@ class DesktopLyricService : Service() {
             setStrokeWidth(style.primaryStrokeWidth(resources.displayMetrics.density))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, style.fontSizeSp)
             typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
+            // 水平居中只排文字；垂直置顶，避免 CENTER_VERTICAL 的 voffsetText 使手绘描边层
+            // 与填充层在不同基线上对不齐（描边错位/像投影）。
+            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
             includeFontPadding = false
             maxLines = 2
-            minLines = 2
+            minLines = 1
             ellipsize = TextUtils.TruncateAt.END
             setLineSpacing(0f, 1.06f)
-            setShadowLayer(8f, 0f, 2f, adjustAlpha(Color.BLACK, 0.24f))
             text = currentLineText.orEmpty().ifBlank { "暂无歌词" }
         }
         secondaryLineView = StrokeTextView(this).apply {
@@ -449,13 +454,12 @@ class DesktopLyricService : Service() {
             setStrokeWidth(style.secondaryStrokeWidth(resources.displayMetrics.density))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, style.secondaryFontSizeSp)
             typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
             includeFontPadding = false
             maxLines = 1
             minLines = 1
             ellipsize = TextUtils.TruncateAt.END
             setLineSpacing(0f, 1.04f)
-            setShadowLayer(6f, 0f, 2f, adjustAlpha(Color.BLACK, 0.2f))
             text = secondaryLineText.orEmpty()
             visibility = if (secondaryLineText.isNullOrBlank()) View.INVISIBLE else View.VISIBLE
         }
@@ -538,8 +542,33 @@ class DesktopLyricService : Service() {
         val secondaryMetrics = secondaryPaint.fontMetrics
         val secondaryLineHeight = (secondaryMetrics.descent - secondaryMetrics.ascent) * 1.04f
         val strokeSlack = currentStyle.primaryStrokeWidth(density).toInt()
-        return dp(16) * 2 + (mainLineHeight * 2f).toInt() + dp(6) +
-            secondaryLineHeight.toInt() + strokeSlack + dp(2)
+        // 主行实际行数由当前文本换行决定；短句只有一行，不能再按两行撑高。
+        val mainLines = visualLineCount(currentLineText.orEmpty().ifBlank { "暂无歌词" }, currentLineView?.width ?: 1, currentStyle.fontSizeSp)
+        val hasSecondary = !secondaryLineText.isNullOrBlank()
+        return if (hasSecondary) {
+            dp(16) * 2 + (mainLineHeight * mainLines).toInt() + dp(6) +
+                secondaryLineHeight.toInt() + strokeSlack + dp(2)
+        } else {
+            dp(16) * 2 + (mainLineHeight * mainLines).toInt() + strokeSlack + dp(2)
+        }
+    }
+
+    private fun visualLineCount(text: String, widthPx: Int, fontSizeSp: Float): Int {
+        if (widthPx < dp(24) || text.isBlank()) return 1
+        val paint = measureTextPaint(fontSizeSp)
+        val available = (widthPx - dp(48)).coerceAtLeast(dp(1))
+        var lines = 1
+        var currentWidth = 0f
+        for (char in text) {
+            val charWidth = paint.measureText(char.toString())
+            if (currentWidth + charWidth > available && currentWidth > 0f) {
+                lines += 1
+                currentWidth = charWidth
+            } else {
+                currentWidth += charWidth
+            }
+        }
+        return lines.coerceIn(1, 2)
     }
 
     private fun measureTextPaint(fontSizeSp: Float): TextPaint =
@@ -569,14 +598,12 @@ class DesktopLyricService : Service() {
         val width = computeLyricWidth()
         val height = computeLyricHeight()
         if (params.width == width && params.height == height) return
-        // 以窗口中心为锚点。整窗宽度是按「本首歌最长行」算的，换歌会变宽/变窄；
-        // 只保住左上角的话，窗口内部居中的文字会整体左移右移（用户说的「切歌左移错位」）。
-        val centerX = params.x + params.width / 2
-        val centerY = params.y + params.height / 2
+        // 默认位才顶部居中；已手动拖过的位置由 xFraction/yFraction（persistPosition 写入）决定。
+        // 旧代码的 relayout 把位置硬改回去，播放时表现为每次歌词更新都“跳回默认位置”。
         params.width = width
         params.height = height
-        params.x = centerX - width / 2
-        params.y = centerY - height / 2
+        params.x = xFromFraction(width)
+        params.y = yFromFraction(height)
         runCatching { windowManager.updateViewLayout(root, params) }
         persistPosition()
         positionControlWindow()
@@ -670,12 +697,15 @@ class DesktopLyricService : Service() {
             view.setTextColor(newStyle.textColor)
             view.setStrokeWidth(newStyle.primaryStrokeWidth(resources.displayMetrics.density))
             view.setStrokeColor(newStyle.strokeColor)
+            // 保证从旧 build 升级/旧状态恢复时也保持置顶对齐；改其一要检查开窗和样式更新两处。
+            view.gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
         }
         secondaryLineView?.let { view ->
             view.setTextSize(TypedValue.COMPLEX_UNIT_SP, newStyle.secondaryFontSizeSp)
             view.setTextColor(newStyle.secondaryTextColor)
             view.setStrokeWidth(newStyle.secondaryStrokeWidth(resources.displayMetrics.density))
             view.setStrokeColor(newStyle.secondaryStrokeColor)
+            view.gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
         }
         if (previous.locked != newStyle.locked) {
             if (newStyle.locked) panelExpanded = false
@@ -1074,28 +1104,132 @@ class DesktopLyricService : Service() {
     private class StrokeTextView(context: Context) : TextView(context) {
         private var strokeColor: Int = Color.BLACK
         private var strokeWidthPx: Float = 0f
+        /** 描边专用画笔：绝不复用/改动 TextView 内部的 mTextPaint。 */
+        private val strokePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            // 转折处圆接：粗体中文的直角笔画不会顶出一根硬刺
+            strokeJoin = Paint.Join.ROUND
+        }
+
+        /**
+         * 描边 + 填充一次性画进一张位图，之后每帧只贴图。
+         *
+         * 桌面歌词是常驻悬浮窗、按满刷新率重绘的，但文字本身每换一句才变一次；
+         * 原实现每帧都要跑两遍全行文字绘制（描边一遍 + TextView 填充一遍），
+         * 绝大多数帧画出来的东西和上一帧一模一样。缓存后 onDraw 只剩一次 1:1
+         * drawBitmap，文字绘制只在换句/改样式时发生一次。
+         */
+        private var cache: Bitmap? = null
+        /** 位图相对 View 向外多留的像素：描边以笔画中心向两侧扩，外侧那半圈必须留位置。 */
+        private var cacheInset = 0
+
+        private fun invalidateCache() {
+            // 不 recycle：硬件加速下上一帧的贴图可能还在渲染管线里，recycle 会撞
+            // "trying to use a recycled bitmap"。置空交给 GC，一张图 1MB 级、换句频率几秒一次，无压力。
+            cache = null
+            invalidate()
+        }
 
         fun setStrokeColor(color: Int) {
+            if (color == strokeColor) return
             strokeColor = color
-            invalidate()
+            invalidateCache()
         }
 
         fun setStrokeWidth(widthPx: Float) {
+            if (widthPx == strokeWidthPx) return
             strokeWidthPx = widthPx
-            invalidate()
+            invalidateCache()
+        }
+
+        // 文字由 TextView 内部改（setText 是 final，不能拦），走 onTextChanged 回调让位图失效，
+        // 否则会一直贴着旧的字。
+        override fun onTextChanged(text: CharSequence?, start: Int, lengthBefore: Int, lengthAfter: Int) {
+            super.onTextChanged(text, start, lengthBefore, lengthAfter)
+            invalidateCache()
+        }
+
+        override fun setTextColor(color: Int) {
+            super.setTextColor(color)
+            invalidateCache()
+        }
+
+        override fun setTextSize(unit: Int, size: Float) {
+            super.setTextSize(unit, size)
+            invalidateCache()
+        }
+
+        override fun setLineSpacing(add: Float, mult: Float) {
+            super.setLineSpacing(add, mult)
+            invalidateCache()
+        }
+
+        override fun setTypeface(tf: Typeface?) {
+            super.setTypeface(tf)
+            invalidateCache()
+        }
+
+        override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+            super.onSizeChanged(w, h, oldw, oldh)
+            if (w != oldw || h != oldh) invalidateCache()
         }
 
         override fun onDraw(canvas: Canvas) {
-            val fillColor = currentTextColor
-            if (strokeWidthPx > 0f) {
-                paint.style = Paint.Style.STROKE
-                paint.strokeWidth = strokeWidthPx
-                setTextColor(strokeColor)
-                super.onDraw(canvas)
+            val w = width
+            val h = height
+            if (w <= 0 || h <= 0) return
+            // 描边是沿笔画中心线内外各扩 strokeWidth/2，位图不留这一圈就会把外侧描边裁掉，
+            // 效果会变成“描边只有一半粗”。+1 给抗锯齿边缘留一点余量。
+            val inset = ceil(strokeWidthPx / 2f).toInt() + 1
+            val bw = w + inset * 2
+            val bh = h + inset * 2
+            val hit = cache
+            if (hit != null && hit.width == bw && hit.height == bh && cacheInset == inset) {
+                canvas.drawBitmap(hit, -inset.toFloat(), -inset.toFloat(), null)
+                return
             }
-            paint.style = Paint.Style.FILL
-            paint.strokeWidth = 0f
-            setTextColor(fillColor)
+            val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+            val bmpCanvas = Canvas(bmp)
+            bmpCanvas.translate(inset.toFloat(), inset.toFloat())
+            drawLyric(bmpCanvas)
+            cache = bmp
+            cacheInset = inset
+            canvas.drawBitmap(bmp, -inset.toFloat(), -inset.toFloat(), null)
+        }
+
+        /** 真正的内容绘制：先描边层，再让 TextView 画填充层。 */
+        private fun drawLyric(canvas: Canvas) {
+            // 描边层用独立画笔逐行手绘，先于填充层，绝不碰 setTextColor()/paint.color。
+            // 两个禁忌都不能碰：
+            // 1) setTextColor()：颜色真实变化会 invalidate()，在 draw 过程中调用等于把
+            //    下一帧排进 vsync——悬浮窗会以满刷新率无限重绘（已实际踩过）。
+            // 2) 直改 paint.color 再走 super.onDraw()：TextView 内部绘制前会用当前
+            //    文字色重设画笔，描边色被覆盖成填充色（描边显示成白色，已实际踩过）。
+            // 3) 不能再加“描边 + 自绘阴影/投影”层：用户要求只有描边；偏移副本会像错位阴影。
+            val layout = layout
+            if (strokeWidthPx > 0f && layout != null && text.isNotEmpty()) {
+                strokePaint.set(paint)
+                strokePaint.style = Paint.Style.STROKE
+                strokePaint.strokeWidth = strokeWidthPx
+                strokePaint.color = strokeColor
+                val txt = text.toString()
+                for (i in 0 until layout.lineCount) {
+                    val start = layout.getLineStart(i)
+                    val end = layout.getLineEnd(i)
+                    if (end <= start) continue
+                    var line = txt.substring(start, end)
+                    // 省略号是画的时候临时替换的，不在 layout 文本里，这里对齐补上。
+                    val ellipsisCount = layout.getEllipsisCount(i)
+                    if (ellipsisCount > 0) line = txt.substring(start, end - ellipsisCount) + "…"
+                    if (line.isBlank()) continue
+                    canvas.drawText(
+                        line,
+                        layout.getLineLeft(i),
+                        layout.getLineBaseline(i).toFloat(),
+                        strokePaint,
+                    )
+                }
+            }
+            // 填充层照旧走 TextView 自绘（颜色就是 currentTextColor，无任何改动）。
             super.onDraw(canvas)
         }
     }
