@@ -245,7 +245,7 @@ private fun CardLayout(
             cover = cover,
             palette = palette,
             modifier = GlanceModifier.size(coverSize)
-                .clickable(openTargetAction(context, snapshot)),
+                .clickable(openAppAction(context)),
             radius = (coverSize * 0.16f).coerceAtLeast(10.dp),
             iconSize = 22.dp,
         )
@@ -389,14 +389,14 @@ private fun BannerLayout(
                 cover = cover,
                 palette = palette,
                 modifier = GlanceModifier.size(coverSize)
-                    .clickable(openTargetAction(context, snapshot)),
+                    .clickable(openAppAction(context)),
                 radius = coverSize / 4,
                 iconSize = 18.dp,
             )
             Spacer(GlanceModifier.width(8.dp))
             Column(
                 modifier = GlanceModifier.width(textWidth)
-                    .clickable(openTargetAction(context, snapshot)),
+                    .clickable(openAppAction(context)),
             ) {
                 if (snapshot.hasSong) {
                     Text(
@@ -493,7 +493,7 @@ private fun TileLayout(
         // 整块封面点击打开 App（不再左右分区切歌，切歌交给下面控制键）。
         Box(
             modifier = GlanceModifier.fillMaxWidth().height(coverSide)
-                .clickable(openTargetAction(context, snapshot)),
+                .clickable(openAppAction(context)),
         ) {
             CoverArt(
                 cover = cover,
@@ -511,14 +511,14 @@ private fun TileLayout(
                 text = ellipsize(context, snapshot.title, inner, 13f, medium = true),
                 maxLines = 1,
                 style = titleStyle(palette.onCard, 13.sp),
-                modifier = GlanceModifier.clickable(openTargetAction(context, snapshot)),
+                modifier = GlanceModifier.clickable(openAppAction(context)),
             )
             Spacer(GlanceModifier.height(2.dp))
             Text(
                 text = ellipsize(context, snapshot.subtitle(context), inner, 10.5f),
                 maxLines = 1,
                 style = bodyStyle(palette.secondary, 10.5.sp),
-                modifier = GlanceModifier.clickable(openTargetAction(context, snapshot)),
+                modifier = GlanceModifier.clickable(openAppAction(context)),
             )
             Spacer(GlanceModifier.height(4.dp))
             ProgressRow(snapshot, palette, inner, compact = true)
@@ -527,7 +527,7 @@ private fun TileLayout(
                 text = ellipsize(context, snapshot.statusTitle(context), inner, 13f, medium = true),
                 maxLines = 1,
                 style = titleStyle(palette.onCard, 13.sp),
-                modifier = GlanceModifier.clickable(openTargetAction(context, snapshot)),
+                modifier = GlanceModifier.clickable(openAppAction(context)),
             )
         }
 
@@ -892,9 +892,7 @@ private fun ellipsize(
     return TextUtils.ellipsize(text, paint, widthPx, TextUtils.TruncateAt.END).toString()
 }
 
-/** 空状态点卡片进 App，有歌时进播放页。 */
-internal fun openTargetAction(context: Context, snapshot: WidgetSnapshot): Action =
-    if (snapshot.hasSong) openPlayerAction(context) else openAppAction(context)
+/** 空状态点卡片进 App，有歌时进播放页的旧行为已取消：组件内点击一律进 App 主界面。 */
 
 // —————————————————————— 三个独立的桌面小组件 ——————————————————————
 

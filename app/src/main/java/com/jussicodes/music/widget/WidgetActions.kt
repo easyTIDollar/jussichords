@@ -53,8 +53,6 @@ object WidgetIntents {
         }
 }
 
-fun openPlayerAction(context: Context): Action = actionStartActivity(WidgetIntents.app(context, true))
-
 fun openAppAction(context: Context): Action = actionStartActivity(WidgetIntents.app(context))
 
 /**
