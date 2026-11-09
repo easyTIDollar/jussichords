@@ -31,8 +31,8 @@ android {
         applicationId = "com.jussicodes.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 53
-        versionName = "2.5.3"
+        versionCode = 54
+        versionName = "2.5.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -174,6 +174,8 @@ dependencies {
     implementation(libs.media3.database)
     implementation(libs.media3.datasource)
     implementation(libs.media3.session)
+    // 桌面小组件：Glance（minSdk 26 可用；1.1.1 与 compileSdk 34 匹配）
+    implementation(libs.androidx.glance.appwidget)
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.navigation.compose)
     ksp(libs.hilt.compiler)
