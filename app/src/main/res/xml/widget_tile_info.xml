@@ -4,7 +4,7 @@
     android:description="@string/widget_desc"
     android:initialLayout="@layout/glance_default_loading_layout"
     android:minHeight="180dp"
-    android:minWidth="110dp"
+    android:minWidth="116dp"
     android:resizeMode="none"
     android:targetCellHeight="3"
     android:targetCellWidth="2"

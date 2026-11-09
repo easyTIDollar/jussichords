@@ -117,14 +117,15 @@ abstract class BaseMusicWidget(private val widgetLayout: WidgetLayout) : GlanceA
             } else {
                 snapshot.isLiked
             }
-            val cover = WidgetCoverLoader.cached(snapshot, coverStyle, coverRatio(coverStyle))
+            val coverRatioValue = coverRatio(coverStyle, size)
+            val cover = WidgetCoverLoader.cached(snapshot, coverStyle, coverRatioValue)
             if (snapshot.hasSong && cover == null) {
                 // 合成里只读缓存，缺图交给后台补；补好后再推一帧，绝不让网络阻塞合成。
                 WidgetCoverLoader.prefetch(
                     context = context,
                     snapshot = snapshot,
                     style = coverStyle,
-                    cornerRatio = coverRatio(coverStyle),
+                    cornerRatio = coverRatioValue,
                 ) { WidgetHub.updateAll(context) }
             }
             val palette = WidgetPalette.of(
@@ -166,10 +167,19 @@ private fun coverStyleFor(layout: WidgetLayout): CoverStyle = when (layout) {
     WidgetLayout.BANNER -> CoverStyle.SMALL
 }
 
-/** 封面圆角比例：三档都是「方形圆角」，按各自尺寸算像素，别在小图上切出大圆角。 */
-private fun coverRatio(style: CoverStyle): Float = when (style) {
+/**
+ * 封面圆角比例（画在位图上，随封面等比缩放）。
+ *
+ * 2×3（FULL）要求与卡片同圆角：[WidgetTokens.CardRadius] = 26dp。位图的圆角是按比例画的，
+ * 所以用封面实际显示宽度反算比例（- 20dp = 两侧各 10dp 内边距，与 TileLayout 的 pad 一致）。
+ * 夹在 0.08~0.42 之间，防止极端尺寸下退化成圆角过大的胶囊。
+ */
+private fun coverRatio(style: CoverStyle, size: DpSize): Float = when (style) {
     CoverStyle.THUMB -> 0.17f
-    CoverStyle.FULL -> 0.15f
+    CoverStyle.FULL -> {
+        val coverWidth = (size.width - 20.dp).value.coerceAtLeast(48f)
+        (WidgetTokens.CardRadius.value / coverWidth).coerceIn(0.08f, 0.42f)
+    }
     CoverStyle.SMALL -> 0.25f
 }
 
@@ -489,7 +499,7 @@ private fun TileLayout(
                 cover = cover,
                 palette = palette,
                 modifier = GlanceModifier.fillMaxSize(),
-                radius = 14.dp,
+                radius = WidgetTokens.CardRadius,
                 iconSize = 26.dp,
                 fill = true,
             )
