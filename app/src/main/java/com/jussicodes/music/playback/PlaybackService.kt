@@ -86,6 +86,7 @@ import com.rcmiku.ncmapi.ncbl.NeteaseClientLogClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -468,6 +469,16 @@ class PlaybackService : MediaSessionService() {
     /** 预取本身也走网络，弱网下不能把它变成新的卡点。 */
     private val prefetchTimeoutMs = 12_000L
 
+    /**
+     * 缓冲卡死判定：进入 BUFFERING 这么久还没有任何进展，就在面板上留一行；
+     * 再多等一会儿仍然卡着，就自动强制重解析一次（每条曲目最多一次）。
+     *
+     * 为什么需要：「解析成功、进度条一直转」这类现场没有异常，onPlayerError 不会触发，
+     * 用户只能切歌才行，事后又拿不到 logcat。先让它自己救一次，救不了也留下证据。
+     */
+    private val bufferStallWarnMs = 8_000L
+    private val bufferStallHealMs = 12_000L
+
     private var prefetchJob: kotlinx.coroutines.Job? = null
 
     /**
@@ -551,6 +562,90 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /** 见 [bufferStallWarnMs]：卡缓冲看门狗。 */
+    private val bufferWatchdog = object : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState != Player.STATE_BUFFERING) {
+                bufferWatchJob?.cancel()
+                return
+            }
+            val player = mediaSession?.player ?: return
+            val item = player.currentMediaItem ?: return
+            if (!player.playWhenReady) return
+            startBufferWatch(item.mediaId)
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            autoHealCount = 0
+            bufferWatchJob?.cancel()
+        }
+    }
+
+    private var bufferWatchJob: Job? = null
+    private var autoHealCount = 0
+
+    private fun startBufferWatch(songId: String) {
+        bufferWatchJob?.cancel()
+        bufferWatchJob = scope.launch {
+            delay(bufferStallWarnMs)
+            val player = mediaSession?.player ?: return@launch
+            if (player.playbackState != Player.STATE_BUFFERING) return@launch
+            if (player.currentMediaItem?.mediaId != songId) return@launch
+            if (!player.playWhenReady) return@launch
+
+            val observation = ResolveGuard.observe(songId)
+            val detail = buildString {
+                append("已 ${bufferStallWarnMs / 1000}s 无进展")
+                append(" · 位置 ${formatClock(player.currentPosition)}/${formatClock(player.duration)}")
+                append(" · 已缓冲 ${formatClock(player.bufferedPosition)}")
+                player.playbackException?.let { append(" · 错误 ${it.errorCodeName}") }
+                observation?.let {
+                    append(" · ${com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(it.url)}")
+                    if (it.retries > 0) append(" · 已换源 ${it.retries} 次")
+                }
+            }
+            PlaybackPath.stepFor(
+                songId,
+                "缓冲卡住",
+                detail,
+                listOf("播放器"),
+                PlaybackPath.Status.FAIL,
+            )
+            android.util.Log.w(TAG, "buffer stall songId=$songId detail=$detail")
+
+            delay(bufferStallHealMs)
+            val p = mediaSession?.player ?: return@launch
+            if (p.playbackState != Player.STATE_BUFFERING) return@launch
+            if (p.currentMediaItem?.mediaId != songId) return@launch
+            if (!p.playWhenReady) return@launch
+            if (autoHealCount >= 1) {
+                PlaybackPath.stepFor(
+                    songId,
+                    "仍无进展",
+                    "自动重连已用过一次，点「重新解析当前音乐」可手动换源",
+                    listOf("播放器"),
+                    PlaybackPath.Status.FAIL,
+                )
+                return@launch
+            }
+            autoHealCount++
+            PlaybackPath.stepFor(
+                songId,
+                "自动重连",
+                "丢掉直链缓存与分片缓存，重新解析一次",
+                listOf("播放器"),
+                PlaybackPath.Status.RUNNING,
+            )
+            reloadCurrent(force = true)
+        }
+    }
+
+    private fun formatClock(ms: Long): String {
+        if (ms <= 0L) return "0:00"
+        val total = ms / 1000
+        return "%d:%02d".format(total / 60, total % 60)
+    }
+
     private val recoveryListener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
             // 音源本身坏了（404 / HTML 页 / 不是音频）：同一条链重试没意义 → 换源。
@@ -580,6 +675,9 @@ class PlaybackService : MediaSessionService() {
                 val p = mediaSession?.player ?: return@launch
                 // 期间用户切歌/手动操作了就别抢
                 if (p.currentMediaItem?.mediaId != item.mediaId) return@launch
+                // prepare() 在非 IDLE 状态直接 return；重试必须先 stop() 打回 IDLE，
+                // 否则「退避重试」只是空转一轮，用户看到的就是一直转圈。
+                p.stop()
                 p.seekTo(resumeAt)
                 p.prepare()
                 p.play()
@@ -986,7 +1084,7 @@ class PlaybackService : MediaSessionService() {
                                 // 面板上的「第一行」才对得上真实链路（缓存 → 直链 → 音源）。
                                 PlaybackPath.step(
                                     "音频分片缓存",
-                                    "缺分片，需要解析直链后边下边播",
+                                    "本曲无缓存",
                                     listOf("缓存"),
                                     PlaybackPath.Status.INFO,
                                 )
@@ -1007,7 +1105,7 @@ class PlaybackService : MediaSessionService() {
                             if (PlaybackPath.begin(resolveKey, qualityTag)) {
                                 PlaybackPath.step(
                                     "音频分片缓存",
-                                    "缺分片，需要解析直链后边下边播",
+                                    "本曲无缓存",
                                     listOf("缓存"),
                                     PlaybackPath.Status.INFO,
                                 )
@@ -1118,6 +1216,8 @@ class PlaybackService : MediaSessionService() {
         // 桌面小组件：播放/暂停、切歌、缓冲变化主动刷新
         player.addListener(widgetStateListener)
         player.addListener(pathListener)
+        // 卡缓冲看门狗：异常路径看不到的「一直转圈」在这里留证据并自救
+        player.addListener(bufferWatchdog)
         player.addListener(personalFmRefillListener)
         // 音源时长校验：解析出的直链与歌曲元数据时长不符 → 拉黑该链并换源重试
         player.addListener(durationVerifyListener)

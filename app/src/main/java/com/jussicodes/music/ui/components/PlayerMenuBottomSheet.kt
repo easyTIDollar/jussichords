@@ -1,5 +1,6 @@
 ﻿package com.jussicodes.music.ui.components
 
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -57,6 +58,8 @@ import com.jussicodes.music.R
 import com.jussicodes.music.constants.audioSourceKey
 import com.jussicodes.music.constants.directSourceKey
 import com.jussicodes.music.playback.ListenTogetherSession
+import com.jussicodes.music.playback.PlaybackPathOverlayService
+import com.jussicodes.music.lyric.DesktopLyricManager
 import com.jussicodes.music.constants.audioEffectEightDEnabledKey
 import com.jussicodes.music.constants.audioEffectIntensityKey
 import com.jussicodes.music.constants.audioEffectModeKey
@@ -508,6 +511,19 @@ fun PlayerMenuBottomSheet(
         onDismiss = { showPlaybackPathSheet = false },
         songTitle = currentSong?.name,
         onReResolve = { PlaybackReloadBus.requestReResolve() },
+        onPinWindow = {
+            if (DesktopLyricManager.canDrawOverlays(context)) {
+                runCatching {
+                    context.startService(
+                        Intent(context, PlaybackPathOverlayService::class.java)
+                    )
+                }
+            } else {
+                // 复用桌面歌词的悬浮窗权限流程，不新开一套引导
+                runCatching { DesktopLyricManager.requestOverlayPermission(context) }
+                Toast.makeText(context, "授予「显示在其他应用上层」后，再点一次置顶小窗", Toast.LENGTH_LONG).show()
+            }
+        },
     )
 
     currentSong?.let { song ->

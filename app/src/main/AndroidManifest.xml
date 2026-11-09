@@ -68,6 +68,11 @@
             android:name=".lyric.DesktopLyricService"
             android:exported="false" />
 
+        <!-- 可视化播放解析的置顶小窗（系统悬浮窗，权限复用桌面歌词那套） -->
+        <service
+            android:name=".playback.PlaybackPathOverlayService"
+            android:exported="false" />
+
         <service
             android:name=".download.DownloadService"
             android:exported="false"
