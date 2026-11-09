@@ -613,6 +613,7 @@ class PlaybackService : MediaSessionService() {
             loadEventInfo: LoadEventInfo,
             mediaLoadData: MediaLoadData,
             error: java.io.IOException,
+            wasCanceled: Boolean,
         ) {
             if (mediaLoadData.dataType != C.DATA_TYPE_MEDIA) return
             val songId = mediaSession?.player?.currentMediaItem?.mediaId ?: return
