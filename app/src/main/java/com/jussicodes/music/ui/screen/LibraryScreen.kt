@@ -1,6 +1,7 @@
 ﻿package com.jussicodes.music.ui.screen
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -66,12 +68,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -271,6 +275,10 @@ fun LibraryScreen(
         Triple(fav, created, collected)
     }
 
+    // 横屏：信息卡换成单行三段式（头像 | 竖线 | 昵称+关注粉丝 | 消息/排行/历史/电台），
+    // 竖屏仍是原来的双排卡片，两套布局互不影响。
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+
     // 主页文字色（设置页「外观」选择）：auto 档不覆盖（scheme 原样，逐像素一致、零重绘）；
     // 白/黑档用本地 ColorScheme 覆盖整页（卡片内 onSurface/onSurfaceVariant 读取处自动跟随）。
     val bgTextMode = HomeBgTextStore.state.collectAsState().value
@@ -367,28 +375,56 @@ fun LibraryScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                homeUserInfo?.let {
+                homeUserInfo?.let { info ->
                     item {
-                        LibraryUserCard(
-                            navController = navController,
-                            userInfo = it,
-                            avatarCacheVersion = avatarCacheVersion,
-                            followsCount = homeUserDetail?.profile?.followsCount,
-                            followedsCount = homeUserDetail?.profile?.followedsCount,
-                            onRoamClick = { launchPersonalFm() },
-                            onRecentPlayClick = { navController.navigate(Screen.RecentPlay.route) },
-                            onMessagesClick = { navController.navigate(Screen.Messages.route) },
-                            onRecordClick = { navController.navigate(RecordNav(uid = it.account.profile.userId)) },
-                            onAvatarClick = {
-                                libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie, force = true)
-                                showAvatarDialog = true
-                            },
-                            onEditProfileClick = {
-                                editNickname = it.account.profile.nickname
-                                editSignature = it.account.profile.signature
-                                showEditProfileDialog = true
-                            }
-                        )
+                        // 横屏：单行三段式卡片（矮，给列表让高度）；竖屏：原来的双排卡片。
+                        if (isLandscape) {
+                            LibraryUserCardWide(
+                                navController = navController,
+                                userInfo = info,
+                                avatarCacheVersion = avatarCacheVersion,
+                                followsCount = homeUserDetail?.profile?.followsCount,
+                                followedsCount = homeUserDetail?.profile?.followedsCount,
+                                onRoamClick = { launchPersonalFm() },
+                                onRecentPlayClick = { navController.navigate(Screen.RecentPlay.route) },
+                                onMessagesClick = { navController.navigate(Screen.Messages.route) },
+                                onRecordClick = {
+                                    navController.navigate(RecordNav(uid = info.account.profile.userId))
+                                },
+                                onAvatarClick = {
+                                    libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie, force = true)
+                                    showAvatarDialog = true
+                                },
+                                onEditProfileClick = {
+                                    editNickname = info.account.profile.nickname
+                                    editSignature = info.account.profile.signature
+                                    showEditProfileDialog = true
+                                }
+                            )
+                        } else {
+                            LibraryUserCard(
+                                navController = navController,
+                                userInfo = info,
+                                avatarCacheVersion = avatarCacheVersion,
+                                followsCount = homeUserDetail?.profile?.followsCount,
+                                followedsCount = homeUserDetail?.profile?.followedsCount,
+                                onRoamClick = { launchPersonalFm() },
+                                onRecentPlayClick = { navController.navigate(Screen.RecentPlay.route) },
+                                onMessagesClick = { navController.navigate(Screen.Messages.route) },
+                                onRecordClick = {
+                                    navController.navigate(RecordNav(uid = info.account.profile.userId))
+                                },
+                                onAvatarClick = {
+                                    libraryScreenViewModel.fetchUserInfo(cookie = ncmCookie, force = true)
+                                    showAvatarDialog = true
+                                },
+                                onEditProfileClick = {
+                                    editNickname = info.account.profile.nickname
+                                    editSignature = info.account.profile.signature
+                                    showEditProfileDialog = true
+                                }
+                            )
+                        }
                     }
                 }
 
@@ -845,6 +881,191 @@ fun LibraryScreen(
             }
         )
     }
+    }
+}
+
+@Composable
+private fun LibraryUserCardWide(
+    navController: NavHostController,
+    userInfo: UserInfoBatch,
+    avatarCacheVersion: Long,
+    followsCount: Int?,
+    followedsCount: Int?,
+    onRoamClick: () -> Unit,
+    onRecentPlayClick: () -> Unit,
+    onMessagesClick: () -> Unit,
+    onRecordClick: () -> Unit,
+    onAvatarClick: () -> Unit,
+    onEditProfileClick: () -> Unit
+) {
+    val profile = userInfo.account.profile
+    val haptics = LocalHapticFeedback.current
+    val followsLabel = if (followsCount != null) "$followsCount 关注" else "关注"
+    val followedsLabel = if (followedsCount != null) "$followedsCount 粉丝" else "粉丝"
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        // 容器色恒为不透明 surfaceContainerLow：「主页透明卡片」开关不作用于信息卡
+        // （见 userCardGlassColor 注释）。但开关开启时其他卡都透明成一片，信息卡
+        // 作为唯一实底块需要一条细描边交代边界——走 Card 的 border 参数而不是在
+        // 内容里垫Box：垫 Box 会占一行布局、把内容往下推，且描边画在卡片内部。
+        border = if (HomeTransparentCardStore.state.collectAsState().value) {
+            BorderStroke(
+                width = 1.dp,
+                color = androidx.compose.ui.graphics.Color.White.copy(
+                    alpha = if (isSystemInDarkTheme()) 0.14f else 0.35f
+                )
+            )
+        } else {
+            null
+        },
+        colors = CardDefaults.cardColors(
+            containerColor = userCardGlassColor(),
+            contentColor = MaterialTheme.colorScheme.onSurface
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 左侧：圆形头像
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .background(MaterialTheme.colorScheme.surface, CircleShape)
+                    .clip(CircleShape)
+                    .clickable(enabled = profile.avatarUrl.isNotBlank(), onClick = onAvatarClick),
+                contentAlignment = Alignment.BottomEnd
+            ) {
+                AsyncImage(
+                    model = profile.avatarUrl.withAvatarCacheBuster(avatarCacheVersion),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.clip(CircleShape).size(56.dp)
+                )
+                if (profile.vipType != 0) {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+                            .padding(4.dp)
+                    ) {
+                        androidx.compose.material3.Icon(
+                            imageVector = VipFill,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(10.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            // 头像与文本之间的细竖向分割线
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(30.dp)
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.22f))
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            // 左中：上一行昵称，下一行关注 / 粉丝
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = profile.nickname,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.clickable(onClick = onEditProfileClick)
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = followsLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier = Modifier.clickable {
+                            navController.navigate(
+                                UserFollowNav(
+                                    userId = profile.userId,
+                                    type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWS.name,
+                                    showArtistFollows = true
+                                )
+                            )
+                        }
+                    )
+                    Text(
+                        text = followedsLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier = Modifier.clickable {
+                            navController.navigate(
+                                UserFollowNav(
+                                    userId = profile.userId,
+                                    type = com.jussicodes.music.viewModel.UserFollowType.FOLLOWEDS.name
+                                )
+                            )
+                        }
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+            // 右侧：功能操作区（消息 / 排行 / 历史 / 电台）
+            Row {
+                QuickActionFixed(
+                    icon = Message,
+                    label = "消息",
+                    contentDescription = stringResource(R.string.messages),
+                    modifier = Modifier.width(38.dp),
+                    iconSize = 22.dp,
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onMessagesClick()
+                    }
+                )
+                QuickActionFixed(
+                    icon = Leaderboard,
+                    label = "排行",
+                    contentDescription = stringResource(R.string.record),
+                    modifier = Modifier.width(38.dp),
+                    iconSize = 22.dp,
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onRecordClick()
+                    }
+                )
+                QuickActionFixed(
+                    icon = History,
+                    label = "历史",
+                    contentDescription = stringResource(R.string.recent_play),
+                    modifier = Modifier.width(38.dp),
+                    iconSize = 22.dp,
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onRecentPlayClick()
+                    }
+                )
+                QuickActionFixed(
+                    icon = PersonalRadio,
+                    label = "电台",
+                    contentDescription = stringResource(R.string.roam),
+                    modifier = Modifier.width(38.dp),
+                    iconSize = 22.dp,
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onRoamClick()
+                    }
+                )
+            }
+        }
     }
 }
 
@@ -1323,6 +1544,38 @@ private fun RowScope.QuickAction(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun QuickActionFixed(
+    icon: ImageVector,
+    label: String,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    iconSize: Dp = 26.dp,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        androidx.compose.material3.Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(iconSize)
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
         )
     }
 }
