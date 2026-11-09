@@ -172,6 +172,24 @@ object PlaybackPath {
         finishLocked(result, status)
     }
 
+    /**
+     * 解析成功：只更新结果摘要（菜单行状态 / 面板头部），不再追加一行。
+     * 命中哪条分支、哪个域名，前面「官方直连 / 客户端音源命中 / 脚本命中」已经写过，
+     * 再补一行「已获取真实播放链接」只是把同一个 url 重复播报第三遍。
+     */
+    fun resolved(result: String) = synchronized(lock) {
+        outcome = result
+        finished = true
+        publish()
+    }
+
+    fun resolvedFor(songId: String, result: String) = synchronized(lock) {
+        if (focusSongId.isNotBlank() && !sameSong(songId, focusSongId)) return@synchronized
+        outcome = result
+        finished = true
+        publish()
+    }
+
     private fun finishLocked(result: String, status: Status) {
         outcome = result
         finished = status != Status.FAIL
@@ -186,13 +204,14 @@ object PlaybackPath {
     }
 
     /** 用户手动「重新解析当前音乐」：清空当前链，等下一次解析重新打点。 */
-    fun reset() = synchronized(lock) {
-        songId = ""
+    fun reset(songId: String = "") = synchronized(lock) {
+        this.songId = songId
         quality = ""
         route = ""
         outcome = ""
         finished = false
-        startedAt = 0L
+        // 清空但保留起点：紧跟其后的「重新解析当前音乐」打点仍算这一轮的开头。
+        startedAt = if (songId.isBlank()) 0L else SystemClock.elapsedRealtime()
         steps.clear()
         publish()
     }

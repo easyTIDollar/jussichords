@@ -131,13 +131,13 @@ fun PlaybackPathSheet(
                 ) {
                     Column {
                         Text(
-                            text = "还没有解析记录",
+                            text = "这一轮没有解析记录",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "本次播放可能直接命中了直链缓存/本地文件，没走网络解析。点下面的按钮可以完整跑一遍当前歌曲的解析链路。",
+                            text = "本次播放没有走解析：音频分片或直链直接命中缓存、或本地文件直达，播放器根本不会请求解析层。点下面的按钮可以完整跑一遍当前歌曲的解析链路。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

@@ -329,12 +329,15 @@ object LxPluginManager {
             android.util.Log.w(TAG, "no enabled plugin, skip lx songId=$songId")
             return null
         }
-        PlaybackPath.stepFor(songId, 
-            "LX 脚本音源",
-            "${enabled.size} 个启用脚本 · ${enabled.joinToString("/") { it.name }}",
-            listOf("LX"),
-            PlaybackPath.Status.RUNNING,
-        )
+        // 只有一个脚本时不用单独播报：下一行「脚本命中」已经写了名字，多一行只是噪音。
+        if (enabled.size > 1) {
+            PlaybackPath.stepFor(songId, 
+                "LX 脚本音源",
+                "${enabled.size} 个启用脚本 · ${enabled.joinToString("/") { it.name }}",
+                listOf("LX"),
+                PlaybackPath.Status.RUNNING,
+            )
+        }
         // 元信息取不到就不试解析；网络抖动导致的单次失败很常见，重试一次再放弃。
         val song = fetchSong(songId) ?: fetchSong(songId)
         if (song == null) {

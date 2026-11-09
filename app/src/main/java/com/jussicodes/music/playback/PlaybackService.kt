@@ -527,6 +527,10 @@ class PlaybackService : MediaSessionService() {
         val sourceTag = PlaybackReloadBus.sourceTag
         // 已经在缓存里（本轮播过/刚预取过）就别再打一次解析请求
         if (PlayUrlCache.get(uri.toString(), qualityTag, sourceTag) != null) return
+        // 预取是「当前这轮播放」的后台动作，挂在当前曲目链上，切歌时用户能看到
+        // 下一首为什么起播快。mediaId 必须在主线程取。
+        val focusId = player.currentMediaItem?.mediaId
+        val nextId = uri.toResolveKey()
         scope.launch(Dispatchers.IO) {
             val resolved = runCatching {
                 withTimeout(prefetchTimeoutMs) {
@@ -534,7 +538,16 @@ class PlaybackService : MediaSessionService() {
                 }
             }.getOrNull() ?: return@launch
             PlayUrlCache.put(uri.toString(), qualityTag, sourceTag, resolved.toString())
-            android.util.Log.d(TAG, "prefetch url ready songId=${uri.toResolveKey()}")
+            if (focusId != null) {
+                PlaybackPath.stepFor(
+                    focusId,
+                    "预取下一首",
+                    "$nextId 直链已就绪（只解析不下载）",
+                    listOf("预取"),
+                    PlaybackPath.Status.OK,
+                )
+            }
+            android.util.Log.d(TAG, "prefetch url ready songId=$nextId")
         }
     }
 
@@ -730,6 +743,14 @@ class PlaybackService : MediaSessionService() {
                 val diff = kotlin.math.abs(actualMs - expectedMs)
                 if (diff <= durationToleranceMs(expectedMs)) return@launch
 
+                // 面板上这一行是「解析成功但放不对」的唯一证据：链是好的、歌不对。
+                PlaybackPath.stepFor(
+                    songId,
+                    "时长校验不符",
+                    "元数据 ${expectedMs / 1000}s / 实际 ${actualMs / 1000}s，拉黑这条链",
+                    listOf("校验"),
+                    PlaybackPath.Status.FAIL,
+                )
                 android.util.Log.w(
                     TAG,
                     "duration mismatch songId=$songId expected=${expectedMs}ms actual=${actualMs}ms " +
@@ -769,6 +790,13 @@ class PlaybackService : MediaSessionService() {
         if (player.currentMediaItem?.mediaId != songId) return
         retryingSource = true
         verifiedUrl = null
+        PlaybackPath.stepFor(
+            songId,
+            "换源重放",
+            "清掉这首歌的分片缓存，重新解析直链",
+            listOf("校验"),
+            PlaybackPath.Status.RUNNING,
+        )
         scope.launch {
             try {
                 player.stop()
@@ -861,12 +889,19 @@ class PlaybackService : MediaSessionService() {
         if (force && rawUri != null) {
             val qualityTag = audioQuality.value
             val sourceTag = PlaybackReloadBus.sourceTag
-            PlaybackPath.reset()
+            PlaybackPath.reset(item.mediaId)
             pathReadySong = null
             PlayUrlCache.invalidate(rawUri, qualityTag, sourceTag)
             withContext(Dispatchers.IO) {
                 runCatching { AudioCache.get(this@PlaybackService).removeResource(audioCacheKey(rawUri)) }
             }
+            PlaybackPath.stepFor(
+                item.mediaId,
+                "重新解析当前音乐",
+                "已丢弃直链缓存与分片缓存，重新走一遍解析",
+                listOf("手动"),
+                PlaybackPath.Status.RUNNING,
+            )
         }
         // 必须 stop() → prepare()：prepare() 在非 IDLE 状态直接 return，
         // pause + seekTo(0) + prepare() 不会重新解析，等于没换源。
@@ -944,25 +979,45 @@ class PlaybackService : MediaSessionService() {
 
                         val resolvedUri = if (cachedUrl != null) {
                             PlaybackTrace.markOnce(this@PlaybackService, "hit", "resolve hit")
-                            PlaybackPath.begin(resolveKey, qualityTag)
-                            PlaybackPath.step(
-                                "命中解析缓存",
-                                com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(cachedUrl),
-                                listOf("缓存"),
-                                PlaybackPath.Status.OK,
-                            )
-                            PlaybackPath.finish("缓存直链 · " + com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(cachedUrl))
+                            // 预取下一首也走这里：begin 返回 false 时说明焦点不在它身上，
+                            // 后续打点必须一起跳过，否则会把当前歌的时间线搅乱。
+                            if (PlaybackPath.begin(resolveKey, qualityTag)) {
+                                // 能走到 ResolvingDataSource 说明分片缓存没兜住：先记这一层，
+                                // 面板上的「第一行」才对得上真实链路（缓存 → 直链 → 音源）。
+                                PlaybackPath.step(
+                                    "音频分片缓存",
+                                    "缺分片，需要解析直链后边下边播",
+                                    listOf("缓存"),
+                                    PlaybackPath.Status.INFO,
+                                )
+                                PlaybackPath.step(
+                                    "直链缓存 命中",
+                                    com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(cachedUrl),
+                                    listOf("缓存"),
+                                    PlaybackPath.Status.OK,
+                                )
+                                PlaybackPath.resolved(
+                                    "直链缓存 · " + com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(cachedUrl)
+                                )
+                            }
                             android.util.Log.d(TAG, "play url cache hit songId=$resolveKey")
                             cachedUrl.toUri()
                         } else {
                             PlaybackTrace.markOnce(this@PlaybackService, "miss", "resolve miss")
-                            PlaybackPath.begin(resolveKey, qualityTag)
-                            PlaybackPath.step(
-                                "开始加载音频",
-                                "播放器连接真实音频地址",
-                                listOf("播放器"),
-                                PlaybackPath.Status.RUNNING,
-                            )
+                            if (PlaybackPath.begin(resolveKey, qualityTag)) {
+                                PlaybackPath.step(
+                                    "音频分片缓存",
+                                    "缺分片，需要解析直链后边下边播",
+                                    listOf("缓存"),
+                                    PlaybackPath.Status.INFO,
+                                )
+                                PlaybackPath.step(
+                                    "直链缓存 未命中",
+                                    "有效期 30 分钟（磁盘 15 分钟），本次重新解析",
+                                    listOf("缓存"),
+                                    PlaybackPath.Status.INFO,
+                                )
+                            }
                             // 解析播放地址本身也是一次网络请求，弱网下不能无限期卡住加载线程
                             withTimeout(resolveUrlTimeoutMs) {
                                 updateMediaItemUri(

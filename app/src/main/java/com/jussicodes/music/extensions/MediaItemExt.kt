@@ -218,24 +218,26 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
         val r = PlayerApi.songPlayUrlV1(songId, songLevel, skipUrls = skipUrls)
             .getOrNull()?.data?.firstOrNull()
         val cost = System.currentTimeMillis() - t0
-        val host = com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(r?.url)
-        PlaybackPath.stepFor(songId, 
-            name = if (r?.url.isNullOrBlank()) "解析未返回地址" else "拿到候选直链",
-            detail = if (host.isBlank()) "空结果 · ${cost}ms" else "$host · ${cost}ms",
-            tags = listOf("网易云"),
-            status = if (r?.url.isNullOrBlank()) PlaybackPath.Status.FAIL else PlaybackPath.Status.OK,
-            costMs = cost,
-        )
+        // 成功不打点：命中哪条分支、哪个域名，PlayerApi 已经写过一次；这里只补它不会写的「空结果」。
+        if (r?.url.isNullOrBlank()) {
+            PlaybackPath.stepFor(
+                songId,
+                "解析未返回地址",
+                "空结果 · ${cost}ms",
+                listOf("网易云"),
+                PlaybackPath.Status.FAIL,
+                cost,
+            )
+        }
         return r
     }
 
     fun accept(url: String?, trial: Boolean): Uri? {
         if (url == null) return null
         ResolveGuard.recordResolved(songId, url, trial)
-        PlaybackPath.finishFor(
-            songId = songId,
-            result = (if (trial) "试听片段 · " else "") + com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(url),
-            status = PlaybackPath.Status.OK,
+        PlaybackPath.resolvedFor(
+            songId,
+            (if (trial) "试听片段 · " else "") + com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(url),
         )
         return url.toUri()
     }

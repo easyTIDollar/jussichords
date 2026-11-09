@@ -80,11 +80,8 @@ object PlayerApi {
         val selected = AudioSourceSettings.SELECTED
         val clientSideSelected = selected == AudioSources.LX || selected == AudioSources.DIRECT
         if (clientSideSelected) {
-            trace(
-                "尝试客户端音源",
-                "音源 $selected · 音质 ${songLevel.value}",
-                listOf("网易云", selected)
-            )
+            // 不单独播报「尝试客户端音源」：音源通道在面板头部已经写了，
+            // 只有命中/未命中才是新信息。
             // 试听链（musicrep-ts）不能当命中：脚本降级到官方源时会给 30 秒片段，
             // 直接返回会让播放器「解析成功」然后播一半就断。
             val clientUrl = when (selected) {
