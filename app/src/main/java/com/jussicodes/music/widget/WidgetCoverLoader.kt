@@ -18,6 +18,7 @@ import com.jussicodes.music.ui.theme.extractArtworkSeed
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -59,8 +60,16 @@ object WidgetCoverLoader {
     private const val JPEG_QUALITY = 82
     private const val CACHE_BYTES = 12 * 1024 * 1024
 
-    /** 同一张图失败后 60s 内不再重试，避免每次刷新都打一遍网络。 */
-    private const val FAIL_TTL_MS = 60_000L
+    /**
+     * 同一张图失败后的冷却时间。
+     * 以前是 60s：封面一旦失败（弱网、CDN 抖动），组件就一直停在占位图，
+     * 而 prefetch 只在新事件到来时才被调 —— 用户不去切歌/暂停就永远等不到重试，
+     * 观感就是「封面加载失败就再也不加载了」。现在配合 [RETRY_DELAYS_MS] 自动退避重试。
+     */
+    private const val FAIL_TTL_MS = 5_000L
+
+    /** 失败后自动重试的退避间隔；用完就等下一次事件（或超过冷却）再来。 */
+    private val RETRY_DELAYS_MS = longArrayOf(1_500L, 4_000L, 10_000L)
 
     /** 与 App 的 ArtworkThemeSeed.SampleSize 一致。 */
     private const val SEED_SAMPLE_PX = 72
@@ -99,19 +108,34 @@ object WidgetCoverLoader {
         failedAt[k]?.let { if (now - it < FAIL_TTL_MS) return }
         if (!pending.add(k)) return
         scope.launch {
-            val decoded = runCatching { decode(app, snapshot.coverUrl, style, cornerRatio) }.getOrNull()
-            pending.remove(k)
-            if (decoded == null) {
-                failedAt[k] = System.currentTimeMillis()
-                return@launch
+            try {
+                var attempt = 0
+                while (true) {
+                    val decoded =
+                        runCatching { decode(app, snapshot.coverUrl, style, cornerRatio) }.getOrNull()
+                    if (decoded != null) {
+                        cache.put(k, decoded.bitmap)
+                        failedAt.remove(k)
+                        // 封面主色和样式无关：三种布局共用一张 coverUrl，谁先解开谁算，算过就不再算。
+                        if (decoded.seed != 0) {
+                            WidgetStateStore.writeSeed(app, snapshot.coverUrl, decoded.seed)
+                        }
+                        runCatching { onReady() }
+                        return@launch
+                    }
+                    failedAt[k] = System.currentTimeMillis()
+                    // 失败不再「记一笔就撒手」：组件没有定时轮询，prefetch 只由播放事件触发，
+                    // 不自动重试就会一直挂着占位图（用户说的「封面加载失败不会自动加载」）。
+                    // 退避重试 3 次，成功那次会 onReady 重绘一帧。
+                    if (attempt >= RETRY_DELAYS_MS.size) return@launch
+                    delay(RETRY_DELAYS_MS[attempt])
+                    attempt++
+                    // 已经切歌/换封面了，就别再为上一张图耗流量。
+                    if (WidgetUpdater.current(app).songId != snapshot.songId) return@launch
+                }
+            } finally {
+                pending.remove(k)
             }
-            cache.put(k, decoded.bitmap)
-            failedAt.remove(k)
-            // 封面主色和样式无关：三种布局共用一张 coverUrl，谁先解开谁算，算过就不再算。
-            if (decoded.seed != 0) {
-                WidgetStateStore.writeSeed(app, snapshot.coverUrl, decoded.seed)
-            }
-            runCatching { onReady() }
         }
     }
 

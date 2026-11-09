@@ -61,9 +61,11 @@ import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.desktopLyricLockedKey
 import com.jussicodes.music.constants.use40DpIconKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
+import com.jussicodes.music.extensions.toMediaItemList
 import com.jussicodes.music.extensions.toResolveKey
 import com.jussicodes.music.extensions.updateMediaItemUri
 import com.jussicodes.music.lyric.DesktopLyricManager
+import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
 import com.jussicodes.music.playback.audio.AudioEffectMode
 import com.jussicodes.music.playback.audio.PlaybackAudioProcessors
 import com.jussicodes.music.utils.AudioCache
@@ -347,6 +349,58 @@ class PlaybackService : MediaSessionService() {
     }
 
     private val scope = CoroutineScope(Dispatchers.Main) + SupervisorJob()
+
+    // ——————————————— 私人 FM 续队列 ———————————————
+    // 私人 FM 是无限流，但接口一次只返回几首（常见 3 首）。以前「快播完就补下一批」写在
+    // MainScreen 的 LaunchedEffect 里 —— 从桌面小组件直接起播时 App 没有 Compose 树，
+    // 没人补队列，播完首批就停，用户看到的就是「组件开 FM 只放三首」。
+    // 挪到服务侧：任何入口（组件 / 蓝牙 / 通知栏 / App）起播都能续。
+    private var fmRefillJob: kotlinx.coroutines.Job? = null
+
+    private val personalFmRefillListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            maybeRefillPersonalFm()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_ENDED) maybeRefillPersonalFm()
+        }
+    }
+
+    private fun maybeRefillPersonalFm() {
+        val player = mediaSession?.player ?: return
+        val sourceName = player.currentMediaItem?.mediaMetadata?.extras
+            ?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME)
+        if (sourceName != MediaSessionConstants.SOURCE_PERSONAL_FM) return
+        val count = player.mediaItemCount
+        if (count <= 0) return
+        // 剩两首时开始补（和原来 UI 侧的触发条件一致），播到 ENDED 也补一次兜底。
+        val ended = player.playbackState == Player.STATE_ENDED
+        if (!ended && player.currentMediaItemIndex < count - 2) return
+        if (fmRefillJob?.isActive == true) return
+        fmRefillJob = scope.launch {
+            val songs = runCatching { PersonalFmQueueLoader.load().getOrThrow() }.getOrNull()
+                ?: return@launch
+            val p = mediaSession?.player ?: return@launch
+            val existingIds = (0 until p.mediaItemCount)
+                .mapTo(mutableSetOf()) { p.getMediaItemAt(it).mediaId }
+            val fresh = songs.filter { it.id.toString() !in existingIds }
+            if (fresh.isEmpty()) return@launch
+            val wasEnded = p.playbackState == Player.STATE_ENDED
+            val startIndex = p.mediaItemCount
+            p.addMediaItems(
+                fresh.toMediaItemList(
+                    sourceName = MediaSessionConstants.SOURCE_PERSONAL_FM,
+                    sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM,
+                )
+            )
+            if (wasEnded) {
+                p.seekToDefaultPosition(startIndex)
+                p.prepare()
+                p.play()
+            }
+        }
+    }
 
     // ——————————————— 弱网恢复 ———————————————
     // 弱网/断流时 ExoPlayer 会进 STATE_IDLE 且不会自行恢复，这里做：
@@ -929,6 +983,7 @@ class PlaybackService : MediaSessionService() {
         player.addListener(recoveryListener)
         // 桌面小组件：播放/暂停、切歌、缓冲变化主动刷新
         player.addListener(widgetStateListener)
+        player.addListener(personalFmRefillListener)
         // 音源时长校验：解析出的直链与歌曲元数据时长不符 → 拉黑该链并换源重试
         player.addListener(durationVerifyListener)
         // 下一首直链预取：距结尾 10s 先解析好，切歌时零解析
