@@ -971,13 +971,13 @@ class PlaybackService : MediaSessionService() {
 
     @OptIn(UnstableApi::class)
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // 只在「没有任何前台播放」时才停服务；正在放歌时划掉任务页不该连播一起断。
-        if (!isPlaybackOngoing) {
-            // 先同步把「已暂停」推给桌面再停服务：stopSelf 之后进程随时可能被回收，
-            // 异步重绘来不及跑，组件就会一直停在暂停图标（用户看到的「关了 App 还是 ⏸️」）。
-            WidgetUpdater.markStoppedNow(applicationContext)
-            pauseAllPlayersAndStopSelf()
-        }
+        // 用户从最近任务划掉 App 视为「关闭应用」：无条件暂停并停服务。
+        // 以前「正在放歌就不停服务」会让服务继续前台播放，桌面组件停在「播放中」，
+        // 和用户对「关掉 App」的预期不一致（产品口径：划掉即停，不再后台续播）。
+        // 先同步把「已暂停」推给桌面再停服务：stopSelf 之后进程随时可能被回收，
+        // 异步重绘来不及跑，组件就会一直停在最后一帧。
+        WidgetUpdater.markStoppedNow(applicationContext)
+        pauseAllPlayersAndStopSelf()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
