@@ -18,7 +18,9 @@ import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.utils.AppVisibilityTracker
+import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.dataStore
+import com.jussicodes.music.utils.toCoverImageUrl
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.utils.json
 import kotlinx.coroutines.CoroutineScope
@@ -405,17 +407,25 @@ object WidgetUpdater {
         val ids = favoriteIds(context)
         val loggedIn = !cookie(context).isNullOrBlank()
         // 专辑名在这里解（Dispatchers.Default），不在播放器线程上解。
-        val album = snapshot.album.ifBlank {
-            snapshot.songJson?.let { raw ->
-                runCatching { json.decodeFromString<Song>(raw).al?.name }.getOrNull()
-            }.orEmpty()
+        // 顺手把同一份 JSON 里的封面也取出来：组件以前只认 metadata.artworkUri，
+        // 而 App 播放页是 albumCoverUrl ?: song.al.picUrl ?: artworkUri 三重兜底 ——
+        // 有些来源（云盘 / FM / 旧队列恢复）的 MediaItem 没设 artworkUri，
+        // 就出现「App 里封面正常、组件一直空白」。这里补齐同一份兜底。
+        val songObj = snapshot.songJson?.let { raw ->
+            runCatching { json.decodeFromString<Song>(raw) }.getOrNull()
         }
+        val album = snapshot.album.ifBlank { songObj?.al?.name.orEmpty() }
+        // 统一走 DETAIL(512)，和 App 播放页同一个 URL：Coil 磁盘缓存的 key 就是 URL，
+        // 组件因此能直接复用 App 已经下载过的那张图，不用再请求一次。
+        val coverUrl = snapshot.coverUrl.ifBlank { songObj?.al?.picUrl.orEmpty() }
+            .toCoverImageUrl(CoverImageSize.DETAIL)
+            .orEmpty()
         val next = WidgetSnapshot(
             songId = snapshot.songId,
             title = snapshot.title,
             artist = snapshot.artist,
             album = album,
-            coverUrl = snapshot.coverUrl,
+            coverUrl = coverUrl,
             isPlaying = snapshot.isPlaying,
             isFm = snapshot.isFm,
             isLoading = snapshot.isLoading,
