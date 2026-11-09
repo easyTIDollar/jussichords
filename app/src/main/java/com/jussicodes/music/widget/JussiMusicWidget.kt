@@ -177,8 +177,8 @@ private fun coverStyleFor(layout: WidgetLayout): CoverStyle = when (layout) {
 private fun coverRatio(style: CoverStyle, size: DpSize): Float = when (style) {
     CoverStyle.THUMB -> 0.17f
     CoverStyle.FULL -> {
-        val coverWidth = (size.width - 20.dp).value.coerceAtLeast(48f)
-        (WidgetTokens.CardRadius.value / coverWidth).coerceIn(0.08f, 0.42f)
+        val side = tileCoverSide(size).value.coerceAtLeast(1f)
+        (WidgetTokens.CardRadius.value / side).coerceIn(0.08f, 0.42f)
     }
     CoverStyle.SMALL -> 0.25f
 }
@@ -455,10 +455,26 @@ private fun BannerLayout(
 
 // —————————————————————— 布局 3：2×3 竖版方块 ——————————————————————
 
+/** 2×3 播放键直径：按可用宽度反推，2 格宽（~110dp）时缩到 ~34dp。 */
+private fun tilePlaySize(inner: Dp): Dp = (inner * 0.38f).coerceIn(30.dp, 46.dp)
+
 /**
- * 自上而下：大封面（占上半，左右半区点击即上一首/下一首）、歌名歌手、短进度与时长、三键居中。
- * 固定 2×3：封面用 weight 吃掉多出来的高度；按钮尺寸永远按可用宽度反推，
- * 2 格宽（~110dp）时自动缩到 34/24dp，3 键才放得下、不会被卡片边缘裁掉。
+ * 2×3 封面边长（正方形，宽 = 高）：宽度不超过内容宽度，高度不超过「可用高度 − 信息块自然高度」。
+ *
+ * 封面的绘制、点击区和圆角比例全部走这一个函数，避免三处各算一遍导致
+ * 容器与图片比例不一致（容器比图片扁就会把封面压成横幅，人物被拉长）。
+ */
+private fun tileCoverSide(size: DpSize): Dp {
+    val inner = (size.width - 20.dp).coerceAtLeast(40.dp)
+    val avail = (size.height - 20.dp).coerceAtLeast(60.dp)
+    // 71dp = 标题 20 + 间距 2 + 副标题 15 + 间距 4 + 进度 22 + 间距 8；再加播放键高度。
+    val content = 71.dp + tilePlaySize(inner)
+    return inner.coerceAtMost((avail - content).coerceAtLeast(44.dp))
+}
+
+/**
+ * 自上而下：1:1 方形封面、歌名歌手、短进度与时长、三键居中。
+ * 封面尺寸由 [tileCoverSide] 统一给出（正方形，绝不拉伸），按钮尺寸按可用宽度反推。
  */
 @Composable
 private fun TileLayout(
@@ -475,14 +491,9 @@ private fun TileLayout(
     // 约 118dp，比 inner 还宽，左右两个键被卡片边缘直接裁掉——用户看到的
     // 「播放控件被裁切」就是这个溢出。
     val gap = if (inner < 100.dp) 4.dp else 6.dp
-    val playSize = (inner * 0.38f).coerceIn(30.dp, 46.dp)
+    val playSize = tilePlaySize(inner)
     val sideSize = ((inner - playSize - gap * 2) / 2).coerceIn(20.dp, 36.dp)
-    // 内容块（标题/副标/进度/按钮）按自然高度预留，封面只取「1:1 方形」与剩余高度里较小的那个。
-    // 旧版封面用 defaultWeight 吃掉所有剩余高度，卡片偏高时内容被往下挤到一起；
-    // 现在封面永远是正方形、内容沿横向铺满卡片，纵向不再互相压缩。
-    val contentHeight = 20.dp + 2.dp + 15.dp + 4.dp + 22.dp + 8.dp + playSize
-    val availHeight = (size.height - pad * 2).coerceAtLeast(80.dp)
-    val coverSide = inner.coerceAtMost((availHeight - contentHeight).coerceAtLeast(40.dp))
+    val coverSide = tileCoverSide(size)
 
     Column(
         modifier = roundedCard(palette.card)
@@ -490,9 +501,10 @@ private fun TileLayout(
             .padding(pad),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // 封面容器必须是正方形：宽高一致、图片 Crop 填充，任何一边被拉伸都会让人物变形。
         // 整块封面点击打开 App（不再左右分区切歌，切歌交给下面控制键）。
         Box(
-            modifier = GlanceModifier.fillMaxWidth().height(coverSide)
+            modifier = GlanceModifier.size(coverSide)
                 .clickable(openAppAction(context)),
         ) {
             CoverArt(
