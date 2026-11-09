@@ -18,7 +18,7 @@ object PlaybackReloadBus {
     val requests: SharedFlow<Unit> = _requests.asSharedFlow()
 
     /**
-     * 「播放解析链路」面板里的「重新解析当前音乐」。
+     * 「可视化播放解析」面板里的「重新解析当前音乐」。
      *
      * 和换源的区别：音源/音质都没变，所以必须把这首歌的直链缓存与音频分片缓存一起清掉，
      * 否则重新 prepare 会直接命中缓存、压根不走解析，面板上也就不会出现新链路。

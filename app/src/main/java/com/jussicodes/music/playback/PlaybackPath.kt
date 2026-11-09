@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * 播放解析链路：解析过程在这里逐事件打点，播放页的「播放解析链路」面板只是回放。
+ * 可视化播放解析：解析过程在这里逐事件打点，播放页的同名面板只是回放。
  *
  * 为什么要有：用户手机上没有电脑、拿不到 logcat，「点了歌要等多久才出声 / 这次到底走了哪条源」
  * 只能靠应用内可读的时间线回答。[PlaybackTrace] 只服务桌面组件冷启动那一小段（20s 窗口 + 环形日志），

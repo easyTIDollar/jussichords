@@ -502,7 +502,7 @@ fun PlayerMenuBottomSheet(
         openSongListBottomSheet = false
     }, openBottomSheet = openSongListBottomSheet)
 
-    // 播放解析链路：菜单关掉的同时把只读时间线面板顶上来，和「添加到歌单」同一套交互。
+    // 可视化播放解析：菜单关掉的同时把只读时间线面板顶上来，和「添加到歌单」同一套交互。
     PlaybackPathSheet(
         openBottomSheet = showPlaybackPathSheet,
         onDismiss = { showPlaybackPathSheet = false },
@@ -624,7 +624,7 @@ private fun AudioMenuSection(
         // 解析链路只读面板：点开是「这条歌刚才怎么拿到直链的」时间线 + 重新解析入口。
         MenuRow(
             icon = Icons.Outlined.Checklist,
-            title = "播放解析链路",
+            title = "可视化播放解析",
             value = playbackPathValue,
             iconAlpha = 1f,
             onClick = onPlaybackPathClick

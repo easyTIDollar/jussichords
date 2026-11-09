@@ -122,7 +122,7 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
             com.jussicodes.music.lx.LxPluginManager.resolveUrl(songId, songLevel, skipUrls)
         }
         // ncmapi 里的解析分支（官方/客户端音源/解灰/兜底）只负责吐事件，
-        // 统一汇进 PlaybackPath —— 播放页「播放解析链路」面板就是这条链的回放。
+        // 统一汇进 PlaybackPath —— 播放页「可视化播放解析」面板就是这条链的回放。
         // 事件带 songId：预取下一首也会走解析，不能让它混进当前歌的时间线。
         com.rcmiku.ncmapi.api.PlayUrlTrace.sink = { songId, name, detail, tags ->
             com.jussicodes.music.playback.PlaybackPath.stepFor(songId, name, detail, tags)
