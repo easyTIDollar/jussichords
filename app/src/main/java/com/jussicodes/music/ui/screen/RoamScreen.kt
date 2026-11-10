@@ -97,6 +97,7 @@ import com.jussicodes.music.ui.icons.Favorite
 import com.jussicodes.music.ui.icons.FavoriteFill
 import com.jussicodes.music.ui.icons.PersonalRadio
 import com.jussicodes.music.ui.icons.Radio
+import com.jussicodes.music.utils.AppSessionClock
 import com.jussicodes.music.utils.FavoriteSongAction
 import com.jussicodes.music.utils.makeTimeString
 import com.rcmiku.ncmapi.api.recommend.RecommendApi
@@ -149,11 +150,25 @@ internal object PersonalFmQueueLoader {
     private val mutex = Mutex()
     var selectedMode: PersonalFmModeOption = personalFmModeOptions.first()
 
+    /**
+     * 最近一次拉歌发生在哪个前台会话（[com.jussicodes.music.utils.AppSessionClock.sessionId]）。
+     * 当前会话 == 这个值，说明手上这批是这次使用里拉的，点「电台」回到它就行；
+     * 不等则是上一轮会话留下的队列（含进程被杀后从磁盘恢复的），应当换一批新的。
+     */
+    @Volatile
+    var lastLoadSessionId: Long = 0L
+        private set
+
     suspend fun load(modeOption: PersonalFmModeOption = selectedMode): Result<List<Song>> =
         mutex.withLock {
             selectedMode = modeOption
             RecommendApi.personalFm(mode = modeOption.mode, submode = modeOption.submode)
                 .map { response -> response.data.map { it.toSong() }.filter { it.id != 0L } }
+                .onSuccess { songs ->
+                    if (songs.isNotEmpty()) {
+                        lastLoadSessionId = com.jussicodes.music.utils.AppSessionClock.sessionId
+                    }
+                }
         }
 }
 
@@ -232,8 +247,12 @@ fun RoamScreen(
         }
     }
 
-    LaunchedEffect(player, isActive, isPersonalFm) {
-        if (isActive && player != null && !isPersonalFm) {
+    // 上一轮会话留下的 FM 队列（含进程被杀后从磁盘恢复的）不算「已经在放」：
+    // 进页面就换一批，否则队列永远停在上一批那几首。
+    val isPersonalFmThisSession = isPersonalFm &&
+        PersonalFmQueueLoader.lastLoadSessionId == AppSessionClock.sessionId
+    LaunchedEffect(player, isActive, isPersonalFm, isPersonalFmThisSession) {
+        if (isActive && player != null && !isPersonalFmThisSession) {
             playPersonalFm()
         }
     }

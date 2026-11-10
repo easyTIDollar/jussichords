@@ -90,6 +90,7 @@ import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.screen.PERSONAL_FM_SOURCE
 import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
 import com.jussicodes.music.utils.PlayerExpandBus
+import com.jussicodes.music.utils.AppSessionClock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.jussicodes.music.data.HomeBgTextStore
@@ -167,8 +168,13 @@ fun LibraryScreen(
         val currentSourceName = playerState.currentMediaItem?.mediaMetadata?.extras
             ?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME)
         val isPersonalFm = currentSourceName == PERSONAL_FM_SOURCE
+        // 必须是「这一次前台会话里拉的这批」才算已经在放私人 FM。
+        // 关掉 App 再进来 / 进程被杀后恢复出来的队列都属于上一轮，点电台应当换一批新的，
+        // 否则队列会永远停在上一批那几首。
+        val isPersonalFmThisSession = isPersonalFm &&
+            PersonalFmQueueLoader.lastLoadSessionId == AppSessionClock.sessionId
 
-        if (isPersonalFm && player.currentMediaItem != null) {
+        if (isPersonalFmThisSession && player.currentMediaItem != null) {
             PlayerExpandBus.expand()
             return
         }
@@ -178,8 +184,18 @@ fun LibraryScreen(
             try {
                 PersonalFmQueueLoader.load().onSuccess { songs ->
                     if (songs.isNotEmpty()) {
+                        // 接口偶尔会重复吐当前队列里的歌：先剔除，全被剔掉才退回原批，
+                        // 免得「换了一批」看起来还是同样几首。只在替换旧的 FM 队列时去重。
+                        val playingIds = if (isPersonalFm) {
+                            (0 until player.mediaItemCount)
+                                .mapTo(mutableSetOf()) { player.getMediaItemAt(it).mediaId }
+                        } else {
+                            emptySet()
+                        }
+                        val fresh = songs.filter { it.id.toString() !in playingIds }
+                        val queue = fresh.ifEmpty { songs }
                         player.setPlaylist(
-                            songs = songs,
+                            songs = queue,
                             sourceName = PERSONAL_FM_SOURCE,
                             sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM
                         )

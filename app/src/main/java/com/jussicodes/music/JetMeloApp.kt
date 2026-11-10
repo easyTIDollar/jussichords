@@ -105,6 +105,9 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
             runCatching { com.jussicodes.music.utils.AudioCache.get(this@JetMeloApp) }
         }
         AppVisibilityTracker.register(this)
+        // 前台会话时钟：私人 FM 靠它判断「这次是重新打开 App 还是同一次使用」，
+        // 决定点「电台」是回到当前这批还是重新拉一批。
+        com.jussicodes.music.utils.AppSessionClock.register(this)
         ExplorePreloader.init(this)
         PinnedAlbumStore.init(this)
         PinnedAlbumStore.watchHidden(this)
