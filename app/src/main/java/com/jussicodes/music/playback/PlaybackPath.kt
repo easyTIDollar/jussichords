@@ -15,20 +15,14 @@ import kotlinx.coroutines.flow.asStateFlow
  * 约定：
  * - 打点只发生在真正做决策的地方（PlayerApi 分支 / LX 脚本逐次尝试 / 解析入口 / 播放器状态），
  *   面板永远不自己编步骤，否则时间线会和真实行为漂移；
- * - 时间戳一律相对「该曲目这条链开始」的毫秒数，同一条链内单调；
+ * - 时间戳一律相对「本次链条开始」的毫秒数，同一条链内单调；
  * - 同一首歌的重复 open（seek、播放器重试）不重置时间线，避免把一次起播拆成好几段；
- *   只有换歌（且上一轮已播过）、或用户手动「重新解析当前音乐」才重新开始；
- * - **按曲目分开存链**：下一首的预取解析同样是一条真实链路（走了哪个脚本、请求了什么音质、
- *   花了多久），它必须留在那首歌自己的链上 —— 切过去时面板直接展示这次预取的结果，
- *   而不是空着让人以为「没解析过」。焦点只决定「面板现在展示哪条链」。
- * - 链条数量有上限，长时间播放不会无限增长。
+ *   只有换歌、或用户手动「重新解析当前音乐」才重新开始；
+ * - 条目有上限，长时间播放不会无限增长。
  */
 object PlaybackPath {
 
     private const val MAX_STEPS = 80
-
-    /** 同时保留几条曲目链：当前 + 预取的下一首 + 最近点过的几首足够。 */
-    private const val MAX_CHAINS = 8
 
     enum class Status { INFO, RUNNING, OK, FAIL }
 
@@ -36,7 +30,7 @@ object PlaybackPath {
         val name: String,
         val detail: String = "",
         val tags: List<String> = emptyList(),
-        /** 相对这条链开始的毫秒数。 */
+        /** 相对本次链条开始的毫秒数。 */
         val atMs: Long = 0L,
         /** 这一步自身耗时（批量尝试时才有意义）。 */
         val costMs: Long = 0L,
@@ -55,95 +49,68 @@ object PlaybackPath {
         val finished: Boolean = false,
     )
 
-    /** 一首歌的一条解析链。 */
-    private class Chain(val key: String) {
-        var songId: String = key
-        var quality: String = ""
-        var route: String = ""
-        var outcome: String = ""
-        var startedAt: Long = 0L
-        var finished: Boolean = false
-
-        /** 这一轮已经播过（焦点离开过它）：下次再点它算新的一轮，重新开链。 */
-        var playedOut: Boolean = false
-
-        /** 用户手动「重新解析」：下一次 begin 必须重开，但保留起点时间。 */
-        var forceRestart: Boolean = false
-
-        val steps: MutableList<Step> = mutableListOf()
-    }
-
     private val lock = Any()
-
-    /** 按曲目 id 存链，LRU 上限 [MAX_CHAINS]。 */
-    private val chains = object : LinkedHashMap<String, Chain>(MAX_CHAINS, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Chain>?): Boolean =
-            size > MAX_CHAINS
-    }
-
-    /** 面板当前展示的曲目（真正在播的那首）。 */
-    private var focusKey: String = ""
+    private var startedAt = 0L
+    private var songId = ""
+    private var quality = ""
+    private var route = ""
+    private var outcome = ""
+    private var finished = false
+    /** 当前真正在播的曲目：预取下一首也会走解析入口，不能让它把当前链路冲掉。 */
+    private var focusSongId = ""
+    private val steps = mutableListOf<Step>()
 
     private val _state = MutableStateFlow(Snapshot())
     val state: StateFlow<Snapshot> = _state.asStateFlow()
 
-    /** `123?fee=8&pl=…` 与 `123` 必须落到同一条链上（解析层与播放器侧算出的 key 不同）。 */
-    private fun keyOf(songId: String): String = songId.substringBefore("?")
-
-    private fun chainOf(songId: String): Chain {
-        val key = keyOf(songId)
-        return chains.getOrPut(key) { Chain(key) }
-    }
-
-    /**
-     * 开始（或续上）某首歌的链路。
-     *
-     * 返回 true 表示「这次打点可以入库」。以前这里会丢弃非焦点曲目的打点（预取因此整条链消失），
-     * 现在每首歌各有自己的链，预取那次解析原样保留，切过去就能看到。
-     */
+    /** 开始一条新的链路；同一首歌未结束的链路保持原样（seek / 重试会重复 open）。 */
     fun begin(songId: String, quality: String? = null): Boolean = synchronized(lock) {
-        if (songId.isBlank()) return@synchronized true
-        val existing = chains[keyOf(songId)]
-        val reuse = existing != null && !existing.playedOut &&
-            (existing.steps.isNotEmpty() || existing.forceRestart)
-        val chain = if (reuse) existing!! else Chain(keyOf(songId)).also {
-            it.startedAt = SystemClock.elapsedRealtime()
-            chains[it.key] = it
+        // 预取下一首同样会走到解析入口：焦点不在它身上时不打点，否则当前歌的时间线会被清空。
+        if (focusSongId.isNotBlank() && !sameSong(songId, focusSongId)) return@synchronized false
+        val sameRun = songId == this.songId && steps.isNotEmpty() && !finished
+        if (!sameRun) {
+            this.songId = songId
+            this.quality = quality.orEmpty()
+            startedAt = SystemClock.elapsedRealtime()
+            steps.clear()
+            route = ""
+            outcome = ""
+            finished = false
+        } else if (this.quality.isBlank() && !quality.isNullOrBlank()) {
+            this.quality = quality
         }
-        chain.forceRestart = false
-        chain.songId = songId
-        if (chain.steps.isEmpty()) chain.finished = false
-        if (chain.quality.isBlank() && !quality.isNullOrBlank()) chain.quality = quality
-        if (chain.startedAt == 0L) chain.startedAt = SystemClock.elapsedRealtime()
-        if (focusKey.isBlank()) focusKey = chain.key
-        publish(chain)
+        publish()
         true
     }
 
     /**
-     * 曲目切换（[androidx.media3.common.Player.Listener.onMediaItemTransition]）：
-     * 只切「面板展示哪条链」，不清同曲已有的链 —— 预取的链在切歌前就写好了。
+     * 曲目切换时才重开链路（由播放器在 [onMediaItemTransition] 调用）。
+     * 预先建立空链，解析第一行打点就落在新歌上。
      */
     fun focus(songId: String?) = synchronized(lock) {
-        val key = keyOf(songId.orEmpty())
-        if (focusKey.isNotBlank() && focusKey != key) chains[focusKey]?.playedOut = true
-        focusKey = key
-        val chain = if (key.isBlank()) null else chainOf(key)
-        publish(chain)
+        val id = songId.orEmpty()
+        // 解析有可能比切歌事件先到（预取命中缓存时尤其常见）：同曲已有链路就留住，别再清一遍。
+        val keepChain = sameSong(id, this.songId) && steps.isNotEmpty()
+        focusSongId = id
+        if (!keepChain) {
+            this.songId = id
+            startedAt = 0L
+            quality = ""
+            route = ""
+            outcome = ""
+            finished = false
+            steps.clear()
+        }
+        publish()
     }
+
+    private fun sameSong(a: String, b: String): Boolean =
+        a.substringBefore("?") == b.substringBefore("?") && a.isNotBlank() && b.isNotBlank()
 
     /** 路由摘要：谁发起的、最终落在哪个音源。 */
     fun route(text: String) = synchronized(lock) {
-        val chain = chains[focusKey] ?: return@synchronized
-        chain.route = text
-        publish(chain)
-    }
-
-    /** 同 [route]，但明确归属某首歌 —— 预取下一首的路由必须落在它自己那条链上。 */
-    fun routeFor(songId: String, text: String) = synchronized(lock) {
-        val chain = chainOf(songId)
-        chain.route = text
-        publish(chain)
+        route = text
+        publish()
     }
 
     fun step(
@@ -153,12 +120,14 @@ object PlaybackPath {
         status: Status = Status.INFO,
         costMs: Long = 0L,
     ) = synchronized(lock) {
-        val chain = chains[focusKey] ?: return@synchronized
-        append(chain, name, detail, tags, status, costMs)
-        publish(chain)
+        append(name, detail, tags, status, costMs)
+        publish()
     }
 
-    /** 带曲目归属的打点：解析层（ncmapi / LX）事件走这里，落在那首歌自己的链上。 */
+    /**
+     * 带曲目归属的打点：解析层（ncmapi）事件走这里。
+     * 预取下一首也会经过同一条解析链路，焦点不在它身上时直接丢弃，避免污染当前歌的时间线。
+     */
     fun stepFor(
         songId: String,
         name: String,
@@ -167,28 +136,26 @@ object PlaybackPath {
         status: Status = Status.INFO,
         costMs: Long = 0L,
     ) = synchronized(lock) {
-        if (songId.isBlank()) return@synchronized
-        val chain = chainOf(songId)
-        chain.songId = songId
-        append(chain, name, detail, tags, status, costMs)
-        publish(chain)
+        if (focusSongId.isNotBlank() && !sameSong(songId, focusSongId)) return@synchronized
+        if (this.songId.isBlank()) this.songId = songId
+        append(name, detail, tags, status, costMs)
+        publish()
     }
 
     private fun append(
-        chain: Chain,
         name: String,
         detail: String,
         tags: List<String>,
         status: Status,
         costMs: Long,
     ) {
-        if (chain.startedAt == 0L) chain.startedAt = SystemClock.elapsedRealtime()
-        if (chain.steps.size >= MAX_STEPS) chain.steps.removeAt(0)
-        chain.steps += Step(
+        if (startedAt == 0L) startedAt = SystemClock.elapsedRealtime()
+        if (steps.size >= MAX_STEPS) steps.removeAt(0)
+        steps += Step(
             name = name,
             detail = detail,
             tags = tags,
-            atMs = SystemClock.elapsedRealtime() - chain.startedAt,
+            atMs = SystemClock.elapsedRealtime() - startedAt,
             costMs = costMs,
             status = status,
         )
@@ -196,14 +163,13 @@ object PlaybackPath {
 
     /** 链路走完：解析拿到结果、或确定失败。后续的播放器事件（就绪/报错）仍然追加到同一条链。 */
     fun finish(result: String, status: Status = Status.OK) = synchronized(lock) {
-        val chain = chains[focusKey] ?: return@synchronized
-        finishLocked(chain, result, status)
+        finishLocked(result, status)
     }
 
-    /** 同 [finish]，但归属指定曲目。 */
+    /** 同 [finish]，但只对焦点曲目生效（解析层的结束事件走这里）。 */
     fun finishFor(songId: String, result: String, status: Status = Status.OK) = synchronized(lock) {
-        if (songId.isBlank()) return@synchronized
-        finishLocked(chainOf(songId), result, status)
+        if (focusSongId.isNotBlank() && !sameSong(songId, focusSongId)) return@synchronized
+        finishLocked(result, status)
     }
 
     /**
@@ -212,70 +178,57 @@ object PlaybackPath {
      * 再补一行「已获取真实播放链接」只是把同一个 url 重复播报第三遍。
      */
     fun resolved(result: String) = synchronized(lock) {
-        val chain = chains[focusKey] ?: return@synchronized
-        chain.outcome = result
-        chain.finished = true
-        publish(chain)
+        outcome = result
+        finished = true
+        publish()
     }
 
     fun resolvedFor(songId: String, result: String) = synchronized(lock) {
-        if (songId.isBlank()) return@synchronized
-        val chain = chainOf(songId)
-        chain.outcome = result
-        chain.finished = true
-        publish(chain)
+        if (focusSongId.isNotBlank() && !sameSong(songId, focusSongId)) return@synchronized
+        outcome = result
+        finished = true
+        publish()
     }
 
-    private fun finishLocked(chain: Chain, result: String, status: Status) {
-        chain.outcome = result
-        chain.finished = status != Status.FAIL
-        if (chain.steps.size >= MAX_STEPS) chain.steps.removeAt(0)
-        chain.steps += Step(
+    private fun finishLocked(result: String, status: Status) {
+        outcome = result
+        finished = status != Status.FAIL
+        if (steps.size >= MAX_STEPS) steps.removeAt(0)
+        steps += Step(
             name = if (status == Status.FAIL) "解析失败" else "已获取真实播放链接",
             detail = result,
-            atMs = if (chain.startedAt == 0L) 0 else SystemClock.elapsedRealtime() - chain.startedAt,
+            atMs = if (startedAt == 0L) 0 else SystemClock.elapsedRealtime() - startedAt,
             status = status,
         )
-        publish(chain)
+        publish()
     }
 
-    /** 用户手动「重新解析当前音乐」：清空这首歌的链，等下一次解析重新打点。 */
+    /** 用户手动「重新解析当前音乐」：清空当前链，等下一次解析重新打点。 */
     fun reset(songId: String = "") = synchronized(lock) {
-        val key = keyOf(songId.ifBlank { focusKey })
-        if (key.isBlank()) {
-            chains.clear()
-            focusKey = ""
-            publish(null)
-            return@synchronized
-        }
-        val chain = Chain(key)
+        this.songId = songId
+        quality = ""
+        route = ""
+        outcome = ""
+        finished = false
         // 清空但保留起点：紧跟其后的「重新解析当前音乐」打点仍算这一轮的开头。
-        chain.startedAt = SystemClock.elapsedRealtime()
-        chain.forceRestart = true
-        chains[key] = chain
-        focusKey = key
-        publish(chain)
+        startedAt = if (songId.isBlank()) 0L else SystemClock.elapsedRealtime()
+        steps.clear()
+        publish()
     }
 
-    fun snapshot(): Snapshot = synchronized(lock) { build(chains[focusKey]) }
+    fun snapshot(): Snapshot = synchronized(lock) { build() }
 
-    private fun publish(chain: Chain?) {
-        // 只有「面板正在看的那条链」才推送更新：预取写的是下一首的链，
-        // 边听这首边把面板切到下一首是错的。
-        val key = chain?.key.orEmpty()
-        if (key.isNotEmpty() && key != focusKey) return
-        _state.value = build(chain)
+    private fun publish() {
+        _state.value = build()
     }
 
-    private fun build(chain: Chain?): Snapshot = if (chain == null) {
-        Snapshot()
-    } else Snapshot(
-        songId = chain.songId,
-        quality = chain.quality,
-        route = chain.route,
-        outcome = chain.outcome,
-        totalMs = if (chain.startedAt == 0L) 0L else SystemClock.elapsedRealtime() - chain.startedAt,
-        steps = chain.steps.toList(),
-        finished = chain.finished,
+    private fun build(): Snapshot = Snapshot(
+        songId = songId,
+        quality = quality,
+        route = route,
+        outcome = outcome,
+        totalMs = if (startedAt == 0L) 0L else SystemClock.elapsedRealtime() - startedAt,
+        steps = steps.toList(),
+        finished = finished,
     )
 }

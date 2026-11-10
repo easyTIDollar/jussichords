@@ -562,7 +562,9 @@ class PlaybackService : MediaSessionService() {
         val sourceTag = PlaybackReloadBus.sourceTag
         // 已经在缓存里（本轮播过/刚预取过）就别再打一次解析请求
         if (PlayUrlCache.get(uri.toString(), qualityTag, sourceTag) != null) return
-        // 预取的打点全部落在「下一首自己那条链」上（mediaId 必须在主线程取）。
+        // 预取是「当前这轮播放」的后台动作，挂在当前曲目链上，切歌时用户能看到
+        // 下一首为什么起播快。mediaId 必须在主线程取。
+        val focusId = player.currentMediaItem?.mediaId
         val nextId = uri.toResolveKey()
         scope.launch(Dispatchers.IO) {
             val resolved = runCatching {
@@ -576,24 +578,27 @@ class PlaybackService : MediaSessionService() {
             val trial = isTrialClipUri(resolved) || ResolveGuard.observe(nextId)?.trial == true
             if (trial) {
                 android.util.Log.w(TAG, "prefetch got trial clip, not cached songId=$nextId")
-                // 打点落在下一首自己的链上：切过去时面板要能看到「预取只拿到试听」这件事。
-                PlaybackPath.stepFor(
-                    nextId,
-                    "预取下一首",
-                    "只拿到试听链 · 不写直链缓存，起播时重新解析",
-                    listOf("预取"),
-                    PlaybackPath.Status.FAIL,
-                )
+                if (focusId != null) {
+                    PlaybackPath.stepFor(
+                        focusId,
+                        "预取下一首",
+                        "$nextId 只拿到试听链 · 不写直链缓存，切歌时重新解析",
+                        listOf("预取"),
+                        PlaybackPath.Status.FAIL,
+                    )
+                }
                 return@launch
             }
             PlayUrlCache.put(uri.toString(), qualityTag, sourceTag, resolved.toString())
-            PlaybackPath.stepFor(
-                nextId,
-                "预取下一首",
-                "直链已就绪（只解析不下载）",
-                listOf("预取"),
-                PlaybackPath.Status.OK,
-            )
+            if (focusId != null) {
+                PlaybackPath.stepFor(
+                    focusId,
+                    "预取下一首",
+                    "$nextId 直链已就绪（只解析不下载）",
+                    listOf("预取"),
+                    PlaybackPath.Status.OK,
+                )
+            }
             android.util.Log.d(TAG, "prefetch url ready songId=$nextId")
         }
     }
