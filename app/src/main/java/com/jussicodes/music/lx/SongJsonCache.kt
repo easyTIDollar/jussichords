@@ -16,16 +16,30 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object SongJsonCache {
 
-    /** 队列规模上限：正常歌单远小于它，超了说明长时间累积，整表换掉即可。 */
-    private const val MAX_ENTRIES = 3_000
+    /**
+     * 条目上限：单条 JSON 约 1~2KB，卡在 1500 条把常驻内存压到 2~3MB 以内。
+     * 超出时按批淘汰（不是整表清空），避免一个超大歌单把刚放进去的歌全部挤掉。
+     */
+    private const val MAX_ENTRIES = 1_500
+    private const val EVICT_BATCH = 256
 
     private val map = ConcurrentHashMap<String, String>()
 
     fun put(songId: String, songJson: String) {
         if (songId.isBlank() || songJson.isBlank()) return
-        if (map.size >= MAX_ENTRIES && !map.containsKey(songId)) map.clear()
+        if (map.size >= MAX_ENTRIES && !map.containsKey(songId)) evictSome()
         map[songId] = songJson
     }
 
     fun get(songId: String): String? = map[songId]
+
+    private fun evictSome() {
+        val iterator = map.keys.iterator()
+        var removed = 0
+        while (iterator.hasNext() && removed < EVICT_BATCH) {
+            iterator.next()
+            iterator.remove()
+            removed++
+        }
+    }
 }
