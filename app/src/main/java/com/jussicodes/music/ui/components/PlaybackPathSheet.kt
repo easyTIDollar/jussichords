@@ -254,21 +254,22 @@ private fun EmptyState() {
     ) {
         Column {
             Text(
-                text = "缓存直达 · 本次没有解析",
+                text = "暂无链路记录",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "播放器没向音源要过地址，所以解析层一次都没被调用——这是正常的快，不是卡住。通常是：",
+                text = "这首歌还没有产生任何解析或读取打点。刚切过来时等一两秒，这里会按真实顺序刷出来；" +
+                    "如果一直空着，说明播放器没经过解析层，音频是直接从本地读的，属于下面三种情况：",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(6.dp))
             listOf(
-                "这首歌听过，整首已在分片缓存里（面板会出现「缓存直达」一行）",
-                "直链缓存还在有效期（内存 30 分钟 / 磁盘 15 分钟）",
-                "已下载或外部歌单的本地文件",
+                "分片缓存命中：整首音频已在本地，不解析、不下载（面板会补一行「分片缓存命中」）",
+                "本地文件：已下载或外部歌单导入的音频，直接读盘",
+                "直链还在有效期：面板会出现「直链缓存命中」，解析 0 次，但音频仍从网络边下边播",
             ).forEach {
                 Text(
                     text = "· $it",
@@ -278,7 +279,7 @@ private fun EmptyState() {
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "点下面按钮可以丢掉这两层缓存，强制完整跑一遍。",
+                text = "想强制完整跑一遍：点下方「重新解析当前音乐」（会清掉这首歌的直链缓存与音频分片缓存）。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
