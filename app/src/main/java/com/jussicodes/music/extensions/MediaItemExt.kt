@@ -6,6 +6,7 @@ import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.jussicodes.music.constants.MediaSessionConstants
+import com.jussicodes.music.lx.SongJsonCache
 import com.jussicodes.music.playback.PlaybackPath
 import com.jussicodes.music.playback.ResolveGuard
 import com.rcmiku.ncmapi.api.player.PlayerApi
@@ -31,8 +32,12 @@ fun Song.toMediaItem(
     sourceName: String = "list",
     sourceType: String? = null,
     navId: Long = 0L
-) =
-    MediaItem.Builder()
+): MediaItem {
+    // 同一份 JSON 既进 extras 也进元信息快取：解析 LX 直链时可以直接拿它拼 musicInfo，
+    // 省掉一次 /song/detail/batch 往返（见 SongJsonCache）。
+    val songJson = json.encodeToString(this)
+    SongJsonCache.put(id.toString(), songJson)
+    return MediaItem.Builder()
         .setUri(this.encodeUri())
         .setMediaId(this.id.toString())
         .setMediaMetadata(
@@ -41,10 +46,7 @@ fun Song.toMediaItem(
                 .setTitle(this.name)
                 .setArtworkUri(this.al.picUrl.toCoverImageUrl(CoverImageSize.DETAIL)?.toUri())
                 .setExtras(Bundle().apply {
-                    putString(
-                        "song",
-                        json.encodeToString(this@toMediaItem)
-                    )
+                    putString("song", songJson)
                     putLong(MediaSessionConstants.EXTRA_SOURCE_ID, sourceId)
                     putString(MediaSessionConstants.EXTRA_SOURCE_NAME, sourceName)
                     sourceType?.let { putString(MediaSessionConstants.EXTRA_SOURCE_TYPE, it) }
@@ -54,6 +56,7 @@ fun Song.toMediaItem(
                 .build()
         )
         .build()
+}
 
 
 fun List<Song>.toMediaItemList(
@@ -63,8 +66,10 @@ fun List<Song>.toMediaItemList(
     navId: Long = 0L
 ) =
     this.map { song ->
+        val songJson = json.encodeToString(song)
+        SongJsonCache.put(song.id.toString(), songJson)
         val extras = Bundle().apply {
-            putString("song", json.encodeToString(song))
+            putString("song", songJson)
             putLong(MediaSessionConstants.EXTRA_SOURCE_ID, sourceId)
             putString(MediaSessionConstants.EXTRA_SOURCE_NAME, sourceName)
             sourceType?.let { putString(MediaSessionConstants.EXTRA_SOURCE_TYPE, it) }
@@ -211,13 +216,16 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
     // 上次被时长校验判定为错源的直链：解析层会跳过它们，于是重试会升级到下一个脚本/下一个直连源，
     // 而不是把同一根坏链再刷一遍。
     val skipUrls = ResolveGuard.skipUrls(songId)
+    // 队列里那份 Song JSON（点歌时随 MediaItem 一起存下来的）足够脚本匹配用：
+    // 交给解析层可以省掉一次 /song/detail/batch 往返。取不到就让解析层自己请求。
+    val songHint = idLong?.let { SongJsonCache.get(it.toString()) }
     if (skipUrls.isNotEmpty()) {
         PlaybackPath.stepFor(songId, "跳过已拉黑直链", "上次被时长校验判定为错源：${skipUrls.size} 条", listOf("校验"), PlaybackPath.Status.INFO)
     }
 
     suspend fun resolveOnce(): SongUrl? {
         val t0 = System.currentTimeMillis()
-        val r = PlayerApi.songPlayUrlV1(songId, songLevel, skipUrls = skipUrls)
+        val r = PlayerApi.songPlayUrlV1(songId, songLevel, skipUrls = skipUrls, songJson = songHint)
             .getOrNull()?.data?.firstOrNull()
         val cost = System.currentTimeMillis() - t0
         // 成功不打点：命中哪条分支、哪个域名，PlayerApi 已经写过一次；这里只补它不会写的「空结果」。

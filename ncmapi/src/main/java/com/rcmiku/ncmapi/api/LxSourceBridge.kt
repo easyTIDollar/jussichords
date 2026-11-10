@@ -14,7 +14,7 @@ object LxSourceBridge {
      * 以及 [skipUrls]：上次交给播放器但被时长校验判定为错源的直链，按顺序跳过它们继续试下一个脚本。
      * 未注入（app 未初始化）或无插件可用时返回 null，交回 PlayerApi 的兜底。
      */
-    var resolver: (suspend (songId: String, songLevel: String, skipUrls: Set<String>) -> String?)? = null
+    var resolver: (suspend (songId: String, songLevel: String, skipUrls: Set<String>, songJson: String?) -> String?)? = null
 
     val available: Boolean get() = resolver != null
 }

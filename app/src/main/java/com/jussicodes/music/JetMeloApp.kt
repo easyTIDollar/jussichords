@@ -123,8 +123,8 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         // LX 脚本音源：脚本列表（DataStore）+ 沙盒引擎在进程级单例，ncmapi 侧只留桥。
         com.jussicodes.music.lx.LxPluginStore.attach(this)
         com.jussicodes.music.lx.LxPluginManager.init(this)
-        com.rcmiku.ncmapi.api.LxSourceBridge.resolver = { songId, songLevel, skipUrls ->
-            com.jussicodes.music.lx.LxPluginManager.resolveUrl(songId, songLevel, skipUrls)
+        com.rcmiku.ncmapi.api.LxSourceBridge.resolver = { songId, songLevel, skipUrls, songJson ->
+            com.jussicodes.music.lx.LxPluginManager.resolveUrl(songId, songLevel, skipUrls, songJson)
         }
         // ncmapi 里的解析分支（官方/客户端音源/解灰/兜底）只负责吐事件，
         // 统一汇进 PlaybackPath —— 播放页「可视化播放解析」面板就是这条链的回放。

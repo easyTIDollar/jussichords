@@ -320,7 +320,9 @@ object LxPluginManager {
     suspend fun resolveUrl(
         songId: String,
         songLevel: String,
-        skipUrls: Set<String> = emptySet()
+        skipUrls: Set<String> = emptySet(),
+        /** 调用方手上已有的 Song JSON（队列 MediaItem extras），字段齐全时省掉一次元信息请求。 */
+        songJson: String? = null
     ): String? {
         val startedAt = System.currentTimeMillis()
         val enabled = LxPluginStore.snapshot().filter { it.isEnabled }
@@ -347,8 +349,21 @@ object LxPluginManager {
                 scope.launch { runCatching { e.warmUp(item.id) } }
             }
         }
+        // 队列 extras 里那份 Song 已经够脚本匹配（脚本只要歌名/歌手/专辑/时长）：直接用它拼
+        // musicInfo，省掉一次 /song/detail/batch 往返——那一次往返既是纯等待，也是硬失败点
+        // （连续两次失败整条 LX 就让位给官方 30 秒试听）。字段不齐才回去请求。
+        val fromQueue = songJson?.let { decodeQueueSong(it) }
+        if (fromQueue != null) {
+            PlaybackPath.stepFor(
+                songId,
+                "歌曲元信息",
+                "取自队列，省一次网络往返",
+                listOf("LX"),
+                PlaybackPath.Status.INFO,
+            )
+        }
         // 元信息取不到就不试解析；网络抖动导致的单次失败很常见，重试一次再放弃。
-        val song = fetchSong(songId) ?: fetchSong(songId)
+        val song = fromQueue ?: fetchSong(songId) ?: fetchSong(songId)
         if (song == null) {
             PlaybackPath.stepFor(songId, "歌曲元信息获取失败", "两次请求都没拿到 song detail", listOf("LX"), PlaybackPath.Status.FAIL)
             android.util.Log.w(TAG, "song detail unavailable after 2 attempts, skip lx songId=$songId")
@@ -563,6 +578,18 @@ object LxPluginManager {
                 "所有测试档位均未解析到可用直链"
             }
         )
+    }
+
+    /**
+     * 解码队列 extras 里的那份 Song JSON。
+     *
+     * 只认字段齐全的：脚本靠歌名 / 歌手 / 专辑 / 时长匹配，缺任一个就回去打
+     * `/song/detail/batch`——宁可多一次请求，也不能拿残缺元信息去撞脚本。
+     */
+    private suspend fun decodeQueueSong(raw: String): Song? = withContext(Dispatchers.IO) {
+        runCatching { json.decodeFromString<Song>(raw) }.getOrNull()
+    }?.takeIf {
+        it.name.isNotBlank() && it.ar.isNotEmpty() && it.dt > 0 && it.al.name.isNotBlank()
     }
 
     /** 取歌曲元信息；拿不到就不试解析（脚本要靠歌名/歌手/时长匹配，不拿空壳去撞）。 */
