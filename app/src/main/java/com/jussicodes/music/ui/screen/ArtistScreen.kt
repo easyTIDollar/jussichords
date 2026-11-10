@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -67,7 +68,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -777,14 +777,14 @@ fun ArtistScreen(
                             topBarHeightPx = it.height.toFloat()
                         }
                     }
+                    // 顶栏本身不铺底色：随折叠进度把背景色从透明渐显到实色（搜索态直接实色）
                     .drawBehind {
-                        val maxCollapse = maxCollapsePx
-                        val fraction = if (maxCollapse > 0f) {
-                            (-headerOffsetPx / maxCollapse).coerceIn(0f, 1f)
-                        } else 0f
-                        drawRect(
-                            color = if (searchActive) backgroundColor else backgroundColor.copy(alpha = fraction)
-                        )
+                        val fraction = when {
+                            searchActive -> 1f
+                            maxCollapsePx > 0f -> (-headerOffsetPx / maxCollapsePx).coerceIn(0f, 1f)
+                            else -> 0f
+                        }
+                        drawRect(color = backgroundColor.copy(alpha = fraction))
                     },
                 title = {
                     if (searchActive) {
@@ -807,11 +807,12 @@ fun ArtistScreen(
                                 }
                             },
                             colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.92f),
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.92f),
                                 focusedIndicatorColor = Color.Transparent,
                                 unfocusedIndicatorColor = Color.Transparent
-                            )
+                            ),
+                            shape = RoundedCornerShape(24.dp)
                         )
                     } else {
                         // 滚动到 Tab 吸顶时，歌手名在返回按钮旁平滑淡入
@@ -825,7 +826,7 @@ fun ArtistScreen(
                                 val fraction = if (maxCollapsePx > 0f) {
                                     (-headerOffsetPx / maxCollapsePx).coerceIn(0f, 1f)
                                 } else 0f
-                                alpha = ((fraction - 0.75f) / 0.25f).coerceIn(0f, 1f)
+                                alpha = ((fraction - 0.5f) / 0.35f).coerceIn(0f, 1f)
                             }
                         )
                     }

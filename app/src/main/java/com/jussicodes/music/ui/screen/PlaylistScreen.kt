@@ -142,6 +142,12 @@ import com.jussicodes.music.utils.rememberPreference
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import com.jussicodes.music.ui.components.ResponsiveAlertDialog
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.drawBehind
 
 private const val PLAYLIST_COVER_UPLOAD_SIZE = 300
 
@@ -183,8 +189,12 @@ fun PlaylistScreen(
     val searchFocusRequester = remember { FocusRequester() }
     var searchActive by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
-        .collectAsState(emptyList())
+    // 必须 remember：否则每次重组新建 Flow，collectAsState 会反复取消/重启收集，
+    // 进页面时 DataStore 被重复订阅，直接表现为掉帧
+    val songIdsFlow = remember(context) {
+        context.favoriteSongIdsDatastore.data.map { it.songIdsList }
+    }
+    val songIds by songIdsFlow.collectAsState(emptyList())
     val playlistCoverVersions by PlaylistCoverSyncBus.versions.collectAsState()
     val userId by rememberPreference(userIdKye, 0)
     val subscribed = playlistInfoState?.subscribed ?: false
@@ -201,6 +211,24 @@ fun PlaylistScreen(
     var showDescriptionOverlay by remember { mutableStateOf(false) }
 
     var selectionMode by rememberSaveable { mutableStateOf(false) }
+    // 顶栏初始透明（只剩按钮），列表滚过封面头部时背景渐显为不透明、歌单名淡入
+    val playlistTitleAlpha by animateFloatAsState(
+        targetValue = if (showPlaylistTitle || searchActive || selectionMode) 1f else 0f,
+        animationSpec = tween(durationMillis = 220),
+        label = "playlistTitleAlpha"
+    )
+    val topBarBgAlpha by remember {
+        derivedStateOf {
+            val item = listState.layoutInfo.visibleItemsInfo.firstOrNull()
+            when {
+                item == null -> 0f
+                item.index > 0 -> 1f
+                else -> (-item.offset.toFloat() / item.size.toFloat().coerceAtLeast(1f))
+                    .coerceIn(0f, 1f)
+            }
+        }
+    }
+    val topBarBgColor = MaterialTheme.colorScheme.background
     var selectedSongIds by remember { mutableStateOf(setOf<Long>()) }
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
 
@@ -250,6 +278,10 @@ fun PlaylistScreen(
                 if (!isLandscape) {
                     val allTracks = playlistDetailState?.playlist?.getAllTracks() ?: emptyList()
                     TopAppBar(
+                        // 只画背景不挡内容：滚动时由透明渐显为实色，避免列表从按钮后面穿过
+                        modifier = Modifier.drawBehind {
+                            drawRect(color = topBarBgColor.copy(alpha = topBarBgAlpha))
+                        },
                         title = {
                             if (selectionMode) {
                                 Text("已选择 ${selectedSongIds.size} 首")
@@ -270,10 +302,14 @@ fun PlaylistScreen(
                                     )
                                 )
                             } else {
+                                // 透明顶栏：列表滚过封面头部后，歌单名在返回按钮旁淡入
                                 Text(
-                                    if (showPlaylistTitle) playlistTitle else stringResource(R.string.playlist),
+                                    text = playlistTitle,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.graphicsLayer { alpha = playlistTitleAlpha }
                                 )
                             }
                         },
@@ -407,6 +443,9 @@ fun PlaylistScreen(
                             }
                         }
                     },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = ComposeColor.Transparent
+                    ),
                 )
             }
         }
@@ -649,7 +688,8 @@ fun PlaylistScreen(
                     }
                 }
                 LazyColumn(
-                    contentPadding = padding, state = listState,
+                    contentPadding = padding,
+                    state = listState,
                 ) {
                     playlistTitle = it.playlist.name
                     if (!searchActive || searchQuery.isBlank()) {

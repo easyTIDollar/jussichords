@@ -2,6 +2,8 @@
 
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -112,6 +114,10 @@ import com.rcmiku.ncmapi.model.Album
 import com.rcmiku.ncmapi.model.Song
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -145,9 +151,31 @@ fun AlbumScreen(
     val searchFocusRequester = remember { FocusRequester() }
     var searchActive by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    // 顶栏初始透明（只剩按钮），列表滚过封面头部时背景渐显为不透明、专辑名淡入
+    val albumTitleAlpha by animateFloatAsState(
+        targetValue = if (showAlbumTitle || searchActive) 1f else 0f,
+        animationSpec = tween(durationMillis = 220),
+        label = "albumTitleAlpha"
+    )
+    val topBarBgAlpha by remember {
+        derivedStateOf {
+            val item = listState.layoutInfo.visibleItemsInfo.firstOrNull()
+            when {
+                item == null -> 0f
+                item.index > 0 -> 1f
+                else -> (-item.offset.toFloat() / item.size.toFloat().coerceAtLeast(1f))
+                    .coerceIn(0f, 1f)
+            }
+        }
+    }
+    val topBarBgColor = MaterialTheme.colorScheme.background
     val pinnedAlbums by PinnedAlbumStore.albums.collectAsState()
-    val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
-        .collectAsState(emptyList())
+    // 必须 remember：否则每次重组新建 Flow，collectAsState 会反复取消/重启收集，
+    // 进页面时 DataStore 被重复订阅，直接表现为掉帧
+    val songIdsFlow = remember(context) {
+        context.favoriteSongIdsDatastore.data.map { it.songIdsList }
+    }
+    val songIds by songIdsFlow.collectAsState(emptyList())
     val currentAlbum = albumDetailState?.getOrNull()?.album
     val isLandscape = isLandscapePhone()
     val albumSongs = remember(albumDetailState?.getOrNull()?.songs) {
@@ -203,6 +231,10 @@ fun AlbumScreen(
             // 横屏（矮屏）走主从双栏，顶栏按钮移到左栏顶部，这里不显示顶栏。
             if (!isLandscape) {
                 TopAppBar(
+                    // 只画背景不挡内容：滚动时由透明渐显为实色，避免列表从按钮后面穿过
+                    modifier = Modifier.drawBehind {
+                        drawRect(color = topBarBgColor.copy(alpha = topBarBgAlpha))
+                    },
                     title = {
                         if (searchActive) {
                             TextField(
@@ -221,10 +253,14 @@ fun AlbumScreen(
                                 )
                             )
                         } else {
+                            // 透明顶栏：列表滚过封面头部后，专辑名在返回按钮旁淡入
                             Text(
-                                if (showAlbumTitle) playlistTitle else stringResource(R.string.album),
+                                text = playlistTitle,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.graphicsLayer { alpha = albumTitleAlpha }
                             )
                         }
                     },
@@ -289,7 +325,10 @@ fun AlbumScreen(
                                 }
                             )
                         }
-                    }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent
+                    )
                 )
             }
         }
