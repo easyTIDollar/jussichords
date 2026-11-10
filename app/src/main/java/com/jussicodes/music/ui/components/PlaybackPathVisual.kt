@@ -334,5 +334,5 @@ internal fun qualityLabel(value: String): String = when (value) {
     SongLevel.SKY.value -> "沉浸环绕声"
     SongLevel.DOLBY.value -> "杜比全景声"
     SongLevel.JYMASTER.value -> "超清母带"
-    else -> value.ifBlank { "未知音质" }
+    else -> value.ifBlank { "音质待确认" }
 }

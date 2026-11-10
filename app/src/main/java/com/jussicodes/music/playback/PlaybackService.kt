@@ -166,17 +166,24 @@ class PlaybackService : MediaSessionService() {
             if (pathReadySong == mediaId) return
             val snapshot = PlaybackPath.snapshot()
             if (snapshot.steps.isEmpty()) {
-                // 解析层一次都没被调用就 READY 了：整首在分片缓存里、或本地文件直达。
-                // 补一条真实事实，面板才不会空着让人以为「卡在这 0s」。
+                // 解析层一次都没被调用就 READY 了：音频不是从网络来的，直接读本地。
+                // 两种情形要说清，别糊成一句「缓存直达」——本地文件和分片缓存是两回事，
+                // 用户看到「已下载的歌」被写成「缓存」会以为缓存没清干净。
+                val uri = player.currentMediaItem?.localConfiguration?.uri
+                val local = uri?.scheme == "file" || uri?.scheme == "content"
                 pathReadySong = mediaId
                 PlaybackPath.stepFor(
                     mediaId,
-                    "缓存直达",
-                    "整首已在分片缓存或本地文件，播放器直接读取（0 次解析）",
+                    if (local) "本地文件直达" else "分片缓存命中",
+                    if (local) "已下载 / 导入的音频，直接读盘（0 次解析、0 流量）"
+                    else "整首音频已在分片缓存，直接读盘（0 次解析、0 流量）",
                     listOf("缓存"),
                     PlaybackPath.Status.OK,
                 )
-                PlaybackPath.resolvedFor(mediaId, "缓存直达 · 未解析")
+                PlaybackPath.resolvedFor(
+                    mediaId,
+                    if (local) "本地文件 · 未解析" else "分片缓存 · 未解析",
+                )
                 return
             }
             pathReadySong = mediaId
@@ -1309,7 +1316,8 @@ class PlaybackService : MediaSessionService() {
                                 )
                                 PlaybackPath.step(
                                     "直链缓存 命中",
-                                    com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(cachedUrl),
+                                    com.rcmiku.ncmapi.api.PlayUrlTrace.hostOf(cachedUrl) +
+                                        " · 地址仍有效（内存 30 分钟 / 磁盘 15 分钟），本次不解析，音频边下边播",
                                     listOf("缓存"),
                                     PlaybackPath.Status.OK,
                                 )
