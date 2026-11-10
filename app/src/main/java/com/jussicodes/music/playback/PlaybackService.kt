@@ -565,6 +565,23 @@ class PlaybackService : MediaSessionService() {
                     updateMediaItemUri(uri, audioQuality, this@PlaybackService)
                 }
             }.getOrNull() ?: return@launch
+            // 预取只拿到 30 秒试听链时绝不能写直链缓存：正式解析路径有这层过滤，预取漏了的话，
+            // 切过去会直接「直链缓存命中」播 30 秒，连 updateMediaItemUri 里的试听短重试都不会走。
+            // 用户看到的就是「切下一首只播一半 / 放到一半就跳」。
+            val trial = isTrialClipUri(resolved) || ResolveGuard.observe(nextId)?.trial == true
+            if (trial) {
+                android.util.Log.w(TAG, "prefetch got trial clip, not cached songId=$nextId")
+                if (focusId != null) {
+                    PlaybackPath.stepFor(
+                        focusId,
+                        "预取下一首",
+                        "$nextId 只拿到试听链 · 不写直链缓存，切歌时重新解析",
+                        listOf("预取"),
+                        PlaybackPath.Status.FAIL,
+                    )
+                }
+                return@launch
+            }
             PlayUrlCache.put(uri.toString(), qualityTag, sourceTag, resolved.toString())
             if (focusId != null) {
                 PlaybackPath.stepFor(

@@ -338,6 +338,15 @@ object LxPluginManager {
                 PlaybackPath.Status.RUNNING,
             )
         }
+        // 沙盒冷启动（WebView 页面 + 脚本 sendInited）和 /song/detail/batch 的往返原本是串行的：
+        // 先等一次网络往返拿到元信息，才开始建沙盒，首播等于两段耗时相加；更糟的是沙盒还没热
+        // 就被注入解析调用 → 「未注册请求处理器」→ 回落官方 30 秒试听。这里在拿元信息之前就把
+        // 前几个脚本的沙盒建起来（后台并发），解析真正开始时它们已经在热身。
+        engine?.let { e ->
+            enabled.take(WARM_UP_PLUGINS).forEach { item ->
+                scope.launch { runCatching { e.warmUp(item.id) } }
+            }
+        }
         // 元信息取不到就不试解析；网络抖动导致的单次失败很常见，重试一次再放弃。
         val song = fetchSong(songId) ?: fetchSong(songId)
         if (song == null) {
@@ -648,6 +657,9 @@ object LxPluginManager {
     }
 
     private const val MAX_WARM_PLUGINS = 5
+
+    /** 解析前并发预热的脚本数：只热最可能命中的前两个，别为一次点歌建一堆 WebView。 */
+    private const val WARM_UP_PLUGINS = 2
 
     /** 单次起播的解析总预算；超了就回落官方直链，不把点歌拖成十几秒。 */
     private const val RESOLVE_BUDGET_MS = 8_000L

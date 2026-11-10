@@ -14,6 +14,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.contentOrNull
@@ -56,6 +58,9 @@ class LxPluginEngine(private val context: Context) {
 
     // 结构性坏掉的插件在冷却期内不再重建沙盒，避免每首歌都白等一次页面加载。
     private val failedAt = ConcurrentHashMap<String, Long>()
+
+    /** 每个插件的沙盒创建锁：预热与解析同时到达时只建一个 WebView。 */
+    private val createLocks = ConcurrentHashMap<String, Mutex>()
 
     // 沙盒出网用的独立客户端：不能带 NCM cookie / 加密 / 代理 base url（同 LocalSourceFetcher 原则）。
     private val httpClient = OkHttpClient.Builder()
@@ -114,15 +119,19 @@ class LxPluginEngine(private val context: Context) {
     }
 
     /** 新建沙盒并挂进池子；取不到脚本正文返回 null。 */
-    private suspend fun newSandbox(pluginId: String): Sandbox? {
-        val item = itemProvider(pluginId) ?: run {
-            android.util.Log.w(LOG_TAG, "[$pluginId] 取不到脚本正文，跳过")
-            return null
+    private suspend fun newSandbox(pluginId: String): Sandbox? =
+        createLocks.computeIfAbsent(pluginId) { Mutex() }.withLock {
+            // 预热与解析可能同时给同一个插件建沙盒：不加锁会建出两个 WebView，
+            // 输了的那份没人引用、也永远销毁不掉（泄漏）。
+            active[pluginId]?.let { return it }
+            val item = itemProvider(pluginId) ?: run {
+                android.util.Log.w(LOG_TAG, "[$pluginId] 取不到脚本正文，跳过")
+                return null
+            }
+            val created = createSandbox(pluginId, item) ?: return null
+            active[pluginId] = created
+            created
         }
-        val created = createSandbox(pluginId, item) ?: return null
-        active[pluginId] = created
-        return created
-    }
 
     /**
      * 等脚本 sendInited（有预算）。超时也继续注入：有的脚本 inited 前就在发网络请求，
