@@ -17,6 +17,8 @@ import com.rcmiku.ncmapi.model.Radio
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.SongUrl
 import com.rcmiku.ncmapi.utils.json
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 
 private fun Song.encodeUri(): String {
     val base = id.toString()
@@ -242,9 +244,32 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
         return url.toUri()
     }
 
+    val firstStartedAt = System.currentTimeMillis()
     val first = resolveOnce()
     val firstUrl = first?.url?.takeIf { it.isNotBlank() }
-    // 拿到试听就直接播：再解析一遍要额外等一轮，结果几乎一样，只会把起播拖慢。
+    // 试听兜底前再给一次机会：客户端音源（LX/直连）开启时，第一次解析经常赶上沙盒
+    // 刚建好、脚本还没跑完 sendInited —— 官方兜底只能回 30 秒试听，而用户手动点一下
+    // 「重新解析」立刻就有完整源。这里把那次手动重试自动化：限一次、限时，
+    // 真无源的歌最多多等 3s，不会把每首无源歌的加载翻几倍。
+    if (firstUrl != null && first?.isTrialClip() == true && clientSourceSelected() &&
+        System.currentTimeMillis() - firstStartedAt < TRIAL_RETRY_WINDOW_MS
+    ) {
+        PlaybackPath.stepFor(
+            songId,
+            "试听兜底，短重试",
+            "客户端音源开启：再解析一次，避免首次沙盒未就绪就直接播 30 秒试听",
+            listOf("重试"),
+            PlaybackPath.Status.RUNNING,
+        )
+        delay(250)
+        val retry = withTimeoutOrNull(TRIAL_RETRY_TIMEOUT_MS) { resolveOnce() }
+        val retryUrl = retry?.url?.takeIf { it.isNotBlank() }
+        if (retry != null && retryUrl != null && !retry.isTrialClip()) {
+            return accept(retryUrl, trial = false)
+        }
+    }
+    // 重试没拿到完整源（或本来就不该重试）：用第一条。试听至少能听 30 秒，
+    // 后续由播放器的时长校验接手（清缓存 + 每首歌自动重解析一次）。
     if (firstUrl != null) return accept(firstUrl, trial = first?.isTrialClip() == true)
 
     // 完全拿不到直链才重试一次（网络抖动），不再额外 sleep。
@@ -257,6 +282,18 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
     }
     return accept(secondUrl, trial = second?.isTrialClip() == true)
 }
+
+/** 客户端音源（LX / 内置直连）是否开启——只有它们才值得为试听兜底再解析一次。 */
+private fun clientSourceSelected(): Boolean =
+    com.rcmiku.ncmapi.api.AudioSourceSettings.SELECTED.let {
+        it == com.rcmiku.ncmapi.api.AudioSources.LX || it == com.rcmiku.ncmapi.api.AudioSources.DIRECT
+    }
+
+/** 首次解析耗时超过这个窗口就不再为试听重试：多半是真无源，重试只会更慢。 */
+private const val TRIAL_RETRY_WINDOW_MS = 6_000L
+
+/** 试听重试本身的预算。 */
+private const val TRIAL_RETRY_TIMEOUT_MS = 3_000L
 
 /** 面板上的路由摘要：当前选的是哪个音源通道。 */
 private fun describeSource(): String = when (com.rcmiku.ncmapi.api.AudioSourceSettings.SELECTED) {

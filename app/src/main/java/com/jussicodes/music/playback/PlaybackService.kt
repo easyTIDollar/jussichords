@@ -852,6 +852,20 @@ class PlaybackService : MediaSessionService() {
     /** 当前曲目已经校验过时长的直链，避免同一根链反复触发校验。 */
     private var verifiedUrl: String? = null
 
+    /** 每首歌每进程只自动救一次试听片段：真无源的歌再救也不会变成完整源。 */
+    private val trialRescuedSongs: MutableSet<String> =
+        java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /** 无解析记录（缓存直达 / 本地文件）时每首歌只核对一次时长。 */
+    private val durationCheckedSongs: MutableSet<String> =
+        java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /** NCM 试听占位的时长区间（实际 30040ms，留点余量）。 */
+    private val TRIAL_DURATION_RANGE = 25_000L..35_000L
+
+    /** 元数据比实际长出这么多才算「被截成试听」，避免短歌被误判。 */
+    private val TRIAL_MIN_GAP_MS = 60_000L
+
     /**
      * 正在「拉黑坏源并重放」的过程中。
      *
@@ -865,6 +879,13 @@ class PlaybackService : MediaSessionService() {
     private fun durationToleranceMs(expectedMs: Long): Long =
         maxOf(5_000L, expectedMs / 50)
 
+    /** 本地下载 / 外部导入的音频：时长校验与试听自愈都不适用于它们。 */
+    private fun isLocalSong(songId: String): Boolean {
+        val idLong = songId.substringBefore("?").toLongOrNull() ?: return false
+        return com.jussicodes.music.data.download.DownloadStore.isSongDownloaded(idLong) ||
+            com.jussicodes.music.data.external.ExternalPlaylistStore.findSongById(idLong) != null
+    }
+
     /**
      * 时长校验：解析出来的直链未必是这首歌的完整音频。
      *
@@ -873,8 +894,10 @@ class PlaybackService : MediaSessionService() {
      * 所以这里等真实音频就绪后核对 ExoPlayer 读到的时长与歌曲元数据时长，超出容差就把这条链
      * 拉黑（[ResolveGuard]）并换源重放——重试会跳过坏链、升级到下一个脚本/直连源。
      *
-     * 试听片段（30s 占位）不在这里重试：能走到「拿到试听」说明所有脚本/直连源都已试过，
-     * 再解析一遍结果只会一样，反而把每首无源歌的加载时间翻几倍。
+     * 试听片段（30s 占位）：以前直接放过（「再解析也一样」），结果 30 秒分片被当成整首歌写进
+     * 缓存，从此每次播都是「缓存直达」，再没有自愈机会。现在改为每首歌每进程自动救一次：
+     * 清掉分片/直链缓存后重新解析（等价于用户手动点「重新解析」）；仍失败就接受，并在这首歌
+     * 离开播放器后清掉那段分片，避免它长期冒充「整首已缓存」。
      */
     private val durationVerifyListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -885,10 +908,18 @@ class PlaybackService : MediaSessionService() {
             val expectedMs = item.mediaMetadata.extras
                 ?.getLong(MediaSessionConstants.EXTRA_DURATION_MS, 0L) ?: 0L
             if (expectedMs <= 0) return
-            // 只有「由我们解析出来的」曲目才有记录；本地文件 / 直接给的 http 地址没有，直接跳过。
-            val observation = ResolveGuard.observe(songId) ?: return
-            if (verifiedUrl == observation.url) return
-            verifiedUrl = observation.url
+            // 有解析记录就按记录核对；没有记录（本地文件、或进程重启后缓存直达）也继续往下走：
+            // 31 秒试听分片会以「整首已缓存」的身份存在，光靠内存记录永远认不出来。
+            val observation = ResolveGuard.observe(songId)
+            if (observation != null) {
+                if (verifiedUrl == observation.url) return
+                verifiedUrl = observation.url
+            } else if (isLocalSong(songId) || !durationCheckedSongs.add(songId)) {
+                // 本地下载/外部导入文件没有解析记录；它们的坏文件由 onPlayerError 处理，
+                // 这里不碰缓存，也不做「试听重解析」。
+                return
+            }
+            val rawUri = item.localConfiguration?.uri?.toString()
 
             scope.launch {
                 val p = mediaSession?.player ?: return@launch
@@ -916,22 +947,56 @@ class PlaybackService : MediaSessionService() {
                 val diff = kotlin.math.abs(actualMs - expectedMs)
                 if (diff <= durationToleranceMs(expectedMs)) return@launch
 
+                // 试听片段：除了 ResolveGuard 的标记，还认「时长 ≈ 30s 且元数据远长于它」。
+                // 后者是缓存直达 / 进程重启后唯一的证据。
+                val looksTrial = actualMs in TRIAL_DURATION_RANGE &&
+                    expectedMs - actualMs > TRIAL_MIN_GAP_MS
+                val trial = observation?.trial == true || looksTrial
+
                 // 面板上这一行是「解析成功但放不对」的唯一证据：链是好的、歌不对。
                 PlaybackPath.stepFor(
                     songId,
-                    "时长校验不符",
-                    "元数据 ${expectedMs / 1000}s / 实际 ${actualMs / 1000}s，拉黑这条链",
+                    if (trial) "试听片段" else "时长校验不符",
+                    "元数据 ${expectedMs / 1000}s / 实际 ${actualMs / 1000}s，" +
+                        (if (trial) "不是完整音频" else "拉黑这条链"),
                     listOf("校验"),
                     PlaybackPath.Status.FAIL,
                 )
                 android.util.Log.w(
                     TAG,
                     "duration mismatch songId=$songId expected=${expectedMs}ms actual=${actualMs}ms " +
-                        "diff=${diff}ms retry=${observation.retries} trial=${observation.trial} " +
-                        "url=${observation.url.take(100)}"
+                        "diff=${diff}ms trial=$trial retry=${observation?.retries ?: 0} " +
+                        "url=${observation?.url?.take(100) ?: "-"}"
                 )
-                // 试听片段：所有源都试过了，重试没有意义，保持「能听 30 秒」的现状。
-                if (observation.trial) return@launch
+                if (trial) {
+                    // 试听不能当完整音频留在缓存里（否则以后每次播都是「缓存直达」，永远没有
+                    // 自愈机会）。每首歌每进程自动救一次：清两层缓存后重新解析——这正是
+                    // 用户手动点「重新解析」做的事。再失败就接受现状，不反复重放。
+                    if (trialRescuedSongs.add(songId)) {
+                        PlaybackPath.stepFor(
+                            songId,
+                            "试听自动重解析",
+                            "丢掉分片缓存与直链缓存后重新解析一次",
+                            listOf("校验", "重试"),
+                            PlaybackPath.Status.RUNNING,
+                        )
+                        retryWithNextSource(
+                            songId,
+                            detail = "试听片段：清掉分片与直链缓存后重新解析",
+                            dropUrlCache = true,
+                        )
+                    } else {
+                        // 已经救过还是试听 → 真无源。分片留着可以听 30 秒，但等这首歌
+                        // 离开播放器后必须清掉，避免它冒充「整首已缓存」。
+                        scheduleTrialCachePurge(songId, rawUri)
+                    }
+                    return@launch
+                }
+                // 没有解析记录（缓存直达）：知道它不对，但没有可拉黑的链，只清缓存下次重解析。
+                if (observation == null) {
+                    scheduleTrialCachePurge(songId, rawUri)
+                    return@launch
+                }
                 // 这次交出去的直链本身就在拉黑集合里（候选已试穿）→ 别再重放，直接接受并提示一次。
                 if (observation.alreadyRejected || !ResolveGuard.rejectAndShouldRetry(observation)) {
                     if (ResolveGuard.shouldWarn(observation)) {
@@ -958,19 +1023,37 @@ class PlaybackService : MediaSessionService() {
      * stop() 会把播放器打回 IDLE 并释放 MediaSourceList，随后的 prepare() 才会重新创建
      * MediaSource、重新走一遍 uri 解析（带上拉黑集合）。
      */
-    private fun retryWithNextSource(songId: String) {
+    private fun retryWithNextSource(
+        songId: String,
+        detail: String = "清掉这首歌的分片缓存，重新解析直链",
+        dropUrlCache: Boolean = false,
+    ) {
         val player = mediaSession?.player ?: return
         if (player.currentMediaItem?.mediaId != songId) return
         retryingSource = true
         verifiedUrl = null
+        val rawUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
         PlaybackPath.stepFor(
             songId,
             "换源重放",
-            "清掉这首歌的分片缓存，重新解析直链",
+            detail,
             listOf("校验"),
             PlaybackPath.Status.RUNNING,
         )
         scope.launch {
+            // 必须先删分片缓存再 stop → prepare：顺序反过来，prepare 会立刻命中同一段
+            // 坏分片（31 秒试听 / 截断流），换源就是原地打转——以前这里只有一行文案，
+            // 真正的 removeResource 从来没被调用过。
+            if (rawUri != null) {
+                dropAudioCacheNow(rawUri)
+                if (dropUrlCache) {
+                    PlayUrlCache.invalidate(
+                        rawUri,
+                        audioQuality.value,
+                        PlaybackReloadBus.sourceTag,
+                    )
+                }
+            }
             try {
                 player.stop()
                 player.seekTo(0)
@@ -1002,6 +1085,50 @@ class PlaybackService : MediaSessionService() {
             }
         }
     }
+
+    /**
+     * 同步版：调用方必须先等删除完成再 prepare，否则 prepare 会立刻命中同一段坏分片。
+     * 换源 / 试听重解析走这条。
+     */
+    private suspend fun dropAudioCacheNow(rawUri: String?) {
+        val uri = rawUri ?: return
+        withContext(Dispatchers.IO) {
+            runCatching {
+                AudioCache.get(this@PlaybackService).removeResource(audioCacheKey(uri))
+                android.util.Log.w(TAG, "audio cache dropped for bad source: $uri")
+            }
+        }
+    }
+
+    /** NCM 试听片段（30 秒占位）的 CDN 标识。 */
+    private fun isTrialClipUri(uri: android.net.Uri): Boolean =
+        uri.toString().contains("musicrep-ts", ignoreCase = true)
+
+    /**
+     * 等这首歌离开播放器之后再把试听分片删掉。
+     *
+     * 播放中直接 removeResource 会把正在读的 span 抽走，可能触发一次读取异常；
+     * 切歌（或 90s 超时）后再删，下次播放就会重新解析而不是「缓存直达 30 秒」。
+     */
+    private fun scheduleTrialCachePurge(songId: String, rawUri: String?) {
+        if (rawUri == null) return
+        if (trialPurgeJobs.putIfAbsent(songId, true) != null) return
+        scope.launch {
+            try {
+                val deadline = SystemClock.elapsedRealtime() + 90_000
+                while (SystemClock.elapsedRealtime() < deadline) {
+                    if (mediaSession?.player?.currentMediaItem?.mediaId != songId) break
+                    delay(1_000)
+                }
+                dropAudioCacheNow(rawUri)
+            } finally {
+                trialPurgeJobs.remove(songId)
+            }
+        }
+    }
+
+    /** 同一首歌的延后清理任务只挂一个。 */
+    private val trialPurgeJobs = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
     /** 监听网络恢复：之前因弱网停住的，走到这续播。 */
     private fun observeNetworkRecovery() {
@@ -1205,20 +1332,32 @@ class PlaybackService : MediaSessionService() {
                             )
                         }
                         if (cachedUrl == null) {
-                            PlayUrlCache.put(
-                                rawUri.toString(),
-                                qualityTag,
-                                sourceTag,
-                                resolvedUri.toString()
-                            )
-                            // 链路闭合：这条直链进了缓存，30 分钟内再播这首歌就不会再解析。
-                            PlaybackPath.stepFor(
-                                resolveKey,
-                                "直链已缓存",
-                                "30 分钟内重播不再解析",
-                                listOf("缓存"),
-                                PlaybackPath.Status.OK,
-                            )
+                            // 试听片段（musicrep-ts）不进直链缓存：一旦存下来，之后 30 分钟内
+                            // 每次播这首歌都会直接拿这条 30 秒链，连沙盒都不走，永远回不到完整源。
+                            if (isTrialClipUri(resolvedUri)) {
+                                PlaybackPath.stepFor(
+                                    resolveKey,
+                                    "试听片段不入直链缓存",
+                                    "下次播放会重新解析，避免 30 秒片段被当成整首",
+                                    listOf("缓存"),
+                                    PlaybackPath.Status.INFO,
+                                )
+                            } else {
+                                PlayUrlCache.put(
+                                    rawUri.toString(),
+                                    qualityTag,
+                                    sourceTag,
+                                    resolvedUri.toString()
+                                )
+                                // 链路闭合：这条直链进了缓存，30 分钟内再播这首歌就不会再解析。
+                                PlaybackPath.stepFor(
+                                    resolveKey,
+                                    "直链已缓存",
+                                    "30 分钟内重播不再解析",
+                                    listOf("缓存"),
+                                    PlaybackPath.Status.OK,
+                                )
+                            }
                         }
 
                         dataSpec.buildUpon()
