@@ -188,7 +188,7 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
     val songId = uri.toResolveKey()
     val idLong = songId.substringBefore("?").toLongOrNull()
     if (PlaybackPath.begin(songId, songLevel.value)) {
-        PlaybackPath.route("网易云 · " + describeSource())
+        PlaybackPath.routeFor(songId, "网易云 · " + describeSource())
     }
     if (context != null && idLong != null) {
         val externalPlayable = com.jussicodes.music.data.external.ExternalPlaylistStore.getPlayableUri(context, idLong)
