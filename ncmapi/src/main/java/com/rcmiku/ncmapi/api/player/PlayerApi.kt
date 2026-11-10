@@ -44,7 +44,13 @@ object PlayerApi {
         songId: String,
         songLevel: SongLevel = SongLevel.STANDARD,
         source: String? = null,
-        skipUrls: Set<String> = emptySet()
+        skipUrls: Set<String> = emptySet(),
+        /**
+         * 调用方手上已有的 Song JSON（队列 MediaItem extras 里那份）。
+         * 交给 LX 音源直接拼 musicInfo，省掉一次 `/song/detail/batch` 往返；
+         * 为空或字段不齐时解析层自己请求，行为与以前一致。
+         */
+        songJson: String? = null
     ): Result<SongUrlResponse> {
         val parsed = parseSongId(songId)
         val realId = parsed.first
@@ -85,7 +91,7 @@ object PlayerApi {
             // 试听链（musicrep-ts）不能当命中：脚本降级到官方源时会给 30 秒片段，
             // 直接返回会让播放器「解析成功」然后播一半就断。
             val clientUrl = when (selected) {
-                AudioSources.LX -> LxSourceBridge.resolver?.invoke(realId, songLevel.value, skipUrls)
+                AudioSources.LX -> LxSourceBridge.resolver?.invoke(realId, songLevel.value, skipUrls, songJson)
                 else -> tryDirectSourceUrl(realId, songLevel, skipUrls)
             }?.takeIf { it.isNotBlank() && !it.contains("musicrep-ts", ignoreCase = true) }
                 ?.takeUnless { PlayUrlSkip.blocks(skipUrls, it) }
