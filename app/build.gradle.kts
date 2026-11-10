@@ -71,8 +71,12 @@ android {
             applicationIdSuffix = ".canary"
             // CI 通过 -PCANARY_VERSION_SUFFIX=-canary.<UTC 月日-时分秒> 注入唯一后缀（见 build.yml），默认 -canary
             versionNameSuffix = (findProperty("CANARY_VERSION_SUFFIX") as? String) ?: "-canary"
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // canary 是内部测试包，默认不做 R8：全量混淆实测占整条构建 ~3 分钟，
+            // 关掉后 5分23秒 → 2 分钟左右。需要验证「只有混淆后才暴露」的问题时加 -PcanaryMinify=true。
+            // 注意 isShrinkResources 必须与 isMinifyEnabled 同步：AGP 8.5 下 shrink 单独开 true 会直接报错。
+            val canaryMinify = (findProperty("canaryMinify") as? String)?.toBoolean() ?: false
+            isMinifyEnabled = canaryMinify
+            isShrinkResources = canaryMinify
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
