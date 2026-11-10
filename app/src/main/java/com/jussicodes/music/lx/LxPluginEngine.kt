@@ -45,6 +45,8 @@ class LxPluginEngine(private val context: Context) {
         val pluginId: String,
         val webView: WebView,
         val supportedSources: List<String>,
+        /** 脚本 sendInited 后完成；首访解析前要等它一次，否则页面上还没注册 handler。 */
+        val inited: CompletableDeferred<VerifyResult> = CompletableDeferred(),
         val pending: ConcurrentHashMap<Int, CompletableDeferred<String?>> = ConcurrentHashMap()
     ) {
         /** 最近一次解析的错误原因，用于判定沙盒是否结构性坏掉（脚本根本没跑起来）。 */
@@ -91,16 +93,58 @@ class LxPluginEngine(private val context: Context) {
             android.util.Log.w(LOG_TAG, "[$pluginId] 沙盒冷却中（脚本未就绪），跳过本次解析")
             return null
         }
-        val sandbox = active[pluginId] ?: run {
-            val item = itemProvider(pluginId) ?: run {
-                android.util.Log.w(LOG_TAG, "[$pluginId] 取不到脚本正文，跳过")
-                return null
-            }
-            val created = createSandbox(pluginId, item, CompletableDeferred()) ?: return null
-            active[pluginId] = created
-            created
-        }
+        var sandbox = active[pluginId] ?: newSandbox(pluginId) ?: return null
+        // 首访（或预热刚建完）时脚本往往还没跑完 sendInited：这时候注入解析调用必然
+        // 报「未注册」或直接吃满超时，于是第一次点歌白白落到官方 30 秒试听。
+        // 用户手动点一下「重新解析」就好，正是因为那时沙盒已经热了——这里先等一次就绪。
+        awaitInited(sandbox)
 
+        var url = invokeResolve(sandbox, musicInfoJson, quality)
+        if (url.isNullOrBlank() && sandbox.lastError?.contains(HANDLER_MISSING) == true) {
+            // 结构性坏沙盒（页面没就绪就注入过脚本）再给一次重建机会，而不是直接冷却
+            // 整条音源：一次冷启动失败不该让之后 5 分钟里所有歌都跳过它。
+            android.util.Log.w(LOG_TAG, "[$pluginId] 沙盒未注册请求处理器，重建后重试一次")
+            dropSandbox(sandbox, cooldown = false)
+            sandbox = newSandbox(pluginId) ?: return null
+            awaitInited(sandbox)
+            url = invokeResolve(sandbox, musicInfoJson, quality)
+            if (url.isNullOrBlank()) dropSandbox(sandbox, cooldown = true)
+        }
+        return url
+    }
+
+    /** 新建沙盒并挂进池子；取不到脚本正文返回 null。 */
+    private suspend fun newSandbox(pluginId: String): Sandbox? {
+        val item = itemProvider(pluginId) ?: run {
+            android.util.Log.w(LOG_TAG, "[$pluginId] 取不到脚本正文，跳过")
+            return null
+        }
+        val created = createSandbox(pluginId, item) ?: return null
+        active[pluginId] = created
+        return created
+    }
+
+    /**
+     * 等脚本 sendInited（有预算）。超时也继续注入：有的脚本 inited 前就在发网络请求，
+     * 硬等会把起播拖长；拿不到就让它自己报错，至少日志里能看到真实原因。
+     */
+    private suspend fun awaitInited(sandbox: Sandbox) {
+        if (sandbox.inited.isCompleted) return
+        val ok = withTimeoutOrNull(SANDBOX_READY_WAIT_MS) { sandbox.inited.await() }
+        if (ok == null) {
+            android.util.Log.w(
+                LOG_TAG,
+                "[${sandbox.pluginId}] 等待脚本就绪超时（${SANDBOX_READY_WAIT_MS}ms），继续尝试解析"
+            )
+        }
+    }
+
+    /** 注入一次解析调用并等结果。 */
+    private suspend fun invokeResolve(
+        sandbox: Sandbox,
+        musicInfoJson: String,
+        quality: String
+    ): String? {
         val t0 = SystemClock.elapsedRealtime()
         val callId = nextCallId.incrementAndGet()
         val deferred = CompletableDeferred<String?>()
@@ -121,16 +165,12 @@ class LxPluginEngine(private val context: Context) {
         }
 
         val cost = SystemClock.elapsedRealtime() - t0
+        val pluginId = sandbox.pluginId
         if (url.isNullOrBlank()) {
             android.util.Log.w(
                 LOG_TAG,
                 "[$pluginId] 未命中 cost=${cost}ms error=${sandbox.lastError ?: "无响应/超时"}"
             )
-            // 脚本首行要求 window.lx 已存在；页面没就绪就注入会让脚本直接抛错，
-            // 沙盒从此永久「未注册 request 处理器」。这种沙盒必须丢掉，等下次重建。
-            if (sandbox.lastError?.contains(HANDLER_MISSING) == true) {
-                dropSandbox(sandbox, cooldown = true)
-            }
         } else {
             android.util.Log.d(LOG_TAG, "[$pluginId] 命中 cost=${cost}ms")
         }
@@ -158,8 +198,7 @@ class LxPluginEngine(private val context: Context) {
     /** 预建沙盒（只建不解析），避免首播时多等一次脚本初始化。 */
     suspend fun warmUp(pluginId: String) {
         if (active.containsKey(pluginId)) return
-        val item = itemProvider(pluginId) ?: return
-        active[pluginId] = createSandbox(pluginId, item, CompletableDeferred()) ?: return
+        newSandbox(pluginId)
     }
 
     fun deactivate(pluginId: String) {
@@ -184,7 +223,7 @@ class LxPluginEngine(private val context: Context) {
     private suspend fun createSandbox(
         pluginId: String,
         item: LxPluginItem,
-        inited: CompletableDeferred<VerifyResult>
+        inited: CompletableDeferred<VerifyResult> = CompletableDeferred()
     ): Sandbox? = withContext(Dispatchers.Main) {
         val ready = CompletableDeferred<Unit>()
         lateinit var sandbox: Sandbox
@@ -239,7 +278,7 @@ class LxPluginEngine(private val context: Context) {
         )
         wv.evaluateJavascript(item.rawScript, null)
 
-        sandbox = Sandbox(pluginId, wv, item.sources)
+        sandbox = Sandbox(pluginId, wv, item.sources, inited)
         sandbox
     }
 
@@ -361,10 +400,16 @@ class LxPluginEngine(private val context: Context) {
         const val RESOLVE_TIMEOUT_MS = 5000L
         const val PAGE_READY_TIMEOUT_MS = 4000L
 
+        /** 首次解析前等脚本 sendInited 的预算；超时也继续，不阻塞起播。 */
+        private const val SANDBOX_READY_WAIT_MS = 2_500L
+
         /** 脚本未跑起来（页面未就绪就注入）时 shim 回的错误关键字。 */
         private const val HANDLER_MISSING = "未注册"
 
-        /** 结构性坏掉的插件冷却时长，避免每首歌都重建一次沙盒。 */
-        private const val ACTIVATE_FAILURE_COOLDOWN_MS = 5 * 60 * 1000L
+        /**
+         * 结构性坏掉的插件冷却时长，避免每首歌都重建一次沙盒。
+         * 45s 而不是 5 分钟：一次冷启动失败惩罚整条音源五分钟，比失败本身更伤。
+         */
+        private const val ACTIVATE_FAILURE_COOLDOWN_MS = 45_000L
     }
 }
