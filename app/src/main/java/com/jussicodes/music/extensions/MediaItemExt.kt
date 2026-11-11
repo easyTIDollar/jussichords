@@ -257,20 +257,27 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
     val firstUrl = first?.url?.takeIf { it.isNotBlank() }
     // 试听兜底前再给一次机会：客户端音源（LX/直连）开启时，第一次解析经常赶上沙盒
     // 刚建好、脚本还没跑完 sendInited —— 官方兜底只能回 30 秒试听，而用户手动点一下
-    // 「重新解析」立刻就有完整源。这里把那次手动重试自动化：限一次、限时，
-    // 真无源的歌最多多等 3s，不会把每首无源歌的加载翻几倍。
+    // 「重新解析」立刻就有完整源。这里把那次手动重试自动化：限一次、限时。
+    //
+    // 判定不能只看「首次很快」：首次慢（8~13s）恰恰是沙盒冷启动最典型的样子
+    // （等 inited + 单次解析超时 + 官方兜底），也正是第二次一定命中的那一类 ——
+    // 用户报「要手动点重新解析才有完整歌曲」就发生在这条路径上。窗口按解析入口的
+    // 总预算算，重试自身再按剩余时间收窄，真无源的歌最多多等 4s。
+    val elapsedBeforeRetry = System.currentTimeMillis() - firstStartedAt
     if (firstUrl != null && first?.isTrialClip() == true && clientSourceSelected() &&
-        System.currentTimeMillis() - firstStartedAt < TRIAL_RETRY_WINDOW_MS
+        elapsedBeforeRetry < TRIAL_RETRY_WINDOW_MS
     ) {
         PlaybackPath.stepFor(
             songId,
             "试听兜底，短重试",
-            "客户端音源开启：再解析一次，避免首次沙盒未就绪就直接播 30 秒试听",
+            "客户端音源开启：首次 ${elapsedBeforeRetry}ms 只拿到试听，再解析一次（沙盒此时已热）",
             listOf("重试"),
             PlaybackPath.Status.RUNNING,
         )
         delay(250)
-        val retry = withTimeoutOrNull(TRIAL_RETRY_TIMEOUT_MS) { resolveOnce() }
+        val retryBudget = (RESOLVE_TOTAL_BUDGET_MS - elapsedBeforeRetry - 250L)
+            .coerceIn(MIN_TRIAL_RETRY_TIMEOUT_MS, TRIAL_RETRY_TIMEOUT_MS)
+        val retry = withTimeoutOrNull(retryBudget) { resolveOnce() }
         val retryUrl = retry?.url?.takeIf { it.isNotBlank() }
         if (retry != null && retryUrl != null && !retry.isTrialClip()) {
             return accept(retryUrl, trial = false)
@@ -297,11 +304,22 @@ private fun clientSourceSelected(): Boolean =
         it == com.rcmiku.ncmapi.api.AudioSources.LX || it == com.rcmiku.ncmapi.api.AudioSources.DIRECT
     }
 
-/** 首次解析耗时超过这个窗口就不再为试听重试：多半是真无源，重试只会更慢。 */
-private const val TRIAL_RETRY_WINDOW_MS = 6_000L
+/**
+ * 试听兜底时，首次解析耗时超过这个窗口就不再重试：真无源的歌不会无限拖。
+ *
+ * 上限按 [RESOLVE_TOTAL_BUDGET_MS] 反推：首次慢到 10s 量级仍要能进这一次重试 ——
+ * 那是 LX 沙盒冷启动的指纹（等 inited + 单次解析超时），第二次几乎必然命中。
+ */
+private const val TRIAL_RETRY_WINDOW_MS = 13_000L
 
-/** 试听重试本身的预算。 */
-private const val TRIAL_RETRY_TIMEOUT_MS = 3_000L
+/** 试听重试本身的预算上限（沙盒已热时几百毫秒就够，留余量给仍在 inited 的脚本）。 */
+private const val TRIAL_RETRY_TIMEOUT_MS = 4_000L
+
+/** 重试预算下限：剩余时间极少时也要给一次真正的尝试，而不是 0ms 空转。 */
+private const val MIN_TRIAL_RETRY_TIMEOUT_MS = 1_500L
+
+/** 解析入口的整体上限：播放器侧 runBlocking 是 20s，留 1s 给 dataSpec 构建与首块读取。 */
+private const val RESOLVE_TOTAL_BUDGET_MS = 19_000L
 
 /** 面板上的路由摘要：当前选的是哪个音源通道。 */
 private fun describeSource(): String = when (com.rcmiku.ncmapi.api.AudioSourceSettings.SELECTED) {

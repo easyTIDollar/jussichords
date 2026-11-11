@@ -490,8 +490,11 @@ class PlaybackService : MediaSessionService() {
     /** 距结尾多久开始预取下一首的直链。 */
     private val prefetchBeforeEndMs = 10_000L
 
-    /** 预取本身也走网络，弱网下不能把它变成新的卡点。 */
-    private val prefetchTimeoutMs = 12_000L
+    /**
+     * 预取预算：必须 ≥ 解析入口的总预算，否则首次冷启动那首「等 inited 6s + 解析 5s」
+     * 会被预取自己掐断，白白丢掉下一首的缓存收益；弱网下也不能把它变成新的卡点。
+     */
+    private val prefetchTimeoutMs = 18_000L
 
     /**
      * 缓冲卡死判定：进入 BUFFERING 这么久还没有任何进展，就在面板上留一行；

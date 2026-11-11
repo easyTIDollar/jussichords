@@ -51,6 +51,9 @@ class LxPluginEngine(private val context: Context) {
         val inited: CompletableDeferred<VerifyResult> = CompletableDeferred(),
         val pending: ConcurrentHashMap<Int, CompletableDeferred<String?>> = ConcurrentHashMap()
     ) {
+        /** 沙盒创建时刻：预热与解析的等待预算从这一刻开始算，不重复等。 */
+        val createdAt: Long = SystemClock.elapsedRealtime()
+
         /** 最近一次解析的错误原因，用于判定沙盒是否结构性坏掉（脚本根本没跑起来）。 */
         @Volatile
         var lastError: String? = null
@@ -111,7 +114,7 @@ class LxPluginEngine(private val context: Context) {
             android.util.Log.w(LOG_TAG, "[$pluginId] 沙盒未注册请求处理器，重建后重试一次")
             dropSandbox(sandbox, cooldown = false)
             sandbox = newSandbox(pluginId) ?: return null
-            awaitInited(sandbox)
+            awaitInited(sandbox, SANDBOX_READY_WAIT_MS)
             url = invokeResolve(sandbox, musicInfoJson, quality)
             if (url.isNullOrBlank()) dropSandbox(sandbox, cooldown = true)
         }
@@ -137,13 +140,19 @@ class LxPluginEngine(private val context: Context) {
      * 等脚本 sendInited（有预算）。超时也继续注入：有的脚本 inited 前就在发网络请求，
      * 硬等会把起播拖长；拿不到就让它自己报错，至少日志里能看到真实原因。
      */
-    private suspend fun awaitInited(sandbox: Sandbox) {
+    private suspend fun awaitInited(sandbox: Sandbox, maxWaitMs: Long = FIRST_READY_WAIT_MS) {
         if (sandbox.inited.isCompleted) return
-        val ok = withTimeoutOrNull(SANDBOX_READY_WAIT_MS) { sandbox.inited.await() }
+        // 预热（warmUp）可能比真正解析早几秒开始：预算从「沙盒创建」算起，已经等过的
+        // 时间不再重复付。首次点歌最常见的失败就是这里等 2.5s 就放弃 → 注入必然报
+        // 「未注册请求处理器」→ 重建 → 再等一次，十几秒后仍旧回落 30 秒试听；
+        // 而脚本往往再过一两秒就 inited 了（用户手动点「重新解析」正是踩到那一刻）。
+        val elapsed = SystemClock.elapsedRealtime() - sandbox.createdAt
+        val budget = (maxWaitMs - elapsed).coerceAtLeast(MIN_READY_WAIT_MS)
+        val ok = withTimeoutOrNull(budget) { sandbox.inited.await() }
         if (ok == null) {
             android.util.Log.w(
                 LOG_TAG,
-                "[${sandbox.pluginId}] 等待脚本就绪超时（${SANDBOX_READY_WAIT_MS}ms），继续尝试解析"
+                "[${sandbox.pluginId}] 等待脚本就绪超时（预算 ${budget}ms / 上限 ${maxWaitMs}ms），继续尝试解析"
             )
         }
     }
@@ -409,8 +418,19 @@ class LxPluginEngine(private val context: Context) {
         const val RESOLVE_TIMEOUT_MS = 5000L
         const val PAGE_READY_TIMEOUT_MS = 4000L
 
-        /** 首次解析前等脚本 sendInited 的预算；超时也继续，不阻塞起播。 */
+        /**
+         * 首访解析前等脚本 sendInited 的上限（从沙盒创建时刻算，预热的时间计入）。
+         * 2.5s 只够「页面加载完」，社区脚本还要跑一段初始化 + 拿音源列表才 sendInited；
+         * 等不够就注入 → 未注册 handler → 重建再等，十几秒后照样回落 30 秒试听。
+         * 首次多等这几秒，换来的是「第一次点歌就是完整源」。
+         */
+        private const val FIRST_READY_WAIT_MS = 6_000L
+
+        /** 重建后的等待预算：这时已经确认沙盒结构性坏了，别为它再付一次完整等待。 */
         private const val SANDBOX_READY_WAIT_MS = 2_500L
+
+        /** 即使已经等过很久，也给一次最小等待，避免 0ms 空转直接注入。 */
+        private const val MIN_READY_WAIT_MS = 800L
 
         /** 脚本未跑起来（页面未就绪就注入）时 shim 回的错误关键字。 */
         private const val HANDLER_MISSING = "未注册"
