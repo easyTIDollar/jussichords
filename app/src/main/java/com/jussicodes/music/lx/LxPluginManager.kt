@@ -688,6 +688,12 @@ object LxPluginManager {
     /** 解析前并发预热的脚本数：只热最可能命中的前两个，别为一次点歌建一堆 WebView。 */
     private const val WARM_UP_PLUGINS = 2
 
-    /** 单次起播的解析总预算；超了就回落官方直链，不把点歌拖成十几秒。 */
-    private const val RESOLVE_BUDGET_MS = 8_000L
+    /**
+     * 单次起播的解析总预算；超了就回落官方直链，不把点歌拖成十几秒。
+     *
+     * 12s 是按引擎内部的真实耗时配的：首次冷启动等脚本 inited 最多 6s + 单次解析超时 5s。
+     * 8s 时「等到就绪但脚本慢一点」会被预算直接掐掉，白等一轮再回落 30 秒试听。
+     * 上层（MediaItemExt）还有 19s 的总闸与一次有界重试兜底，这里不会无限拖。
+     */
+    private const val RESOLVE_BUDGET_MS = 12_000L
 }
