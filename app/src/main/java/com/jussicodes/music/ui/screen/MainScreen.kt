@@ -162,6 +162,26 @@ fun MainScreen() {
     var homePageScroll by remember { mutableFloatStateOf(homePage.toFloat()) }
     val homePagerState = rememberPagerState(initialPage = homePage) { activeNavTabs.size }
     val coroutineScope = rememberCoroutineScope()
+    // 底栏/侧栏触发的 pager 切页标记为「程序化滚动」：pager 补间期间（从起点页滚向目标页）
+    // 胶囊指示器不能被 homePageScroll 反向覆盖，否则松手后会被吸回原 tab 再爬过去。
+    // 标记严格只覆盖这一次补间的生命周期，动画结束/被打断即清除，指示器恢复跟手。
+    var programmaticPagerTarget by remember { mutableStateOf<Int?>(null) }
+    fun animateToTabPage(page: Int) {
+        if (!homePagerState.isScrollInProgress && homePagerState.settledPage == page) {
+            programmaticPagerTarget = null
+            return
+        }
+        programmaticPagerTarget = page
+        coroutineScope.launch {
+            try {
+                homePagerState.animateScrollToPage(page, MotionSpec.screenEnter())
+            } finally {
+                // 自然落页或被用户手势接管都会走到这里：标记严格只覆盖「我们自己发起的那次补间」，
+                // 用相等判断兜住连续快速切换时新标记被旧动画提前清掉的情况。
+                if (programmaticPagerTarget == page) programmaticPagerTarget = null
+            }
+        }
+    }
     BackHandler(enabled = isHomeRoute && homePagerState.currentPage > 0) {
         coroutineScope.launch {
             homePagerState.animateScrollToPage(homePagerState.currentPage - 1)
@@ -235,13 +255,7 @@ fun MainScreen() {
         val route = currentDestination?.route
         if ((floatingNavBarEnabled || useNavigationRail) && route == Screen.Settings.route) {
             navController.popBackStack()
-            coroutineScope.launch {
-                MotionDefaults.animatePagerToPage(
-                    pagerState = homePagerState,
-                    page = 2,
-                    scope = coroutineScope
-                )
-            }
+            animateToTabPage(2)
             return@LaunchedEffect
         }
         previousRoute = route
@@ -502,11 +516,7 @@ fun MainScreen() {
                         onTabClick = { route ->
                             val targetPage = activeNavTabs.indexOfFirst { it.route == route }
                             if (targetPage >= 0 && isHomeRoute) {
-                                MotionDefaults.animatePagerToPage(
-                                    pagerState = homePagerState,
-                                    page = targetPage,
-                                    scope = coroutineScope
-                                )
+                                animateToTabPage(targetPage)
                             } else {
                                 navigateRootTab(route)
                             }
@@ -560,6 +570,7 @@ fun MainScreen() {
                             isHomeRoute = isHomeRoute,
                             homePage = homePage,
                             homePageScroll = homePageScroll,
+                            isPagerAutoScroll = programmaticPagerTarget != null,
                             isTabSelected = { item ->
                                 if (isHomeRoute) {
                                     val targetIndex = activeNavTabs.indexOf(item)
@@ -572,11 +583,7 @@ fun MainScreen() {
                                 val targetPage = activeNavTabs.indexOfFirst { it.route == item.route }
                                 if (targetPage >= 0) {
                                     if (isHomeRoute) {
-                                        MotionDefaults.animatePagerToPage(
-                                            pagerState = homePagerState,
-                                            page = targetPage,
-                                            scope = coroutineScope
-                                        )
+                                        animateToTabPage(targetPage)
                                     } else {
                                         navigateRootTab(item.route)
                                     }
