@@ -71,6 +71,14 @@ fun FloatingBottomNavBar(
     isHomeRoute: Boolean,
     homePage: Int,
     homePageScroll: Float,
+    /**
+     * 该次 pager 滚动是否由「点/拖底栏」触发的程序化补间（而非用户手指在内容区滑页）。
+     *
+     * 程序化补间期间 homePageScroll 会从**起点页**开始连续爬向目标页；如果此时仍让指示器
+     * 跟它跟手，松手后刚起手的吸附动画就会被反向拽回起点（用户感知为「像磁铁往左吸住」）。
+     * 因此程序化补间期间指示器只由自身 spring 负责，等 pager 落页后再做一次精确对齐。
+     */
+    isPagerAutoScroll: Boolean = false,
     isTabSelected: (BottomBarTab) -> Boolean,
     onTabClick: (BottomBarTab) -> Unit,
 ) {
@@ -87,6 +95,13 @@ fun FloatingBottomNavBar(
 
     val sliderPosition = remember { Animatable(selectedIndex.toFloat()) }
     var isDragging by remember { mutableStateOf(false) }
+    // 手指拖拽期间的实时槽位：拖拽只用普通状态驱动指示器，绝不逐个 move 事件去 launch 一个
+    // snapTo —— 那种写法会让 snapTo 协程排队，松手后队列里残留的旧值会把指示器拽回手指
+    // 早先的位置（也是「往左吸」的一个来源）。
+    var dragSlot by remember { mutableFloatStateOf(selectedIndex.toFloat()) }
+    // 指示器自身 spring 收尾中：这段时间同样不接受 pager 位置覆盖，
+    // 否则 pager 补间先结束时会把还没走完的 spring 硬怼到终点。
+    var isSettling by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
@@ -96,15 +111,19 @@ fun FloatingBottomNavBar(
     val pillShape = RoundedCornerShape(pillCornerRadiusDp)
 
     // 页面 pager 滑动跟手（仅在主页时跟手滑动）
-    LaunchedEffect(homePageScroll, isHomeRoute) {
-        if (isHomeRoute && !isDragging) {
+    // 关键：程序化补间（点/拖底栏后 pager 从起点页滚向目标页）期间不跟手，
+    // 否则会把刚起手的吸附动画按 pager 的中间值覆盖回起点。
+    LaunchedEffect(homePageScroll, isHomeRoute, isPagerAutoScroll) {
+        if (isHomeRoute && !isDragging && !isSettling && !isPagerAutoScroll) {
             sliderPosition.snapTo(homePageScroll.coerceIn(0f, (count - 1).toFloat()))
         }
     }
 
     // 外部索引变更平滑过渡
-    LaunchedEffect(selectedIndex) {
-        if (!isDragging && abs(sliderPosition.value - selectedIndex.toFloat()) > 0.01f) {
+    LaunchedEffect(selectedIndex, isPagerAutoScroll) {
+        if (!isDragging && !isSettling && !isPagerAutoScroll &&
+            abs(sliderPosition.value - selectedIndex.toFloat()) > 0.01f
+        ) {
             sliderPosition.animateTo(
                 targetValue = selectedIndex.toFloat(),
                 animationSpec = spring(
@@ -148,8 +167,6 @@ fun FloatingBottomNavBar(
             ),
         contentAlignment = Alignment.Center
     ) {
-        var dragStartSlot by remember { mutableFloatStateOf(0f) }
-        var currentDragOffsetPx by remember { mutableFloatStateOf(0f) }
         var lastHapticSlot by remember { mutableIntStateOf(selectedIndex) }
 
         // 胶囊药丸主体：与小播放器共享宽度、圆角体系、阴影与表面材质
@@ -194,23 +211,26 @@ fun FloatingBottomNavBar(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(count) {
+                        // 手势内的临时量：只在本 gesture 生命周期内有效
+                        var dragAccumPx = 0f
+                        var dragStartSlot = 0f
                         detectHorizontalDragGestures(
                             onDragStart = {
                                 isDragging = true
                                 dragStartSlot = sliderPosition.value
-                                currentDragOffsetPx = 0f
+                                dragSlot = dragStartSlot
+                                dragAccumPx = 0f
                                 lastHapticSlot = sliderPosition.value.roundToInt().coerceIn(0, count - 1)
                             },
                             onHorizontalDrag = { change, dragAmount ->
                                 change.consume()
-                                currentDragOffsetPx += dragAmount
-                                val slotOffset = if (slotWidthPx > 0f) currentDragOffsetPx / slotWidthPx else 0f
+                                dragAccumPx += dragAmount
+                                val slotOffset = if (slotWidthPx > 0f) dragAccumPx / slotWidthPx else 0f
                                 val rawSlot = dragStartSlot + slotOffset
                                 val maxIndex = (count - 1).toFloat()
                                 val clampedSlot = rawSlot.coerceIn(-0.15f, maxIndex + 0.15f)
-                                coroutineScope.launch {
-                                    sliderPosition.snapTo(clampedSlot)
-                                }
+                                // 纯状态写入：指示器在下一帧直接渲染到手指位置，零延迟、无协程排队
+                                dragSlot = clampedSlot
                                 val currentSnapped = clampedSlot.roundToInt().coerceIn(0, count - 1)
                                 if (currentSnapped != lastHapticSlot) {
                                     lastHapticSlot = currentSnapped
@@ -218,38 +238,56 @@ fun FloatingBottomNavBar(
                                 }
                             },
                             onDragEnd = {
-                                isDragging = false
-                                val targetIndex = sliderPosition.value.roundToInt().coerceIn(0, count - 1)
+                                val releasedSlot = dragSlot
+                                val targetIndex = releasedSlot.roundToInt().coerceIn(0, count - 1)
+                                isSettling = true
                                 coroutineScope.launch {
-                                    sliderPosition.animateTo(
-                                        targetIndex.toFloat(),
-                                        spring(
-                                            dampingRatio = 0.82f,
-                                            stiffness = Spring.StiffnessMediumLow
+                                    try {
+                                        // 先把 Animatable 对齐到手指松开位置，再切回它作为渲染源（零跳变），
+                                        // 从该位置弹性吸附到最近 tab；不再先松手再补 snap，避免一帧回跳。
+                                        sliderPosition.snapTo(releasedSlot)
+                                        isDragging = false
+                                        if (targetIndex in displayTabs.indices) {
+                                            // 触发 pager 切页；MainScreen 会把它标记成程序化滚动，
+                                            // 指示器在 pager 补间期间不被 homePageScroll 反向覆盖。
+                                            onTabClick(displayTabs[targetIndex])
+                                        }
+                                        sliderPosition.animateTo(
+                                            targetIndex.toFloat(),
+                                            spring(
+                                                dampingRatio = 0.82f,
+                                                stiffness = Spring.StiffnessMediumLow
+                                            )
                                         )
-                                    )
-                                }
-                                if (targetIndex in displayTabs.indices) {
-                                    onTabClick(displayTabs[targetIndex])
+                                    } finally {
+                                        isSettling = false
+                                    }
                                 }
                             },
                             onDragCancel = {
-                                isDragging = false
+                                val releasedSlot = dragSlot
+                                isSettling = true
                                 coroutineScope.launch {
-                                    sliderPosition.animateTo(
-                                        selectedIndex.toFloat(),
-                                        spring(
-                                            dampingRatio = 0.82f,
-                                            stiffness = Spring.StiffnessMediumLow
+                                    try {
+                                        sliderPosition.snapTo(releasedSlot)
+                                        isDragging = false
+                                        sliderPosition.animateTo(
+                                            selectedIndex.toFloat(),
+                                            spring(
+                                                dampingRatio = 0.82f,
+                                                stiffness = Spring.StiffnessMediumLow
+                                            )
                                         )
-                                    )
+                                    } finally {
+                                        isSettling = false
+                                    }
                                 }
                             }
                         )
                     }
             ) {
-                // 滑动指示器胶囊
-                val currentSlot = sliderPosition.value
+                // 滑动指示器胶囊：拖拽期间直接读 dragSlot（零延迟跟手），其余时刻读 Animatable
+                val currentSlot = if (isDragging) dragSlot else sliderPosition.value
                 val currentIndicatorXPx = innerPaddingPx + (currentSlot * slotWidthPx) + (slotWidthPx - indicatorWidthPx) / 2f
 
                 Box(
@@ -296,14 +334,19 @@ fun FloatingBottomNavBar(
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     }
                                     onTabClick(item)
+                                    isSettling = true
                                     coroutineScope.launch {
-                                        sliderPosition.animateTo(
-                                            index.toFloat(),
-                                            spring(
-                                                dampingRatio = 0.82f,
-                                                stiffness = Spring.StiffnessMediumLow
+                                        try {
+                                            sliderPosition.animateTo(
+                                                index.toFloat(),
+                                                spring(
+                                                    dampingRatio = 0.82f,
+                                                    stiffness = Spring.StiffnessMediumLow
+                                                )
                                             )
-                                        )
+                                        } finally {
+                                            isSettling = false
+                                        }
                                     }
                                 },
                             contentAlignment = Alignment.Center
