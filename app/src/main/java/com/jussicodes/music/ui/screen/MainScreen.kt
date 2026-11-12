@@ -174,7 +174,10 @@ fun MainScreen() {
         programmaticPagerTarget = page
         coroutineScope.launch {
             try {
-                homePagerState.animateScrollToPage(page, MotionSpec.screenEnter())
+                homePagerState.animateScrollToPage(
+                    page = page,
+                    animationSpec = MotionSpec.screenEnter()
+                )
             } finally {
                 // 自然落页或被用户手势接管都会走到这里：标记严格只覆盖「我们自己发起的那次补间」，
                 // 用相等判断兜住连续快速切换时新标记被旧动画提前清掉的情况。
