@@ -508,6 +508,16 @@ class PlaybackService : MediaSessionService() {
 
     private var prefetchJob: kotlinx.coroutines.Job? = null
 
+    /** 正在解析的下一首预取；切歌时取消，避免旧歌的解析占用网络与 LX 沙盒。 */
+    private var prefetchResolveJob: kotlinx.coroutines.Job? = null
+
+    /** 当前预取对应的 mediaId：切到这首歌时不要取消，预取结果正好能喂给起播。 */
+    @Volatile
+    private var prefetchTargetMediaId: String? = null
+
+    /** 同一首、同一音质/音源的预取只跑一个，防止 READY/transition 连续触发重复解析。 */
+    private val prefetchInFlight = java.util.concurrent.ConcurrentHashMap<String, Any>()
+
     /**
      * 下一首预取。
      *
@@ -520,6 +530,14 @@ class PlaybackService : MediaSessionService() {
      */
     private val prefetchListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            // 用户跳过的上一首预取已经没有意义：取消它，立刻释放网络等待 / 解析线程。
+            // 但如果正好切到预取中的那首，保留任务——它可能已经解析了一半，取消反而拖慢起播。
+            val currentId = mediaItem?.mediaId
+            if (currentId == null || prefetchTargetMediaId != currentId) {
+                prefetchResolveJob?.cancel()
+                prefetchResolveJob = null
+                prefetchTargetMediaId = null
+            }
             schedulePrefetch()
         }
 
@@ -560,50 +578,72 @@ class PlaybackService : MediaSessionService() {
             if (player.repeatMode != Player.REPEAT_MODE_ALL) return
             next = 0
         }
-        val uri = player.getMediaItemAt(next).localConfiguration?.uri ?: return
+        val nextItem = player.getMediaItemAt(next)
+        val uri = nextItem.localConfiguration?.uri ?: return
+        val nextSongJson = nextItem.mediaMetadata.extras?.getString("song")
         val qualityTag = audioQuality.value
         val sourceTag = PlaybackReloadBus.sourceTag
-        // 已经在缓存里（本轮播过/刚预取过）就别再打一次解析请求
-        if (PlayUrlCache.get(uri.toString(), qualityTag, sourceTag) != null) return
+        val uriKey = uri.toString()
+        val inflightKey = "$uriKey|$qualityTag|$sourceTag"
+        val inflightToken = Any()
+        if (prefetchInFlight.putIfAbsent(inflightKey, inflightToken) != null) return
         // 预取是「当前这轮播放」的后台动作，挂在当前曲目链上，切歌时用户能看到
         // 下一首为什么起播快。mediaId 必须在主线程取。
         val focusId = player.currentMediaItem?.mediaId
         val nextId = uri.toResolveKey()
-        scope.launch(Dispatchers.IO) {
-            val resolved = runCatching {
-                withTimeout(prefetchTimeoutMs) {
-                    updateMediaItemUri(uri, audioQuality, this@PlaybackService)
+        val nextMediaId = nextItem.mediaId
+        prefetchTargetMediaId = nextMediaId
+        val job = scope.launch(Dispatchers.IO) {
+            try {
+                // 已经在缓存里（本轮播过/刚预取过）就别再打一次解析请求。
+                // PlayUrlCache 首次访问会同步读 SharedPreferences 并解析 JSON，
+                // 必须留在解析线程，不能放在上面的主线程路径里。
+                if (PlayUrlCache.get(uriKey, qualityTag, sourceTag) != null) return@launch
+                val resolved = runCatching {
+                    withTimeout(prefetchTimeoutMs) {
+                        updateMediaItemUri(
+                            uri,
+                            audioQuality,
+                            this@PlaybackService,
+                            songJsonHint = nextSongJson,
+                        )
+                    }
+                }.getOrNull() ?: return@launch
+                // 预取只拿到 30 秒试听链时绝不能写直链缓存：正式解析路径有这层过滤，预取漏了的话，
+                // 切过去会直接「直链缓存命中」播 30 秒，连 updateMediaItemUri 里的试听短重试都不会走。
+                // 用户看到的就是「切下一首只播一半 / 放到一半就跳」。
+                val trial = isTrialClipUri(resolved) || ResolveGuard.observe(nextId)?.trial == true
+                if (trial) {
+                    android.util.Log.w(TAG, "prefetch got trial clip, not cached songId=$nextId")
+                    if (focusId != null) {
+                        PlaybackPath.stepFor(
+                            focusId,
+                            "预取下一首",
+                            "$nextId 只拿到试听链 · 不写直链缓存，切歌时重新解析",
+                            listOf("预取"),
+                            PlaybackPath.Status.FAIL,
+                        )
+                    }
+                    return@launch
                 }
-            }.getOrNull() ?: return@launch
-            // 预取只拿到 30 秒试听链时绝不能写直链缓存：正式解析路径有这层过滤，预取漏了的话，
-            // 切过去会直接「直链缓存命中」播 30 秒，连 updateMediaItemUri 里的试听短重试都不会走。
-            // 用户看到的就是「切下一首只播一半 / 放到一半就跳」。
-            val trial = isTrialClipUri(resolved) || ResolveGuard.observe(nextId)?.trial == true
-            if (trial) {
-                android.util.Log.w(TAG, "prefetch got trial clip, not cached songId=$nextId")
+                PlayUrlCache.put(uriKey, qualityTag, sourceTag, resolved.toString())
                 if (focusId != null) {
                     PlaybackPath.stepFor(
                         focusId,
                         "预取下一首",
-                        "$nextId 只拿到试听链 · 不写直链缓存，切歌时重新解析",
+                        "$nextId 直链已就绪（只解析不下载）",
                         listOf("预取"),
-                        PlaybackPath.Status.FAIL,
+                        PlaybackPath.Status.OK,
                     )
                 }
-                return@launch
+                android.util.Log.d(TAG, "prefetch url ready songId=$nextId")
+            } finally {
+                prefetchInFlight.remove(inflightKey, inflightToken)
             }
-            PlayUrlCache.put(uri.toString(), qualityTag, sourceTag, resolved.toString())
-            if (focusId != null) {
-                PlaybackPath.stepFor(
-                    focusId,
-                    "预取下一首",
-                    "$nextId 直链已就绪（只解析不下载）",
-                    listOf("预取"),
-                    PlaybackPath.Status.OK,
-                )
-            }
-            android.util.Log.d(TAG, "prefetch url ready songId=$nextId")
         }
+        // 协程若在进入 try 前就被取消，finally 不会执行；补一个只在「自己仍是当前令牌」时删除的兜底。
+        job.invokeOnCompletion { prefetchInFlight.remove(inflightKey, inflightToken) }
+        prefetchResolveJob = job
     }
 
     /**
@@ -941,14 +981,18 @@ class PlaybackService : MediaSessionService() {
             if (observation != null) {
                 if (verifiedUrl == observation.url) return
                 verifiedUrl = observation.url
-            } else if (isLocalSong(songId) || !durationCheckedSongs.add(songId)) {
-                // 本地下载/外部导入文件没有解析记录；它们的坏文件由 onPlayerError 处理，
-                // 这里不碰缓存，也不做「试听重解析」。
-                return
-            }
+            } else if (!durationCheckedSongs.add(songId)) return
             val rawUri = item.localConfiguration?.uri?.toString()
 
             scope.launch {
+                // 外部歌单查找会遍历内存里的歌单；不要在播放器回调（主线程）上做。
+                // 本地下载/外部导入文件没有解析记录；它们的坏文件由 onPlayerError 处理，
+                // 这里不碰缓存，也不做「试听重解析」。
+                if (observation == null && withContext(Dispatchers.IO) { isLocalSong(songId) }) {
+                    // 本地文件不参与时长校验；撤销上面的占位，行为与原来「本地直接 return」一致。
+                    durationCheckedSongs.remove(songId)
+                    return@launch
+                }
                 val p = mediaSession?.player ?: return@launch
                 // 时长要读「稳定后」的值：边下边播的 MP3（VBR / 无 Xing 头）一开始给的是按码率估算的
                 // 近似值，播了几秒才收敛；拿 STATE_READY 那一瞬间的值去比会误判成坏源。

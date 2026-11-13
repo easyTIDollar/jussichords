@@ -180,7 +180,13 @@ fun Uri.toResolveKey(): String {
  * 每次真正返回给播放器的直链都登记到 [ResolveGuard]：播放器拿到真实音频时长后核对，
  * 对不上会把它拉黑并触发重新解析（这是「解析成功但放不出声 / 播一半断」的兜底）。
  */
-suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.content.Context? = null): Uri? {
+suspend fun updateMediaItemUri(
+    uri: Uri,
+    songLevel: SongLevel,
+    context: android.content.Context? = null,
+    /** 队列 MediaItem extras 里的 Song JSON；有它就不用再查元信息快取或发请求。 */
+    songJsonHint: String? = null,
+): Uri? {
     if (uri.scheme == "http" || uri.scheme == "https" || uri.scheme == "file" || uri.scheme == "content") {
         return uri
     }
@@ -218,7 +224,7 @@ suspend fun updateMediaItemUri(uri: Uri, songLevel: SongLevel, context: android.
     val skipUrls = ResolveGuard.skipUrls(songId)
     // 队列里那份 Song JSON（点歌时随 MediaItem 一起存下来的）足够脚本匹配用：
     // 交给解析层可以省掉一次 /song/detail/batch 往返。取不到就让解析层自己请求。
-    val songHint = idLong?.let { SongJsonCache.get(it.toString()) }
+    val songHint = songJsonHint ?: idLong?.let { SongJsonCache.get(it.toString()) }
     if (skipUrls.isNotEmpty()) {
         PlaybackPath.stepFor(songId, "跳过已拉黑直链", "上次被时长校验判定为错源：${skipUrls.size} 条", listOf("校验"), PlaybackPath.Status.INFO)
     }
