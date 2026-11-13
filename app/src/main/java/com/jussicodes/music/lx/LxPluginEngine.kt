@@ -24,6 +24,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
+import okhttp3.Call
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.security.MessageDigest
@@ -51,6 +52,9 @@ class LxPluginEngine(private val context: Context) {
         val inited: CompletableDeferred<VerifyResult> = CompletableDeferred(),
         val pending: ConcurrentHashMap<Int, CompletableDeferred<String?>> = ConcurrentHashMap()
     ) {
+        val httpCalls = mutableSetOf<Call>()
+        val httpSlots = java.util.concurrent.Semaphore(4)
+        var closed = false
         /** 沙盒创建时刻：预热与解析的等待预算从这一刻开始算，不重复等。 */
         val createdAt: Long = SystemClock.elapsedRealtime()
 
@@ -69,6 +73,7 @@ class LxPluginEngine(private val context: Context) {
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(20, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 
@@ -301,6 +306,11 @@ class LxPluginEngine(private val context: Context) {
     }
 
     private fun destroySandbox(sandbox: Sandbox) {
+        synchronized(sandbox.httpCalls) {
+            sandbox.closed = true
+            sandbox.httpCalls.forEach { it.cancel() }
+            sandbox.httpCalls.clear()
+        }
         try {
             sandbox.webView.stopLoading()
             sandbox.webView.removeJavascriptInterface("LxHostBridge")
@@ -320,9 +330,18 @@ class LxPluginEngine(private val context: Context) {
         headersJson: String,
         body: String
     ) {
+        val sandbox = active[pluginId] ?: return
+        if (!sandbox.httpSlots.tryAcquire()) {
+            scope.launch {
+                if (active[pluginId] === sandbox) {
+                    deliver(pluginId, "window.__lx_handle_http_response($id,\"请求过多\",null,null)")
+                }
+            }
+            return
+        }
         scope.launch(Dispatchers.IO) {
             val script = "window.__lx_handle_http_response($id,"
-            if (!active.containsKey(pluginId)) return@launch
+            var call: Call? = null
             try {
                 val headers = mutableMapOf<String, String>()
                 if (headersJson.isNotBlank()) {
@@ -342,17 +361,31 @@ class LxPluginEngine(private val context: Context) {
                 } else {
                     builder.get()
                 }
-                httpClient.newCall(builder.build()).execute().use { resp ->
+                val requestCall = httpClient.newCall(builder.build())
+                call = requestCall
+                synchronized(sandbox.httpCalls) {
+                    if (sandbox.closed) return@launch
+                    sandbox.httpCalls.add(requestCall)
+                }
+                requestCall.execute().use { resp ->
                     val respJson = """{"statusCode":${resp.code}}"""
+                    check(resp.body?.source()?.request(2L * 1024 * 1024 + 1) != true) {
+                        "响应超过 2 MiB"
+                    }
                     val text = resp.body?.string().orEmpty()
+                    if (active[pluginId] !== sandbox) return@launch
                     deliver(pluginId, script + "null," + org.json.JSONObject.quote(respJson) + "," +
                         org.json.JSONObject.quote(text) + ")")
                 }
             } catch (e: Exception) {
+                if (active[pluginId] !== sandbox) return@launch
                 deliver(
                     pluginId,
                     script + org.json.JSONObject.quote(e.message ?: "网络错误") + ",null,null)"
                 )
+            } finally {
+                synchronized(sandbox.httpCalls) { sandbox.httpCalls.remove(call) }
+                sandbox.httpSlots.release()
             }
         }
     }
