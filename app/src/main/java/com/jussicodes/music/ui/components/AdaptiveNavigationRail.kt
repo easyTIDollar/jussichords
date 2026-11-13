@@ -16,6 +16,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,16 +37,21 @@ import kotlin.math.roundToInt
  * 与底栏 [com.jussicodes.music.ui.screen.MainScreen] 里的横条共用同一份 [tabs] 数据与
  * 「主页 pager 位置 → 选中项」的映射规则，只是排布方向不同：指示胶囊从横条改为竖列。
  * 选中判定仍以 homePageScroll 的连续值算缩放/透明度，横滑切页时视觉与手机一致。
+ *
+ * [homePageScroll] 收 [State] 而不是裸 Float：pager 连续进度每帧变化，若在 MainScreen
+ * 里解包成局部值，每帧都会把整个 content 子树标脏。传 State 让读取只发生在底栏/rail
+ * 自己的 composition scope 里，跟手效果不变、重组范围收敛到导航栏内部。
  */
 @Composable
 fun AdaptiveNavigationRail(
     currentRoute: String?,
     isHomeRoute: Boolean,
-    homePageScroll: Float,
+    homePageScroll: State<Float>,
     onTabClick: (String) -> Unit,
     modifier: Modifier = Modifier,
     displayTabs: List<BottomBarTab> = floatingNavTabs,
 ) {
+    val scroll by homePageScroll
     Column(
         modifier = modifier
             .width(NavigationRailWidth)
@@ -57,13 +64,13 @@ fun AdaptiveNavigationRail(
         Box(Modifier.height(16.dp))
         displayTabs.forEachIndexed { index, item ->
             val homeProgress = if (isHomeRoute) {
-                (1f - abs(homePageScroll - index)).coerceIn(0f, 1f)
+                (1f - abs(scroll - index)).coerceIn(0f, 1f)
             } else {
                 0f
             }
             val selected = if (isHomeRoute) {
                 // 与底栏同一套取整规则（roundToInt），避免 0.5 边界上两边高亮错位。
-                displayTabs.getOrNull(homePageScroll.roundToInt())?.route == item.route
+                displayTabs.getOrNull(scroll.roundToInt())?.route == item.route
             } else {
                 // rail 只在 tab 路由下出现（showNavigationBar = isTabRoute），
                 // 此时 currentDestination 就是 tab 本身，直接比 route 即可。
@@ -72,7 +79,7 @@ fun AdaptiveNavigationRail(
             // 与底栏共用同一套选中态视觉：首页跟手直算，非首页走过渡（此前是瞬跳）。
             val visuals = rememberTabSelectionVisuals(
                 isHomeRoute = isHomeRoute,
-                homePageScroll = homePageScroll,
+                homePageScroll = scroll,
                 index = index,
                 selected = selected
             )
