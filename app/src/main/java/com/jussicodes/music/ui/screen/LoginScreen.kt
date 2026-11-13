@@ -150,7 +150,7 @@ fun LoginScreen(
                         settings.apply {
                             javaScriptEnabled = true
                             domStorageEnabled = true
-                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                             cacheMode
                         }
                         webView = this
