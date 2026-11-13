@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -33,6 +34,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,8 +71,14 @@ fun FloatingBottomNavBar(
     modifier: Modifier = Modifier,
     displayTabs: List<BottomBarTab> = floatingNavTabs,
     isHomeRoute: Boolean,
-    homePage: Int,
-    homePageScroll: Float,
+    /**
+     * pager 连续位置，以 [State] 形式传入而不是裸 Float。
+     *
+     * 关键：连续进度每帧都在变，若在 MainScreen 里解包成局部值，每帧都会把整个 content
+     * 子树（NavGraph / 遮罩层 / 小播放器）标脏重组，绘制指令也随之每帧重录。传 State
+     * 后读取只发生在底栏自己的 composition scope 内，跟手视觉完全不变。
+     */
+    homePageScroll: State<Float>,
     /**
      * 该次 pager 滚动是否由「点/拖底栏」触发的程序化补间（而非用户手指在内容区滑页）。
      *
@@ -83,14 +91,13 @@ fun FloatingBottomNavBar(
     onTabClick: (BottomBarTab) -> Unit,
 ) {
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val scroll by homePageScroll
     val count = displayTabs.size
-    val selectedIndex = remember(isHomeRoute, homePageScroll, homePage, displayTabs) {
-        if (isHomeRoute) {
-            homePageScroll.roundToInt().coerceIn(0, (count - 1).coerceAtLeast(0))
-        } else {
-            val idx = displayTabs.indexOfFirst { isTabSelected(it) }
-            if (idx >= 0) idx else 0
-        }
+    val selectedIndex = if (isHomeRoute) {
+        scroll.roundToInt().coerceIn(0, (count - 1).coerceAtLeast(0))
+    } else {
+        val idx = displayTabs.indexOfFirst { isTabSelected(it) }
+        if (idx >= 0) idx else 0
     }
 
     val sliderPosition = remember { Animatable(selectedIndex.toFloat()) }
@@ -113,10 +120,18 @@ fun FloatingBottomNavBar(
     // 页面 pager 滑动跟手（仅在主页时跟手滑动）
     // 关键：程序化补间（点/拖底栏后 pager 从起点页滚向目标页）期间不跟手，
     // 否则会把刚起手的吸附动画按 pager 的中间值覆盖回起点。
-    LaunchedEffect(homePageScroll, isHomeRoute, isPagerAutoScroll) {
-        if (isHomeRoute && !isDragging && !isSettling && !isPagerAutoScroll) {
-            sliderPosition.snapTo(homePageScroll.coerceIn(0f, (count - 1).toFloat()))
-        }
+    //
+    // 用 snapshotFlow 在**单个常驻协程**里收集连续值：以前把连续进度直接当
+    // LaunchedEffect 的 key，每帧都会 cancel 一个协程再新建一个（每帧一次协程
+    // 分配 + 一次 snapTo），纯浪费且抖动主线程。
+    LaunchedEffect(isHomeRoute, isPagerAutoScroll) {
+        if (!isHomeRoute || isPagerAutoScroll) return@LaunchedEffect
+        snapshotFlow { homePageScroll.value }
+            .collect { value ->
+                if (!isDragging && !isSettling) {
+                    sliderPosition.snapTo(value.coerceIn(0f, (count - 1).toFloat()))
+                }
+            }
     }
 
     // 外部索引变更平滑过渡
@@ -135,7 +150,7 @@ fun FloatingBottomNavBar(
     }
 
     val settingsAlpha = if (isHomeRoute) {
-        (homePageScroll - 1f).coerceIn(0f, 1f)
+        (scroll - 1f).coerceIn(0f, 1f)
     } else 1f
     val surfaceColor = MaterialTheme.colorScheme.surface
     val outlineVariantColor = MaterialTheme.colorScheme.outlineVariant

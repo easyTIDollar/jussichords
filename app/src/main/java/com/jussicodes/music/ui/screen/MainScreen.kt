@@ -159,7 +159,12 @@ fun MainScreen() {
     var miniPlayerDragProgress by remember { mutableFloatStateOf(0f) }
     val bgBlurEffectCache = remember { BlurEffectCache() }
     var homePage by rememberSaveable { mutableIntStateOf(0) }
-    var homePageScroll by remember { mutableFloatStateOf(homePage.toFloat()) }
+    // pager 连续进度：**故意不解包成局部 Float**。
+    // 它每帧都在变，一旦在 MainScreen 函数体里 `by` 解包，Scaffold 的 content
+    // subcomposition 每帧都要重组（NavGraph / 遮罩层 / 小播放器全被标脏），
+    // 绘制指令也随之每帧重录。这里保持 MutableFloatState 原样传给底栏/侧栏，
+    // 让读取只发生在导航组件自己的 composition scope 内，跟手视觉零变化。
+    val homePageScroll = remember { mutableFloatStateOf(homePage.toFloat()) }
     val homePagerState = rememberPagerState(initialPage = homePage) { activeNavTabs.size }
     val coroutineScope = rememberCoroutineScope()
     // 底栏/侧栏触发的 pager 切页标记为「程序化滚动」：pager 补间期间（从起点页滚向目标页）
@@ -299,7 +304,7 @@ fun MainScreen() {
         // rememberPagerState(rememberSaveable homePage) 保证：homePage 记录当前页，
         // 重建 pager 时从该页起步，底栏指示胶囊本来就跟 homePageScroll 走。
         homePage = homePagerState.settledPage
-        homePageScroll = homePagerState.settledPage.toFloat()
+        homePageScroll.floatValue = homePagerState.settledPage.toFloat()
     }
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -364,7 +369,7 @@ fun MainScreen() {
                             // 指示胶囊：首页由 pager 连续进度跟手直算，用 snap() 让它零延迟贴手指；
                             // 非首页路由是离散跳转，用 tween 补一段，否则胶囊会瞬移过去。
                             val rawIndicatorOffset =
-                                itemWidth * if (isHomeRoute) homePageScroll else homePage.toFloat()
+                                itemWidth * if (isHomeRoute) homePageScroll.floatValue else homePage.toFloat()
                             val indicatorOffset by animateDpAsState(
                                 targetValue = rawIndicatorOffset,
                                 animationSpec = if (isHomeRoute) {
@@ -389,7 +394,7 @@ fun MainScreen() {
                                 tabs.forEach { item ->
                                     val tabIndex = tabs.indexOf(item).coerceAtLeast(0)
                                     val selected = if (isHomeRoute) {
-                                        tabs.getOrNull(homePageScroll.roundToInt())?.route == item.route
+                                        tabs.getOrNull(homePageScroll.floatValue.roundToInt())?.route == item.route
                                     } else {
                                         currentDestination?.hierarchy?.any { it.route == item.route } == true
                                     }
@@ -398,7 +403,7 @@ fun MainScreen() {
                                     // 数值与 NavigationRail 共用 TabSelectionMotion。
                                     val visuals = rememberTabSelectionVisuals(
                                         isHomeRoute = isHomeRoute,
-                                        homePageScroll = homePageScroll,
+                                        homePageScroll = homePageScroll.floatValue,
                                         index = tabIndex,
                                         selected = selected
                                     )
@@ -534,7 +539,7 @@ fun MainScreen() {
                         bottomPadding = miniBottomPadding,
                         homePagerState = homePagerState,
                         onHomePageChange = { homePage = it },
-                        onHomePageScroll = { homePageScroll = it },
+                        onHomePageScroll = { homePageScroll.floatValue = it },
                         floatingNavBarEnabled = floatingNavBarEnabled
                     )
                 }
@@ -571,13 +576,12 @@ fun MainScreen() {
                             },
                             displayTabs = floatingNavTabs,
                             isHomeRoute = isHomeRoute,
-                            homePage = homePage,
                             homePageScroll = homePageScroll,
                             isPagerAutoScroll = programmaticPagerTarget != null,
                             isTabSelected = { item ->
                                 if (isHomeRoute) {
                                     val targetIndex = activeNavTabs.indexOf(item)
-                                    targetIndex >= 0 && homePageScroll.roundToInt() == targetIndex
+                                    targetIndex >= 0 && homePageScroll.floatValue.roundToInt() == targetIndex
                                 } else {
                                     currentDestination?.hierarchy?.any { it.route == item.route } == true
                                 }
