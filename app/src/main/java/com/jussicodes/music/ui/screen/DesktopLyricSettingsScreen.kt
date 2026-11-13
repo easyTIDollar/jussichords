@@ -279,8 +279,10 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                         locked = locked,
                         onToggleLocked = { locked = it },
                         onResetPosition = {
-                            DesktopLyricManager.resetPosition(context)
-                            Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
+                            scope.launch {
+                                DesktopLyricManager.resetPosition(context)
+                                Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
+                            }
                         }
                         )
                         EnableCard(
@@ -327,8 +329,10 @@ fun DesktopLyricSettingsScreen(navController: NavHostController) {
                 locked = locked,
                 onToggleLocked = { locked = it },
                 onResetPosition = {
-                    DesktopLyricManager.resetPosition(context)
-                    Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
+                    scope.launch {
+                        DesktopLyricManager.resetPosition(context)
+                        Toast.makeText(context, "已回到默认位置", Toast.LENGTH_SHORT).show()
+                    }
                 }
                 )
                 EnableCard(

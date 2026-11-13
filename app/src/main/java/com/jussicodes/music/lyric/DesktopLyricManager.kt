@@ -11,8 +11,7 @@ import com.jussicodes.music.constants.desktopLyricXFractionKey
 import com.jussicodes.music.constants.desktopLyricYFractionKey
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.get
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 
 object DesktopLyricManager {
 
@@ -69,9 +68,10 @@ object DesktopLyricManager {
      * 回到默认位置：Service 在跑就让它自己重算并回写比例（能同时刷新悬浮窗），
      * 没跑就直接把比例写回默认值，下次显示时生效。
      */
-    fun resetPosition(context: Context) {
+    suspend fun resetPosition(context: Context) {
         val appContext = context.applicationContext
-        val running = canDrawOverlays(appContext) && appContext.dataStore.get(desktopLyricEnabledKey, false)
+        val running = canDrawOverlays(appContext) &&
+            (appContext.dataStore.data.first()[desktopLyricEnabledKey] ?: false)
         if (running) {
             appContext.startService(
                 Intent(appContext, DesktopLyricService::class.java)
@@ -79,11 +79,9 @@ object DesktopLyricManager {
             )
             return
         }
-        runBlocking(Dispatchers.IO) {
-            appContext.dataStore.edit { prefs ->
-                prefs[desktopLyricXFractionKey] = DesktopLyricDefaultXFraction
-                prefs[desktopLyricYFractionKey] = DesktopLyricDefaultYFraction
-            }
+        appContext.dataStore.edit { prefs ->
+            prefs[desktopLyricXFractionKey] = DesktopLyricDefaultXFraction
+            prefs[desktopLyricYFractionKey] = DesktopLyricDefaultYFraction
         }
     }
 
