@@ -1702,6 +1702,9 @@ class PlaybackService : MediaSessionService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
+            if (controller.uid != applicationInfo.uid) {
+                return MediaSession.ConnectionResult.AcceptedResultBuilder(session).build()
+            }
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(
                     MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
@@ -1720,6 +1723,9 @@ class PlaybackService : MediaSessionService() {
             customCommand: SessionCommand,
             args: Bundle
         ): ListenableFuture<SessionResult> {
+            if (controller.uid != applicationInfo.uid) {
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_PERMISSION_DENIED))
+            }
             if (customCommand.customAction == MediaSessionConstants.ACTION_TOGGLE_SHUFFLE) {
                 session.player.shuffleModeEnabled = !session.player.shuffleModeEnabled
                 updateCustomLayout()
