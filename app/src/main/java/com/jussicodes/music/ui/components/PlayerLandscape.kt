@@ -213,10 +213,13 @@ fun PlayerLandscape(
                         (maxWidth - leftPadH * 2).roundToPx()
                     }
                     val coverSizePx = minOf(coverMaxWidthPx, coverMaxHeightPx)
-                    // 上限 260dp；下限不强行抬高——空间真不够时宁可小一点，
+                    // 上限：手机横屏沿用 260dp；平板/大屏横屏（左栏高 700dp+）按
+                    // 左栏高度的 62% 放开，否则 1280dp 宽的屏幕上封面只有 260dp，
+                    // 左右会留出大片空白。下限不强行抬高——空间真不够时宁可小一点，
                     // 也不让封面把底部进度条/控制组顶出屏幕。
+                    val coverCap = maxOf(260.dp, maxHeight * 0.62f)
                     val coverSizeDp = with(LocalDensity.current) { coverSizePx.toDp() }
-                        .coerceAtMost(260.dp)
+                        .coerceAtMost(coverCap)
                         .coerceAtLeast(0.dp)
 
                     Column(

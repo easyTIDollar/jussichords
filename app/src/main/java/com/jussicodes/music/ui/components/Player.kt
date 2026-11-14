@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -72,7 +71,10 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.data.favoriteSongIdsDatastore
+import com.jussicodes.music.constants.currentContentHeightDp
+import com.jussicodes.music.constants.currentContentWidthDp
 import com.jussicodes.music.constants.isLandscapePhone
+import com.jussicodes.music.constants.isLandscapeWide
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.utils.PlayerGestureTutorialStore
 import com.jussicodes.music.ui.icons.Album
@@ -111,6 +113,16 @@ import com.rcmiku.ncmapi.utils.json
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+
+/**
+ * 竖排播放页里「封面以下」固定要占用的高度：顶栏 48 + 歌名/歌手 ~56 +
+ * 进度条与时间 ~50 + 播放控制组 ~70，再留一点间距余量。
+ *
+ * 封面边长 = min(可用宽度, 可用高度 - 这个值)。手机竖屏/平板竖屏都取宽度，
+ * 外观与改动前逐像素一致；只有平板自由窗口、左右分屏这类「够宽不够高」的
+ * 形态会真正收缩，避免把控件顶出视口。
+ */
+private val PlayerCoverReservedHeight = 288.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -354,10 +366,11 @@ fun Player(
         color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-        // 横屏（矮屏，高度 < 480dp）走**独立的** PlayerLandscape 布局 —— 不是把竖排
-        // 挤进窄栏：411dp 高度下竖排那套（封面+歌名+滑条+控件+手势区）必然溢出，
-        // 前一版逐个改 weight 试过，结果控件和歌词全消失。
-        if (isLandscapePhone()) {
+        // 横屏双栏：矮屏手机横屏（高度 < 480dp）与平板/大屏横屏窗口都走这里。
+        // 竖排那套（封面 + 歌名 + 滑条 + 控件 + 手势区）在 411dp 高上必然溢出；
+        // 平板横屏虽然高 800dp，但竖排封面按宽度取正方形（1280dp 宽 → 1232dp 高）
+        // 同样会把进度条和播放控件顶出视口 —— Issue #3 就是这个。
+        if (isLandscapePhone() || isLandscapeWide()) {
             PlayerLandscape(
                 mediaMetadata = mediaMetadata,
                 position = position,
@@ -477,12 +490,19 @@ fun Player(
                 }
             }
 
+            // 封面边长：优先按宽度取正方形（左右各留 24dp 内边距），但高度必须
+            // 先扣掉封面以下所有内容的预留。平板竖屏/分屏窗口宽度大而高度紧，
+            // 宽度正方形会把歌名、进度条、播放按钮整段顶出视口（Issue #3）。
+            val coverSide = minOf(
+                currentContentWidthDp().dp - 48.dp,
+                currentContentHeightDp().dp - PlayerCoverReservedHeight,
+            ).coerceAtLeast(120.dp)
+
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .aspectRatio(1f)
+                    .align(Alignment.CenterHorizontally)
+                    .size(coverSide)
                     .then(coverGestures.coverGraphics())
                     .clip(MaterialTheme.shapes.small)
                     .then(coverGestures.coverSwipeGestures())

@@ -79,6 +79,25 @@ fun currentContentHeightDp(): Int = LocalConfiguration.current.screenHeightDp
 @ReadOnlyComposable
 fun isLandscapePhone(): Boolean = currentContentHeightDp() < 480
 
+/**
+ * 横屏宽窗（平板横屏、平板自由窗口、大屏分屏、车机）。
+ *
+ * 与 [isLandscapePhone] **互补、不重叠**：那个只认高度 < 480dp 的手机横屏，
+ * 平板横屏高度有 800dp 左右，落不进那个判定，于是被当成「正常竖屏」走了竖排布局 ——
+ * 而竖排封面按宽度取正方形，1280dp 宽的窗口会算出 1232dp 高的封面，
+ * 直接把进度条与播放控件顶出视口（Issue #3）。
+ *
+ * 判定：窗口横向（宽 > 高）、宽度 >= 600dp、且不是矮屏。
+ * 竖长窗口（平板竖屏、浮窗、左右分屏）仍走竖排，由封面尺寸上限兜底。
+ */
+@Composable
+@ReadOnlyComposable
+fun isLandscapeWide(): Boolean {
+    val width = currentContentWidthDp()
+    val height = currentContentHeightDp()
+    return height >= 480 && width > height && width >= 600
+}
+
 /** 宽度分级（受 DPI 模拟影响）。 */
 @Composable
 @ReadOnlyComposable
