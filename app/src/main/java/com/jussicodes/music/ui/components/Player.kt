@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -110,6 +111,7 @@ import com.rcmiku.ncmapi.model.Artist
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.SongAlbum
 import com.rcmiku.ncmapi.utils.json
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -148,6 +150,9 @@ fun Player(
     // FM 上下文：点歌名直接进专辑页（album id 有效时），其余路径保持先弹专辑层。
     fmDirectNav: Boolean = false,
     backHandlerEnabled: Boolean = true,
+    /** 横屏歌词区下拉收起播放页的跟手位移 / 松手速度，透传给 [PlayerLandscape]。 */
+    onSwipeDownDrag: (Float) -> Unit = {},
+    onSwipeDownEnd: (velocityY: Float) -> Unit = {},
 ) {
 
     if (backHandlerEnabled) {
@@ -285,16 +290,29 @@ fun Player(
     val screenHeightPx = with(density) { screenHeight.dp.toPx() }
     val dragDirectionSlopPx = with(density) { 3.dp.toPx() }
 
-    // 评论区垂直位移：screenHeightPx 为完全收起在屏幕底部之外，0f 为完全展开
+    // 评论区垂直位移：0f 为完全展开，[commentTravelPx] 为完全滑出屏幕底缘之外。
+    //
+    // 收起距离必须是**实测容器高度**，不能用 Configuration.screenHeightDp：
+    // 沉浸式横屏会隐藏状态栏（LandscapeStatusBarImmersive）+ 导航栏，窗口铺满全屏，
+    // 而 Configuration 里的 screenHeightDp 仍是「扣除系统栏」的可用高度，两者差出
+    // 状态栏那一截。面板滑到 screenHeightPx 就停在屏幕底缘之上，留下把手条+顶部圆角
+    // 一小块残影，看起来像「下滑没滑到底」。改用 onSizeChanged 量到的容器高度即完全出屏。
+    var commentContainerHeightPx by remember { mutableIntStateOf(0) }
+    val commentTravelPx = if (commentContainerHeightPx > 0) {
+        commentContainerHeightPx.toFloat()
+    } else {
+        screenHeightPx
+    }
+
     val commentSheetTranslationY = remember { Animatable(screenHeightPx) }
     var commentSheetActive by remember { mutableStateOf(false) }
-    val commentProgress = if (screenHeightPx > 0f) {
-        (1f - (commentSheetTranslationY.value / screenHeightPx)).coerceIn(0f, 1f)
+    val commentProgress = if (commentTravelPx > 0f) {
+        (1f - (commentSheetTranslationY.value / commentTravelPx)).coerceIn(0f, 1f)
     } else 0f
 
-    LaunchedEffect(screenHeightPx) {
+    LaunchedEffect(commentTravelPx) {
         if (!commentSheetActive && commentSheetTranslationY.value > 0f) {
-            commentSheetTranslationY.snapTo(screenHeightPx)
+            commentSheetTranslationY.snapTo(commentTravelPx)
         }
     }
 
@@ -312,24 +330,32 @@ fun Player(
     fun collapseComments(initialVelocity: Float = 0f) {
         scope.launch {
             commentSheetTranslationY.animateTo(
-                targetValue = screenHeightPx,
-                animationSpec = MotionSpring.sheetCollapse,
+                targetValue = commentTravelPx,
+                // 收起用「松手即走」的高刚度无回弹弹簧：sheetCollapse（Low）在整屏高度的
+                // 长距离收尾会把最后几十 px 磨得很慢，看起来像滑到一半停住。
+                animationSpec = MotionSpring.sheetDismissQuick,
                 initialVelocity = initialVelocity
             )
             commentSheetActive = false
         }
     }
 
+    // 跟手拖动只保留一个在途协程：每个 ACTION_MOVE 都新开 launch 会让 snapTo 排队，
+    // 手指快滑时位移落后于手指，松手瞬间又被积压的 snapTo 拽回去，观感就是「不丝滑」。
+    var commentDragJob by remember { mutableStateOf<Job?>(null) }
+
     fun onCommentDrag(deltaY: Float) {
         commentSheetActive = true
-        scope.launch {
+        commentDragJob?.cancel()
+        commentDragJob = scope.launch {
             val current = commentSheetTranslationY.value
-            val target = (current + deltaY).coerceIn(0f, screenHeightPx)
+            val target = (current + deltaY).coerceIn(0f, commentTravelPx)
             commentSheetTranslationY.snapTo(target)
         }
     }
 
     fun onCommentDragEnd(velocityY: Float, startedExpanded: Boolean) {
+        commentDragJob?.cancel()
         scope.launch {
             val current = commentSheetTranslationY.value
             if (startedExpanded) {
@@ -346,9 +372,9 @@ fun Player(
                 // 1. 快速轻扫甩动速度 <= -200f（向上甩动为负）轻扫直接展开；
                 // 2. 向上拖动超过 36dp / 比例 >= 10%，松手平滑展开；
                 // 3. 否则下滑取消 / 回弹收起。
-                val dragDistanceUp = screenHeightPx - current
+                val dragDistanceUp = commentTravelPx - current
                 val expandThresholdPx = with(density) { 36.dp.toPx() }
-                val currentProg = if (screenHeightPx > 0f) dragDistanceUp / screenHeightPx else 0f
+                val currentProg = if (commentTravelPx > 0f) dragDistanceUp / commentTravelPx else 0f
                 val isFlingUp = velocityY <= -200f
                 val isDragUp = (dragDistanceUp >= expandThresholdPx || currentProg >= 0.10f) && velocityY < 200f
                 if (isFlingUp || isDragUp) {
@@ -365,7 +391,13 @@ fun Player(
             .fillMaxSize(),
         color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                // 评论面板的收起距离按这里量到的真实高度算（沉浸式横屏下它比
+                // Configuration.screenHeightDp 高一截，用后者会残留一条把手）。
+                .onSizeChanged { commentContainerHeightPx = it.height }
+        ) {
         // 横屏双栏：矮屏手机横屏（高度 < 480dp）与平板/大屏横屏窗口都走这里。
         // 竖排那套（封面 + 歌名 + 滑条 + 控件 + 手势区）在 411dp 高上必然溢出；
         // 平板横屏虽然高 800dp，但竖排封面按宽度取正方形（1280dp 宽 → 1232dp 高）
@@ -411,6 +443,8 @@ fun Player(
                     }
                 },
                 onSeek = { onPositionUpdate(it) },
+                onSwipeDownDrag = onSwipeDownDrag,
+                onSwipeDownEnd = onSwipeDownEnd,
             )
         } else {
             Column(

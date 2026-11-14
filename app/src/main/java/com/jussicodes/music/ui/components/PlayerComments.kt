@@ -60,6 +60,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -555,13 +556,21 @@ fun PlayerCommentsPanel(
 ) {
     val lazyListState = rememberLazyListState()
 
-    val nestedScrollConnection = remember(translationY) {
+    // translationY 每帧都在变，直接当 remember key 会让 NestedScrollConnection 在列表
+    // 滚动过程中被反复重建 —— 嵌套滚动连接的连续性被打断，观感是下拉到顶后「接不上手」。
+    // 用 rememberUpdatedState 把最新位移/回调带进一个只创建一次的连接里：
+    // 连接只建一次，但每次回调都取当前重组的最新 lambda（内部闭包里有最新的收起距离）。
+    val translationYState = rememberUpdatedState(translationY)
+    val currentOnDrag by rememberUpdatedState(onDrag)
+    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
+
+    val nestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val deltaY = available.y
                 // 面板在半开状态（已拉下一截）时，向上推优先把面板推回顶部 0f
-                if (deltaY < 0f && translationY > 0f) {
-                    onDrag(deltaY)
+                if (deltaY < 0f && translationYState.value > 0f) {
+                    currentOnDrag(deltaY)
                     return Offset(0f, deltaY)
                 }
                 return Offset.Zero
@@ -575,15 +584,15 @@ fun PlayerCommentsPanel(
                 val deltaY = available.y
                 // 列表在最顶端继续向下拉动，接管为向下拉动面板
                 if (deltaY > 0f && source == NestedScrollSource.UserInput) {
-                    onDrag(deltaY)
+                    currentOnDrag(deltaY)
                     return Offset(0f, deltaY)
                 }
                 return Offset.Zero
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
-                if (translationY > 0f) {
-                    onDragEnd(available.y)
+                if (translationYState.value > 0f) {
+                    currentOnDragEnd(available.y)
                     return available
                 }
                 return Velocity.Zero

@@ -125,6 +125,18 @@ object MotionSpring {
         dampingRatio = 0.85f,
         stiffness = Spring.StiffnessLow
     )
+
+    /**
+     * 面板「松手即走」的收起弹簧：无回弹 + 高刚度。
+     *
+     * [sheetCollapse] 的 stiffness 是 Low，长距离（整屏高度）收尾最后几十 px 极慢，
+     * 观感是「滑到快没了却悬在半空慢慢磨」——评论面板从全屏高度滑出屏幕时必须换这条，
+     * 让手指松开的瞬间就干净利落地滑走。展开仍用 [sheetExpand]。
+     */
+    val sheetDismissQuick = spring<Float>(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = 900f
+    )
 }
 
 /** 常用动画 spec 工厂，避免各处重复拼 tween 的四个参数。 */

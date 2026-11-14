@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -98,6 +99,8 @@ fun PlayerTransform(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val screenHeightPx = constraints.maxHeight.toFloat()
+        // 横屏判据用窗口 dp 宽高比（平板自由窗口/分屏拉宽时 Configuration.orientation 可能仍报竖屏）。
+        val isLandscapeWindow = constraints.maxWidth > constraints.maxHeight
         val miniPlayerHeightPx = with(density) { MiniPlayerHeight.toPx() }
         val bottomPaddingPx = with(density) { bottomPadding.toPx() }
         val collapsedTargetY = (screenHeightPx - bottomPaddingPx - miniPlayerHeightPx).coerceAtLeast(0f)
@@ -181,6 +184,16 @@ fun PlayerTransform(
         }
 
         fun onDrag(deltaY: Float) {
+            // 收起动画正在跑时忽略拖动输入：snapTo 会取消 animateTo，而 animateTo 一旦
+            // 被取消，collapseSheet 里「对齐到小播放器 + onBackPressed」都不会执行，
+            // 面板就停在半屏。歌词区的嵌套滚动在松手后还有一段 fling 惯性会继续喂
+            // delta 过来，正是这条路径把动画打断的。
+            if (!isExpanded &&
+                sheetTranslationY.isRunning &&
+                sheetTranslationY.targetValue == collapsedTargetY
+            ) {
+                return
+            }
             coroutineScope.launch {
                 val current = sheetTranslationY.value
                 val target = (current + deltaY).coerceIn(0f, collapsedTargetY)
@@ -309,14 +322,28 @@ fun PlayerTransform(
                         modifier = Modifier
                             .zIndex(if (progress >= 0.5f) 2f else 0f)
                             .fillMaxWidth()
-                            .height(with(density) { screenHeightPx.toDp() })
+                            .then(
+                                // 横屏必须用 requiredHeight 把内容高度钉死在全屏高度：
+                                // height() 会被父级（随手指收缩的卡片）的最大高度夹住，内容跟着
+                                // 重新测量 —— 封面越滑越小、歌名/歌手跟着重排，看着就像抽屉。
+                                // 钉死后内容整块随卡片平移，只是底部被卡片裁掉，封面尺寸不变。
+                                if (isLandscapeWindow) {
+                                    Modifier.requiredHeight(with(density) { screenHeightPx.toDp() })
+                                } else {
+                                    Modifier.height(with(density) { screenHeightPx.toDp() })
+                                }
+                            )
                             .graphicsLayer {
                                 alpha = fullPlayerAlpha
-                                val scale = 0.94f + 0.06f * progress
-                                scaleX = scale
-                                scaleY = scale
-                                // 视差位移：展开时从下方 36dp 伴随托盘升起优雅浮现，下滑退出时顺应手指流向自然下沉并淡出
-                                translationY = with(density) { 36.dp.toPx() } * (1f - progress)
+                                // 横屏不做缩放和视差：下滑时封面不许变小、圆角不许跟着缩，
+                                // 歌名/歌手也不许重排 —— 整块随背景平移滑出即可。
+                                if (!isLandscapeWindow) {
+                                    val scale = 0.94f + 0.06f * progress
+                                    scaleX = scale
+                                    scaleY = scale
+                                    // 视差位移：展开时从下方 36dp 伴随托盘升起优雅浮现，下滑退出时顺应手指流向自然下沉并淡出
+                                    translationY = with(density) { 36.dp.toPx() } * (1f - progress)
+                                }
                             }
                             // 手势探测器只装一次（key=Unit）：用 pointerInput(isExpanded) 做 key 时，
                             // 状态一旦抖动就会中途重启手势协程，用户正在拖的那一次手势直接作废。
@@ -339,6 +366,9 @@ fun PlayerTransform(
                                         if (!change.pressed) break
 
                                         velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                        // 歌词栏的纵向手势已经接管并消费了这次拖拽：位移读出来是 0，
+                                        // 这里立刻让位，避免同一次下拉被两层各算一遍。
+                                        if (change.isConsumed && !isDraggingDown) break
                                         val positionChange = change.positionChange()
                                         totalDragY += positionChange.y
 
@@ -406,7 +436,13 @@ fun PlayerTransform(
                                         },
                                         onClick = { fullPlayerSubView = LYRIC_VIEW },
                                         onContainerClick = { fullPlayerSubView = PLAY_QUEUE },
-                                        onPositionUpdate = onPositionUpdate
+                                        onPositionUpdate = onPositionUpdate,
+                                        // 横屏歌词栏的纵向手势驱动同一个 sheet 位移，
+                                        // 松手速度按「展开态下滑」判定收起还是回弹。
+                                        onSwipeDownDrag = { deltaY -> onDrag(deltaY) },
+                                        onSwipeDownEnd = { velocityY ->
+                                            onDragEnd(velocityY, startedExpanded = true)
+                                        }
                                     )
 
                                     PLAY_QUEUE -> PlayerQueue(

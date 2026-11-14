@@ -1,11 +1,10 @@
 package com.jussicodes.music.ui.components
 
 import androidx.activity.compose.BackHandler
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,14 +31,22 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
@@ -48,7 +55,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalView
 import androidx.media3.common.C
 import androidx.media3.common.MediaMetadata
 import coil3.compose.AsyncImage
@@ -62,6 +68,7 @@ import com.jussicodes.music.ui.icons.MoreVert
 import com.jussicodes.music.ui.icons.Timelapse
 import com.jussicodes.music.ui.icons.Timer
 import com.jussicodes.music.utils.makeTimeString
+import kotlin.math.abs
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
 
@@ -107,6 +114,14 @@ fun PlayerLandscape(
     onTitleClick: () -> Unit,
     onArtistClick: () -> Unit,
     onSeek: (Long) -> Unit,
+    /**
+     * 歌词区「下拉收起播放页」的跟手位移（正数=手指向下）/ 松手垂直速度。
+     *
+     * 歌词列表自己滚动时会先消费事件，外层 PlayerTransform 的统一手势读到 0 位移、
+     * 接管不了；歌词列表滚到顶之后继续下拉、以及歌词上下的空白处，由右栏这一份手势补上。
+     */
+    onSwipeDownDrag: (Float) -> Unit = {},
+    onSwipeDownEnd: (velocityY: Float) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val playerState = LocalPlayerState.current
@@ -138,21 +153,39 @@ fun PlayerLandscape(
     val dimColor = MaterialTheme.colorScheme.onSurfaceVariant
     val panelColor = MaterialTheme.colorScheme.surfaceContainer
 
-    // 沉浸式：横屏播放页额外隐藏导航栏（状态栏由全局的
-    // LandscapeStatusBarImmersive 负责）。用 WindowInsetsControllerCompat，
-    // 不碰系统 UI flag，旋转/退出时由 DisposableEffect 复原。
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        DisposableEffect(Unit) {
-            val window = view.context.findActivity()?.window
-            val controller = window?.let { WindowCompat.getInsetsController(it, view) }
-            controller?.let {
-                it.hide(WindowInsetsCompat.Type.navigationBars())
-                it.systemBarsBehavior =
-                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    // 沉浸式：导航栏由全局 LandscapeStatusBarImmersive 统一隐藏/恢复。
+    // 这里不要再自己 hide/show —— 本页 onDispose 里 show(navigationBars()) 会把
+    // 全局的隐藏状态撤掉，横屏转到别的页面就又冒出小白条（曾经就是这么漏的）。
+
+    // 歌词区下拉：LazyColumn 即使已经滚到顶，也会为了 overscroll 继续消费 pointer 事件，
+    // 所以栏上那层 pointerInput 永远读到位移 0、接管不了。必须走 nestedScroll：
+    // 列表消费不完的 delta 通过 onPostScroll 传上来，这时才驱动播放页跟手收起。
+    val currentSwipeDownDrag by rememberUpdatedState(onSwipeDownDrag)
+    val currentSwipeDownEnd by rememberUpdatedState(onSwipeDownEnd)
+    val lyricNestedScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                // 只接管手指拖拽（UserInput）。松手后的 fling 惯性（SideEffect）不接管：
+                // 那段会持续喂 delta，把正在跑的收起动画 snapTo 掉，面板就卡在半屏。
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                // 手指向下、列表已无法再滚：剩余量全部转成面板下拉。
+                if (available.y > 0f) {
+                    currentSwipeDownDrag(available.y)
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
             }
-            onDispose {
-                controller?.show(WindowInsetsCompat.Type.navigationBars())
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (available.y > 0f) {
+                    currentSwipeDownEnd(available.y)
+                    return available
+                }
+                return Velocity.Zero
             }
         }
     }
@@ -469,6 +502,9 @@ fun PlayerLandscape(
                     modifier = Modifier
                         .weight(LandscapeRightWeight)
                         .fillMaxHeight()
+                        // 列表滚到顶后继续下拉 / 歌词上下空白处的下拉 → 收起播放页。
+                        .nestedScroll(lyricNestedScroll)
+                        .swipeDownToDismiss(onSwipeDownDrag, onSwipeDownEnd)
                 ) {
                     Lyric(
                         position = position,
@@ -574,4 +610,55 @@ private fun Icon2(
         tint = tint,
         modifier = Modifier.size(size)
     )
+}
+
+/**
+ * 纵向「跟手下拉」手势：只接管以纵向为主的拖拽，横向滑动一律放行给子组件。
+ *
+ * 为什么需要这一份：Compose 的 `PointerInputChange.positionChange()` 在事件已被子级
+ * 消费后返回 0，歌词 LazyColumn 一滚动，外层 PlayerTransform 的统一手势就读不到位移。
+ * 挂在歌词栏上：子级没消费（歌词滚到顶、歌词上下的空白处）就由它接管并 consume，
+ * 外层读到 0，不会双计位移。
+ */
+private fun Modifier.swipeDownToDismiss(
+    onDrag: (Float) -> Unit,
+    onDragEnd: (velocityY: Float) -> Unit,
+): Modifier = pointerInput(Unit) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val velocityTracker = VelocityTracker()
+        velocityTracker.addPosition(down.uptimeMillis, down.position)
+        var totalX = 0f
+        var totalY = 0f
+        // null = 还没过 touchSlop 判不出方向；false = 横向，交还子组件；true = 纵向，接管。
+        var isVertical: Boolean? = null
+
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            if (!change.pressed) break
+
+            velocityTracker.addPosition(change.uptimeMillis, change.position)
+            val delta = change.positionChange()
+            totalX += delta.x
+            totalY += delta.y
+
+            if (isVertical == null &&
+                (abs(totalX) > viewConfiguration.touchSlop || abs(totalY) > viewConfiguration.touchSlop)
+            ) {
+                isVertical = abs(totalY) > abs(totalX)
+            }
+
+            if (isVertical == false) break
+
+            if (isVertical == true) {
+                change.consume()
+                onDrag(delta.y)
+            }
+        }
+
+        if (isVertical == true) {
+            onDragEnd(velocityTracker.calculateVelocity().y)
+        }
+    }
 }
