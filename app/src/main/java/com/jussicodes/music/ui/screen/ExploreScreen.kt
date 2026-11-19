@@ -53,7 +53,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
-import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.MiniPlayerHeight
@@ -73,6 +73,9 @@ import com.jussicodes.music.ui.components.TopBar
 import com.jussicodes.music.ui.components.resolveHomeBgTextColor
 import com.jussicodes.music.ui.components.withShadow
 import com.jussicodes.music.ui.navigation.PlaylistNav
+import com.jussicodes.music.utils.prefetchDetailCover
+import com.jussicodes.music.animation.SharedArtworkShape
+import com.jussicodes.music.animation.navSharedElementModifier
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.viewModel.ExploreScreenViewModel
 import com.rcmiku.ncmapi.model.Song
@@ -85,13 +88,13 @@ import kotlin.math.abs
 @Composable
 fun ExploreScreen(
     navController: NavHostController,
-    exploreScreenViewModel: ExploreScreenViewModel = hiltViewModel()
+    exploreScreenViewModel: ExploreScreenViewModel = hiltViewModel(),
+    sharedElementEnabled: Boolean = false
 ) {
     val recommendSongsState by exploreScreenViewModel.recommendSongs.collectAsState()
     val recommendPlaylistState by exploreScreenViewModel.recommendPlaylist.collectAsState()
     val gridState = rememberLazyGridState()
     val playlistRowState = rememberLazyListState()
-    val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
     val isPlaying = playerState?.isPlaying == true
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
@@ -102,8 +105,10 @@ fun ExploreScreen(
     val context = LocalContext.current
     val state = rememberPullToRefreshState()
     var isRefreshing by remember { mutableStateOf(false) }
-    val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
-        .collectAsState(emptyList())
+    val songIdsFlow = remember(context) {
+        context.favoriteSongIdsDatastore.data.map { it.songIdsList }
+    }
+    val songIds by songIdsFlow.collectAsState(emptyList())
     val coroutineScope = rememberCoroutineScope()
     val viewConfiguration = LocalViewConfiguration.current
     var horizontalDragDirection by remember { mutableStateOf(0) }
@@ -235,12 +240,14 @@ fun ExploreScreen(
                                             .clip(MaterialTheme.shapes.small)
                                             .width(340.dp)
                                             .clickable {
-                                                mediaController?.setPlaylist(
-                                                    it.data.dailySongs,
-                                                    sourceName = "每日推荐",
-                                                    sourceType = MediaSessionConstants.SOURCE_TYPE_EXPLORE
-                                                )
-                                                mediaController?.playMediaAtId(song.id)
+                                                PlayerController.withController { mediaController ->
+                                                    mediaController.setPlaylist(
+                                                        it.data.dailySongs,
+                                                        sourceName = "每日推荐",
+                                                        sourceType = MediaSessionConstants.SOURCE_TYPE_EXPLORE
+                                                    )
+                                                    mediaController.playMediaAtId(song.id)
+                                                }
                                             },
                                         trailingContent = {
                                             IconButton(onClick = {
@@ -273,10 +280,11 @@ fun ExploreScreen(
                                     PlaylistGridItem(
                                         playlist = playlist,
                                         modifier = Modifier
-                                            .clip(MaterialTheme.shapes.small)
+                                            .clip(SharedArtworkShape)
                                             .width(gridCoverSize())
                                             .clickable(
                                                 onClick = {
+                                                    prefetchDetailCover(context, playlist.picUrl)
                                                     navController.navigate(
                                                         PlaylistNav(
                                                             playlistId = playlist.id,
@@ -286,8 +294,11 @@ fun ExploreScreen(
                                                 }
                                             ),
                                         thumbnailContent = {
+                                            val sharedKey = if (sharedElementEnabled) playlist.id else null
                                             GridThumbnailImage(
-                                                url = playlist.picUrl
+                                                url = playlist.picUrl,
+                                                modifier = navSharedElementModifier(sharedKey),
+                                                shape = SharedArtworkShape
                                             )
                                         }
                                     )

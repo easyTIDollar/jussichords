@@ -49,7 +49,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -61,12 +60,14 @@ import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.core.view.ViewCompat
 import androidx.media3.common.Player
 import coil3.compose.AsyncImage
-import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.ThumbnailCornerRadius
 import com.jussicodes.music.constants.isLandscapePhone
 import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
 import com.jussicodes.music.data.PinnedAlbumStore
+import com.jussicodes.music.animation.SharedArtworkShape
+import com.jussicodes.music.animation.navSharedElementModifier
 import com.jussicodes.music.extensions.playMediaAt
 import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.icons.GridView
@@ -104,13 +105,13 @@ private const val LANDSCAPE_MAX_COLUMNS = 8
 @Composable
 fun PinnedAlbumsCard(
     onOpenAlbum: (Album) -> Unit,
-    onAddClick: () -> Unit
+    onAddClick: () -> Unit,
+    sharedElementEnabled: Boolean = false
 ) {
     val albums by PinnedAlbumStore.albums.collectAsState()
     val cacheLoaded by PinnedAlbumStore.cacheLoaded.collectAsState()
     val context = LocalContext.current
     val view = LocalView.current
-    val mediaController = LocalPlayerController.current.controller
     var editing by remember { mutableStateOf(false) }
     // 列数走 PinnedAlbumStore 进程级 StateFlow（启动时 watchColumns 从 DataStore 灌入）：
     // rememberPreference 首帧出默认 3 列、下一帧才回流真实列数，每次回主页重组合
@@ -160,20 +161,22 @@ fun PinnedAlbumsCard(
                     ?.also { r -> PinnedAlbumStore.cacheAlbumSongs(album.id, r.songs) }
                     ?.songs
                 ?: return@launch
-            mediaController?.setPlaylist(
-                songs,
-                sourceId = album.id,
-                sourceName = album.name,
-                sourceType = MediaSessionConstants.SOURCE_TYPE_ALBUM,
-                navId = album.id
-            )
-            mediaController?.playMediaAt()
-            if (loop) mediaController?.repeatMode = Player.REPEAT_MODE_ALL
-            Toast.makeText(
-                context,
-                if (loop) "《${album.name}》已循环播放" else "《${album.name}》开始播放",
-                Toast.LENGTH_SHORT
-            ).show()
+            PlayerController.withController { mediaController ->
+                mediaController.setPlaylist(
+                    songs,
+                    sourceId = album.id,
+                    sourceName = album.name,
+                    sourceType = MediaSessionConstants.SOURCE_TYPE_ALBUM,
+                    navId = album.id
+                )
+                mediaController.playMediaAt()
+                if (loop) mediaController.repeatMode = Player.REPEAT_MODE_ALL
+                Toast.makeText(
+                    context,
+                    if (loop) "《${album.name}》已循环播放" else "《${album.name}》开始播放",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 
@@ -262,7 +265,6 @@ fun PinnedAlbumsCard(
                 albums = displayed,
                 editing = editing,
                 columns = columns,
-                cardShape = RoundedCornerShape(16.dp),
                 reorderableState = reorderableState,
                 gridState = gridState,
                 view = view,
@@ -280,7 +282,8 @@ fun PinnedAlbumsCard(
                 onEnterEdit = {
                     ViewCompat.performHapticFeedback(view, HapticFeedbackConstantsCompat.LONG_PRESS)
                     editing = true
-                }
+                },
+                sharedElementEnabled = sharedElementEnabled
             )
         }
     }
@@ -323,7 +326,6 @@ private fun PinnedAlbumsGrid(
     albums: List<Album>,
     editing: Boolean,
     columns: Int,
-    cardShape: Shape,
     reorderableState: ReorderableLazyGridState,
     gridState: LazyGridState,
     view: android.view.View,
@@ -332,7 +334,8 @@ private fun PinnedAlbumsGrid(
     onOpenAlbum: (Album) -> Unit,
     onPlay: (Album, Boolean) -> Unit,
     onRemove: (Album) -> Unit,
-    onEnterEdit: () -> Unit
+    onEnterEdit: () -> Unit,
+    sharedElementEnabled: Boolean
 ) {
     val baseColumns = columns.coerceIn(2, 6)
     BoxWithConstraints {
@@ -386,12 +389,12 @@ private fun PinnedAlbumsGrid(
                             album = album,
                             editing = true,
                             isDragging = isDragging,
-                            cardShape = cardShape,
                             dragModifier = dragModifier,
                             onOpen = { onOpenAlbum(album) },
                             onLoop = { onPlay(album, true) },
                             onRemove = { onRemove(album) },
-                            onEnterEdit = onEnterEdit
+                            onEnterEdit = onEnterEdit,
+                            sharedKey = if (sharedElementEnabled) album.id else null
                         )
                     }
                 } else {
@@ -399,18 +402,18 @@ private fun PinnedAlbumsGrid(
                         album = album,
                         editing = false,
                         isDragging = false,
-                        cardShape = cardShape,
                         dragModifier = Modifier,
                         onOpen = { onOpenAlbum(album) },
                         onLoop = { onPlay(album, true) },
                         onRemove = { onRemove(album) },
-                        onEnterEdit = onEnterEdit
+                        onEnterEdit = onEnterEdit,
+                        sharedKey = if (sharedElementEnabled) album.id else null
                     )
                 }
             }
             if (showAddTile) {
                 item {
-                    PinnedAlbumsAddTile(cardShape = cardShape, onClick = onAddClick)
+                    PinnedAlbumsAddTile(onClick = onAddClick)
                 }
             }
         }
@@ -422,17 +425,17 @@ private fun PinnedAlbumCover(
     album: Album,
     editing: Boolean,
     isDragging: Boolean,
-    cardShape: Shape,
     dragModifier: Modifier,
     onOpen: () -> Unit,
     onLoop: () -> Unit,
     onRemove: () -> Unit,
-    onEnterEdit: () -> Unit
+    onEnterEdit: () -> Unit,
+    sharedKey: Any? = null
 ) {
     Box(
         modifier = Modifier
             .aspectRatio(1f)
-            .clip(cardShape)
+            .clip(SharedArtworkShape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .then(dragModifier)
             .pointerInput(album.id, editing) {
@@ -457,7 +460,7 @@ private fun PinnedAlbumCover(
             model = album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL),
             contentDescription = album.name,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().then(navSharedElementModifier(sharedKey))
         )
         if (editing) {
             // 右上角圆形 'x' 删除钮：深灰半透明圆底 + 白色 Close 图标（沿用现成图标，非 error 红）。
@@ -484,7 +487,7 @@ private fun PinnedAlbumCover(
 
 /** 圆角矩形边框加号格：占位格与封面同网格单元（等大）。 */
 @Composable
-private fun PinnedAlbumsAddTile(cardShape: Shape, onClick: () -> Unit) {
+private fun PinnedAlbumsAddTile(onClick: () -> Unit) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier

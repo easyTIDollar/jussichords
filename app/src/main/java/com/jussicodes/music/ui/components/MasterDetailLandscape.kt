@@ -45,8 +45,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.constants.LandscapeDetailLeftFraction
-import com.jussicodes.music.constants.ThumbnailCornerRadius
 
 /**
  * 横屏（矮屏）详情页的「主从双栏」骨架：左侧展示栏 + 右侧曲目列表。
@@ -168,7 +168,7 @@ fun MasterDetailLandscape(
                                 Box(
                                     modifier = Modifier
                                         .size(coverSize)
-                                        .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                        .clip(SharedArtworkShape)
                                 ) { cover() }
                                 Spacer(Modifier.height(10.dp))
                                 // 3 枚按钮：横排，等分左栏宽度（与竖屏页一致，不再与封面宽度对齐）

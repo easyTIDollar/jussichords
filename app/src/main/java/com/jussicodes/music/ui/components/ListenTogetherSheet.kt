@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.playback.ListenTogetherSession
 import com.jussicodes.music.ui.icons.Crown
 import com.jussicodes.music.ui.icons.Users
@@ -66,6 +67,14 @@ fun ListenTogetherSheet(
     val bottomSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val context = LocalContext.current
     val uiState by ListenTogetherSession.state.collectAsState()
+    // 邀请文案带当前歌名（官方链接不变，对方用官方客户端也能直接打开）
+    val nowPlayingTitle = LocalPlayerState.current
+        ?.currentMediaItem
+        ?.mediaMetadata
+        ?.title
+        ?.toString()
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
     var invitationText by remember { mutableStateOf("") }
 
     LaunchedEffect(openBottomSheet) {
@@ -283,7 +292,7 @@ fun ListenTogetherSheet(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Button(
-                            onClick = { shareInviteLink(uiState.inviteUrl, context) },
+                            onClick = { shareInviteLink(uiState.inviteUrl, context, nowPlayingTitle) },
                             enabled = uiState.inviteUrl != null,
                             modifier = Modifier.weight(1f)
                         ) {
@@ -325,11 +334,20 @@ private fun copyText(text: String, toast: String, context: android.content.Conte
     Toast.makeText(context, toast, Toast.LENGTH_SHORT).show()
 }
 
-private fun shareInviteLink(url: String?, context: android.content.Context) {
+private fun shareInviteLink(
+    url: String?,
+    context: android.content.Context,
+    songName: String? = null
+) {
     if (url.isNullOrBlank()) return
+    val text = if (songName != null) {
+        "和我一起听《$songName》：$url"
+    } else {
+        "和我一起在网易云听歌：$url"
+    }
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
-        putExtra(Intent.EXTRA_TEXT, "和我一起在网易云听歌：$url")
+        putExtra(Intent.EXTRA_TEXT, text)
     }
     context.startActivity(Intent.createChooser(intent, "邀请一起听"))
 }

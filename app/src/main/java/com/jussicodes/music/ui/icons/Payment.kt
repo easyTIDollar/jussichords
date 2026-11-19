@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
+// Material Icons "payment"（outlined，24dp）官方矢量数据。
 val Payment: ImageVector
     get() {
         if (_Payment != null) {
@@ -19,65 +20,27 @@ val Payment: ImageVector
             viewportHeight = 24f
         ).apply {
             path(fill = SolidColor(Color(0xFF000000))) {
-                moveTo(15.75f, 14.5f)
-                arcToRelative(
-                    0.75f,
-                    0.75f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = false,
-                    0f,
-                    1.5f
-                )
-                horizontalLineToRelative(2.5f)
-                arcToRelative(
-                    0.75f,
-                    0.75f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = false,
-                    0f,
-                    -1.5f
-                )
+                moveTo(20f, 4f)
+                lineTo(4f, 4f)
+                curveTo(2.89f, 4f, 2.01f, 4.89f, 2.01f, 6f)
+                lineTo(2f, 18f)
+                curveTo(2f, 19.11f, 2.89f, 20f, 4f, 20f)
+                lineTo(20f, 20f)
+                curveTo(21.11f, 20f, 22f, 19.11f, 22f, 18f)
+                lineTo(22f, 6f)
+                curveTo(22f, 4.89f, 21.11f, 4f, 20f, 4f)
                 close()
-                moveTo(2f, 8.25f)
-                arcTo(3.25f, 3.25f, 0f, isMoreThanHalf = false, isPositiveArc = true, 5.25f, 5f)
-                horizontalLineToRelative(13.5f)
-                arcTo(3.25f, 3.25f, 0f, isMoreThanHalf = false, isPositiveArc = true, 22f, 8.25f)
-                verticalLineToRelative(7.5f)
-                arcTo(3.25f, 3.25f, 0f, isMoreThanHalf = false, isPositiveArc = true, 18.75f, 19f)
-                horizontalLineTo(5.25f)
-                arcTo(3.25f, 3.25f, 0f, isMoreThanHalf = false, isPositiveArc = true, 2f, 15.75f)
+                moveTo(20f, 18f)
+                lineTo(4f, 18f)
+                lineTo(4f, 12f)
+                lineTo(20f, 12f)
+                lineTo(20f, 18f)
                 close()
-                moveTo(20.5f, 9.5f)
-                verticalLineTo(8.25f)
-                arcToRelative(
-                    1.75f,
-                    1.75f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = false,
-                    -1.75f,
-                    -1.75f
-                )
-                horizontalLineTo(5.25f)
-                arcTo(1.75f, 1.75f, 0f, isMoreThanHalf = false, isPositiveArc = false, 3.5f, 8.25f)
-                verticalLineTo(9.5f)
-                close()
-                moveTo(3.5f, 11f)
-                verticalLineToRelative(4.75f)
-                curveToRelative(0f, 0.966f, 0.784f, 1.75f, 1.75f, 1.75f)
-                horizontalLineToRelative(13.5f)
-                arcToRelative(
-                    1.75f,
-                    1.75f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = false,
-                    1.75f,
-                    -1.75f
-                )
-                verticalLineTo(11f)
+                moveTo(20f, 8f)
+                lineTo(4f, 8f)
+                lineTo(4f, 6f)
+                lineTo(20f, 6f)
+                lineTo(20f, 8f)
                 close()
             }
         }.build()

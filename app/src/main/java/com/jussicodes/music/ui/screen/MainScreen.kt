@@ -2,13 +2,13 @@ package com.jussicodes.music.ui.screen
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
@@ -90,7 +90,6 @@ import com.jussicodes.music.constants.FloatingBottomNavBottomPadding
 import com.jussicodes.music.constants.FloatingBottomNavTopPadding
 import com.jussicodes.music.constants.floatingNavBarEnabledKey
 import com.jussicodes.music.constants.playerBackgroundBlurEnabledKey
-import com.jussicodes.music.animation.MotionDuration
 import com.jussicodes.music.animation.MotionSpec
 import com.jussicodes.music.animation.MotionDefaults
 import com.jussicodes.music.animation.rememberTabSelectionVisuals
@@ -157,6 +156,7 @@ fun MainScreen() {
     var currentPlayMediaId by rememberPreference(currentPlayMediaIdKey, 0)
     var showPlayer by remember { mutableStateOf(false) }
     var miniPlayerDragProgress by remember { mutableFloatStateOf(0f) }
+    var miniEnterPlayed by remember { mutableStateOf(false) }
     val bgBlurEffectCache = remember { BlurEffectCache() }
     var homePage by rememberSaveable { mutableIntStateOf(0) }
     // pager 连续进度：**故意不解包成局部 Float**。
@@ -348,8 +348,8 @@ fun MainScreen() {
             if (!floatingNavBarEnabled && !useNavigationRail) Column {
                 AnimatedVisibility(
                     showNavigationBar,
-                    enter = expandVertically(),
-                    exit = shrinkVertically()
+                    enter = expandVertically(animationSpec = MotionSpec.navChromeEnter()),
+                    exit = shrinkVertically(animationSpec = MotionSpec.navChromeExit())
                 ) {
                     val navBarFullHeight = BottomNavigationHeight + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     NavigationBar(
@@ -457,19 +457,23 @@ fun MainScreen() {
         },
         content = { padding ->
             val floatingNavBarFullHeight = FloatingBottomNavigationHeight + FloatingBottomNavBottomPadding + FloatingBottomNavTopPadding + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-            // 小播放器贴底间距（首页=底栏上方，二级页=避开系统导航栏并额外抬高 12dp 避免被手势栏遮挡），套 200ms 缓入缓出
+            // 小播放器贴底间距：首页停在底栏上方，二级页只避开系统导航栏。
             val targetMiniBottomPadding = when {
                 navBarTakesBottomSpace -> if (floatingNavBarEnabled) floatingNavBarFullHeight else padding.calculateBottomPadding()
-                else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 12.dp
+                else -> WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             }
             // 内容区跟小播放器用同一个贴底间距（无整体垫高）：首页列表的底部避让
             // 由各列表自己在末尾加空白块实现（如专辑墙），这里不再全局 +64dp。
+            // 时长与底栏滑入、滑出对齐，避免小播放器先跳到位。
             val miniBottomPadding by animateDpAsState(
                 targetValue = targetMiniBottomPadding,
-                animationSpec = tween(
-                    durationMillis = MotionDuration.LayoutShift,
-                    easing = FastOutSlowInEasing
-                ),
+                animationSpec = if (navBarTakesBottomSpace) {
+                    // 返回主页时，底栏滑入，小播放器同步上移。
+                    MotionSpec.navChromeEnterDp()
+                } else {
+                    // 进入二级页时，底栏滑出，小播放器同步下移。
+                    MotionSpec.navChromeExitDp()
+                },
                 label = "MiniPlayerBottomPadding"
             )
 
@@ -536,7 +540,7 @@ fun MainScreen() {
                 AdaptiveContent(modifier = Modifier.weight(1f)) {
                     NavGraph(
                         navController = navController,
-                        bottomPadding = miniBottomPadding,
+                        bottomPadding = targetMiniBottomPadding,
                         homePagerState = homePagerState,
                         onHomePageChange = { homePage = it },
                         onHomePageScroll = { homePageScroll.floatValue = it },
@@ -563,10 +567,17 @@ fun MainScreen() {
                         .zIndex(0.9f),
                     contentAlignment = Alignment.BottomCenter
                 ) {
+                    // 整块滑入而非高度裁切展开，避免胶囊被下边缘逐段揭出。
                     AnimatedVisibility(
                         visible = showNavigationBar,
-                        enter = fadeIn(MotionSpec.screenEnter()) + expandVertically(),
-                        exit = fadeOut(MotionSpec.screenExit()) + shrinkVertically()
+                        enter = slideInVertically(
+                            animationSpec = MotionSpec.navChromeEnter(),
+                            initialOffsetY = { it }
+                        ) + fadeIn(MotionSpec.navChromeEnter()),
+                        exit = slideOutVertically(
+                            animationSpec = MotionSpec.navChromeExit(),
+                            targetOffsetY = { it }
+                        ) + fadeOut(MotionSpec.navChromeExit())
                     ) {
                         FloatingBottomNavBar(
                             modifier = Modifier.graphicsLayer {
@@ -607,12 +618,24 @@ fun MainScreen() {
                     .zIndex(1f)
                     .fillMaxSize()
             ) {
-                if (showMiniPlayerChrome) playerState?.mediaMetadata?.let {
+                // 无歌时 mediaMetadata 是个空对象（title/artwork 都为 null），
+                // 之前只判了对象非 null，于是挂出一个空壳小播放器 —— 卡片背景色
+                // 和页面背景几乎一样，看起来就是"小播放器消失了"却又能点到。
+                if (showMiniPlayerChrome) playerState?.mediaMetadata?.takeIf {
+                    it.title != null || it.artworkUri != null
+                }?.let {
                     PlayerTransform(
                         mediaMetadata = it,
                         position = position,
                         duration = duration,
-                        bottomPadding = miniBottomPadding,
+                        // 传**目标**贴底高度，不传 animateDpAsState 的中间值。
+                        // miniBottomPadding 在首页↔二级页切换时逐帧变化，
+                        // 一路污染 collapsedTargetY：progress 分母每帧换、手势守卫里
+                        // 的 targetValue 比较每帧失效、snapTo 目标每帧改 —— 位移追不上，
+                        // 面板卡在半路（小播放器淡出消失、底栏沉下去不回来、背景一直模糊）。
+                        // 内容区直接用动画值，播放器只在绘制时补上目标与当前间距的差值。
+                        bottomPadding = targetMiniBottomPadding,
+                        miniPlayerDockOffsetY = { targetMiniBottomPadding - miniBottomPadding },
                         floatingNavBarEnabled = floatingNavBarEnabled,
                         onBackPressed = { showPlayer = false },
                         onClick = { showPlayer = true },
@@ -621,6 +644,8 @@ fun MainScreen() {
                         },
                         navController = navController,
                         expandSignal = PlayerExpandBus.token.collectAsState().value,
+                        miniPlayerEnterAnimation = !miniEnterPlayed,
+                        onMiniPlayerEnterAnimationPlayed = { miniEnterPlayed = true },
                         onDragProgressChange = { progress ->
                             miniPlayerDragProgress = progress
                             showPlayer = progress >= 0.99f

@@ -74,12 +74,14 @@ import androidx.media3.common.C
 import androidx.media3.common.Player
 import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.animation.AlbumArtBoundsTransform
 import com.jussicodes.music.animation.MotionDuration
 import com.jussicodes.music.animation.MotionSpec
 import com.jussicodes.music.animation.PlayerPanelTransition
 import com.jussicodes.music.animation.SharedArtwork
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.playMediaAt
@@ -112,7 +114,19 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
 import androidx.navigation.NavHostController
+import android.content.Context
+import androidx.datastore.preferences.core.edit
+import com.jussicodes.music.constants.personalFmModeKey
+import com.jussicodes.music.extensions.removeSong
 import com.jussicodes.music.ui.navigation.UserNav
+import com.jussicodes.music.utils.dataStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 
 private const val ROAM_PLAYER = 0
 private const val ROAM_LYRIC = 1
@@ -123,7 +137,10 @@ internal data class PersonalFmModeOption(
     val title: String,
     val mode: String,
     val submode: String? = null
-)
+) {
+    /** 持久化用的稳定 key：场景模式共用 mode="SCENE_RCMD"，靠 submode 区分。 */
+    val key: String get() = submode?.let { "$mode:$it" } ?: mode
+}
 
 internal val personalFmModeOptions = listOf(
     PersonalFmModeOption("默认", "DEFAULT"),
@@ -148,7 +165,42 @@ internal val personalFmModeIcons: List<ImageVector> = listOf(
 
 internal object PersonalFmQueueLoader {
     private val mutex = Mutex()
-    var selectedMode: PersonalFmModeOption = personalFmModeOptions.first()
+
+    private val _selectedMode = MutableStateFlow(personalFmModeOptions.first())
+
+    /** 当前模式：UI 订阅它（attach 异步恢复上次选择后会自动刷新）。 */
+    val selectedModeFlow: StateFlow<PersonalFmModeOption> = _selectedMode.asStateFlow()
+
+    var selectedMode: PersonalFmModeOption
+        get() = _selectedMode.value
+        private set(value) { _selectedMode.value = value }
+
+    /** 用户手动选过模式后，异步恢复不再回写（避免把刚选的值盖回旧值）。 */
+    @Volatile
+    private var userSelected = false
+
+    private var appContext: Context? = null
+
+    /** Application.onCreate 调一次：读 DataStore 恢复上次选的模式。 */
+    fun attach(context: Context) {
+        if (appContext != null) return
+        appContext = context.applicationContext
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            val ctx = appContext ?: return@launch
+            val savedKey = runCatching {
+                ctx.dataStore.data.first()[personalFmModeKey]
+            }.getOrNull()
+            val saved = personalFmModeOptions.firstOrNull { it.key == savedKey } ?: return@launch
+            if (!userSelected) selectedMode = saved
+        }
+    }
+
+    private fun persist(modeOption: PersonalFmModeOption) {
+        val ctx = appContext ?: return
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching { ctx.dataStore.edit { it[personalFmModeKey] = modeOption.key } }
+        }
+    }
 
     /**
      * 最近一次拉歌发生在哪个前台会话（[com.jussicodes.music.utils.AppSessionClock.sessionId]）。
@@ -162,6 +214,8 @@ internal object PersonalFmQueueLoader {
     suspend fun load(modeOption: PersonalFmModeOption = selectedMode): Result<List<Song>> =
         mutex.withLock {
             selectedMode = modeOption
+            userSelected = true
+            persist(modeOption)
             RecommendApi.personalFm(mode = modeOption.mode, submode = modeOption.submode)
                 .map { response -> response.data.map { it.toSong() }.filter { it.id != 0L } }
                 .onSuccess { songs ->
@@ -193,8 +247,10 @@ fun RoamScreen(
     val screenHeight = LocalConfiguration.current.screenHeightDp
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
-    val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
-        .collectAsState(emptyList())
+    val songIdsFlow = remember(context) {
+        context.favoriteSongIdsDatastore.data.map { it.songIdsList }
+    }
+    val songIds by songIdsFlow.collectAsState(emptyList())
     var position by rememberSaveable(playerState?.currentMediaItem?.mediaId) {
         mutableLongStateOf(player?.currentPosition ?: 0L)
     }
@@ -214,14 +270,22 @@ fun RoamScreen(
         )
     }
     val selectedMode = personalFmModeOptions[selectedModeIndex]
+    // 模式是从 DataStore 异步恢复的：恢复值到位后把本地选中项同步过去
+    val activeModeOption by PersonalFmQueueLoader.selectedModeFlow.collectAsState()
+    LaunchedEffect(activeModeOption) {
+        val idx = personalFmModeOptions.indexOf(activeModeOption)
+        if (idx >= 0 && idx != selectedModeIndex) selectedModeIndex = idx
+    }
 
     fun playSongs(songs: List<Song>) {
-        player?.setPlaylist(
-            songs = songs,
-            sourceName = PERSONAL_FM_SOURCE,
-            sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM
-        )
-        player?.playMediaAt(0)
+        PlayerController.withController { player ->
+            player.setPlaylist(
+                songs = songs,
+                sourceName = PERSONAL_FM_SOURCE,
+                sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM
+            )
+            player.playMediaAt(0)
+        }
     }
 
     fun playPersonalFm(
@@ -244,6 +308,31 @@ fun RoamScreen(
                     errorMessage = throwable.message ?: "私人 FM 加载失败"
                 }
             isLoading = false
+        }
+    }
+
+    /**
+     * 切模式：直接按新模式换一批，当前正在播的这首也一起换掉。
+     */
+    fun switchPersonalFmMode(modeOption: PersonalFmModeOption) {
+        if (isLoading) return
+        playPersonalFm(modeOption)
+    }
+
+    /**
+     * 不喜欢当前曲：上报垃圾桶（fire-and-forget，失败也不该挡住切歌），随即把它移出队列。
+     * 队列里只剩这一首时没有下一首可落，直接按当前模式换一批。
+     */
+    fun trashCurrentPersonalFm() {
+        val controller = mediaController ?: return
+        val mediaId = controller.currentMediaItem?.mediaId?.toLongOrNull() ?: return
+        if (mediaId <= 0L) return
+        val playedSeconds = (controller.currentPosition / 1000L).coerceAtLeast(0L)
+        scope.launch { RecommendApi.trashPersonalFm(mediaId, playedSeconds) }
+        if (controller.mediaItemCount > 1) {
+            controller.removeSong(mediaId.toString())
+        } else {
+            playPersonalFm()
         }
     }
 
@@ -438,12 +527,13 @@ fun RoamScreen(
                     selectedPlayerLabelOption = selectedModeIndex,
                     onPlayerLabelOptionSelected = { index ->
                         selectedModeIndex = index
-                        playPersonalFm(personalFmModeOptions[index])
+                        switchPersonalFmMode(personalFmModeOptions[index])
                     },
                     // FM 页留在返回栈里（不 popBackStack），back 可回到 FM；小播放器随路由自动出现
                     onAfterNavigate = {},
                     // FM 上下文：点歌名直跳专辑页、点音乐人（单个）直跳歌手页，不弹中间弹层
                     fmDirectNav = true,
+                    onTrashPersonalFm = { trashCurrentPersonalFm() },
                 )
             } else {
                 RoamPlayerContent(
@@ -461,7 +551,7 @@ fun RoamScreen(
                     onPlayPersonalFm = { playPersonalFm() },
                     onModeSelected = { index ->
                         selectedModeIndex = index
-                        playPersonalFm(personalFmModeOptions[index])
+                        switchPersonalFmMode(personalFmModeOptions[index])
                     },
                     onPlayPause = {
                         if (!isPersonalFm) {
@@ -679,7 +769,7 @@ private fun RoamPlayerContent(
                         scaleX = scale
                         scaleY = scale
                     }
-                    .clip(MaterialTheme.shapes.small)
+                    .clip(SharedArtworkShape)
                     .pointerInput(metadata?.artworkUri, swipeThresholdPx) {
                         detectHorizontalDragGestures(
                             onDragStart = {

@@ -20,6 +20,7 @@ import com.rcmiku.ncmapi.model.PlaylistInfoResponse
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,6 +38,7 @@ class PlaylistScreenViewModel @Inject constructor(
 ) :
     ViewModel() {
     private val playlistId = savedStateHandle.get<Long>("playlistId")
+    val routePlaylistId: Long? get() = playlistId
     private val limit = savedStateHandle.get<Int>("limit")
     private val noCache = savedStateHandle.get<Boolean>("noCache") ?: false
     private var favoriteSongIds: List<Long> = emptyList()
@@ -51,33 +53,36 @@ class PlaylistScreenViewModel @Inject constructor(
         _playlistInfo.asStateFlow()
 
     init {
-        // 优先恢复本地持久化快照：秒开展示，断网/离线状态下列表完全可用
+        // 优先恢复本地持久化快照，断网/离线状态下列表完全可用
         playlistId?.let { id ->
-            PlaylistSnapshotStore.getSnapshot(context, id)?.let { cached ->
-                _playlistDetail.value = cached
+            val cached = PlaylistSnapshotStore.getSnapshot(context, id)
+            val cachedInfo = PlaylistSnapshotStore.getInfoSnapshot(context, id)
+            if (_playlistDetail.value == null) {
+                cached?.let { _playlistDetail.value = it }
             }
-            PlaylistSnapshotStore.getInfoSnapshot(context, id)?.let { cachedInfo ->
-                _playlistInfo.value = cachedInfo
+            if (_playlistInfo.value == null) {
+                cachedInfo?.let { _playlistInfo.value = it }
             }
-        }
 
-        viewModelScope.launch {
-            if (noCache)
-                fetchWithObserver()
-            else
-                playlistId?.let {
-                    limit?.let {
-                        val result = PlaylistApi.playlistDetail(
-                            id = playlistId,
-                            limit = limit,
-                        ).getOrNull()
-                        if (result != null) {
-                            _playlistDetail.value = result
-                            PlaylistSnapshotStore.saveSnapshot(context, playlistId, result)
+            // 快照同步发布后再启动网络请求，保持快照优先；已有数据不会被旧快照覆盖。
+            viewModelScope.launch(Dispatchers.IO) {
+                if (noCache)
+                    fetchWithObserver()
+                else
+                    playlistId?.let {
+                        limit?.let {
+                            val result = PlaylistApi.playlistDetail(
+                                id = playlistId,
+                                limit = limit,
+                            ).getOrNull()
+                            if (result != null) {
+                                _playlistDetail.value = result
+                                PlaylistSnapshotStore.saveSnapshot(context, playlistId, result)
+                            }
                         }
+                        fetchPlaylistInfo()
                     }
-                    fetchPlaylistInfo()
-                }
+            }
         }
         if (noCache) {
             observeLocalFavoriteSongs()

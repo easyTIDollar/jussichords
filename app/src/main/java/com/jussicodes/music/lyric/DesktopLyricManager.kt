@@ -10,10 +10,16 @@ import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.desktopLyricXFractionKey
 import com.jussicodes.music.constants.desktopLyricYFractionKey
 import com.jussicodes.music.utils.dataStore
-import com.jussicodes.music.utils.get
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 object DesktopLyricManager {
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     fun canDrawOverlays(context: Context): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
@@ -45,20 +51,27 @@ object DesktopLyricManager {
             return false
         }
 
-        appContext.dataStore.edit { it[desktopLyricEnabledKey] = enabled }
+        val prefs = appContext.dataStore.edit { it[desktopLyricEnabledKey] = enabled }
         if (enabled) {
-            startService(appContext)
+            startService(appContext, DesktopLyricSettings.fromPreferences(prefs))
         } else {
             stopService(appContext)
         }
         return true
     }
 
-    fun syncService(context: Context) {
+    fun syncService(context: Context): Job {
         val appContext = context.applicationContext
-        val enabled = appContext.dataStore.get(desktopLyricEnabledKey, false)
-        if (enabled && canDrawOverlays(appContext)) {
-            startService(appContext)
+        return scope.launch {
+            val prefs = appContext.dataStore.data.first()
+            syncService(appContext, DesktopLyricSettings.fromPreferences(prefs))
+        }
+    }
+
+    fun syncService(context: Context, settings: DesktopLyricSettings) {
+        val appContext = context.applicationContext
+        if (settings.enabled && canDrawOverlays(appContext)) {
+            startService(appContext, settings)
         } else {
             stopService(appContext)
         }
@@ -70,12 +83,13 @@ object DesktopLyricManager {
      */
     suspend fun resetPosition(context: Context) {
         val appContext = context.applicationContext
-        val running = canDrawOverlays(appContext) &&
-            (appContext.dataStore.data.first()[desktopLyricEnabledKey] ?: false)
+        val settings = DesktopLyricSettings.fromPreferences(appContext.dataStore.data.first())
+        val running = canDrawOverlays(appContext) && settings.enabled
         if (running) {
             appContext.startService(
                 Intent(appContext, DesktopLyricService::class.java)
                     .setAction(DesktopLyricService.ACTION_RESET_POSITION)
+                    .putExtra(DesktopLyricService.EXTRA_SETTINGS, settings.toBundle())
             )
             return
         }
@@ -85,9 +99,14 @@ object DesktopLyricManager {
         }
     }
 
-    private fun startService(context: Context) {
+    private fun startService(context: Context, settings: DesktopLyricSettings) {
         // 后台（如更新后的 MY_PACKAGE_REPLACED）拉起 Service 可能被系统拒，别让广播崩掉。
-        runCatching { context.startService(Intent(context, DesktopLyricService::class.java)) }
+        runCatching {
+            context.startService(
+                Intent(context, DesktopLyricService::class.java)
+                    .putExtra(DesktopLyricService.EXTRA_SETTINGS, settings.toBundle())
+            )
+        }
     }
 
     private fun stopService(context: Context) {

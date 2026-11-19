@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
+// Material Icons "arrow_downward"（outlined，24dp）官方矢量数据。
 val Down: ImageVector
     get() {
         if (_Down != null) {
@@ -18,14 +19,17 @@ val Down: ImageVector
             viewportWidth = 24f,
             viewportHeight = 24f
         ).apply {
-            path(fill = SolidColor(Color(0xFF5F6368))) {
-                moveTo(2f, 8.025f)
-                lineTo(3.775f, 6.25f)
-                lineTo(12f, 14.475f)
-                lineTo(20.225f, 6.25f)
-                lineTo(22f, 8.025f)
-                lineTo(12f, 18.025f)
-                lineTo(2f, 8.025f)
+            path(fill = SolidColor(Color(0xFF000000))) {
+                moveTo(20f, 12f)
+                lineTo(18.59f, 10.59f)
+                lineTo(13f, 16.17f)
+                lineTo(13f, 4f)
+                lineTo(11f, 4f)
+                lineTo(11f, 16.17f)
+                lineTo(5.42f, 10.58f)
+                lineTo(4f, 12f)
+                lineTo(12f, 20f)
+                lineTo(20f, 12f)
                 close()
             }
         }.build()

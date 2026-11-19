@@ -65,8 +65,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.data.MsgSessionCache
 import com.jussicodes.music.data.ListenTogetherApi
 import com.jussicodes.music.data.parseListenTogetherInvitation
@@ -447,6 +449,18 @@ private fun ChatBubble(
     // 一起听进房：查房间存活 → 失效弹 toast；有效则 accept 进房成功并展开全屏播放界面。
     fun joinListenInvite(pair: Pair<String, String>) {
         val (roomId, inviterId) = pair
+        // 已经在这个房间：直接摊开播放器，不重复 accept（重复进房会让服务端换成员态）
+        val currentRoom = ListenTogetherSession.state.value.room
+        if (currentRoom?.id == roomId) {
+            Toast.makeText(ctx, "你已经在这个房间里了", Toast.LENGTH_SHORT).show()
+            PlayerExpandBus.expand()
+            return
+        }
+        // 在别的房间：一起听一次只能在一个房间，先让用户结束当前的
+        if (currentRoom != null) {
+            Toast.makeText(ctx, "正在其他一起听房间，先结束当前房间再进", Toast.LENGTH_LONG).show()
+            return
+        }
         scope.launch {
             val check = ListenTogetherApi.checkRoom(roomId).getOrNull()
             if (check == null) {
@@ -519,11 +533,13 @@ private fun ChatBubble(
                             accent = cardColor,
                             cardBg = cardBg,
                             onClick = {
-                                mediaController?.setPlaylist(
-                                    listOf(song.toPlayableSong(songCover)),
-                                    sourceName = "私信"
-                                )
-                                mediaController?.playMediaAtId(song.id)
+                                PlayerController.withController { mediaController ->
+                                    mediaController.setPlaylist(
+                                        listOf(song.toPlayableSong(songCover)),
+                                        sourceName = "私信"
+                                    )
+                                    mediaController.playMediaAtId(song.id)
+                                }
                             }
                         )
                     }
@@ -631,7 +647,7 @@ private fun SongCard(
         Box(
             modifier = Modifier
                 .size(44.dp)
-                .clip(RoundedCornerShape(6.dp)),
+                .clip(SharedArtworkShape),
             contentAlignment = Alignment.Center
         ) {
             if (cover.isNotBlank()) {
@@ -639,7 +655,7 @@ private fun SongCard(
                     model = cover.toCoverImageUrl(CoverImageSize.LIST),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp))
+                    modifier = Modifier.fillMaxSize().clip(SharedArtworkShape)
                 )
             }
             Icon(
@@ -695,7 +711,7 @@ private fun PlaylistCard(
         Box(
             modifier = Modifier
                 .size(44.dp)
-                .clip(RoundedCornerShape(6.dp)),
+                .clip(SharedArtworkShape),
             contentAlignment = Alignment.Center
         ) {
             if (cover.isNotBlank()) {
@@ -703,7 +719,7 @@ private fun PlaylistCard(
                     model = cover.toCoverImageUrl(CoverImageSize.LIST),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp))
+                    modifier = Modifier.fillMaxSize().clip(SharedArtworkShape)
                 )
             } else {
                 Icon(
@@ -758,7 +774,7 @@ private fun MsgResourceCard(
         Box(
             modifier = Modifier
                 .size(44.dp)
-                .clip(RoundedCornerShape(6.dp)),
+                .clip(SharedArtworkShape),
             contentAlignment = Alignment.Center
         ) {
             if (cover.isNotBlank()) {
@@ -766,7 +782,7 @@ private fun MsgResourceCard(
                     model = cover.toCoverImageUrl(CoverImageSize.LIST),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp))
+                    modifier = Modifier.fillMaxSize().clip(SharedArtworkShape)
                 )
             } else {
                 Icon(

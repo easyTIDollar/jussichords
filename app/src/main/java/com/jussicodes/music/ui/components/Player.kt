@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import com.jussicodes.music.animation.MotionSpring
+import com.jussicodes.music.animation.SharedArtworkShape
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -27,11 +28,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +47,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -70,6 +74,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import coil3.compose.AsyncImage
 import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.constants.currentContentHeightDp
@@ -96,8 +101,10 @@ import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
 import com.jussicodes.music.ui.screen.personalFmModeIcons
 import com.jussicodes.music.ui.screen.personalFmModeOptions
 import com.jussicodes.music.extensions.playMediaAt
+import com.jussicodes.music.extensions.removeSong
 import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.playback.ListenTogetherSession
+import com.rcmiku.ncmapi.api.recommend.RecommendApi
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.FavoriteSongAction
 import com.rcmiku.ncmapi.model.SongWikiData
@@ -111,9 +118,11 @@ import com.rcmiku.ncmapi.model.Artist
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.SongAlbum
 import com.rcmiku.ncmapi.utils.json
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 /**
@@ -153,6 +162,8 @@ fun Player(
     /** 横屏歌词区下拉收起播放页的跟手位移 / 松手速度，透传给 [PlayerLandscape]。 */
     onSwipeDownDrag: (Float) -> Unit = {},
     onSwipeDownEnd: (velocityY: Float) -> Unit = {},
+    /** 私人 FM 专用：非 null 时在播放控制键下方渲染「不喜欢」。其他入口不传，保持原样。 */
+    onTrashPersonalFm: (() -> Unit)? = null,
 ) {
 
     if (backHandlerEnabled) {
@@ -172,8 +183,10 @@ fun Player(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val mediaId = playerState?.currentMediaItem?.mediaId
-    val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
-        .collectAsState(emptyList())
+    val songIdsFlow = remember(context) {
+        context.favoriteSongIdsDatastore.data.map { it.songIdsList }
+    }
+    val songIds by songIdsFlow.collectAsState(emptyList())
     var currentSong by remember { mutableStateOf<Song?>(null) }
     var openAlbumSheet by rememberSaveable { mutableStateOf(false) }
     var openArtistSheet by rememberSaveable { mutableStateOf(false) }
@@ -212,6 +225,12 @@ fun Player(
     var autoFmMenuIndex by rememberSaveable {
         mutableIntStateOf(personalFmModeOptions.indexOf(PersonalFmQueueLoader.selectedMode).coerceAtLeast(0))
     }
+    // 模式是异步从 DataStore 恢复的：恢复到位后同步菜单选中项
+    val activeFmMode by PersonalFmQueueLoader.selectedModeFlow.collectAsState()
+    LaunchedEffect(activeFmMode) {
+        val idx = personalFmModeOptions.indexOf(activeFmMode)
+        if (idx >= 0 && idx != autoFmMenuIndex) autoFmMenuIndex = idx
+    }
     val fmLabelOptions = if (playerLabelOptions.isNotEmpty()) {
         playerLabelOptions
     } else if (autoFmActive) {
@@ -220,6 +239,40 @@ fun Player(
         emptyList<String>()
     }
     val fmSelectedOption = if (playerLabelOptions.isNotEmpty()) selectedPlayerLabelOption else autoFmMenuIndex
+
+    /**
+     * 不喜欢当前这首 FM 曲：上报垃圾桶后立刻移出队列。
+     * 放在播放器内部而不是只靠调用方传参 —— 从小播放器展开的全屏播放器
+     * （PlayerTransform）不会传 onTrashPersonalFm，靠队列来源判断才不会漏。
+     */
+    fun trashPersonalFmInternal() {
+        val ctrl = mediaController ?: return
+        val id = ctrl.currentMediaItem?.mediaId?.toLongOrNull() ?: return
+        if (id <= 0L) return
+        val playedSeconds = (ctrl.currentPosition / 1000L).coerceAtLeast(0L)
+        scope.launch { RecommendApi.trashPersonalFm(id, playedSeconds) }
+        if (ctrl.mediaItemCount > 1) {
+            ctrl.removeSong(id.toString())
+        } else {
+            // 队列里就剩这一首，删掉没歌可播，按当前模式换一批
+            scope.launch {
+                PersonalFmQueueLoader.load().onSuccess { songs ->
+                    if (songs.isNotEmpty()) {
+                        ctrl.setPlaylist(
+                            songs = songs,
+                            sourceName = PERSONAL_FM_SOURCE,
+                            sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM
+                        )
+                        ctrl.playMediaAt(0)
+                    }
+                }
+            }
+        }
+    }
+
+    // 显式传入优先；FM 队列（含从小播放器展开的全屏播放器）自动启用。
+    val trashHandler: (() -> Unit)? = onTrashPersonalFm
+        ?: if (autoFmActive) ({ trashPersonalFmInternal() }) else null
 
     fun onFmOptionPicked(index: Int) {
         if (playerLabelOptions.isNotEmpty()) {
@@ -230,12 +283,15 @@ fun Player(
                 PersonalFmQueueLoader.load(personalFmModeOptions[index])
                     .onSuccess { songs ->
                         if (songs.isNotEmpty()) {
-                            mediaController?.setPlaylist(
-                                songs,
-                                sourceName = PERSONAL_FM_SOURCE,
-                                sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM
-                            )
-                            mediaController?.playMediaAt(0)
+                            // 切模式就整批换掉，当前这首也一起换
+                            PlayerController.withController { mediaController ->
+                                mediaController.setPlaylist(
+                                    songs = songs,
+                                    sourceName = PERSONAL_FM_SOURCE,
+                                    sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM
+                                )
+                                mediaController.playMediaAt(0)
+                            }
                         }
                     }
             }
@@ -281,9 +337,12 @@ fun Player(
     )
 
     LaunchedEffect(mediaId) {
-        playerState?.currentMediaItem?.mediaMetadata?.extras?.getString("song")?.let {
-            currentSong = json.decodeFromString<Song>(it)
+        val encodedSong = playerState?.currentMediaItem?.mediaMetadata?.extras?.getString("song")
+        if (encodedSong.isNullOrBlank()) return@LaunchedEffect
+        val decodedSong = withContext(Dispatchers.IO) {
+            runCatching { json.decodeFromString<Song>(encodedSong) }.getOrNull()
         }
+        decodedSong?.let { currentSong = it }
     }
 
     val screenHeight = LocalConfiguration.current.screenHeightDp
@@ -306,14 +365,27 @@ fun Player(
 
     val commentSheetTranslationY = remember { Animatable(screenHeightPx) }
     var commentSheetActive by remember { mutableStateOf(false) }
-    val commentProgress = if (commentTravelPx > 0f) {
-        (1f - (commentSheetTranslationY.value / commentTravelPx)).coerceIn(0f, 1f)
+    // 已经对齐到位的收起距离。容器高度量到之前保持 -1，此时一律视为「完全收起」。
+    //
+    // 位移初值按 Configuration.screenHeightDp 给、收起距离按实测容器高度算，两者在
+    // edge-to-edge 下差着状态栏那一截。容器一量到，收起距离变大、位移还是旧的小值，
+    // commentProgress 立刻算出一个正的零头，评论区面板被挂载并顶出来一条 ——
+    // 展开播放页的瞬间底下闪一下评论区，就是这条路径。
+    //
+    // 分母必须用「已对齐的收起距离」而不是当前的 commentTravelPx：travel 一变化就
+    // 换分母的话，旧位移除以新距离同样能算出正的零头，守卫等于没加。
+    var commentAlignedTravelPx by remember { mutableFloatStateOf(-1f) }
+    val commentProgress = if (commentAlignedTravelPx > 0f) {
+        (1f - (commentSheetTranslationY.value / commentAlignedTravelPx)).coerceIn(0f, 1f)
     } else 0f
 
     LaunchedEffect(commentTravelPx) {
-        if (!commentSheetActive && commentSheetTranslationY.value > 0f) {
+        if (!commentSheetActive) {
+            // 先把位移对齐到新的收起距离，再登记这个距离：两步之间 progress 仍按旧值算，
+            // 不会出现「新分母配旧位移」的那一帧。
             commentSheetTranslationY.snapTo(commentTravelPx)
         }
+        commentAlignedTravelPx = commentTravelPx
     }
 
     fun expandComments(initialVelocity: Float = 0f) {
@@ -396,7 +468,13 @@ fun Player(
                 .fillMaxSize()
                 // 评论面板的收起距离按这里量到的真实高度算（沉浸式横屏下它比
                 // Configuration.screenHeightDp 高一截，用后者会残留一条把手）。
-                .onSizeChanged { commentContainerHeightPx = it.height }
+                // 量到的同时立刻把收起位移对齐，不留「新距离配旧位移」的空窗。
+                .onSizeChanged { size ->
+                    commentContainerHeightPx = size.height
+                    if (!commentSheetActive && commentSheetTranslationY.value > 0f) {
+                        scope.launch { commentSheetTranslationY.snapTo(size.height.toFloat()) }
+                    }
+                }
         ) {
         // 横屏双栏：矮屏手机横屏（高度 < 480dp）与平板/大屏横屏窗口都走这里。
         // 竖排那套（封面 + 歌名 + 滑条 + 控件 + 手势区）在 411dp 高上必然溢出；
@@ -538,7 +616,7 @@ fun Player(
                     .align(Alignment.CenterHorizontally)
                     .size(coverSide)
                     .then(coverGestures.coverGraphics())
-                    .clip(MaterialTheme.shapes.small)
+                    .clip(SharedArtworkShape)
                     .then(coverGestures.coverSwipeGestures())
                     .pointerInput(Unit) {
                         detectTapGestures(
@@ -584,7 +662,7 @@ fun Player(
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = imageModifier
-                        .clip(MaterialTheme.shapes.small)
+                        .clip(SharedArtworkShape)
                         .fillMaxSize()
                 )
             }
@@ -658,6 +736,20 @@ fun Player(
                                 reconnecting = listenTogetherState.reconnecting,
                                 onClick = { openListenTogetherSheet = true }
                             )
+                        }
+                        // 私人 FM：不喜欢当前这首（上报垃圾桶后立刻切下一首）
+                        trashHandler?.let { onTrash ->
+                            FilledTonalIconButton(
+                                onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onTrash()
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Outlined.ThumbDown,
+                                    contentDescription = "不喜欢"
+                                )
+                            }
                         }
                         FilledIconButton(
                             onClick = {

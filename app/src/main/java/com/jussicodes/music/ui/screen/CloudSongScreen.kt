@@ -19,7 +19,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.paging.compose.collectAsLazyPagingItems
-import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.MiniPlayerHeight
@@ -37,7 +37,6 @@ fun CloudSongScreen(
 ) {
 
     val cloudSong = cloudSongScreenViewModel.cloudSong.collectAsLazyPagingItems()
-    val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
     val isPlaying = playerState?.isPlaying == true
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
@@ -78,15 +77,17 @@ fun CloudSongScreen(
                         isActive = currentMediaId == item.simpleSong.id,
                         modifier = Modifier.clickable {
                             cloudSong.itemSnapshotList.items.let {
-                                if (uid != null)
-                                    mediaController?.setCloudSongPlaylist(
-                                        uid = uid,
-                                        cloudSongs = it,
-                                        sourceName = "云盘音乐",
-                                        sourceType = MediaSessionConstants.SOURCE_TYPE_CLOUD,
-                                        navId = uid
-                                    )
-                                mediaController?.playMediaAtId(item.simpleSong.id)
+                                PlayerController.withController { mediaController ->
+                                    if (uid != null)
+                                        mediaController.setCloudSongPlaylist(
+                                            uid = uid,
+                                            cloudSongs = it,
+                                            sourceName = "云盘音乐",
+                                            sourceType = MediaSessionConstants.SOURCE_TYPE_CLOUD,
+                                            navId = uid
+                                        )
+                                    mediaController.playMediaAtId(item.simpleSong.id)
+                                }
                             }
                         })
                 }

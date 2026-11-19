@@ -56,6 +56,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Tune
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.ui.components.AudioQualityProbeDialog
 import com.jussicodes.music.ui.components.CoverAsyncImage
 import com.jussicodes.music.ui.components.ProbeDialogMode
@@ -130,7 +131,7 @@ import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
-import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.downloadConcurrencyKey
 import com.jussicodes.music.constants.downloadCoverKey
@@ -693,7 +694,6 @@ private fun DownloadedListSection(
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
-    val mediaController = LocalPlayerController.current.controller
     var pendingDeleteTask by remember { mutableStateOf<DownloadTask?>(null) }
     var isRefreshing by remember { mutableStateOf(false) }
     val pullToRefreshState = rememberPullToRefreshState()
@@ -932,38 +932,44 @@ private fun DownloadedListSection(
     val playAllAction: () -> Unit = {
         if (effectiveCompletedTasks.isNotEmpty()) {
             val songs = effectiveCompletedTasks.map { taskToSong(it) }
-            mediaController?.setPlaylist(
-                songs,
-                sourceId = 20261L,
-                sourceName = "已下载歌曲",
-                sourceType = "download"
-            )
-            mediaController?.playMediaAtId(effectiveCompletedTasks.first().songId)
+            PlayerController.withController { mediaController ->
+                mediaController.setPlaylist(
+                    songs,
+                    sourceId = 20261L,
+                    sourceName = "已下载歌曲",
+                    sourceType = "download"
+                )
+                mediaController.playMediaAtId(effectiveCompletedTasks.first().songId)
+            }
         }
     }
 
     val playExternalPlaylistAction: (ExternalPlaylist) -> Unit = { pl ->
         if (pl.songs.isNotEmpty()) {
             val songs = pl.songs.map { it.toSong(pl.name) }
-            mediaController?.setPlaylist(
-                songs = songs,
-                sourceId = 20263L,
-                sourceName = pl.name,
-                sourceType = "external"
-            )
-            mediaController?.playMediaAtId(pl.songs.first().id)
+            PlayerController.withController { mediaController ->
+                mediaController.setPlaylist(
+                    songs = songs,
+                    sourceId = 20263L,
+                    sourceName = pl.name,
+                    sourceType = "external"
+                )
+                mediaController.playMediaAtId(pl.songs.first().id)
+            }
         }
     }
 
     val playExternalSongAction: (ExternalPlaylist, ExternalSong) -> Unit = { pl, s ->
         val songs = pl.songs.map { it.toSong(pl.name) }
-        mediaController?.setPlaylist(
-            songs = songs,
-            sourceId = 20263L,
-            sourceName = pl.name,
-            sourceType = "external"
-        )
-        mediaController?.playMediaAtId(s.id)
+        PlayerController.withController { mediaController ->
+            mediaController.setPlaylist(
+                songs = songs,
+                sourceId = 20263L,
+                sourceName = pl.name,
+                sourceType = "external"
+            )
+            mediaController.playMediaAtId(s.id)
+        }
     }
 
     val refreshExternalPlaylistAction: (ExternalPlaylist) -> Unit = { pl ->
@@ -983,13 +989,15 @@ private fun DownloadedListSection(
     val playGroupAction: (List<DownloadTask>, String) -> Unit = { list, groupTitle ->
         if (list.isNotEmpty()) {
             val songs = list.map { taskToSong(it) }
-            mediaController?.setPlaylist(
-                songs,
-                sourceId = 20261L,
-                sourceName = groupTitle,
-                sourceType = "download"
-            )
-            mediaController?.playMediaAtId(list.first().songId)
+            PlayerController.withController { mediaController ->
+                mediaController.setPlaylist(
+                    songs,
+                    sourceId = 20261L,
+                    sourceName = groupTitle,
+                    sourceType = "download"
+                )
+                mediaController.playMediaAtId(list.first().songId)
+            }
         }
     }
 
@@ -998,13 +1006,15 @@ private fun DownloadedListSection(
             onToggleSelect(task.songId)
         } else {
             val songs = effectiveCompletedTasks.map { taskToSong(it) }
-            mediaController?.setPlaylist(
-                songs,
-                sourceId = 20261L,
-                sourceName = "已下载歌曲",
-                sourceType = "download"
-            )
-            mediaController?.playMediaAtId(task.songId)
+            PlayerController.withController { mediaController ->
+                mediaController.setPlaylist(
+                    songs,
+                    sourceId = 20261L,
+                    sourceName = "已下载歌曲",
+                    sourceType = "download"
+                )
+                mediaController.playMediaAtId(task.songId)
+            }
         }
     }
 
@@ -1960,7 +1970,7 @@ private fun DownloadedSongItem(
         CoverAsyncImage(
             url = offlineCover,
             size = CoverImageSize.LIST,
-            shape = RoundedCornerShape(8.dp),
+            shape = SharedArtworkShape,
             modifier = Modifier.size(48.dp)
         )
 
@@ -2233,7 +2243,7 @@ private fun DownloadingSongItem(
         CoverAsyncImage(
             url = task.coverUrl,
             size = CoverImageSize.LIST,
-            shape = RoundedCornerShape(8.dp),
+            shape = SharedArtworkShape,
             modifier = Modifier.size(48.dp)
         )
 
@@ -2884,14 +2894,14 @@ private fun DownloadedGroupCard(
                     CoverAsyncImage(
                         url = group.coverUrl,
                         size = CoverImageSize.LIST,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = SharedArtworkShape,
                         modifier = Modifier.size(50.dp)
                     )
                 } else {
                     Box(
                         modifier = Modifier
                             .size(50.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(SharedArtworkShape)
                             .background(MaterialTheme.colorScheme.secondaryContainer),
                         contentAlignment = Alignment.Center
                     ) {
@@ -3028,14 +3038,14 @@ private fun ExternalPlaylistCard(
                     CoverAsyncImage(
                         url = playlist.coverUrl,
                         size = CoverImageSize.LIST,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = SharedArtworkShape,
                         modifier = Modifier.size(50.dp)
                     )
                 } else {
                     Box(
                         modifier = Modifier
                             .size(50.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(SharedArtworkShape)
                             .background(MaterialTheme.colorScheme.secondaryContainer),
                         contentAlignment = Alignment.Center
                     ) {
@@ -3181,14 +3191,14 @@ private fun ExternalSongItem(
             CoverAsyncImage(
                 url = song.coverUri,
                 size = CoverImageSize.LIST,
-                shape = RoundedCornerShape(6.dp),
+                shape = SharedArtworkShape,
                 modifier = Modifier.size(42.dp)
             )
         } else {
             Box(
                 modifier = Modifier
                     .size(42.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(SharedArtworkShape)
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {

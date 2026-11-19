@@ -12,25 +12,48 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlin.properties.ReadOnlyProperty
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
-operator fun <T> DataStore<Preferences>.get(key: Preferences.Key<T>): T? =
-    runBlocking(Dispatchers.IO) {
-        data.first()[key]
+private val snapshotScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+private val snapshots = ConcurrentHashMap<DataStore<Preferences>, StateFlow<Preferences?>>()
+
+private fun DataStore<Preferences>.snapshot(): StateFlow<Preferences?> =
+    snapshots.computeIfAbsent(this) { store ->
+        store.data.retryWhen { error, _ ->
+            if (error is IOException) {
+                delay(1000)
+                true
+            } else {
+                false
+            }
+        }.stateIn(snapshotScope, SharingStarted.Eagerly, null)
     }
 
+/** 启动异步订阅；同步 getter 在首份快照到达前返回空值，由调用方使用默认设置。 */
+fun DataStore<Preferences>.preloadPreferences() {
+    snapshot()
+}
+
+operator fun <T> DataStore<Preferences>.get(key: Preferences.Key<T>): T? =
+    snapshot().value?.get(key)
+
 fun <T> DataStore<Preferences>.get(key: Preferences.Key<T>, defaultValue: T): T =
-    runBlocking(Dispatchers.IO) {
-        data.first()[key] ?: defaultValue
-    }
+    get(key) ?: defaultValue
 
 fun <T> preference(
     context: Context,

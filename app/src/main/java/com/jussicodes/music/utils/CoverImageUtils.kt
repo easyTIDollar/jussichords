@@ -2,6 +2,8 @@ package com.jussicodes.music.utils
 
 import android.content.Context
 import androidx.core.net.toUri
+import coil3.imageLoader
+import coil3.request.ImageRequest
 import kotlin.math.roundToInt
 
 /**
@@ -98,6 +100,17 @@ fun coverMemoryKey(url: Any?, size: CoverImageSize): String? {
     }
     if (raw.isBlank()) return null
     return "cover:${size.name}:${stripSizeParam(raw)}"
+}
+
+/** 在详情页进入动画期间预取封面，并复用展示组件的请求尺寸与内存缓存键。 */
+fun prefetchDetailCover(context: Context, url: Any?) {
+    val density = context.resources.displayMetrics.density
+    val request = ImageRequest.Builder(context)
+        .data(url.toCoverImageUrl(CoverImageSize.DETAIL, density))
+        .size(CoverImageSize.DETAIL.pixels(density), CoverImageSize.DETAIL.pixels(density))
+        .memoryCacheKey(coverMemoryKey(url, CoverImageSize.DETAIL))
+        .build()
+    runCatching { context.imageLoader.enqueue(request) }
 }
 
 /** 只剔除 NCM 的 `?param=NyN`，其余 query（头像/歌单版本号）保留，换图后才能立即失效。 */

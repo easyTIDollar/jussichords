@@ -64,12 +64,15 @@ import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.autoSkipNextOnErrorKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.desktopLyricLockedKey
+import com.jussicodes.music.constants.playWithOthersKey
 import com.jussicodes.music.constants.use40DpIconKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
+import com.jussicodes.music.extensions.RESTORED_QUEUE_EXTRA
 import com.jussicodes.music.extensions.toMediaItemList
 import com.jussicodes.music.extensions.toResolveKey
 import com.jussicodes.music.extensions.updateMediaItemUri
 import com.jussicodes.music.lyric.DesktopLyricManager
+import com.jussicodes.music.lyric.DesktopLyricSettings
 import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
 import com.jussicodes.music.playback.audio.AudioEffectMode
 import com.jussicodes.music.playback.audio.PlaybackAudioProcessors
@@ -119,15 +122,6 @@ class PlaybackService : MediaSessionService() {
      */
     private val widgetStateListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
-            // 冷启动起播计时：出了声 / 到达 READY 各记一次（相对组件点击时刻）。
-            if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
-                player.playbackState == Player.STATE_READY
-            ) {
-                PlaybackTrace.markOnce(applicationContext, "ready", "state READY")
-            }
-            if (events.contains(Player.EVENT_IS_PLAYING_CHANGED) && player.isPlaying) {
-                PlaybackTrace.markOnce(applicationContext, "playing", "isPlaying true")
-            }
             if (events.containsAny(
                     Player.EVENT_IS_PLAYING_CHANGED,
                     Player.EVENT_MEDIA_ITEM_TRANSITION,
@@ -146,6 +140,7 @@ class PlaybackService : MediaSessionService() {
 
     /** 播放队列落盘：进程被杀后媒体会话还能把上次的队列和进度恢复出来。 */
     private val queueStore by lazy { PlaybackQueueStore.get(this) }
+    private var isRestoringQueue = false
 
     /**
      * 解析链路面板的播放器侧打点：解析层只写到「拿到直链」，真正「多久出声」在播放器这里。
@@ -219,6 +214,8 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            // 真正起播后立即恢复正常持久化，不能漏掉用户的播放操作。
+            if (isPlaying) isRestoringQueue = false
             persistQueue()
         }
 
@@ -228,10 +225,23 @@ class PlaybackService : MediaSessionService() {
                 persistQueue()
             }
         }
+
+        override fun onEvents(player: Player, events: Player.Events) {
+            // 同一批恢复事件（含首次就绪）全部分发完，再解除保护。
+            if (player.playbackState == Player.STATE_READY ||
+                player.playbackState == Player.STATE_ENDED ||
+                player.playerError != null ||
+                (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
+                    player.playbackState == Player.STATE_IDLE)
+            ) {
+                isRestoringQueue = false
+            }
+        }
     }
 
     /** 把当前队列、下标、播放位置写盘。必须在播放器线程（主线程）调用。 */
     private fun persistQueue() {
+        if (isRestoringQueue) return
         val player = mediaSession?.player ?: return
         runCatching {
             val items = ArrayList<MediaItem>(player.mediaItemCount)
@@ -249,6 +259,18 @@ class PlaybackService : MediaSessionService() {
     private val desktopLyricEnabled by preference(this, desktopLyricEnabledKey, false)
     private val desktopLyricLocked by preference(this, desktopLyricLockedKey, false)
     private val audioQuality by enumPreference(this, audioQualityKey, SongLevel.STANDARD)
+
+    /** 与其他音频同时播放（默认开）：true = 不申请音频焦点，可与其它应用混音。 */
+    private val playWithOthers by preference(this, playWithOthersKey, true)
+
+    /** 底层 ExoPlayer：MediaSession 持有的是 AutoPlayNextPlayer 包装，改焦点处理要用这一份。 */
+    private lateinit var exoPlayer: ExoPlayer
+
+    /** 播放器音频身份。运行时切换焦点处理时复用同一实例，避免值不等触发多余事件。 */
+    private val playbackAudioAttributes = androidx.media3.common.AudioAttributes.Builder()
+        .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
+        .build()
 
     private var playbackHistoryReporter: PlaybackHistoryReporter? = null
     private val playbackHistorySession = PlaybackHistorySession()
@@ -1321,7 +1343,7 @@ class PlaybackService : MediaSessionService() {
                 )
             }
 
-        val player = ExoPlayer.Builder(this, audioOnlyRenderersFactory)
+        exoPlayer = ExoPlayer.Builder(this, audioOnlyRenderersFactory)
             .apply {
                 val httpDataSourceFactory = CookieAwareHttpDataSourceFactory { CookieProvider.cookie }
                 val upstreamFactory = androidx.media3.datasource.DefaultDataSource.Factory(
@@ -1349,7 +1371,6 @@ class PlaybackService : MediaSessionService() {
                             ?.takeUnless { PlayUrlSkip.blocks(skipUrls, it) }
 
                         val resolvedUri = if (cachedUrl != null) {
-                            PlaybackTrace.markOnce(this@PlaybackService, "hit", "resolve hit")
                             // 预取下一首也走这里：begin 返回 false 时说明焦点不在它身上，
                             // 后续打点必须一起跳过，否则会把当前歌的时间线搅乱。
                             if (PlaybackPath.begin(resolveKey, qualityTag)) {
@@ -1375,7 +1396,6 @@ class PlaybackService : MediaSessionService() {
                             android.util.Log.d(TAG, "play url cache hit songId=$resolveKey")
                             cachedUrl.toUri()
                         } else {
-                            PlaybackTrace.markOnce(this@PlaybackService, "miss", "resolve miss")
                             if (PlaybackPath.begin(resolveKey, qualityTag)) {
                                 PlaybackPath.step(
                                     "音频分片缓存",
@@ -1441,29 +1461,37 @@ class PlaybackService : MediaSessionService() {
                             .build()
                     }
                 }
-                val cacheDataSourceFactory = CacheDataSource.Factory()
-                    .setCache(AudioCache.get(this@PlaybackService))
-                    .setUpstreamDataSourceFactory(resolvingDataSourceFactory)
-                    .setCacheKeyFactory { dataSpec ->
-                        // 外层 dataSpec 的 uri 就是 MediaItem 的原始 uri（歌曲级、跨进程稳定），
-                        // 用它当 key，解析出来的直链不参与缓存身份。
-                        // 版本前缀在 audioCacheKey 里是 v5：key 语义变了（v4 及更早的条目不会再被读到）。
-                        this@PlaybackService.audioCacheKey(
-                            dataSpec.key ?: dataSpec.uri.toString()
-                        )
+                val cacheDataSourceFactory = object : androidx.media3.datasource.DataSource.Factory {
+                    override fun createDataSource(): androidx.media3.datasource.DataSource {
+                        val cache = AudioCache.getIfInitialized()
+                            ?: return resolvingDataSourceFactory.createDataSource()
+                        return CacheDataSource.Factory()
+                            .setCache(cache)
+                            .setUpstreamDataSourceFactory(resolvingDataSourceFactory)
+                            .setCacheKeyFactory { dataSpec ->
+                                // 外层 dataSpec 的 uri 就是 MediaItem 的原始 uri（歌曲级、跨进程稳定），
+                                // 用它当 key，解析出来的直链不参与缓存身份。
+                                // 版本前缀在 audioCacheKey 里是 v5：key 语义变了（v4 及更早的条目不会再被读到）。
+                                this@PlaybackService.audioCacheKey(
+                                    dataSpec.key ?: dataSpec.uri.toString()
+                                )
+                            }
+                            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                            .createDataSource()
                     }
-                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                }
                 setMediaSourceFactory(DefaultMediaSourceFactory(cacheDataSourceFactory))
                 // 媒体播放身份：USAGE_MEDIA 让系统把它当正经媒体会话；
                 // WAKE_MODE_NETWORK 播放期间持 wakelock/wifilock，
                 // 锁屏/后台走网络流媒体不被 CPU/无线电休眠打断。
+                // 第二参是 handleAudioFocus（不是 becoming noisy）：混音开关决定是否独占焦点。
                 setAudioAttributes(
-                    androidx.media3.common.AudioAttributes.Builder()
-                        .setUsage(androidx.media3.common.C.USAGE_MEDIA)
-                        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MUSIC)
-                        .build(),
-                    /* handleAudioBecomingNoisy = */ true
+                    playbackAudioAttributes,
+                    /* handleAudioFocus = */ !playWithOthers
                 )
+                // 蓝牙/有线耳机断开时系统广播 ACTION_AUDIO_BECOMING_NOISY，
+                // 这里让播放器自动暂停，避免音乐突然从扬声器外放。
+                setHandleAudioBecomingNoisy(true)
                 setWakeMode(androidx.media3.common.C.WAKE_MODE_NETWORK)
                 // 缓冲策略：最小缓冲 15s / 最大 50s；起播只要 1.0s，seek 或断流后
                 // 续播只要 1.1s（原来是 1.5s / 5s，后两项直接决定「点完多久出声」）。
@@ -1479,6 +1507,8 @@ class PlaybackService : MediaSessionService() {
                         .build()
                 )
             }.build()
+        // 下面整段沿用 player 这个名字；exoPlayer 是同一实例，留给设置项即时改焦点用。
+        val player = exoPlayer
         player.repeatMode = REPEAT_MODE_ALL
         // 播放历史上报（eapi weblog + NCBL 双通道）：MeiloX 式纯内存计时器 + 串行 IO 上报。
         playbackHistoryReporter = PlaybackHistoryReporter(
@@ -1525,7 +1555,9 @@ class PlaybackService : MediaSessionService() {
         // 会话播放器包一层：暂停时「下一首」自动开播（见 AutoPlayNextPlayer 注释）。
         // 只包装交给 MediaSession 的那一份，ListenTogetherSession 仍挂原始 ExoPlayer，
         // 远端同步的 seek 不会被本地的自动播放规则掺进来。
-        mediaSession = MediaSession.Builder(this, AutoPlayNextPlayer(player))
+        mediaSession = MediaSession.Builder(this, AutoPlayNextPlayer(player) { restoring ->
+            isRestoringQueue = restoring
+        })
             .setSessionActivity(
                 PendingIntent.getActivity(
                     this,
@@ -1541,18 +1573,12 @@ class PlaybackService : MediaSessionService() {
         observeDesktopLyricPreference()
         observeAudioEffectMode()
         observeAudioEffectParams()
-        // 桌面歌词同步要同步读一次 DataStore（首次读要开文件），冷启动时压在 onCreate
-        // 主线程上会直接推后「服务可连接 + 播放器可播」的时间点。挪到后台错峰执行。
-        scope.launch {
-            delay(300)
-            runCatching { DesktopLyricManager.syncService(this@PlaybackService) }
-        }
+        observePlayWithOthers()
         // 服务刚起来：播放器刚 build 完、队列还没恢复时 currentMediaItem=null。
         // 这里做一次初始对齐：空帧会命中 commit 的空帧防护——磁盘上有歌就保留歌曲信息、
         // 只把 isPlaying/isLoading 清零（进程被杀后组件停在「播放中」，服务重启后先对齐到真实状态）。
         // 队列恢复 / 播放事件到达后由 widgetStateListener 推真实帧。
         scope.launch { WidgetUpdater.refresh(applicationContext, player) }
-        PlaybackTrace.mark(this, "svc ready")
     }
 
     override fun onDestroy() {
@@ -1654,13 +1680,13 @@ class PlaybackService : MediaSessionService() {
     private fun observeDesktopLyricPreference() {
         scope.launch {
             applicationContext.dataStore.data.debounce(300)
-                .map {
-                    (it[desktopLyricEnabledKey] ?: false) to (it[desktopLyricLockedKey] ?: false)
+                .map { DesktopLyricSettings.fromPreferences(it) }
+                .distinctUntilChanged { old, new ->
+                    old.enabled == new.enabled && old.style.locked == new.style.locked
                 }
-                .distinctUntilChanged()
-                .collect {
+                .collect { settings ->
                     updateCustomLayout()
-                    DesktopLyricManager.syncService(applicationContext)
+                    DesktopLyricManager.syncService(applicationContext, settings)
                 }
         }
     }
@@ -1700,6 +1726,34 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * 「与其他音频同时播放」即时生效：只改 ExoPlayer 的焦点处理，不重播当前歌。
+     *
+     * Media3 的 setAudioAttributes(attrs, handleAudioFocus=false) 会立刻把
+     * AudioFocusManager 的音频身份置空（已持焦点当场 abandon），之后既不再抢别人的焦点，
+     * 也不会因别人出声而暂停/duck。切回 true 则重新申请焦点。
+     *
+     * 与「蓝牙断开暂停」互不影响：becoming noisy 走的是系统广播，不经过焦点机制。
+     */
+    @Suppress("DEPRECATION")
+    @kotlin.OptIn(FlowPreview::class)
+    private fun observePlayWithOthers() {
+        scope.launch {
+            applicationContext.dataStore.data.debounce(300)
+                .map { it[playWithOthersKey] ?: true }
+                .distinctUntilChanged()
+                .collect { playWithOthers ->
+                    // scope 是 Dispatchers.Main，满足 ExoPlayer 的应用线程要求。
+                    runCatching {
+                        exoPlayer.setAudioAttributes(
+                            playbackAudioAttributes,
+                            /* handleAudioFocus = */ !playWithOthers
+                        )
+                    }
+                }
+        }
+    }
+
     private inner class MediaSessionCallback : MediaSession.Callback {
 
         /**
@@ -1712,7 +1766,6 @@ class PlaybackService : MediaSessionService() {
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-            PlaybackTrace.mark(this@PlaybackService, "resume start")
             return Futures.transformAsync(
                 queueStore.readAsync(),
                 object : AsyncFunction<PlaybackQueueStore.SavedQueue?, MediaSession.MediaItemsWithStartPosition> {
@@ -1720,15 +1773,10 @@ class PlaybackService : MediaSessionService() {
                         input: PlaybackQueueStore.SavedQueue?
                     ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
                         if (input == null) {
-                            PlaybackTrace.mark(this@PlaybackService, "resume fail: no queue")
                             return Futures.immediateFailedFuture(
                                 IllegalStateException("没有可恢复的播放队列")
                             )
                         }
-                        PlaybackTrace.mark(
-                            this@PlaybackService,
-                            "resume items=${input.mediaItems.size} pos=${input.positionMs}"
-                        )
                         return Futures.immediateFuture(
                             MediaSession.MediaItemsWithStartPosition(
                                 input.mediaItems,
@@ -1837,7 +1885,51 @@ class PlaybackService : MediaSessionService() {
  * 队列末尾（未开循环）没有可切项，保持原状，避免把「没切动」变成「重播当前曲」。
  */
 @OptIn(UnstableApi::class)
-private class AutoPlayNextPlayer(player: Player) : ForwardingPlayer(player) {
+private class AutoPlayNextPlayer(
+    player: Player,
+    private val onQueueRestore: (Boolean) -> Unit,
+) : ForwardingPlayer(player) {
+
+    override fun setMediaItems(mediaItems: List<MediaItem>) {
+        setQueue(mediaItems) { super.setMediaItems(it) }
+    }
+
+    override fun setMediaItems(mediaItems: List<MediaItem>, resetPosition: Boolean) {
+        setQueue(mediaItems) { super.setMediaItems(it, resetPosition) }
+    }
+
+    override fun setMediaItems(
+        mediaItems: List<MediaItem>,
+        startIndex: Int,
+        startPositionMs: Long,
+    ) {
+        setQueue(mediaItems) { super.setMediaItems(it, startIndex, startPositionMs) }
+    }
+
+    private fun setQueue(mediaItems: List<MediaItem>, applyQueue: (List<MediaItem>) -> Unit) {
+        val first = mediaItems.firstOrNull()
+        val restoring = first?.mediaMetadata?.extras?.getBoolean(RESTORED_QUEUE_EXTRA, false) == true
+        val items = if (restoring && first != null) {
+            // 标记只用于这次恢复，不能混入后续队列快照或再次设置的队列。
+            val extras = Bundle(first.mediaMetadata.extras ?: Bundle()).apply {
+                remove(RESTORED_QUEUE_EXTRA)
+            }
+            mediaItems.toMutableList().apply {
+                this[0] = first.buildUpon()
+                    .setMediaMetadata(first.mediaMetadata.buildUpon().setExtras(extras).build())
+                    .build()
+            }
+        } else {
+            mediaItems
+        }
+        onQueueRestore(restoring)
+        try {
+            applyQueue(items)
+        } catch (error: Throwable) {
+            onQueueRestore(false)
+            throw error
+        }
+    }
 
     override fun seekToNext() {
         if (!playWhenReady && hasNextMediaItem()) play()

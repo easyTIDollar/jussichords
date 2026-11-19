@@ -1,9 +1,6 @@
 package com.jussicodes.music.lx
 
 import android.content.Context
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.utils.json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -11,7 +8,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -28,11 +24,13 @@ data class LxPluginItem(
     val sources: List<String> = emptyList(),
     val rawScript: String,
     val isEnabled: Boolean = true,
-    val wyQualities: List<String> = emptyList()
+    val wyQualities: List<String> = emptyList(),
+    // 内置资产的已安装摘要；旧条目为空，首次升级补齐后直接按摘要跳过正文读取。
+    val builtinScriptSha256: String = ""
 )
 
 /**
- * 脚本列表的唯一持久化来源（DataStore 一个 JSON 数组键，脚本正文一并存在这里）。
+ * 脚本列表的唯一持久化来源（独立 LX DataStore 的 JSON 数组键，脚本正文一并存在这里）。
  *
  * 两条硬规矩，缺一条就会「重启后刚导入的脚本没了」：
  * 1. 首次读盘完成之前，内存镜像 [latest] 是空列表，绝不能用它当基线去写盘
@@ -44,10 +42,10 @@ data class LxPluginItem(
  */
 object LxPluginStore {
 
-    private val KEY = stringPreferencesKey("lxPlugins")
+    private val KEY = LxPreferences.pluginsKey
 
     /** 内置脚本的种子状态：用户删过哪些、做过哪些一次性迁移（避免重启后又冒出来）。 */
-    private val SEED_KEY = stringPreferencesKey("lxSeedState")
+    private val SEED_KEY = LxPreferences.seedKey
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _latest = MutableStateFlow<List<LxPluginItem>>(emptyList())
@@ -80,12 +78,17 @@ object LxPluginStore {
     suspend fun update(transform: (List<LxPluginItem>) -> List<LxPluginItem>): List<LxPluginItem> =
         writeLock.withLock {
             val current = ensureLoaded()
+            // 读盘失败时不拿空列表当基线覆盖用户脚本，后续访问仍可重试。
+            if (!loaded) return@withLock current
             val next = transform(current)
             if (next != current) {
                 val ctx = appContext
                 if (ctx != null) {
                     // 先落盘再更新镜像：写失败时内存态不会和磁盘分叉（本次会话仍可用）。
-                    runCatching { ctx.dataStore.edit { it[KEY] = json.encodeToString(next) } }
+                    val saved = runCatching {
+                        LxPreferences.write(ctx, KEY, json.encodeToString(next))
+                    }.isSuccess
+                    if (!saved) return@withLock current
                 }
                 _latest.value = next
             }
@@ -103,14 +106,11 @@ object LxPluginStore {
         loadLock.withLock {
             if (!loaded) {
                 val ctx = appContext
-                val items = if (ctx == null) {
-                    emptyList()
-                } else {
-                    runCatching {
-                        val raw = ctx.dataStore.data.first()[KEY]
-                        if (raw == null) emptyList() else json.decodeFromString<List<LxPluginItem>>(raw)
-                    }.getOrDefault(emptyList())
-                }
+                if (ctx == null) return@withLock
+                val items = runCatching {
+                    val raw = LxPreferences.read(ctx, KEY)
+                    if (raw == null) emptyList() else json.decodeFromString<List<LxPluginItem>>(raw)
+                }.getOrNull() ?: return@withLock
                 _latest.value = items
                 loaded = true
             }
@@ -135,7 +135,7 @@ object LxPluginStore {
     suspend fun seedState(): SeedState {
         val ctx = appContext ?: return SeedState()
         return runCatching {
-            val raw = ctx.dataStore.data.first()[SEED_KEY]
+            val raw = LxPreferences.read(ctx, SEED_KEY)
             if (raw.isNullOrBlank()) SeedState() else json.decodeFromString<SeedState>(raw)
         }.getOrDefault(SeedState())
     }
@@ -143,10 +143,14 @@ object LxPluginStore {
     suspend fun updateSeedState(transform: (SeedState) -> SeedState) {
         writeLock.withLock {
             val ctx = appContext ?: return@withLock
-            val current = seedState()
-            val next = transform(current)
-            if (next != current) {
-                runCatching { ctx.dataStore.edit { it[SEED_KEY] = json.encodeToString(next) } }
+            runCatching {
+                // 更新时必须成功读取，不能把读取失败的默认状态覆盖回磁盘。
+                val raw = LxPreferences.read(ctx, SEED_KEY)
+                val current = if (raw.isNullOrBlank()) SeedState() else json.decodeFromString<SeedState>(raw)
+                val next = transform(current)
+                if (next != current) {
+                    LxPreferences.write(ctx, SEED_KEY, json.encodeToString(next))
+                }
             }
         }
     }

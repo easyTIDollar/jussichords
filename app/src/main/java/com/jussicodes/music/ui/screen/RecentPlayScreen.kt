@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,13 +39,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.ListThumbnailSize
-import com.jussicodes.music.constants.ThumbnailCornerRadius
 import com.jussicodes.music.extensions.playMediaAtId
 import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.components.ListItem
@@ -200,12 +200,14 @@ private fun songsPage(
                         isPlaying = isPlaying,
                         isActive = currentMediaId == entry.data.id,
                         modifier = Modifier.clickable {
-                            mediaController?.setPlaylist(
-                                list.map { it.data },
-                                sourceName = "最近播放",
-                                sourceType = MediaSessionConstants.SOURCE_TYPE_RECENT
-                            )
-                            mediaController?.playMediaAtId(entry.data.id)
+                            PlayerController.withController { mediaController ->
+                                mediaController.setPlaylist(
+                                    list.map { it.data },
+                                    sourceName = "最近播放",
+                                    sourceType = MediaSessionConstants.SOURCE_TYPE_RECENT
+                                )
+                                mediaController.playMediaAtId(entry.data.id)
+                            }
                         },
                         trailingContent = {
                             Text(
@@ -253,7 +255,7 @@ private fun playlistsPage(
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                    .clip(SharedArtworkShape)
                                     .size(ListThumbnailSize)
                             )
                         },
@@ -304,7 +306,7 @@ private fun albumsPage(
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                    .clip(SharedArtworkShape)
                                     .size(ListThumbnailSize)
                             )
                         },

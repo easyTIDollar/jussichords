@@ -26,7 +26,6 @@ import com.jussicodes.music.constants.userIdKye
 import com.jussicodes.music.extensions.toMediaItemList
 import com.jussicodes.music.playback.PlaybackQueueStore
 import com.jussicodes.music.playback.PlaybackService
-import com.jussicodes.music.playback.PlaybackTrace
 import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
 import com.jussicodes.music.utils.FavoriteSongIdsUtil
 import com.jussicodes.music.utils.dataStore
@@ -86,7 +85,6 @@ object WidgetMedia {
         var deferredRelease = false
         return try {
             val controller = withContext(Dispatchers.IO) { future.get(timeoutSec, TimeUnit.SECONDS) }
-            PlaybackTrace.mark(app, "ctrl ready")
             // 队列为空＝这次点击会走 MediaSession.Callback.onPlaybackResumption。
             // media3 的恢复是**异步**的：回调返回后才 setMediaItems + prepare + play。
             // 我们如果在 play() 之后立刻 release，服务就出现「没有 controller、也还没开始播」
@@ -107,10 +105,7 @@ object WidgetMedia {
                 }
             }
         } catch (t: Throwable) {
-            // 连接超时 / 会话不可用：调用方拿到 null 走回滚，但这里必须留痕，
-            // 否则「点了没反应」查不到原因。
-            WidgetDebug.error("MediaController connect/act failed", t)
-            WidgetDebug.event(app, "ctrl FAIL ${t.javaClass.simpleName}: ${t.message?.take(80)}")
+            // 连接超时 / 会话不可用：调用方拿到 null 走回滚。
             null
         } finally {
             // 延迟释放的路径不能再 releaseFuture：那会立刻把控制器拆掉，恢复又被掐断。
@@ -128,14 +123,12 @@ object WidgetMedia {
 class WidgetPlayPauseAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val app = context.applicationContext
-        PlaybackTrace.click(app)
         // 起播等待期内的重复点击不要再翻成暂停：第一下已经表达了「我要播」，
         // 1.2s 内再点是「怎么还不出声」，不是「取消」。
         // 以前这一下会把自己暂停掉 —— 诊断日志里就是「点三次只响一次」。
         val now = SystemClock.elapsedRealtime()
         val prev = lastClickAt.getAndSet(now)
         if (prev != 0L && now - prev < DOUBLE_CLICK_GUARD_MS && WidgetUpdater.current(app).isPlaying) {
-            WidgetDebug.event(app, "action play/pause ignored (repeat ${now - prev}ms)")
             return
         }
         // 乐观翻转：点按钮立刻重绘图标，后台真实事件到达后再对齐一次。
@@ -145,7 +138,6 @@ class WidgetPlayPauseAction : ActionCallback {
         // 提交过帧，sinceVersion 会记成新版本，300ms 兜底就仍有覆盖真实态的机会。
         val beforeVersion = WidgetUpdater.currentVersion()
         val nextPlayingState = WidgetUpdater.optimisticPlayPause(app)
-        WidgetDebug.event(app, "action play/pause optimistic=$nextPlayingState")
         val acted = WidgetMedia.withController(app) { controller ->
             // App 进程被系统回收过：会话里没有队列。磁盘上存着上次的队列就让它走
             // MediaSession.Callback.onPlaybackResumption 直接续播，不用把用户拽进 App。
@@ -165,7 +157,6 @@ class WidgetPlayPauseAction : ActionCallback {
         if (!acted) {
             // 没会话/连不上：把乐观帧翻回去，别让图标停在错误状态，然后打开 App。
             WidgetUpdater.pushPlayingFrame(app, !nextPlayingState)
-            WidgetDebug.event(app, "action play/pause 失败 -> openApp")
             WidgetMedia.openApp(app, openPlayer = false)
             return
         }
@@ -200,7 +191,6 @@ class WidgetNextAction : ActionCallback {
             controller.play()
             true
         } ?: false
-        WidgetDebug.event(app, "action next acted=$acted")
         if (!acted) {
             WidgetMedia.openApp(app, openPlayer = false)
             return
@@ -227,7 +217,6 @@ class WidgetPrevAction : ActionCallback {
             controller.play()
             true
         } ?: false
-        WidgetDebug.event(app, "action prev acted=$acted")
         if (!acted) {
             WidgetMedia.openApp(app, openPlayer = false)
             return
@@ -348,7 +337,6 @@ class WidgetSeekAction : ActionCallback {
             controller.seekTo((duration * fraction).toLong().coerceIn(0L, duration))
             true
         } ?: false
-        WidgetDebug.event(app, "action seek f=$fraction acted=$acted")
         if (!acted) {
             WidgetMedia.openApp(app, openPlayer = true)
             return

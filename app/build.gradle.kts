@@ -31,6 +31,8 @@ android {
         applicationId = "com.jussicodes.music"
         minSdk = 26
         targetSdk = 34
+        // canary 线独立发版：版本号必须高于公开仓库已发布的正式版（2.5.4 / 54），
+        // 否则 App 内显示的版本号看起来比正式版还旧（Issue #3 报告者就是拿它对比的）。
         versionCode = 55
         versionName = "2.5.5"
 
@@ -71,8 +73,12 @@ android {
             applicationIdSuffix = ".canary"
             // CI 通过 -PCANARY_VERSION_SUFFIX=-canary.<UTC 月日-时分秒> 注入唯一后缀（见 build.yml），默认 -canary
             versionNameSuffix = (findProperty("CANARY_VERSION_SUFFIX") as? String) ?: "-canary"
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // canary 与正式版同样开启 R8 和资源压缩，避免未优化包自身造成掉帧或启动差异。
+            // 需要快速迭代时显式传 -PcanaryMinify=false 关闭；isShrinkResources 必须同步，
+            // AGP 8.5 下单独开启资源压缩会直接报错。
+            val canaryMinify = (findProperty("canaryMinify") as? String)?.toBoolean() ?: true
+            isMinifyEnabled = canaryMinify
+            isShrinkResources = canaryMinify
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -155,6 +161,8 @@ protobuf {
 dependencies {
 
     implementation(libs.androidx.core.ktx)
+    // 应用 baseline-prof.txt：安装时把启动关键类预编译成 AOT，缩短更新后首启的解释执行窗口
+    implementation(libs.androidx.profileinstaller)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
@@ -165,6 +173,8 @@ dependencies {
     implementation(libs.androidx.material.icons.core)
     // 官方服务器样式图标 Icons.Outlined.Dns（core 里没有 Dns/Lan/Storage，只有 core 的 ~60 个）
     implementation(libs.androidx.material.icons.extended)
+    // 扫码登录：本地生成网易云 qrcode 登录码（纯 java，无 Android 依赖）
+    implementation("com.google.zxing:core:3.5.3")
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation(libs.androidx.navigation.compose)
     implementation(libs.datastore)
@@ -176,6 +186,9 @@ dependencies {
     implementation(libs.media3.session)
     // 桌面小组件：Glance（minSdk 26 可用；1.1.1 与 compileSdk 34 匹配）
     implementation(libs.androidx.glance.appwidget)
+    // Glance 是 implementation 依赖，不暴露 WorkManager 和 EmojiCompat 的编译期 classpath，需显式声明。
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.emoji2)
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.navigation.compose)
     ksp(libs.hilt.compiler)

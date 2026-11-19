@@ -3,10 +3,16 @@ package com.jussicodes.music.animation
 import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+
+/** 全站封面（列表卡片、探索页歌曲/歌单封面、详情头图、飞入飞出叠层）统一圆角，改动一处全局生效。 */
+val SharedArtworkCornerRadius = 16.dp
+val SharedArtworkShape = RoundedCornerShape(SharedArtworkCornerRadius)
 
 /**
  * 共享封面的统一身份与 bounds 配置。

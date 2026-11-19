@@ -70,12 +70,15 @@ class LxPluginEngine(private val context: Context) {
     private val createLocks = ConcurrentHashMap<String, Mutex>()
 
     // 沙盒出网用的独立客户端：不能带 NCM cookie / 加密 / 代理 base url（同 LocalSourceFetcher 原则）。
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .callTimeout(20, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .build()
+    // 唯一读取点位于 handleHttpRequest 的 IO 协程，首次实际出网时才创建。
+    private val httpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(20, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
+    }
 
     data class VerifyResult(
         val sources: List<String> = emptyList(),

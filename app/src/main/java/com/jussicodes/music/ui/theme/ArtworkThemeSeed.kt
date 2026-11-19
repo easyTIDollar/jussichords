@@ -18,8 +18,8 @@ import kotlinx.coroutines.withContext
 internal fun rememberArtworkSeed(artwork: Any?): Color? {
     val context = LocalContext.current.applicationContext
     return produceState<Color?>(
-        // 首帧直接用上次算好的种子色：冷启动恢复到上次播放的封面时，
-        // 界面一出来就是最终配色，不会先默认色再整屏跳一次。
+        // 异步预读尚未命中时返回 null：主题首帧回退到系统壁纸色，
+        // 不支持动态色的系统使用固定种子色 #FF6650A4。
         initialValue = ArtworkSeedCache.get(artwork),
         artwork,
         context,

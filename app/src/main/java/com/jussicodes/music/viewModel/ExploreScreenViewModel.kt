@@ -8,16 +8,17 @@ import com.rcmiku.ncmapi.model.DailySongsResponse
 import com.rcmiku.ncmapi.model.RecommendPlaylistResponse
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
- * Explore screen state is backed by [ExplorePreloader], which preloads the
- * same content at app startup so the explore page opens instantly.
- * [refresh] re-runs the preloader to fetch fresh data on demand.
+ * 探索页复用 [ExplorePreloader] 的磁盘缓存，打开页面后按需获取新数据。
+ * [refresh] 用于手动刷新。
  */
 @HiltViewModel
 class ExploreScreenViewModel @Inject constructor(
@@ -34,10 +35,8 @@ class ExploreScreenViewModel @Inject constructor(
         get() = ExplorePreloader.recommendPlaylist
 
     init {
-        // Make sure the shared preloader actually ran for this process
-        // (covers e.g. the process being created without the Application
-        // scope observing the cookie flow yet).
-        viewModelScope.launch {
+        // 页面首次按需组合时才预取，解析与列表处理不占用主线程。
+        viewModelScope.launch(Dispatchers.Default) {
             ExplorePreloader.warmUp(context)
         }
     }
@@ -46,7 +45,9 @@ class ExploreScreenViewModel @Inject constructor(
         if (_refreshing.value) return
         viewModelScope.launch {
             _refreshing.value = true
-            ExplorePreloader.warmUp(context, force = true)
+            withContext(Dispatchers.Default) {
+                ExplorePreloader.warmUp(context, force = true)
+            }
             _refreshing.value = false
         }
     }

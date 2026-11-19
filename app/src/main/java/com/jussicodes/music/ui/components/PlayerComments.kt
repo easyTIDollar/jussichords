@@ -85,6 +85,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaMetadata
 import coil3.compose.AsyncImage
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.ui.icons.ChevronDown
 import com.jussicodes.music.ui.icons.Delete
@@ -147,7 +148,9 @@ fun PlayerCommentsContent(
     var pageNo by remember(resolvedMediaId, selectedSort.type) { mutableIntStateOf(1) }
     var cursor by remember(resolvedMediaId, selectedSort.type) { mutableStateOf("") }
     var hasMore by remember(resolvedMediaId, selectedSort.type) { mutableStateOf(false) }
-    var isLoading by remember(resolvedMediaId) { mutableStateOf(false) }
+    var isLoading by remember(resolvedMediaId, selectedSort.type) {
+        mutableStateOf(resolvedMediaId != null)
+    }
     var isLoadingMore by remember(resolvedMediaId, selectedSort.type) { mutableStateOf(false) }
     var errorMessage by remember(resolvedMediaId) { mutableStateOf<String?>(null) }
 
@@ -308,7 +311,7 @@ fun PlayerCommentsContent(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(MaterialTheme.shapes.small)
+                    .clip(SharedArtworkShape)
             )
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -377,11 +380,31 @@ fun PlayerCommentsContent(
         Column(modifier = Modifier.weight(1f)) {
             when {
                 isLoading -> {
-                    Box(
+                    LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
+                        state = rememberLazyListState(),
+                        userScrollEnabled = false,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        contentPadding = WindowInsets.navigationBars.asPaddingValues()
                     ) {
-                        CircularProgressIndicator()
+                        items(count = 8, key = { "comment-skeleton-$it" }) {
+                            SkeletonListItem(
+                                hasArtwork = true,
+                                lines = 4,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                artworkSize = 36.dp,
+                                circleArtwork = true,
+                                artworkInset = 0.dp,
+                                artworkTextSpacing = 10.dp,
+                                horizontalPadding = 0.dp,
+                                textHorizontalPadding = 0.dp,
+                                rowMinHeight = 95.dp,
+                                lineSpacings = listOf(4.dp, 2.dp, 4.dp),
+                                lineHeights = listOf(16.dp, 21.dp, 21.dp, 26.dp),
+                                lineWidths = listOf(0.48f, 0.92f, 0.76f, 0.34f),
+                                verticalAlignment = Alignment.Top
+                            )
+                        }
                     }
                 }
 

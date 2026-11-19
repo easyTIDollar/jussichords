@@ -35,7 +35,6 @@ import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Wifi
-import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Tune
 import android.content.Intent
 import androidx.documentfile.provider.DocumentFile
@@ -45,8 +44,12 @@ import com.jussicodes.music.constants.downloadCustomDirUriKey
 import com.jussicodes.music.constants.downloadLrcKey
 import com.jussicodes.music.constants.downloadQualityKey
 import com.jussicodes.music.constants.downloadWifiOnlyKey
+import com.jussicodes.music.data.AccountAddFlow
+import com.jussicodes.music.data.AccountStore
+import com.jussicodes.music.data.SavedAccount
 import com.jussicodes.music.data.download.DownloadStatus
 import com.jussicodes.music.data.download.DownloadStore
+import com.jussicodes.music.ui.components.AccountSwitcherSheet
 import com.jussicodes.music.ui.components.DownloadQualityDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -83,12 +86,14 @@ import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.toCoverImageUrl
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.jussicodes.music.BuildConfig
 import com.jussicodes.music.LocalUiScaleController
@@ -97,6 +102,7 @@ import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.constants.apiBaseUrlKey
 import com.jussicodes.music.constants.apiServerListKey
 import com.jussicodes.music.constants.audioQualityKey
+import com.jussicodes.music.constants.playWithOthersKey
 import com.jussicodes.music.constants.cacheAutoCleanEnabledKey
 import com.jussicodes.music.constants.cacheAutoCleanThresholdKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
@@ -136,13 +142,12 @@ import com.jussicodes.music.ui.icons.DesktopLyrics
 import androidx.compose.material.icons.outlined.Dns
 import com.jussicodes.music.ui.icons.Gesture
 import com.jussicodes.music.ui.icons.Github
-import com.jussicodes.music.ui.icons.Login
-import com.jussicodes.music.ui.icons.Logout
+import com.jussicodes.music.ui.icons.ChevronDown
+import com.jussicodes.music.ui.icons.Plus
 import com.jussicodes.music.ui.icons.MusicNote
 import com.jussicodes.music.ui.icons.Palette
 import com.jussicodes.music.ui.icons.Remove
 import com.jussicodes.music.ui.icons.Script
-import com.jussicodes.music.ui.icons.SettingsGear
 import com.jussicodes.music.ui.icons.UserRound
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.theme.ThemeColorSource
@@ -171,11 +176,12 @@ import com.jussicodes.music.ui.components.cacheSubtitle
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.utils.json
 import com.rcmiku.ncmapi.utils.parseCookieString
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.serialization.decodeFromString
 import kotlinx.coroutines.launch
 import java.io.File
 import com.jussicodes.music.ui.components.ResponsiveAlertDialog
-import com.jussicodes.music.widget.WidgetDiagDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -192,6 +198,8 @@ fun SettingsScreen(
     var desktopLyricFontSize by rememberPreference(desktopLyricFontSizeKey, DesktopLyricDefaultFontSizeSp)
     var desktopLyricLocked by rememberPreference(desktopLyricLockedKey, false)
     var audioQuality by rememberEnumPreference(audioQualityKey, defaultValue = SongLevel.STANDARD)
+    // 与其他音频同时播放（默认开）：不申请音频焦点，可与其它应用同时出声。
+    var playWithOthers by rememberPreference(playWithOthersKey, true)
     var themeColorSource by rememberEnumPreference(
         themeColorSourceKey,
         defaultValue = ThemeColorSource.WALLPAPER,
@@ -387,7 +395,6 @@ fun SettingsScreen(
     var showCookieDialog by remember { mutableStateOf(false) }
     var showGithubSourceDialog by remember { mutableStateOf(false) }
     var showApiServerDialog by remember { mutableStateOf(false) }
-    var showWidgetDiag by remember { mutableStateOf(false) }
     var apiServerStatuses by remember { mutableStateOf<List<ApiServerStatus>>(emptyList()) }
     var apiServerListJson by rememberPreference(
         apiServerListKey,
@@ -403,6 +410,12 @@ fun SettingsScreen(
     var updateDownloadProgress by remember { mutableFloatStateOf(0f) }
     var updateDownloadText by remember { mutableStateOf<String?>(null) }
     var logout by rememberSaveable { mutableStateOf(false) }
+    var showAccountSheet by rememberSaveable { mutableStateOf(false) }
+    var accountToRemove by remember { mutableStateOf<SavedAccount?>(null) }
+    val accounts by remember(context) { AccountStore.accounts(context) }
+        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val activeAccount by remember(context) { AccountStore.activeAccount(context) }
+        .collectAsStateWithLifecycle(initialValue = null)
     var overlayPermissionGranted by remember {
         mutableStateOf(DesktopLyricManager.canDrawOverlays(context))
     }
@@ -424,16 +437,29 @@ fun SettingsScreen(
         }
     }
 
-    // 退出登录行：副标题=昵称，图标=当前账号头像
+    // 当前账号资料加载完成后，补齐旧版本只保存 Cookie 的账号记录。
     LaunchedEffect(ncmCookie) {
-        if (ncmCookie.isEmpty()) {
-            accountNickname = ""
-            accountAvatar = ""
-            return@LaunchedEffect
-        }
+        accountNickname = ""
+        accountAvatar = ""
+        if (ncmCookie.isBlank()) return@LaunchedEffect
         val profile = AccountApi.account().getOrNull()?.account?.profile
         accountNickname = profile?.nickname.orEmpty()
         accountAvatar = profile?.avatarUrl.orEmpty()
+        val cookieMap = runCatching {
+            json.decodeFromString<Map<String, String>>(ncmCookie)
+        }.getOrNull()
+        if (profile != null && profile.userId != 0L && cookieMap != null) {
+            try {
+                AccountStore.ensureMigrated(
+                    context, cookieMap, profile.userId, profile.nickname.orEmpty(),
+                    profile.avatarUrl.orEmpty(),
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                Toast.makeText(context, "账号保存失败，请稍后重试", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -523,7 +549,7 @@ fun SettingsScreen(
     val appearanceWithScale = "$appearanceSubtitle · 界面 ${(uiScaleController.scale * 100).toInt()}% · 字体 ${(uiScaleController.fontScale * 100).toInt()}%"
     val accountCookie = remember(ncmCookie) { ncmCookie.toCookieHeader() }
     val accountCookieMap = remember(accountCookie) { parseCookieString(accountCookie) }
-    val loggedOut = ncmCookie.isEmpty()
+    val loggedOut = ncmCookie.isBlank()
     val httpWarning = if (apiBaseUrl.startsWith("http://")) {
         "未加密连接，建议使用 HTTPS"
     } else {
@@ -544,31 +570,69 @@ fun SettingsScreen(
                 onClick = { showCookieDialog = true }
             ),
             SettingItemData(
-                title = stringResource(if (loggedOut) R.string.login else R.string.logout),
-                imageVector = if (loggedOut) Login else Logout,
-                danger = !loggedOut,
-                subtitle = if (loggedOut) null else "当前账号：${accountNickname.ifEmpty { "点击退出" }}",
-                // 已登录时用头像当图标；未登录/取不到头像则退回 Logout 图标。
-                // 头像槽位跟其他行的图标块完全同款：36dp + 12dp 圆角（SettingRow 的
-                // 图标底块就是 36dp/RoundedCornerShape(12.dp)），弧度与占位都一致，
-                // 之前头像用 10.dp 圆角 → 和其他行摆一起明显不一样。
-                iconContent = if (!loggedOut && accountAvatar.isNotBlank()) {
-                    {
+                // 有账号记录时，无论当前是否登录都进抽屉：退出登录只是清掉当前凭证，
+                // 账号列表还在，用户要能从这里直接切回去。
+                title = when {
+                    !loggedOut -> accountNickname.ifBlank {
+                        activeAccount?.nickname.orEmpty().ifBlank { "多账号管理" }
+                    }
+                    accounts.isNotEmpty() -> "未登录"
+                    else -> "多账号管理"
+                },
+                imageVector = Plus,
+                subtitle = when {
+                    loggedOut && accounts.isEmpty() -> "未登录"
+                    loggedOut -> "共 ${accounts.size} 个账号 · 点击切换"
+                    else -> "当前使用 · 共 ${accounts.size} 个账号"
+                },
+                iconContent = {
+                    // 未登录但有账号时用第一条账号的头像，视觉上仍然是「账号分组」。
+                    val avatar = if (!loggedOut) {
+                        accountAvatar.ifBlank { activeAccount?.avatarUrl.orEmpty() }
+                    } else {
+                        accounts.firstOrNull()?.avatarUrl.orEmpty()
+                    }
+                    if (avatar.isNotBlank()) {
                         AsyncImage(
-                            model = accountAvatar.toCoverImageUrl(CoverImageSize.LIST),
+                            model = avatar.toCoverImageUrl(CoverImageSize.LIST),
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(RoundedCornerShape(12.dp))
                         )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Plus,
+                                contentDescription = "登录账号",
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                     }
-                } else null,
+                },
+                trailingContent = if (accounts.isEmpty()) null else {
+                    {
+                        Icon(
+                            imageVector = ChevronDown,
+                            contentDescription = "切换账号",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
                 onClick = {
-                    if (loggedOut) {
+                    if (accounts.isEmpty()) {
                         navController.navigate(Screen.Login.route)
                     } else {
-                        logout = true
+                        showAccountSheet = true
                     }
                 }
             )
@@ -659,6 +723,23 @@ fun SettingsScreen(
                 onClick = { showQualityDialog = true }
             ),
             SettingItemData(
+                title = "与其他音频同时播放",
+                subtitle = if (playWithOthers) {
+                    "不占用音频焦点，可与其它应用同时出声"
+                } else {
+                    "独占音频焦点，其它应用出声时会自动暂停"
+                },
+                imageVector = Icons.Outlined.Tune,
+                trailingContent = {
+                    Switch(
+                        checked = playWithOthers,
+                        onCheckedChange = { playWithOthers = it }
+                    )
+                    Spacer(Modifier.width(12.dp))
+                },
+                onClick = { playWithOthers = !playWithOthers }
+            ),
+            SettingItemData(
                 title = "缓存",
                 subtitle = cacheSubtitle,
                 imageVector = Icons.Outlined.Storage,
@@ -736,7 +817,8 @@ fun SettingsScreen(
 
     val aboutGroup = SettingGroupData(
         name = "关于",
-        items = listOf(
+        items = buildList {
+            addAll(listOf(
             SettingItemData(
                 title = "jussichords",
                 subtitle = "简洁的第三方网易云音乐客户端",
@@ -761,12 +843,6 @@ fun SettingsScreen(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            ),
-            SettingItemData(
-                title = "小组件诊断",
-                subtitle = "桌面组件不刷新 / 按钮没反应时，把这里的内容复制出来",
-                imageVector = Icons.Outlined.Description,
-                onClick = { showWidgetDiag = true }
             ),
             SettingItemData(
                 title = if (updating) "正在检查" else "检查更新",
@@ -803,7 +879,8 @@ fun SettingsScreen(
                     }
                 }
             )
-        )
+            ))
+        }
     )
 
     val groups = listOf(accountGroup, downloadGroup, uiGroup, playbackGroup, advancedGroup, aboutGroup)
@@ -960,6 +1037,64 @@ fun SettingsScreen(
         )
     }
 
+    if (showAccountSheet) {
+        AccountSwitcherSheet(
+            accounts = accounts,
+            activeUserId = activeAccount?.userId ?: Long.MIN_VALUE,
+            loggedIn = !loggedOut,
+            onDismiss = { showAccountSheet = false },
+            onSwitch = { account ->
+                coroutineScope.launch {
+                    try {
+                        AccountStore.setActive(context, account)
+                        showAccountSheet = false
+                        Toast.makeText(
+                            context, "已切换到 ${account.nickname.ifBlank { "未命名账号" }}",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        Toast.makeText(context, "切换账号失败，请稍后重试", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onRemove = { account ->
+                showAccountSheet = false
+                accountToRemove = account
+            },
+            onAddAccount = {
+                showAccountSheet = false
+                AccountAddFlow.addAccountMode = true
+                navController.navigate(Screen.Login.route)
+            },
+            onLogout = {
+                showAccountSheet = false
+                logout = true
+            },
+        )
+    }
+
+    accountToRemove?.let { account ->
+        Dialog(
+            onConfirmation = {
+                coroutineScope.launch {
+                    try {
+                        AccountStore.remove(context, account.userId)
+                        accountToRemove = null
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        Toast.makeText(context, "移除账号失败，请稍后重试", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onDismissRequest = { accountToRemove = null },
+            dialogTitle = "移除账号",
+            dialogText = "确定移除 ${account.nickname.ifBlank { "未命名账号" }}？移除后需重新登录。",
+        )
+    }
+
     if (logout) {
         Dialog(
             onConfirmation = {
@@ -969,8 +1104,8 @@ fun SettingsScreen(
             onDismissRequest = {
                 logout = false
             },
-            dialogTitle = stringResource(R.string.logout),
-            dialogText = "退出后将清除本地保存的登录信息",
+            dialogTitle = "切到游客模式",
+            dialogText = "只清除当前账号的登录态，账号列表会保留，可随时切回",
         )
     }
 
@@ -1034,10 +1169,6 @@ fun SettingsScreen(
                 }
             }
         )
-    }
-
-    if (showWidgetDiag) {
-        WidgetDiagDialog(onDismiss = { showWidgetDiag = false })
     }
 
     if (showGithubSourceDialog) {
@@ -1243,7 +1374,7 @@ private fun SettingRow(item: SettingItemData) {
 private fun GearButton(contentDescription: String, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Icon(
-        imageVector = SettingsGear,
+        painter = painterResource(R.drawable.ic_settings_gear),
         contentDescription = contentDescription,
         modifier = Modifier
             .size(18.dp)

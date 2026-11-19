@@ -2,7 +2,10 @@ package com.jussicodes.music
 
 import android.app.Application
 import androidx.datastore.preferences.core.edit
+import androidx.emoji2.text.DefaultEmojiCompatConfig
+import androidx.emoji2.text.EmojiCompat
 import androidx.media3.common.util.UnstableApi
+import androidx.work.Configuration
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -20,6 +23,7 @@ import com.jussicodes.music.constants.cacheAutoCleanThresholdKey
 import com.jussicodes.music.constants.directSourceKey
 import com.jussicodes.music.constants.fontScaleKey
 import com.jussicodes.music.constants.localSourceKey
+import com.jussicodes.music.constants.lastRunVersionNameKey
 import com.jussicodes.music.constants.uiScaleKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.resolveAllSongsKey
@@ -37,6 +41,7 @@ import com.jussicodes.music.utils.CacheManager
 import com.jussicodes.music.utils.UserAgentUtil
 import com.jussicodes.music.utils.apiServers
 import com.jussicodes.music.utils.dataStore
+import com.jussicodes.music.utils.preloadPreferences
 import com.rcmiku.ncmapi.api.API_BASE_URL
 import com.jussicodes.music.playback.PlaybackReloadBus
 import com.rcmiku.ncmapi.api.AudioSourceSettings
@@ -70,7 +75,7 @@ private data class AudioSync(
 )
 
 @HiltAndroidApp
-class JetMeloApp : Application(), SingletonImageLoader.Factory {
+class JetMeloApp : Application(), SingletonImageLoader.Factory, Configuration.Provider {
 
     companion object {
         lateinit var instance: JetMeloApp
@@ -79,6 +84,9 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
     }
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Glance 首次获取 WorkManager 时才读取配置，不在 Application 中提前创建调度器。
+    override fun getWorkManagerConfiguration(): Configuration = Configuration.Builder().build()
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
@@ -92,9 +100,13 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        applicationScope.launch {
+            DefaultEmojiCompatConfig.create(this@JetMeloApp)?.let { EmojiCompat.init(it) }
+        }
+        dataStore.preloadPreferences()
         // 封面请求尺寸按屏幕密度换算：所有 toCoverImageUrl 调用点默认读这里。
         com.jussicodes.music.utils.CoverDensity.init(this)
-        // 主题种子色缓存要在首帧前可用（同步读一张极小的 SharedPreferences 表）。
+        // 异步预读主题种子色；尚未就绪时首帧使用主题回退色。
         com.jussicodes.music.ui.theme.ArtworkSeedCache.preload(this)
         // 播放直链磁盘缓存：冷启动（桌面组件/蓝牙续播）直接命中上次解析结果，
         // 省掉起播前那次 /song/url 往返。这里只拿 prefs 引用，不读盘。
@@ -117,6 +129,10 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         NcmCookieStore.watch(this)
         HomeUserInfoStore.init(this)
         MsgSessionCache.init(this)
+        // 私人 FM 模式持久化：读 DataStore 恢复上次选的模式（默认/场景/AI DJ…）
+        com.jussicodes.music.ui.screen.PersonalFmQueueLoader.attach(this)
+        // 前台私信未读巡检：登录且在前台时每 60s 一次，喂消息页角标与列表预览
+        com.jussicodes.music.data.MsgUnreadMonitor.start(this)
         com.jussicodes.music.data.download.DownloadStore.init(this)
         com.jussicodes.music.data.external.ExternalPlaylistStore.init(this)
         UserAgentProvider.init(UserAgentUtil.DEFAULT_USER_AGENT)
@@ -132,20 +148,23 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
         com.rcmiku.ncmapi.api.PlayUrlTrace.sink = { songId, name, detail, tags ->
             com.jussicodes.music.playback.PlaybackPath.stepFor(songId, name, detail, tags)
         }
-        // 关键路径让路首屏：WebView 初始化在主线程耗时极高（数百毫秒），
-        // 启动延迟 4 秒等待首屏完全渲染并静止后，再后台预热沙盒；
-        // 若用户 4 秒内点播，LxPluginEngine 内部原本就有懒建机制兜底。
-        applicationScope.launch {
-            delay(4000)
-            com.jussicodes.music.lx.LxPluginManager.warmUp()
-        }
-        // 关键路径优化：单次读取 DataStore 根快照，顺序注入 Explore/PinnedAlbum/HomeUserInfo 各 Store，
-        // 彻底消除启动阶段多协程并发 .first() 产生的 DataStore 锁排队与 I/O 阻塞。
+        // LX 沙盒仅在解析请求中按需创建；播放路径会等待页面和脚本就绪。
+        // 首页必要快照先恢复并发布，再解码探索缓存和专辑墙。
         applicationScope.launch {
             val prefs = dataStore.data.first()
+            HomeUserInfoStore.applySnapshot(prefs)
             ExplorePreloader.loadCache(prefs)
             PinnedAlbumStore.loadCache(prefs)
-            HomeUserInfoStore.applySnapshot(prefs)
+            // 覆盖安装后的首启识别：versionName 变了就说明刚更新完（canary 每次构建 versionName 都不同）。
+            // 首次安装（没有记录）不算，正常查更新。
+            val currentVersion = BuildConfig.VERSION_NAME
+            val lastRunVersion = prefs[lastRunVersionNameKey]
+            if (lastRunVersion != null && lastRunVersion != currentVersion) {
+                com.jussicodes.music.utils.AppLaunchFlags.markJustUpdated()
+            }
+            if (lastRunVersion != currentVersion) {
+                dataStore.edit { it[lastRunVersionNameKey] = currentVersion }
+            }
             prefs[uiScaleKey]?.let { com.jussicodes.music.ui.components.ScaledDialogDensity.scale = it }
             prefs[fontScaleKey]?.let { com.jussicodes.music.ui.components.ScaledDialogDensity.fontScale = it }
 
@@ -202,11 +221,9 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory {
                     }
                     // 登录态一变就同步到桌面小组件：否则没播放过歌的用户加组件后会一直看到「未登录」。
                     com.jussicodes.music.widget.WidgetUpdater.syncLoginFlag(this@JetMeloApp)
-                    // 关键路径让路首屏：冷启动时首屏在「我的」页，
-                    // 探索页已有 loadCache() 磁盘缓存铺底，预热延迟 2.5 秒错峰，
-                    // 避免冷启动瞬间与首屏个人信息/歌单请求争夺网络与 CPU。
-                    delay(2500)
-                    ExplorePreloader.warmUp(this@JetMeloApp)
+                    if (ExplorePreloader.isRequested) {
+                        ExplorePreloader.warmUp(this@JetMeloApp)
+                    }
                 }
         }
         applicationScope.launch {

@@ -1,6 +1,17 @@
 package com.jussicodes.music.lyric
 
 import android.graphics.Color
+import android.os.Bundle
+import androidx.datastore.preferences.core.Preferences
+import com.jussicodes.music.constants.desktopLyricEnabledKey
+import com.jussicodes.music.constants.desktopLyricFontSizeKey
+import com.jussicodes.music.constants.desktopLyricLockedKey
+import com.jussicodes.music.constants.desktopLyricStrokeColorKey
+import com.jussicodes.music.constants.desktopLyricStrokeScaleKey
+import com.jussicodes.music.constants.desktopLyricTextColorKey
+import com.jussicodes.music.constants.desktopLyricXFractionKey
+import com.jussicodes.music.constants.desktopLyricYFractionKey
+import com.jussicodes.music.constants.lyricTranslationEnabledKey
 
 /** 桌面歌词字号默认值（sp）。 */
 const val DesktopLyricDefaultFontSizeSp = 18f
@@ -16,6 +27,56 @@ const val DesktopLyricMaxStrokeScale = 2f
 /** 未拖动过的默认位置：水平居中，垂直偏上。 */
 const val DesktopLyricDefaultXFraction = 0.5f
 const val DesktopLyricDefaultYFraction = 0.1f
+
+/** 一份 Preferences 生成完整恢复快照，通过 Intent 传给歌词服务。 */
+data class DesktopLyricSettings(
+    val enabled: Boolean,
+    val xFraction: Float,
+    val yFraction: Float,
+    val style: DesktopLyricStyle
+) {
+    fun toBundle(): Bundle = Bundle().apply {
+        putBoolean("enabled", enabled)
+        putFloat("x", xFraction)
+        putFloat("y", yFraction)
+        putFloat("fontSize", style.fontSizeSp)
+        putInt("textColor", style.textColor)
+        putInt("strokeColor", style.strokeColor)
+        putFloat("strokeScale", style.strokeScale)
+        putBoolean("locked", style.locked)
+        putBoolean("translation", style.translationEnabled)
+    }
+
+    companion object {
+        fun fromPreferences(prefs: Preferences): DesktopLyricSettings = DesktopLyricSettings(
+            enabled = prefs[desktopLyricEnabledKey] ?: false,
+            xFraction = prefs[desktopLyricXFractionKey] ?: DesktopLyricDefaultXFraction,
+            yFraction = prefs[desktopLyricYFractionKey] ?: DesktopLyricDefaultYFraction,
+            style = DesktopLyricStyle(
+                fontSizeSp = prefs[desktopLyricFontSizeKey] ?: DesktopLyricDefaultFontSizeSp,
+                textColor = prefs[desktopLyricTextColorKey] ?: Color.WHITE,
+                strokeColor = prefs[desktopLyricStrokeColorKey] ?: Color.BLACK,
+                strokeScale = prefs[desktopLyricStrokeScaleKey] ?: 1f,
+                locked = prefs[desktopLyricLockedKey] ?: false,
+                translationEnabled = prefs[lyricTranslationEnabledKey] ?: false
+            )
+        )
+
+        fun fromBundle(bundle: Bundle): DesktopLyricSettings = DesktopLyricSettings(
+            enabled = bundle.getBoolean("enabled"),
+            xFraction = bundle.getFloat("x", DesktopLyricDefaultXFraction),
+            yFraction = bundle.getFloat("y", DesktopLyricDefaultYFraction),
+            style = DesktopLyricStyle(
+                fontSizeSp = bundle.getFloat("fontSize", DesktopLyricDefaultFontSizeSp),
+                textColor = bundle.getInt("textColor", Color.WHITE),
+                strokeColor = bundle.getInt("strokeColor", Color.BLACK),
+                strokeScale = bundle.getFloat("strokeScale", 1f),
+                locked = bundle.getBoolean("locked"),
+                translationEnabled = bundle.getBoolean("translation")
+            )
+        )
+    }
+}
 
 /**
  * 桌面歌词外观设置。

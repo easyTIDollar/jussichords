@@ -2,6 +2,7 @@ package com.jussicodes.music.animation
 
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.PathEasing
@@ -38,6 +39,12 @@ object MotionDuration {
     /** 二级页返回恢复上一页淡入时长（200ms）。 */
     const val ScreenPopEnter: Int = 200
 
+    /** 返回首页时底栏滑入、小播放器上移复位，配合页面 popEnter 的 200ms 收尾。 */
+    const val NavChromeEnter: Int = 260
+
+    /** 进入二级页时底栏滑出、小播放器下移贴手势栏。 */
+    const val NavChromeExit: Int = 200
+
     /**
      * 播放面板状态切换（Mini ↔ Full ↔ Queue ↔ Lyric）的淡入时长。
      * 数值与旧 DURATION_EXIT 相同：旧代码把它当"进入延迟"用，这里按语义拆开，
@@ -47,6 +54,9 @@ object MotionDuration {
 
     /** 播放面板状态切换的淡出时长。 */
     const val PanelFadeOut: Int = 100
+
+    /** 小播放器冷启动或首次出现时的进入动画时长，配合 M3 Emphasized 曲线，起步柔和，收尾更长。 */
+    const val MiniPlayerEnter: Int = 380
 
     /**
      * 共享封面 bounds 变形时长（列表封面 → 详情封面、mini 封面 → 全屏封面共用）。
@@ -149,6 +159,12 @@ object MotionSpec {
     fun <T> screenExit(): FiniteAnimationSpec<T> =
         tween(durationMillis = MotionDuration.ScreenExit, easing = MotionEasing.accelerate)
 
+    fun pageFadeIn(): EnterTransition =
+        fadeIn(tween(MotionDuration.ScreenEnter, easing = MotionEasing.decelerate))
+
+    fun pageFadeOut(): ExitTransition =
+        fadeOut(tween(MotionDuration.ScreenExit, easing = MotionEasing.accelerate))
+
     /**
      * 播放面板淡入，可选延迟（等退场内容先淡出）。
      *
@@ -190,6 +206,22 @@ object MotionSpec {
      */
     fun indicatorShift(): FiniteAnimationSpec<Dp> =
         tween(durationMillis = MotionDuration.LayoutShift, easing = MotionEasing.standard)
+
+    /** 导航外壳进入时的统一时间线。 */
+    fun <T> navChromeEnter(): FiniteAnimationSpec<T> =
+        tween(durationMillis = MotionDuration.NavChromeEnter, easing = MotionEasing.decelerate)
+
+    /** 导航外壳退出时的统一时间线。 */
+    fun <T> navChromeExit(): FiniteAnimationSpec<T> =
+        tween(durationMillis = MotionDuration.NavChromeExit, easing = MotionEasing.accelerate)
+
+    /** Dp 专用版本，供 animateDpAsState 使用。 */
+    fun navChromeEnterDp(): AnimationSpec<Dp> =
+        tween(durationMillis = MotionDuration.NavChromeEnter, easing = MotionEasing.decelerate)
+
+    /** Dp 专用版本，供 animateDpAsState 使用。 */
+    fun navChromeExitDp(): AnimationSpec<Dp> =
+        tween(durationMillis = MotionDuration.NavChromeExit, easing = MotionEasing.accelerate)
 
     /** 方案 3：微呼吸纵向浮现进场（垂直微浮升 5% + 280ms 柔和淡入，零缩放零横向晃动）。 */
     fun spatialScreenEnter(): EnterTransition =

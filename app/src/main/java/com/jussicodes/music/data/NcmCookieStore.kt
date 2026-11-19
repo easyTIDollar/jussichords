@@ -34,7 +34,8 @@ object NcmCookieStore {
         val ds = context.applicationContext.dataStore
         watcherScope.launch {
             ds.data.collect { prefs ->
-                _cookie.value = prefs[ncmCookieKey]
+                // null 仅表示正在恢复；键不存在与空串统一表示确实未登录。
+                _cookie.value = prefs[ncmCookieKey].orEmpty()
             }
         }
     }

@@ -73,6 +73,7 @@ object ListenTogetherSession : Player.Listener {
     private var monitorJob: Job? = null
     private var playlistReportJob: Job? = null
     private var actionJob: Job? = null
+    private var refreshJob: Job? = null
 
     private var clientSeq = 0L
     /** 队列 REPLACE 的 version 计数，与命令 clientSeq 分开，避免两套序号交替递增。 */
@@ -106,17 +107,19 @@ object ListenTogetherSession : Player.Listener {
         appContext = context.applicationContext
         value.addListener(this)
         formerSongId = currentSongId() ?: 0L
-        // MeiloX 原样：attach 时无条件 refresh()（不按登录态 gating）。
+        // 自动恢复在 refresh 内检查登录态，未登录不发状态请求。
         refresh()
     }
 
     // MeiloX detachPlayer 原样：只摘该播放器监听 + 停监控；房间/序号/本地 uid 保留，
-    // 下次 attach 由 refresh() 重新对账。残留的 playlistReportJob 到期会因 player==null 直接 return。
+    // 下次 attach 由 refresh() 重新对账；自动状态查询随播放器解绑取消。
     fun detach(value: Player) {
         if (player !== value) return
         value.removeListener(this)
         player = null
         appContext = null
+        refreshJob?.cancel()
+        refreshJob = null
         monitorJob?.cancel()
         monitorJob = null
     }
@@ -126,7 +129,7 @@ object ListenTogetherSession : Player.Listener {
     // ------------------------------------------------------------------
 
     fun refresh() {
-        if (actionJob?.isActive == true) return
+        if (!CookieProvider.isLoggedIn() || actionJob?.isActive == true) return
         actionJob = scope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null)
             try {
@@ -148,6 +151,7 @@ object ListenTogetherSession : Player.Listener {
                 _state.value = _state.value.copy(isLoading = false, error = error.message)
             }
         }
+        refreshJob = actionJob
     }
 
     fun create() {

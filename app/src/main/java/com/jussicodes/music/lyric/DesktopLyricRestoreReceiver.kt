@@ -15,7 +15,8 @@ import android.content.Intent
 class DesktopLyricRestoreReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-            DesktopLyricManager.syncService(context)
+            val pendingResult = goAsync()
+            DesktopLyricManager.syncService(context).invokeOnCompletion { pendingResult.finish() }
         }
     }
 }

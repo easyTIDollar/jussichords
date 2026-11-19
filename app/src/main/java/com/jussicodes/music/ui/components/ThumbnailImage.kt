@@ -2,12 +2,12 @@ package com.jussicodes.music.ui.components
 
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -15,9 +15,9 @@ import androidx.compose.ui.platform.LocalDensity
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.constants.GridThumbnailHeight
 import com.jussicodes.music.constants.ListThumbnailSize
-import com.jussicodes.music.constants.ThumbnailCornerRadius
 import com.jussicodes.music.constants.detailCoverSize
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.coverMemoryKey
@@ -50,26 +50,34 @@ private fun coverModel(url: Any?, size: CoverImageSize): Any? {
 private fun coverPlaceholder() = ColorPainter(MaterialTheme.colorScheme.surfaceVariant)
 
 @Composable
-fun ListThumbnailImage(url: Any?, modifier: Modifier = Modifier) =
+fun ListThumbnailImage(
+    url: Any?,
+    modifier: Modifier = Modifier,
+    shape: Shape = SharedArtworkShape
+) =
     AsyncImage(
         model = coverModel(url, CoverImageSize.LIST),
         contentDescription = null,
         placeholder = coverPlaceholder(),
         contentScale = ContentScale.Crop,
         modifier = modifier
-            .clip(RoundedCornerShape(ThumbnailCornerRadius))
+            .clip(shape)
             .size(ListThumbnailSize)
     )
 
 @Composable
-fun GridThumbnailImage(url: Any?, modifier: Modifier = Modifier) =
+fun GridThumbnailImage(
+    url: Any?,
+    modifier: Modifier = Modifier,
+    shape: Shape = SharedArtworkShape
+) =
     AsyncImage(
         model = coverModel(url, CoverImageSize.GRID),
         contentDescription = null,
         placeholder = coverPlaceholder(),
         contentScale = ContentScale.Crop,
         modifier = modifier
-            .clip(RoundedCornerShape(ThumbnailCornerRadius))
+            .clip(shape)
             .size(GridThumbnailHeight)
     )
 
@@ -80,14 +88,18 @@ fun GridThumbnailImage(url: Any?, modifier: Modifier = Modifier) =
  * 否则固定 200dp 会把首屏的歌曲列表整个挤到看不见。
  */
 @Composable
-fun PlaylistThumbnailImage(url: Any?, modifier: Modifier = Modifier) =
+fun PlaylistThumbnailImage(
+    url: Any?,
+    modifier: Modifier = Modifier,
+    shape: Shape = SharedArtworkShape
+) =
     AsyncImage(
         model = coverModel(url, CoverImageSize.DETAIL),
         contentDescription = null,
         placeholder = coverPlaceholder(),
         contentScale = ContentScale.Crop,
         modifier = modifier
-            .clip(RoundedCornerShape(ThumbnailCornerRadius))
+            .clip(shape)
             .size(detailCoverSize())
     )
 

@@ -153,7 +153,6 @@ object WidgetUpdater {
         val now = SystemClock.elapsedRealtime()
         if (activeAt != 0L && now - activeAt < 10_000L) return activeValue
         val next = WidgetHub.hasAnyInstance(context)
-        if (next != activeValue) WidgetDebug.event(context, "active=$next")
         activeValue = next
         activeAt = now
         return next
@@ -171,7 +170,6 @@ object WidgetUpdater {
         val app = context.applicationContext
         // 桌面上没有组件实例就整条链路空转：采集、落盘、重绘都不做。
         if (!isActive(app)) {
-            WidgetDebug.log("refresh skipped: no widget instance")
             return
         }
         playerRef = WeakReference(player)
@@ -344,8 +342,6 @@ object WidgetUpdater {
             progressAt = SystemClock.elapsedRealtime(),
         )
     } catch (t: Throwable) {
-        // 读播放器失败（线程不对 / 播放器已释放）：留个痕迹，别静默吞。
-        WidgetDebug.log("capture failed: $t")
         null
     }
 
@@ -367,18 +363,11 @@ object WidgetUpdater {
             val target = version
             val snapshot = latest ?: break
             var ok = false
-            // commit 失败（DataStore 抖动、瞬时 Binder 失败）不能静默丢帧：记日志 + 有限次数退避重试，
+            // commit 失败（DataStore 抖动、瞬时 Binder 失败）不能静默丢帧：有限次数退避重试，
             // 重试期间不标记 committed。
             for (attempt in 0 until COMMIT_MAX_ATTEMPTS) {
                 runCatching { mutex.withLock { commit(context, snapshot) } }
                     .onSuccess { ok = true }
-                    .onFailure {
-                        WidgetDebug.error("widget commit failed (attempt $attempt)", it)
-                        WidgetDebug.event(
-                            context,
-                            "commit FAIL ${it.javaClass.simpleName}: ${it.message?.take(80)}"
-                        )
-                    }
                 if (ok) break
                 delay(200L shl attempt)
             }
@@ -447,11 +436,6 @@ object WidgetUpdater {
             tickProgress(context, next.isPlaying)
             return
         }
-        WidgetDebug.event(
-            context,
-            "commit playing=${next.isPlaying} song=${next.songId} title=${next.title.take(14)} " +
-                "dur=${next.durationMs} liked=${next.isLiked} loggedIn=$loggedIn"
-        )
         publish(context, next, redraw = true)
         tickProgress(context, next.isPlaying)
     }
@@ -601,10 +585,6 @@ object WidgetHub {
     private val FrameToken = intPreferencesKey("widget_frame_token")
     private val frameSeq = java.util.concurrent.atomic.AtomicInteger(0)
 
-    /** 上一次推送时记下的帧摘要：只在内容真的变了时写一条日志，避免每秒 tick 冲掉环形缓冲。 */
-    @Volatile
-    private var lastPushDigest: String = ""
-
     val widgets: List<GlanceAppWidget>
         get() = WidgetRegistry.all.map { it.first }
 
@@ -643,7 +623,6 @@ object WidgetHub {
         val rawIds = runCatching {
             manager.getAppWidgetIds(ComponentName(context, receiver))
         }.getOrElse {
-            WidgetDebug.log("getAppWidgetIds(${receiver.simpleName}) failed: ${it.message}")
             IntArray(0)
         }
         val glanceManager = GlanceAppWidgetManager(context)
@@ -657,12 +636,10 @@ object WidgetHub {
             val fallback: List<GlanceId> = runCatching { glanceManager.getGlanceIds(widgetClass) }
                 .getOrElse { emptyList() }
             if (fallback.isNotEmpty()) {
-                WidgetDebug.event(context, "fallback ${receiver.simpleName} ids=${fallback.size}")
                 glanceIds = fallback
             }
         }
         if (glanceIds.isEmpty()) {
-            WidgetDebug.event(context, "no ids ${receiver.simpleName} raw=${rawIds.size}")
             return
         }
         glanceIds.forEach { glanceId ->
@@ -678,20 +655,6 @@ object WidgetHub {
                     widget.update(context, glanceId)
                 }.onSuccess {
                     done = true
-                    val frame = WidgetUpdater.current(context)
-                    val digest = "${frame.songId}|${frame.isPlaying}|${frame.title.take(12)}"
-                    if (digest != lastPushDigest) {
-                        lastPushDigest = digest
-                        // 和各组件里的 "compose ..." 对读：有 push 没 compose = 没重组。
-                        WidgetDebug.event(context, "push ${receiver.simpleName} $digest")
-                    }
-                }.onFailure {
-                    // RemoteViews 超 Binder 上限、合成异常都在这里；至少要在 logcat 里是 error 级别。
-                    WidgetDebug.error("update ${receiver.simpleName} failed (attempt $attempt)", it)
-                    WidgetDebug.event(
-                        context,
-                        "upd ${receiver.simpleName} FAIL ${it.javaClass.simpleName}: ${it.message?.take(80)}"
-                    )
                 }
                 if (done) break
                 delay(250L * (attempt + 1))

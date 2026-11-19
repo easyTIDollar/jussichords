@@ -2,6 +2,7 @@ package com.jussicodes.music
 
 import android.os.Build
 import android.os.Bundle
+import android.view.ViewTreeObserver
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,7 +18,10 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.datastore.preferences.core.edit
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.withResumed
 import androidx.media3.common.util.UnstableApi
 import com.jussicodes.music.constants.ignoredUpdateVersionKey
 import com.jussicodes.music.constants.githubDownloadSourceKey
@@ -39,7 +43,7 @@ import com.jussicodes.music.ui.components.formatFileSize
 import com.jussicodes.music.ui.screen.MainScreen
 import com.jussicodes.music.ui.theme.JetMeloTheme
 import com.jussicodes.music.utils.AppUpdateManager
-import com.jussicodes.music.utils.SongListUtil
+import com.jussicodes.music.utils.AppLaunchFlags
 import com.jussicodes.music.utils.UpdateCheckCoordinator
 import com.jussicodes.music.utils.UpdateDownloadPhase
 import com.jussicodes.music.utils.UpdateDownloadService
@@ -50,15 +54,18 @@ import com.jussicodes.music.utils.normalizedSourceId
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.widget.WidgetUpdater
-import com.rcmiku.ncmapi.utils.FileProvider
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.android.awaitFrame
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import java.io.File
 
 @UnstableApi
@@ -67,6 +74,10 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var playerController: PlayerController
     private var playerState by mutableStateOf<PlayerState?>(null)
+    private var homeFullyDrawnReported = false
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,19 +87,14 @@ class MainActivity : ComponentActivity() {
         }
         playerController = PlayerController
         consumeWidgetIntent(intent)
-        // Android 13+ 通知权限：媒体通知是前台服务的可见凭证，权限被拒会显著提升
-        // 系统杀后台概率。仅在「用户还没永久拒绝」时弹一次系统授权框，之后不再骚扰。
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val granted = ContextCompat.checkSelfPermission(
-                this, Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!granted &&
-                !shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
-            ) {
-                registerForActivityResult(
-                    ActivityResultContracts.RequestPermission()
-                ) { }.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
+        // 在安装内容前登记绘制监听，避免错过首页首次绘制。
+        val firstDraw = lifecycleScope.async(start = CoroutineStart.UNDISPATCHED) {
+            awaitFirstDraw()
+        }
+        lifecycleScope.launch {
+            // 正常首帧后立即请求；绘制异常时最多等待 5 秒，且只在前台请求。
+            withTimeoutOrNull(5000) { firstDraw.await() }
+            lifecycle.withResumed { requestNotificationPermission() }
         }
         setContent {
             var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
@@ -114,19 +120,17 @@ class MainActivity : ComponentActivity() {
             }
 
             LaunchedEffect(Unit) {
-                awaitFrame()
-                FileProvider.init(cacheDir.resolve("ncm"))
-                SongListUtil.init(filesDir.resolve("playlist"))
+                // 启动任务共用一个顺序入口，避免更新检查与私信预热同时唤醒。
+                firstDraw.await()
+                // 首帧已绘制完成，立即连接播放服务，不再额外等 1 秒（小播放器要尽早出现）。
                 playerController.init(applicationContext)
+                delay(1000)
 
                 val ignoredVersion = withContext(Dispatchers.IO) {
                     dataStore.data.first()[ignoredUpdateVersionKey].orEmpty()
                 }
-                // 每次打开都检查更新（不看节流窗口）。
-                // 启动关键路径让路首屏：延迟 2000ms 等主界面首帧与各列表完全渲染落定、首波交互平稳，
-                // 再启动后台更新检查与私信缓存预热，消除冷启动争抢 CPU 导致的初次操作顿挫。
-                lifecycleScope.launch {
-                    delay(2000)
+                // 每次打开都检查更新；保留覆盖安装后首次启动的跳过规则。
+                if (!AppLaunchFlags.justUpdated) {
                     UpdateCheckCoordinator.cachedUpdate(applicationContext)?.let { info ->
                         if (info.versionName != ignoredVersion) {
                             pendingUpdateInfo = info
@@ -139,10 +143,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // 私信会话缓存预热：同样错峰 2000ms，之后分享菜单/消息页直接读缓存
-                lifecycleScope.launch {
-                    delay(2000)
-                    MsgSessionCache.ensureLoaded(lifecycleScope)
+                // 更新检查完成后再预热；退到后台取消，回到前台时允许重试。
+                lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    MsgSessionCache.ensureLoaded(this)?.join()
                 }
             }
 
@@ -302,10 +305,60 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                this, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted &&
+                !shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
+            ) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    /** 首页状态已进入组合后，再等待一次实际绘制才报告完全显示。 */
+    fun reportHomeFullyDrawn() {
+        if (homeFullyDrawnReported) return
+        homeFullyDrawnReported = true
+        lifecycleScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            window.decorView.invalidate()
+            awaitFirstDraw()
+            reportFullyDrawn()
+        }
+    }
+
     override fun onDestroy() {
         playerState?.dispose()
         playerState = null
         super.onDestroy()
+    }
+
+    private suspend fun awaitFirstDraw() = suspendCancellableCoroutine<Unit> { continuation ->
+        val view = window.decorView
+        var posted = false
+        val listener = object : ViewTreeObserver.OnDrawListener {
+            override fun onDraw() {
+                if (posted) return
+                posted = true
+                // onDraw 中不能移除监听，投递到本次绘制遍历完成之后处理。
+                view.post {
+                    if (view.viewTreeObserver.isAlive) {
+                        view.viewTreeObserver.removeOnDrawListener(this)
+                    }
+                    if (continuation.isActive) continuation.resume(Unit)
+                }
+            }
+        }
+        view.viewTreeObserver.addOnDrawListener(listener)
+        continuation.invokeOnCancellation {
+            view.post {
+                if (view.viewTreeObserver.isAlive) {
+                    view.viewTreeObserver.removeOnDrawListener(listener)
+                }
+            }
+        }
     }
 
     override fun onResume() {

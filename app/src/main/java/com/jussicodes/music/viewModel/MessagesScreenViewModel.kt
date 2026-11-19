@@ -50,6 +50,10 @@ class MessagesScreenViewModel @Inject constructor() : ViewModel() {
 
     init {
         refresh()
+        // 私信发出后广播：列表预览要立刻更新，不用等下次进页面
+        viewModelScope.launch {
+            MsgSessionCache.messageSent.collect { refresh() }
+        }
     }
 
     /**
@@ -58,6 +62,7 @@ class MessagesScreenViewModel @Inject constructor() : ViewModel() {
         return viewModelScope.launch {
             val uid = AccountApi.account().getOrNull()?.account?.profile?.userId ?: 0L
             _myUid.value = uid
+            if (uid > 0L) MsgSessionCache.myUid = uid
 
             _sessionsLoading.value = true
             _sessionsHasMore.value = false

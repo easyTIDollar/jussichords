@@ -9,12 +9,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * 组件配色镜像。
  *
  * App 的主题色板（壁纸动态色 / 封面取色 / 主页背景图 / 默认种子）由 [JetMeloTheme] 算完后
- * 写进这张小表，组件合成时同步读取——两边用的是**同一个 ColorScheme**，
+ * 异步写进持久化小表，组件合成时只读内存镜像；两边用的是**同一个 ColorScheme**，
  * 不再各算一套 blend 比例，所以卡片底、按钮色、文字色和 App 内完全一致。
  *
  * 浅色/深色两套都存：系统深浅色切换时 App 不一定在前台，
@@ -24,7 +28,13 @@ object WidgetPaletteStore {
     private const val PREFS = "jussi_widget_palette"
     private const val K_SIG = "sig"
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val ioLock = Mutex()
+    private val loading = AtomicBoolean(false)
+    private val requestedSignature = AtomicReference<String?>(null)
+
+    @Volatile
+    private var cachedPalettes: Pair<WidgetPalette?, WidgetPalette?> = null to null
 
     /** 最近一次发布过的签名：App 每秒会重组多次，先用内存挡掉，不必每次都读盘。 */
     @Volatile
@@ -34,25 +44,43 @@ object WidgetPaletteStore {
     fun publish(context: Context, light: ColorScheme, dark: ColorScheme) {
         val app = context.applicationContext
         val sig = signature(light) + "#" + signature(dark)
-        if (sig == lastSignature) return
-        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (prefs.getString(K_SIG, null) == sig) {
-            lastSignature = sig
-            return
+        if (requestedSignature.getAndSet(sig) == sig) return
+        scope.launch {
+            ioLock.withLock {
+                if (requestedSignature.get() != sig || sig == lastSignature) return@withLock
+                val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                val changed = prefs.getString(K_SIG, null) != sig
+                if (changed) {
+                    prefs.edit()
+                        .putString(K_SIG, sig)
+                        .also { e -> e.putScheme("light", light); e.putScheme("dark", dark) }
+                        .apply()
+                }
+                cachedPalettes = readPalette(prefs, false) to readPalette(prefs, true)
+                lastSignature = sig
+                if (changed) runCatching { WidgetUpdater.redraw(app) }
+            }
         }
-        lastSignature = sig
-        prefs.edit()
-            .putString(K_SIG, sig)
-            .also { e -> e.putScheme("light", light); e.putScheme("dark", dark) }
-            .apply()
-        // 配色变了要立刻重绘，否则要等下一次播放事件才变色。
-        scope.launch { runCatching { WidgetUpdater.redraw(app) } }
     }
 
-    /** 组件合成路径：只读同步小表，拿不到（App 还没组合过主题）返回 null 走种子色回落。 */
+    /** 组件合成只读内存；首次在 IO 恢复色板后重绘，未就绪时走种子色回退。 */
     fun load(context: Context, dark: Boolean): WidgetPalette? {
-        val prefs = context.applicationContext
-            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (loading.compareAndSet(false, true)) {
+            val app = context.applicationContext
+            scope.launch {
+                ioLock.withLock {
+                    val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    cachedPalettes = readPalette(prefs, false) to readPalette(prefs, true)
+                    lastSignature = prefs.getString(K_SIG, null)
+                }
+                runCatching { WidgetUpdater.redraw(app) }
+            }
+        }
+        val palettes = cachedPalettes
+        return if (dark) palettes.second else palettes.first
+    }
+
+    private fun readPalette(prefs: android.content.SharedPreferences, dark: Boolean): WidgetPalette? {
         if (prefs.getString(K_SIG, null) == null) return null
         val tag = if (dark) "dark" else "light"
         val card = prefs.getInt("${tag}_card", 0)

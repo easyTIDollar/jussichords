@@ -125,6 +125,50 @@ class GitHubUpdateSource(
     }
 }
 
+/** canary 私有通道中继基址（自建 Cloudflare Worker，GitHub token 只存在 Worker secret 里）。 */
+const val CANARY_RELAY_BASE = "https://gh.jussichords.cc.cd"
+
+/**
+ * 私人仓库 easyTIDollar/jussichords-canary 的只读中继源。
+ *
+ * 该仓库是 private：未认证请求一律 404，gh-proxy 那类无凭据代理也带不了 token，
+ * 所以 canary 构建只走自建 Worker —— Worker 端持有只读 token 并转发 release 列表与
+ * 资产下载（支持 Range 断点续传），App 侧不持有任何凭据。
+ */
+class CanaryRelaySource(
+    override val id: String = "canary-relay",
+    override val name: String = "canary 私有通道",
+    override val detail: String = "gh.jussichords.cc.cd",
+    private val base: String = CANARY_RELAY_BASE,
+) : UpdateSource() {
+
+    override fun fetchReleasesText(apiClient: OkHttpClient): String {
+        val response = apiClient.newCall(
+            Request.Builder()
+                .url("$base/canary/releases")
+                .header("Accept", "application/json")
+                .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+                .build()
+        ).execute().use { resp ->
+            if (resp.code !in 200..299) throw HttpStatusException(resp.code, "Canary relay HTTP ${resp.code}")
+            resp.body?.string() ?: throw IOException("Empty canary relay response")
+        }
+        return response
+    }
+
+    /** 把规范 GitHub 下载链接换成本中继的私有资产地址。 */
+    override fun toDownloadUrl(canonicalGithubDownloadUrl: String): String =
+        canonicalGithubDownloadUrl.replace(GITHUB_CANONICAL_DOWNLOAD_BASE, "$base/canary/dl")
+
+    override fun probeRequest(): Request =
+        Request.Builder()
+            .url("$base/canary/releases")
+            .head()
+            .header("Accept", "application/json")
+            .header("User-Agent", "jussichords/${BuildConfig.VERSION_NAME}")
+            .build()
+}
+
 /**
  * 针对自建 Worker 域名（gh.jussichords.cc.cd）的动态自适应优选 IP 解析器。
  * 覆盖国内三网官方高质量 Anycast 节点，支持从自建 Worker 动态下发最新的官方优选 IP，并结合系统原生解析双保险兜底。
@@ -188,17 +232,24 @@ object CloudflareOptimizedDns : Dns {
 }
 
 /**
- * 全局下载源列表：gh-proxy 三网优选源 + 自建边缘 Worker 源 + GitHub 直连兜底。
+ * 全局下载源列表。
  *
- * - `gh-proxy-axisnow`：AxisNow 三网优选（axisnow.gh-proxy.org），智能 DNS 分线解析，默认主源。
- * - `gh-proxy-custom`：自建 Cloudflare Worker 专线（gh.jussichords.cc.cd），开启不可变边缘强缓存与动态 Anycast 优选 IP，备用与容灾。
- * - `direct`：GitHub 官方直连，原生兜底。
+ * - canary 构建：只认 [CanaryRelaySource]（私人仓库 jussichords-canary 的 Worker 中继）。
+ *   公开仓库不再发布 canary pre-release，所以没有可回落的公开源。
+ * - 其它构建（stable/debug）：
+ *   - `gh-proxy-axisnow`：AxisNow 三网优选（axisnow.gh-proxy.org），智能 DNS 分线解析，默认主源。
+ *   - `gh-proxy-custom`：自建 Cloudflare Worker 专线（gh.jussichords.cc.cd），开启不可变边缘强缓存与动态 Anycast 优选 IP，备用与容灾。
+ *   - `direct`：GitHub 官方直连，原生兜底。
  */
-val downloadSources = listOf(
-    GitHubUpdateSource("gh-proxy-axisnow", "gh-proxy 三网", "axisnow.gh-proxy.org", "https://axisnow.gh-proxy.org/"),
-    GitHubUpdateSource("gh-proxy-custom", "gh.jussichords.cc.cd", "gh.jussichords.cc.cd", "https://gh.jussichords.cc.cd/"),
-    GitHubUpdateSource("direct", "GitHub 直连", "直连", ""),
-)
+val downloadSources: List<UpdateSource> = if (BuildConfig.BUILD_TYPE == "canary") {
+    listOf(CanaryRelaySource())
+} else {
+    listOf(
+        GitHubUpdateSource("gh-proxy-axisnow", "gh-proxy 三网", "axisnow.gh-proxy.org", "https://axisnow.gh-proxy.org/"),
+        GitHubUpdateSource("gh-proxy-custom", "gh.jussichords.cc.cd", "gh.jussichords.cc.cd", "https://gh.jussichords.cc.cd/"),
+        GitHubUpdateSource("direct", "GitHub 直连", "直连", ""),
+    )
+}
 
 fun sourceById(sourceId: String?): UpdateSource? =
     downloadSources.firstOrNull { it.id == sourceId }

@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.common.C
 import androidx.media3.common.MediaMetadata
 import coil3.compose.AsyncImage
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.ui.icons.ChevronDown
@@ -303,7 +303,7 @@ fun PlayerLandscape(
                                     modifier = Modifier
                                         .size(coverSizeDp)
                                         .then(coverGestures.coverGraphics())
-                                        .clip(RoundedCornerShape(14.dp))
+                                        .clip(SharedArtworkShape)
                                         .then(coverGestures.coverSwipeGestures())
                                 )
                                 Column(

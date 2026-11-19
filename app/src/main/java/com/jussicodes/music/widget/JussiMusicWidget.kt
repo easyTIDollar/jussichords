@@ -77,12 +77,6 @@ import java.util.Locale
  */
 abstract class BaseMusicWidget(private val widgetLayout: WidgetLayout) : GlanceAppWidget() {
 
-    companion object {
-        /** 上一次合成时记下的帧摘要：只在内容真的变了时写一条日志。 */
-        @Volatile
-        private var lastComposeDigest: String = ""
-    }
-
     /**
      * 每个桌面小组件是独立条目（4×2 / 4×1 / 2×3 各一个），
      * 骨架由子类钉死、XML 里 resizeMode=none，所以只用 Exact 按真实尺寸排，不再做尺寸猜测。
@@ -103,11 +97,6 @@ abstract class BaseMusicWidget(private val widgetLayout: WidgetLayout) : GlanceA
             val snapshot = WidgetUpdater.current(context)
             val size = LocalSize.current
             val coverStyle = coverStyleFor(widgetLayout)
-            val digest = "${snapshot.songId}|${snapshot.isPlaying}|${snapshot.title.take(12)}"
-            if (digest != lastComposeDigest) {
-                lastComposeDigest = digest
-                WidgetDebug.event(context, "compose $digest")
-            }
             // 读 state 有两个作用：拿红心乐观值，同时让内容在 state 变化时重放。
             val prefs = currentState<Preferences>()
             // 红心乐观覆盖：只对本实例、当前这首歌生效。
@@ -140,7 +129,7 @@ abstract class BaseMusicWidget(private val widgetLayout: WidgetLayout) : GlanceA
     }
 
     /**
-     * 合成异常兜底：记下异常 + 200ms 后重画一帧。
+     * 合成异常兜底：200ms 后重画一帧。
      * 不抛出去，否则 Glance 会直接保留旧帧，用户看到的就是“组件不死不活”。
      */
     override fun onCompositionError(
@@ -149,7 +138,6 @@ abstract class BaseMusicWidget(private val widgetLayout: WidgetLayout) : GlanceA
         appWidgetId: Int,
         throwable: Throwable,
     ) {
-        WidgetDebug.record(context, throwable)
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             delay(200)
             runCatching { update(context, glanceId) }

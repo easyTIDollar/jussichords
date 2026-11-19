@@ -11,24 +11,24 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavDestination
+import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import com.jussicodes.music.animation.MotionSpec
+import com.jussicodes.music.animation.LocalNavAnimatedContentScope
+import com.jussicodes.music.animation.LocalNavSharedTransitionScope
 import com.jussicodes.music.ui.screen.AlbumScreen
 import com.jussicodes.music.ui.screen.AlbumSublistScreen
 import com.jussicodes.music.ui.screen.ArtistScreen
@@ -73,6 +73,9 @@ fun NavGraph(
     // gentle decelerate feels like a Material-style page reveal.
     val homeRoutes = setOf(Screen.Library.route, Screen.Explore.route)
 
+    // 共享封面负责位移，详情页内容在原位淡入和淡出。
+    fun NavDestination.hasSharedArtworkDetail() = hasRoute<PlaylistNav>() || hasRoute<AlbumNav>()
+
     SharedTransitionLayout {
         NavHost(
             navController = navController,
@@ -82,16 +85,18 @@ fun NavGraph(
             enterTransition = {
                 val isHomeToHome = (initialState.destination.route in homeRoutes || initialState.destination.route == null) &&
                     targetState.destination.route in homeRoutes
-                if (isHomeToHome) {
-                    EnterTransition.None
-                } else {
-                    MotionSpec.spatialScreenEnter()
+                when {
+                    isHomeToHome -> EnterTransition.None
+                    targetState.destination.hasSharedArtworkDetail() -> MotionSpec.pageFadeIn()
+                    else -> MotionSpec.spatialScreenEnter()
                 }
             },
             exitTransition = {
                 val isHomeToHome = initialState.destination.route in homeRoutes &&
                     targetState.destination.route in homeRoutes
                 if (isHomeToHome) {
+                    ExitTransition.None
+                } else if (targetState.destination.hasSharedArtworkDetail()) {
                     ExitTransition.None
                 } else {
                     MotionSpec.spatialScreenExit()
@@ -102,6 +107,8 @@ fun NavGraph(
                     targetState.destination.route in homeRoutes
                 if (isHomeToHome) {
                     EnterTransition.None
+                } else if (initialState.destination.hasSharedArtworkDetail()) {
+                    EnterTransition.None
                 } else {
                     MotionSpec.spatialScreenPopEnter()
                 }
@@ -109,28 +116,38 @@ fun NavGraph(
             popExitTransition = {
                 val isHomeToHome = initialState.destination.route in homeRoutes &&
                     targetState.destination.route in homeRoutes
-                if (isHomeToHome) {
-                    ExitTransition.None
-                } else {
-                    MotionSpec.spatialScreenPopExit()
+                when {
+                    isHomeToHome -> ExitTransition.None
+                    initialState.destination.hasSharedArtworkDetail() -> MotionSpec.pageFadeOut()
+                    else -> MotionSpec.spatialScreenPopExit()
                 }
             }
         ) {
             composable(Screen.Library.route) {
-                HomePager(
-                    navController = navController,
-                    pagerState = homePagerState,
-                    onPageChange = onHomePageChange,
-                    onPageScroll = onHomePageScroll
-                )
+                CompositionLocalProvider(
+                    LocalNavSharedTransitionScope provides this@SharedTransitionLayout,
+                    LocalNavAnimatedContentScope provides this@composable
+                ) {
+                    HomePager(
+                        navController = navController,
+                        pagerState = homePagerState,
+                        onPageChange = onHomePageChange,
+                        onPageScroll = onHomePageScroll
+                    )
+                }
             }
             composable(Screen.Explore.route) {
-                HomePager(
-                    navController = navController,
-                    pagerState = homePagerState,
-                    onPageChange = onHomePageChange,
-                    onPageScroll = onHomePageScroll
-                )
+                CompositionLocalProvider(
+                    LocalNavSharedTransitionScope provides this@SharedTransitionLayout,
+                    LocalNavAnimatedContentScope provides this@composable
+                ) {
+                    HomePager(
+                        navController = navController,
+                        pagerState = homePagerState,
+                        onPageChange = onHomePageChange,
+                        onPageScroll = onHomePageScroll
+                    )
+                }
             }
             composable(Screen.Roam.route) {
                 RoamScreen(
@@ -153,25 +170,40 @@ fun NavGraph(
                 com.jussicodes.music.ui.screen.DownloadScreen(navController = navController)
             }
             composable<PlaylistNav> {
-                PlaylistScreen(
-                    navController = navController,
-                    sharedTransitionScope = this@SharedTransitionLayout,
-                    animatedContentScope = this@composable
-                )
+                CompositionLocalProvider(
+                    LocalNavSharedTransitionScope provides this@SharedTransitionLayout,
+                    LocalNavAnimatedContentScope provides this@composable
+                ) {
+                    PlaylistScreen(
+                        navController = navController,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedContentScope = this@composable
+                    )
+                }
             }
             composable<AlbumNav> {
-                AlbumScreen(
-                    navController = navController,
-                    sharedTransitionScope = this@SharedTransitionLayout,
-                    animatedContentScope = this@composable
-                )
+                CompositionLocalProvider(
+                    LocalNavSharedTransitionScope provides this@SharedTransitionLayout,
+                    LocalNavAnimatedContentScope provides this@composable
+                ) {
+                    AlbumScreen(
+                        navController = navController,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedContentScope = this@composable
+                    )
+                }
             }
             composable(Screen.AlbumSublist.route) {
-                AlbumSublistScreen(
-                    navController = navController,
-                    sharedTransitionScope = this@SharedTransitionLayout,
-                    animatedContentScope = this@composable
-                )
+                CompositionLocalProvider(
+                    LocalNavSharedTransitionScope provides this@SharedTransitionLayout,
+                    LocalNavAnimatedContentScope provides this@composable
+                ) {
+                    AlbumSublistScreen(
+                        navController = navController,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedContentScope = this@composable
+                    )
+                }
             }
             composable<UserFollowNav> { backStackEntry ->
                 val route = backStackEntry.toRoute<UserFollowNav>()
@@ -204,11 +236,16 @@ fun NavGraph(
                 PrivateChatScreen(navController = navController)
             }
             composable<RadioNav> {
-                ProgramRadioScreen(
-                    navController = navController,
-                    sharedTransitionScope = this@SharedTransitionLayout,
-                    animatedContentScope = this@composable
-                )
+                CompositionLocalProvider(
+                    LocalNavSharedTransitionScope provides this@SharedTransitionLayout,
+                    LocalNavAnimatedContentScope provides this@composable
+                ) {
+                    ProgramRadioScreen(
+                        navController = navController,
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedContentScope = this@composable
+                    )
+                }
             }
         }
     }
@@ -240,27 +277,24 @@ private fun HomePager(
             .collect(onPageScroll)
     }
 
-    // 冷启动首屏完全专注渲染 LibraryScreen（beyondViewportPageCount = 0 零多余开销）；
-    // 首屏渲染完成后延迟 2.5 秒，等主线程与渲染完全静止空闲时，提升为 1，
-    // 后台静默预热 ExploreScreen 布局，消除后续用户滑动切换时的首帧重组掉帧。
-    var beyondViewportCount by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        delay(2500)
-        beyondViewportCount = 1
-    }
-
     Box {
         HorizontalPager(
             state = pagerState,
-            beyondViewportPageCount = beyondViewportCount,
+            beyondViewportPageCount = 0,
             flingBehavior = PagerDefaults.flingBehavior(
                 state = pagerState,
                 snapPositionalThreshold = 0.5f
             )
         ) { page ->
             when (page) {
-                0 -> LibraryScreen(navController = navController)
-                1 -> ExploreScreen(navController = navController)
+                0 -> LibraryScreen(
+                    navController = navController,
+                    sharedElementEnabled = pagerState.settledPage == 0
+                )
+                1 -> ExploreScreen(
+                    navController = navController,
+                    sharedElementEnabled = pagerState.settledPage == 1
+                )
                 2 -> SettingsScreen(
                     navController = navController,
                     onBackClick = {

@@ -82,7 +82,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
-import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MiniPlayerHeight
@@ -138,7 +138,6 @@ fun SearchScreen(
 
     val searchResults by searchViewModel.searchResults.collectAsState()
     val topLists by searchViewModel.topLists.collectAsState()
-    val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
     val isPlaying = playerState?.isPlaying == true
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
@@ -323,8 +322,8 @@ fun SearchScreen(
                             )
                         }
 
-                        // 2. 联想词列表（优先排前缀/精确匹配项，不传易重复的 key 避免闪退）
-                        items(reorderedSuggests) { item ->
+                        // 2. 联想词列表（优先排前缀/精确匹配项，按去重后的关键词标识列表项）
+                        items(reorderedSuggests, key = { it.keyword.trim().lowercase() }) { item ->
                             SuggestItem(
                                 history = false,
                                 query = item.keyword,
@@ -369,7 +368,7 @@ fun SearchScreen(
                                                         song = song,
                                                         songIndex = index + 1,
                                                         modifier = Modifier.clickable {
-                                                            mediaController?.addSong(song)
+                                                            PlayerController.withController { it.addSong(song) }
                                                         },
                                                         trailingContent = {
                                                             IconButton(onClick = {

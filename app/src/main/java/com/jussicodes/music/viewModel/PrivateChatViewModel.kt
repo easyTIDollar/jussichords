@@ -7,6 +7,7 @@ import com.rcmiku.ncmapi.api.apiGet
 import com.rcmiku.ncmapi.model.MsgPrivateHistoryResponse
 import com.rcmiku.ncmapi.model.MsgPrivateMessage
 import com.jussicodes.music.data.MsgSendTextResponse
+import com.jussicodes.music.data.MsgSessionCache
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +47,12 @@ class PrivateChatViewModel @Inject constructor(
 
     init {
         loadHistory()
+        // 别处（分享面板等）给同一个人发过消息：广播过来静默重拉，界面不落后
+        viewModelScope.launch {
+            MsgSessionCache.messageSent.collect { peerUid ->
+                if (peerUid == contactUserId) loadHistory()
+            }
+        }
     }
 
     fun loadHistory() {
@@ -78,7 +85,9 @@ class PrivateChatViewModel @Inject constructor(
             result.onSuccess { body ->
                 // NCM 用 body.code 传状态：301 = 未登录，非 200 一律视为失败
                 if (body.code == 200) {
-                    loadHistory()
+                    // 广播给订阅者（含本页自己的 collect）：统一走一条刷新路径，
+                    // 顺带让消息列表把这条预览顶上去
+                    MsgSessionCache.notifyMessageSent(contactUserId)
                 } else {
                     _sendError.value = if (body.code == 301) "登录已失效，请重新登录" else "发送失败 (code ${body.code})"
                 }

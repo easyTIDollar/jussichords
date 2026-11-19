@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.FileDownload
 import android.widget.Toast
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.constants.downloadQualityKey
 import com.jussicodes.music.data.download.DownloadStore
 import com.jussicodes.music.download.DownloadManager
@@ -53,7 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
-import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.R
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.extensions.addToPlaylist
@@ -109,10 +110,11 @@ fun SongMenuBottomSheet(
 
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
-    val mediaController = LocalPlayerController.current.controller
     val downloadQuality by rememberPreference(downloadQualityKey, "ask")
-    val songIds by context.favoriteSongIdsDatastore.data.map { it.songIdsList }
-        .collectAsState(emptyList())
+    val songIdsFlow = remember(context) {
+        context.favoriteSongIdsDatastore.data.map { it.songIdsList }
+    }
+    val songIds by songIdsFlow.collectAsState(emptyList())
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(openBottomSheet) {
@@ -169,15 +171,19 @@ fun SongMenuBottomSheet(
                 onPlayNext = {
                     scope.launch {
                         onDismiss()
-                        mediaController?.insertToPlaylist(s)
-                        MenuSnackbarBus.show("已添加到下一首播放")
+                        PlayerController.withController {
+                            it.insertToPlaylist(s)
+                            MenuSnackbarBus.show("已添加到下一首播放")
+                        }
                     }
                 },
                 onAddToQueue = {
                     scope.launch {
                         onDismiss()
-                        mediaController?.addToPlaylist(s)
-                        MenuSnackbarBus.show("已加入播放队列")
+                        PlayerController.withController {
+                            it.addToPlaylist(s)
+                            MenuSnackbarBus.show("已加入播放队列")
+                        }
                     }
                 },
                 onRemoveFromPlaylist = {
@@ -406,7 +412,7 @@ private fun SongHeader(song: Song) {
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .size(56.dp)
-                .clip(RoundedCornerShape(14.dp)),
+                .clip(SharedArtworkShape),
         )
         Spacer(Modifier.size(12.dp))
         Column(modifier = Modifier.weight(1f)) {

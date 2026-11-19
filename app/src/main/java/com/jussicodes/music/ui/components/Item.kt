@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Icon
@@ -50,11 +49,11 @@ import androidx.media3.common.MediaMetadata
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.GridThumbnailHeight
 import com.jussicodes.music.constants.ListItemHeight
 import com.jussicodes.music.constants.ListThumbnailSize
-import com.jussicodes.music.constants.ThumbnailCornerRadius
 import com.jussicodes.music.data.download.DownloadStore
 import com.jussicodes.music.ui.icons.FavoriteFill
 import com.jussicodes.music.ui.icons.Payment
@@ -267,7 +266,7 @@ fun AlbumListItem(
         CoverAsyncImage(
             url = album.picUrl,
             size = CoverImageSize.LIST,
-            shape = RoundedCornerShape(ThumbnailCornerRadius),
+            shape = SharedArtworkShape,
             modifier = Modifier.size(ListThumbnailSize)
         )
     },
@@ -304,7 +303,7 @@ fun VoiceListItem(
         CoverAsyncImage(
             url = voice.picUrl,
             size = CoverImageSize.LIST,
-            shape = RoundedCornerShape(ThumbnailCornerRadius),
+            shape = SharedArtworkShape,
             modifier = Modifier.size(ListThumbnailSize)
         )
     },
@@ -329,7 +328,7 @@ fun PlaylistListItem(
         CoverAsyncImage(
             url = playlist.picUrl,
             size = CoverImageSize.LIST,
-            shape = RoundedCornerShape(ThumbnailCornerRadius),
+            shape = SharedArtworkShape,
             modifier = Modifier.size(ListThumbnailSize)
         )
     },
@@ -353,7 +352,7 @@ fun PlaylistV1ListItem(
         CoverAsyncImage(
             url = playlist.coverImgUrl,
             size = CoverImageSize.LIST,
-            shape = RoundedCornerShape(ThumbnailCornerRadius),
+            shape = SharedArtworkShape,
             modifier = Modifier.size(ListThumbnailSize)
         )
     },
@@ -481,7 +480,7 @@ fun SongListItem(
             albumIndex = albumIndex,
             isActive = isActive,
             isPlaying = isPlaying,
-            shape = RoundedCornerShape(ThumbnailCornerRadius),
+            shape = SharedArtworkShape,
             modifier = Modifier.size(ListThumbnailSize)
         )
     },
@@ -510,7 +509,7 @@ fun RadioListItem(
             albumIndex = albumIndex,
             isActive = isActive,
             isPlaying = isPlaying,
-            shape = RoundedCornerShape(ThumbnailCornerRadius),
+            shape = SharedArtworkShape,
             modifier = Modifier.size(ListThumbnailSize)
         )
     },
@@ -540,7 +539,7 @@ fun CloudSongListItem(
             albumIndex = albumIndex,
             isActive = isActive,
             isPlaying = isPlaying,
-            shape = RoundedCornerShape(ThumbnailCornerRadius),
+            shape = SharedArtworkShape,
             modifier = Modifier.size(ListThumbnailSize)
         )
     },
@@ -569,7 +568,7 @@ fun MediaItemListItem(
             albumIndex = albumIndex,
             isActive = isActive,
             isPlaying = isPlaying,
-            shape = RoundedCornerShape(ThumbnailCornerRadius),
+            shape = SharedArtworkShape,
             modifier = Modifier.size(ListThumbnailSize)
         )
     },

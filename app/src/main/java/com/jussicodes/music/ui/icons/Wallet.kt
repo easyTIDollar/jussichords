@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
+// Material Icons "account_balance_wallet"（outlined，24dp）官方矢量数据。
 val Wallet: ImageVector
     get() {
         if (_Wallet != null) {
@@ -19,138 +20,38 @@ val Wallet: ImageVector
             viewportHeight = 24f
         ).apply {
             path(fill = SolidColor(Color(0xFF000000))) {
-                moveTo(14.356f, 2.595f)
-                arcToRelative(
-                    0.25f,
-                    0.25f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = true,
-                    0.361f,
-                    -0.032f
-                )
-                lineToRelative(0.922f, 0.812f)
-                lineTo(12.739f, 7f)
-                horizontalLineToRelative(1.92f)
-                lineToRelative(2.106f, -2.632f)
-                lineToRelative(1.652f, 1.457f)
-                arcToRelative(
-                    0.25f,
-                    0.25f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = true,
-                    0.026f,
-                    0.348f
-                )
-                lineToRelative(-0.69f, 0.827f)
-                horizontalLineToRelative(1.944f)
-                arcToRelative(
-                    1.75f,
-                    1.75f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = false,
-                    -0.288f,
-                    -2.3f
-                )
-                lineToRelative(-3.7f, -3.263f)
-                arcToRelative(
-                    1.75f,
-                    1.75f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = false,
-                    -2.531f,
-                    0.23f
-                )
-                lineTo(8.976f, 7f)
-                horizontalLineToRelative(1.91f)
+                moveTo(21f, 7.28f)
+                lineTo(21f, 5f)
+                curveTo(21f, 3.9f, 20.1f, 3f, 19f, 3f)
+                lineTo(5f, 3f)
+                arcTo(2f, 2f, 0f, false, false, 3f, 5f)
+                lineTo(3f, 19f)
+                arcTo(2f, 2f, 0f, false, false, 5f, 21f)
+                lineTo(19f, 21f)
+                curveTo(20.1f, 21f, 21f, 20.1f, 21f, 19f)
+                lineTo(21f, 16.72f)
+                arcTo(2f, 2f, 0f, false, false, 22f, 15f)
+                lineTo(22f, 9f)
+                arcTo(2f, 2f, 0f, false, false, 21f, 7.28f)
                 close()
-                moveTo(16.25f, 14f)
-                arcToRelative(
-                    0.75f,
-                    0.75f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = false,
-                    0f,
-                    1.5f
-                )
-                horizontalLineToRelative(2f)
-                arcToRelative(
-                    0.75f,
-                    0.75f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = false,
-                    0f,
-                    -1.5f
-                )
+                moveTo(20f, 9f)
+                lineTo(20f, 15f)
+                lineTo(13f, 15f)
+                lineTo(13f, 9f)
+                lineTo(20f, 9f)
                 close()
-                moveTo(4.5f, 7.25f)
-                arcToRelative(
-                    0.75f,
-                    0.75f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = true,
-                    0.75f,
-                    -0.75f
-                )
-                horizontalLineToRelative(3.128f)
-                lineTo(9.57f, 5f)
-                horizontalLineTo(5.25f)
-                arcTo(2.25f, 2.25f, 0f, isMoreThanHalf = false, isPositiveArc = false, 3f, 7.25f)
-                verticalLineToRelative(10.5f)
-                arcTo(3.25f, 3.25f, 0f, isMoreThanHalf = false, isPositiveArc = false, 6.25f, 21f)
-                horizontalLineToRelative(12f)
-                arcToRelative(
-                    3.25f,
-                    3.25f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = false,
-                    3.25f,
-                    -3.25f
-                )
-                verticalLineToRelative(-6.5f)
-                arcTo(3.25f, 3.25f, 0f, isMoreThanHalf = false, isPositiveArc = false, 18.25f, 8f)
-                horizontalLineToRelative(-13f)
-                arcToRelative(
-                    0.75f,
-                    0.75f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = true,
-                    -0.75f,
-                    -0.75f
-                )
-                moveToRelative(0f, 10.5f)
-                verticalLineTo(9.372f)
-                quadToRelative(0.354f, 0.126f, 0.75f, 0.128f)
-                horizontalLineToRelative(13f)
-                curveToRelative(0.966f, 0f, 1.75f, 0.784f, 1.75f, 1.75f)
-                verticalLineToRelative(6.5f)
-                arcToRelative(
-                    1.75f,
-                    1.75f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = true,
-                    -1.75f,
-                    1.75f
-                )
-                horizontalLineToRelative(-12f)
-                arcToRelative(
-                    1.75f,
-                    1.75f,
-                    0f,
-                    isMoreThanHalf = false,
-                    isPositiveArc = true,
-                    -1.75f,
-                    -1.75f
-                )
+                moveTo(5f, 19f)
+                lineTo(5f, 5f)
+                lineTo(19f, 5f)
+                lineTo(19f, 7f)
+                lineTo(13f, 7f)
+                curveTo(11.9f, 7f, 11f, 7.9f, 11f, 9f)
+                lineTo(11f, 15f)
+                curveTo(11f, 16.1f, 11.9f, 17f, 13f, 17f)
+                lineTo(19f, 17f)
+                lineTo(19f, 19f)
+                lineTo(5f, 19f)
+                close()
             }
         }.build()
 

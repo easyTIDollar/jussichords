@@ -8,16 +8,22 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.jussicodes.music.utils.dataStore
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.apiGet
+import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -112,6 +118,22 @@ object MsgSessionCache {
     private val _unread = MutableStateFlow(0)
     val unread: StateFlow<Int> = _unread.asStateFlow()
 
+    /** 最近一次已知的登录 uid（ensureLoaded / 消息页刷新写入），前台轮询复用它省一次 /account 请求。 */
+    @Volatile
+    var myUid: Long = 0L
+
+    /**
+     * 私信发送成功：把对方 uid 广播出去，开着的聊天页据此静默重拉，
+     * 会话列表也能立刻把最新预览顶上来（不用等下一次轮询）。
+     */
+    private val _messageSent = MutableSharedFlow<Long>(extraBufferCapacity = 8)
+    val messageSent: SharedFlow<Long> = _messageSent.asSharedFlow()
+
+    fun notifyMessageSent(peerUid: Long) {
+        if (peerUid <= 0L) return
+        _messageSent.tryEmit(peerUid)
+    }
+
     /** 全量（未删、未筛）会话的 userType 分布：筛选菜单生成选项与计数用（含当前被筛掉的类型）。 */
     private val _typeCounts = MutableStateFlow<Map<Int, Int>>(emptyMap())
     val typeCounts: StateFlow<Map<Int, Int>> = _typeCounts.asStateFlow()
@@ -140,6 +162,7 @@ object MsgSessionCache {
     @Volatile
     private var liveFetched = false
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var snapshotSaveJob: Job? = null
 
     /**
      * Application.onCreate 调一次：IO 线程读 DataStore 快照铺列表（冷启动 0 网络），
@@ -338,20 +361,20 @@ object MsgSessionCache {
     }
 
     /**
-     * 分享菜单打开 / App 启动预热时调用：已有 live 数据则跳过；否则**并行**拉
-     * 账号 uid（5s）+ /msg/private（主数据，8s）+ /msg/recentcontact（在线/VIP/互关，5s），
-     * 总时延 = 三路最慢者；成功后 [append]（不截断 VM 已分页出的数据），失败保留磁盘快照。
+     * 分享菜单打开 / App 启动预热时调用：未登录或已有 live 数据则跳过。
+     * 优先复用已知 uid；网络请求在 IO，预览解析在 Default，发布仍走原有主线程路径。
+     * 返回的任务属于调用方作用域，取消或失败后允许重试，失败保留磁盘快照。
      */
-    fun ensureLoaded(scope: CoroutineScope) {
-        if (liveFetched || loading) return
+    fun ensureLoaded(scope: CoroutineScope): Job? {
+        if (!CookieProvider.isLoggedIn() || liveFetched || loading) return null
         loading = true
-        scope.launch {
-            val a = async {
-                withTimeoutOrNull(5_000) {
+        return scope.launch {
+            val a = async(Dispatchers.IO) {
+                myUid.takeIf { it > 0L } ?: withTimeoutOrNull(5_000) {
                     AccountApi.account().getOrNull()?.account?.profile?.userId
                 } ?: 0L
             }
-            val p = async {
+            val p = async(Dispatchers.IO) {
                 withTimeoutOrNull(8_000) {
                     apiGet<MsgPrivateSessionsResponse>(
                         "/msg/private",
@@ -359,7 +382,7 @@ object MsgSessionCache {
                     ).getOrNull()
                 }
             }
-            val r = async {
+            val r = async(Dispatchers.IO) {
                 withTimeoutOrNull(5_000) {
                     apiGet<MsgRecentContactsResponse>("/msg/recentcontact").getOrNull()
                 }
@@ -367,18 +390,25 @@ object MsgSessionCache {
             val meUid = a.await()
             val resp = p.await()
             val rcList = r.await()?.follow.orEmpty()
-            val rcMap = rcList.associateBy { it.userId }
-            _recentContacts.value = rcMap
-            val onlineUids = rcList.filter { it.onlined }.mapTo(HashSet()) { it.userId }
-            if (resp != null) {
-                val items = resp.msgs.mapNotNull { s ->
+            val (rcMap, items) = withContext(Dispatchers.Default) {
+                val contacts = rcList.associateBy { it.userId }
+                val onlineUids = rcList.filter { it.onlined }.mapTo(HashSet()) { it.userId }
+                val parsed = resp?.msgs?.mapNotNull { s ->
                     val other = s.otherUser(meUid) ?: return@mapNotNull null
                     if (other.userId == meUid) return@mapNotNull null
-                    toItem(s, meUid, onlineUids.contains(other.userId), rcMap[other.userId])
+                    toItem(s, meUid, onlineUids.contains(other.userId), contacts[other.userId])
                 }
+                contacts to parsed
+            }
+            if (!CookieProvider.isLoggedIn()) return@launch
+            if (meUid > 0L) myUid = meUid
+            _recentContacts.value = rcMap
+            if (resp != null && items != null) {
                 upsert(items, resp.newMsgCount)
             }
-            loading = false
+        }.also { job ->
+            // 即使作用域在协程开始前已取消，也必须释放预热标记。
+            job.invokeOnCompletion { loading = false }
         }
     }
 
@@ -404,8 +434,13 @@ object MsgSessionCache {
 
     private fun saveSnapshot() {
         val s = store ?: return
-        val payload = json.encodeToString(_allItems.value ?: emptyList())
-        ioScope.launch { s.edit { it[KEY_SNAPSHOT] = payload } }
+        val snapshot = _allItems.value ?: emptyList()
+        // 新快照取代尚未落盘的旧任务，避免后台编码耗时不同导致旧值晚写。
+        snapshotSaveJob?.cancel()
+        snapshotSaveJob = ioScope.launch {
+            val payload = json.encodeToString(snapshot)
+            s.edit { it[KEY_SNAPSHOT] = payload }
+        }
     }
 
     private fun saveDeleted() {

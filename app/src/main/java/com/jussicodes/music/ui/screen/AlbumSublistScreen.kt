@@ -27,6 +27,7 @@ import androidx.navigation.NavHostController
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.R
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.components.AlbumListItem
 import com.jussicodes.music.ui.components.ListThumbnailImage
@@ -77,11 +78,13 @@ fun AlbumSublistScreen(
                             album = it, thumbnailContent = {
                                 ListThumbnailImage(
                                     url = it.picUrl,
+                                    shape = SharedArtworkShape,
                                     modifier = Modifier.sharedElement(
                                         sharedTransitionScope.rememberSharedContentState(
                                             key = it.id
                                         ),
-                                        animatedVisibilityScope = animatedContentScope
+                                        animatedVisibilityScope = animatedContentScope,
+                                        clipInOverlayDuringTransition = OverlayClip(SharedArtworkShape),
                                     )
                                 )
                             }, modifier = Modifier

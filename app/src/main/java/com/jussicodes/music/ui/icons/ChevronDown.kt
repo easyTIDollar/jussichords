@@ -2,12 +2,11 @@ package com.jussicodes.music.ui.icons
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
+// Material Icons "keyboard_arrow_down"（outlined，24dp）官方矢量数据。
 val ChevronDown: ImageVector
     get() {
         if (_ChevronDown != null) {
@@ -20,15 +19,15 @@ val ChevronDown: ImageVector
             viewportWidth = 24f,
             viewportHeight = 24f
         ).apply {
-            path(
-                stroke = SolidColor(Color(0xFF000000)),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round
-            ) {
-                moveToRelative(6f, 9f)
-                lineToRelative(6f, 6f)
-                lineToRelative(6f, -6f)
+            path(fill = SolidColor(Color(0xFF000000))) {
+                moveTo(7.41f, 8.59f)
+                lineTo(12f, 13.17f)
+                lineTo(16.59f, 8.59f)
+                lineTo(18f, 10f)
+                lineTo(12f, 16f)
+                lineTo(6f, 10f)
+                lineTo(7.41f, 8.59f)
+                close()
             }
         }.build()
 

@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.jussicodes.music.animation.MotionSpring
+import com.jussicodes.music.animation.SharedArtworkShape
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaMetadata
 import coil3.compose.AsyncImage
@@ -77,7 +79,12 @@ fun MiniPlayer(
     onDragProgressChange: (Float) -> Unit = {},
     onVerticalDrag: ((Float) -> Unit)? = null,
     onVerticalDragEnd: ((Float) -> Unit)? = null,
-    dragProgress: Float = 0f,
+    /**
+     * 播放页上滑展开的连续进度。收 [State] 而不是裸 Float：它每帧都在变，
+     * 一旦在组合期解包，小播放器整棵子树（封面、标题、按钮）都会跟着每帧重组。
+     * 内部只在 draw 阶段读它。
+     */
+    dragProgress: State<Float> = remember { mutableFloatStateOf(0f) },
     isPillProgress: Boolean = false,
 ) {
     val mediaController = LocalPlayerController.current.controller
@@ -146,7 +153,12 @@ fun MiniPlayer(
         else -> null
     }
 
-    val showMiniPlayer =
+    // 队列长度来自 MediaController，重连、切小窗、旋屏期间会短暂为 0，
+    // 但歌其实还在播（mediaMetadata 有值）。只按 mediaItemCount 判定，
+    // 小播放器就会变成一个空壳卡片 —— 背景色和页面背景几乎一样，
+    // 肉眼看到的就是"小播放器消失了"。有元数据就画。
+    val showMiniPlayer = mediaMetadata.title != null ||
+        mediaMetadata.artworkUri != null ||
         (playerState?.player?.mediaItemCount ?: 0) != 0
 
     if (showMiniPlayer)
@@ -158,8 +170,7 @@ fun MiniPlayer(
                     swipeVelocityThresholdPx,
                     swipePreviewLimitPx,
                     horizontalSwipeThresholdPx,
-                    horizontalPreviewLimitPx,
-                    mediaMetadata
+                    horizontalPreviewLimitPx
                 ) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
@@ -269,14 +280,16 @@ fun MiniPlayer(
                 // 悬浮胶囊底栏模式：以小播放器自身作为流体进度条（主题色半透明充盈）
                 if (isPillProgress) {
                     val pillColor = MaterialTheme.colorScheme.primary
-                    val combinedProgress = maxOf(openProgress, dragProgress)
-                    val fillAlpha = (1f - combinedProgress * 2.5f).coerceIn(0f, 1f)
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             // 在 draw 阶段读进度：只触发重绘，不像 fillMaxWidth(fraction)
-                            // 那样每帧 relayout 整个胶囊底板
+                            // 那样每帧 relayout 整个胶囊底板。
+                            // 手势进度也在这里读 —— 它是每帧变化的 State，在组合期解包会
+                            // 让小播放器整棵子树跟着重组。
                             .drawBehind {
+                                val combinedProgress = maxOf(openProgress, dragProgress.value)
+                                val fillAlpha = (1f - combinedProgress * 2.5f).coerceIn(0f, 1f)
                                 if (fillAlpha <= 0f) return@drawBehind
                                 val fraction = smoothProgress.value.coerceIn(0f, 1f)
                                 if (fraction <= 0f) return@drawBehind
@@ -308,7 +321,6 @@ fun MiniPlayer(
                                     -horizontalPreviewLimitPx + animatedPlayerDragOffsetX
                                 }
                             },
-                        artworkCorner = miniPlayerCorner
                     )
                 }
                 if (!isPillProgress) {
@@ -319,7 +331,7 @@ fun MiniPlayer(
                             .height(3.dp)
                             .align(Alignment.BottomCenter)
                             .graphicsLayer {
-                                val combinedProgress = maxOf(openProgress, dragProgress)
+                                val combinedProgress = maxOf(openProgress, dragProgress.value)
                                 alpha = if (combinedProgress > 0.01f) 0f else 1f
                             },
                     )
@@ -342,7 +354,6 @@ fun MiniPlayer(
                             mediaMetadata = mediaMetadata,
                             modifier = Modifier.padding(horizontal = 6.dp),
                             imageModifier = imageModifier,
-                            artworkCorner = miniPlayerCorner,
                             artworkOffsetY = artworkLiftPx,
                             artworkScale = artworkScale,
                             contentAlpha = controlsAlpha,
@@ -389,7 +400,6 @@ fun MiniMediaInfo(
     mediaMetadata: MediaMetadata,
     modifier: Modifier = Modifier,
     imageModifier: Modifier = Modifier,
-    artworkCorner: Dp = 16.dp,
     artworkOffsetY: Float = 0f,
     artworkScale: Float = 1f,
     contentAlpha: Float = 1f,
@@ -406,7 +416,7 @@ fun MiniMediaInfo(
                 scaleY = artworkScale
                 if (artworkOffsetY < -2f) {
                     shadowElevation = (abs(artworkOffsetY) * 0.45f).coerceIn(0f, with(density) { 14.dp.toPx() })
-                    shape = RoundedCornerShape(artworkCorner)
+                    shape = SharedArtworkShape
                     clip = false
                 }
             }
@@ -433,7 +443,7 @@ fun MiniMediaInfo(
                 contentScale = ContentScale.Crop,
                 modifier = imageModifier
                     .size(48.dp)
-                    .clip(RoundedCornerShape(artworkCorner))
+                    .clip(SharedArtworkShape)
             )
         }
 

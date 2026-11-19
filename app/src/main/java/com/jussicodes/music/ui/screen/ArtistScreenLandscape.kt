@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.LocalFireDepartment
@@ -52,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
 import coil3.compose.AsyncImage
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.components.MasterDetailLandscape
@@ -476,7 +476,6 @@ private fun ArtistLandscapeAlbumsPage(
             key = { index -> "album-${albums.peek(index)?.id ?: index}" }
         ) { index ->
             albums[index]?.let { album ->
-                val shape = RoundedCornerShape(14.dp)
                 Column(
                     modifier = Modifier
                         .padding(6.dp)
@@ -489,7 +488,7 @@ private fun ArtistLandscapeAlbumsPage(
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(1f)
-                            .clip(shape)
+                            .clip(SharedArtworkShape)
                             .background(MaterialTheme.colorScheme.surfaceContainer)
                     )
                     Spacer(Modifier.height(6.dp))

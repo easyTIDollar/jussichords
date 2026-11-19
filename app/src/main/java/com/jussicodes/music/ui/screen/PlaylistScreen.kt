@@ -29,7 +29,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -90,15 +92,16 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
 import com.jussicodes.music.ui.navigation.UserNav
-import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.animation.AlbumArtBoundsTransform
+import com.jussicodes.music.animation.SharedArtworkCornerRadius
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.R
@@ -113,6 +116,9 @@ import com.jussicodes.music.ui.components.PlayerComments
 import com.jussicodes.music.ui.components.LargeImageDialog
 import com.jussicodes.music.ui.components.PlaylistThumbnailImage
 import com.jussicodes.music.ui.components.SongListItem
+import com.jussicodes.music.ui.components.SkeletonBox
+import com.jussicodes.music.ui.components.SkeletonLine
+import com.jussicodes.music.ui.components.SkeletonListItem
 import com.jussicodes.music.ui.components.rememberFilteredSongs
 import com.jussicodes.music.ui.components.SongMenuBottomSheet
 import com.jussicodes.music.ui.components.SharePayload
@@ -131,6 +137,7 @@ import com.jussicodes.music.utils.PlaylistCoverSyncBus
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.utils.withPlaylistCoverCacheBuster
+import com.jussicodes.music.constants.detailCoverSize
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.Playlist
 import coil3.compose.AsyncImage
@@ -163,7 +170,6 @@ fun PlaylistScreen(
     val listState = rememberLazyListState()
     val showPlaylistTitle by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
     var playlistTitle by remember { mutableStateOf("") }
-    val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
     val isPlaying = playerState?.isPlaying == true
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
@@ -451,16 +457,27 @@ fun PlaylistScreen(
         }
     ) { padding ->
             if (playlistDetailState == null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
+                if (isLandscape) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    PlaylistDetailSkeleton(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                        listState = listState,
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedContentScope = animatedContentScope,
+                        sharedKey = playlistScreenViewModel.routePlaylistId
+                    )
                 }
-            }
-            if (isLandscape) {
+            } else if (isLandscape) {
                 // 横屏（矮屏）：主从双栏 —— 左 40% 展示栏，右 60% 曲目列表。
                 playlistDetailState?.let { detail ->
                     val serverTracks = detail.playlist.getAllTracks()
@@ -499,13 +516,11 @@ fun PlaylistScreen(
                                         .sharedElement(
                                             sharedTransitionScope.rememberSharedContentState(key = detail.playlist.id),
                                             animatedVisibilityScope = animatedContentScope,
-                                            placeHolderSize = { contentSize: IntSize, animatedSize: IntSize ->
-                                                IntSize(contentSize.width, animatedSize.height)
-                                            },
                                             boundsTransform = AlbumArtBoundsTransform,
+                                            clipInOverlayDuringTransition = OverlayClip(SharedArtworkShape),
                                         )
                                         .fillMaxSize()
-                                        .clip(MaterialTheme.shapes.large)
+                                        .clip(SharedArtworkShape)
                                         .clickable {
                                             previewCoverUrl = detail.playlist.coverImgUrl
                                                 .withPlaylistCoverCacheBuster(
@@ -526,25 +541,29 @@ fun PlaylistScreen(
                             playlistScreenViewModel.playlistSub(shouldSubscribe = !subscribed)
                         },
                         onPlayAll = {
-                            mediaController?.setPlaylist(
-                                tracks,
-                                sourceId = currentPlaylistId,
-                                sourceName = currentPlaylistName,
-                                sourceType = MediaSessionConstants.SOURCE_TYPE_PLAYLIST,
-                                navId = currentPlaylistId
-                            )
-                            mediaController?.playMediaAt()
+                            PlayerController.withController { mediaController ->
+                                mediaController.setPlaylist(
+                                    tracks,
+                                    sourceId = currentPlaylistId,
+                                    sourceName = currentPlaylistName,
+                                    sourceType = MediaSessionConstants.SOURCE_TYPE_PLAYLIST,
+                                    navId = currentPlaylistId
+                                )
+                                mediaController.playMediaAt()
+                            }
                         },
                         onComments = { openPlaylistComments = true },
                         onSongClick = { song ->
-                            mediaController?.setPlaylist(
-                                tracks,
-                                sourceId = currentPlaylistId,
-                                sourceName = currentPlaylistName,
-                                sourceType = MediaSessionConstants.SOURCE_TYPE_PLAYLIST,
-                                navId = currentPlaylistId
-                            )
-                            mediaController?.playMediaAtId(song.id)
+                            PlayerController.withController { mediaController ->
+                                mediaController.setPlaylist(
+                                    tracks,
+                                    sourceId = currentPlaylistId,
+                                    sourceName = currentPlaylistName,
+                                    sourceType = MediaSessionConstants.SOURCE_TYPE_PLAYLIST,
+                                    navId = currentPlaylistId
+                                )
+                                mediaController.playMediaAtId(song.id)
+                            }
                         },
                         onSongMenu = { song ->
                             selectSong = song
@@ -641,9 +660,7 @@ fun PlaylistScreen(
                         modifier = Modifier.padding(padding)
                     )
                 }
-                return@Scaffold
-            }
-            playlistDetailState?.let {
+            } else playlistDetailState?.let {
                 val serverTracks = it.playlist.getAllTracks()
                 LaunchedEffect(it.playlist.id, serverTracks.map { song -> song.id }) {
                     if (!songOrderChanged) {
@@ -704,13 +721,12 @@ fun PlaylistScreen(
                                     url = it.playlist.coverImgUrl.withPlaylistCoverCacheBuster(
                                         playlistCoverVersions[it.playlist.id] ?: 0L
                                     ),
+                                    shape = SharedArtworkShape,
                                     modifier = Modifier.sharedElement(
                                         sharedTransitionScope.rememberSharedContentState(key = it.playlist.id),
                                         animatedVisibilityScope = animatedContentScope,
-                                        placeHolderSize = { contentSize: IntSize, animatedSize: IntSize ->
-                                            IntSize(contentSize.width, animatedSize.height)
-                                        },
                                         boundsTransform = AlbumArtBoundsTransform,
+                                        clipInOverlayDuringTransition = OverlayClip(SharedArtworkShape),
                                     ).clickable {
                                         previewCoverUrl = it.playlist.coverImgUrl.withPlaylistCoverCacheBuster(
                                             playlistCoverVersions[it.playlist.id] ?: 0L
@@ -776,14 +792,16 @@ fun PlaylistScreen(
                                     }
                                     Button(
                                         onClick = {
-                                            mediaController?.setPlaylist(
-                                                tracks,
-                                                sourceId = it.playlist.id,
-                                                sourceName = it.playlist.name,
-                                                sourceType = MediaSessionConstants.SOURCE_TYPE_PLAYLIST,
-                                                navId = it.playlist.id
-                                            )
-                                            mediaController?.playMediaAt()
+                                            PlayerController.withController { mediaController ->
+                                                mediaController.setPlaylist(
+                                                    tracks,
+                                                    sourceId = it.playlist.id,
+                                                    sourceName = it.playlist.name,
+                                                    sourceType = MediaSessionConstants.SOURCE_TYPE_PLAYLIST,
+                                                    navId = it.playlist.id
+                                                )
+                                                mediaController.playMediaAt()
+                                            }
                                         },
                                         contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
                                         modifier = Modifier.weight(1f)
@@ -861,14 +879,16 @@ fun PlaylistScreen(
                                         } else {
                                             Modifier.combinedClickable(
                                                 onClick = {
-                                                    mediaController?.setPlaylist(
-                                                        tracks,
-                                                        sourceId = currentPlaylistId,
-                                                        sourceName = currentPlaylistName,
-                                                        sourceType = MediaSessionConstants.SOURCE_TYPE_PLAYLIST,
-                                                        navId = currentPlaylistId
-                                                    )
-                                                    mediaController?.playMediaAtId(song.id)
+                                                    PlayerController.withController { mediaController ->
+                                                        mediaController.setPlaylist(
+                                                            tracks,
+                                                            sourceId = currentPlaylistId,
+                                                            sourceName = currentPlaylistName,
+                                                            sourceType = MediaSessionConstants.SOURCE_TYPE_PLAYLIST,
+                                                            navId = currentPlaylistId
+                                                        )
+                                                        mediaController.playMediaAtId(song.id)
+                                                    }
                                                 },
                                                 onLongClick = {
                                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1211,6 +1231,68 @@ private fun PlaylistOverflowMenu(
             icon = Icons.Outlined.Share,
             onClick = onShare
         )
+    }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun PlaylistDetailSkeleton(
+    modifier: Modifier = Modifier,
+    listState: LazyListState,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedContentScope: AnimatedContentScope,
+    sharedKey: Any?
+) {
+    LazyColumn(
+        modifier = modifier,
+        state = listState,
+        userScrollEnabled = false
+    ) {
+        item(key = "playlist-skeleton-header") {
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = 12.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                SkeletonBox(
+                    modifier = if (sharedKey == null) {
+                        Modifier.size(detailCoverSize())
+                    } else {
+                        with(sharedTransitionScope) {
+                            Modifier.sharedElement(
+                                rememberSharedContentState(key = sharedKey),
+                                animatedVisibilityScope = animatedContentScope,
+                                boundsTransform = AlbumArtBoundsTransform,
+                                clipInOverlayDuringTransition = OverlayClip(SharedArtworkShape),
+                            ).size(detailCoverSize())
+                        }
+                    },
+                    // 与共享封面及其叠层使用同一圆角。
+                    cornerRadius = SharedArtworkCornerRadius
+                )
+                Spacer(Modifier.height(12.dp))
+                SkeletonLine(widthFraction = 0.68f, height = 28.dp)
+                Spacer(Modifier.height(6.dp))
+                SkeletonLine(widthFraction = 0.46f, height = 16.dp)
+                Spacer(Modifier.height(6.dp))
+                SkeletonLine(widthFraction = 0.76f, height = 16.dp)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    repeat(3) {
+                        SkeletonBox(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp),
+                            cornerRadius = 20.dp
+                        )
+                    }
+                }
+            }
+        }
+        items(count = 7, key = { "playlist-skeleton-track-$it" }) {
+            SkeletonListItem(hasArtwork = true, lines = 2)
+        }
     }
 }
 

@@ -18,6 +18,7 @@ object MediaSessionConstants {
     const val SOURCE_TYPE_ALBUM = "album"
     const val SOURCE_TYPE_ARTIST = "artist"
     const val SOURCE_TYPE_ROAM = "roam"
+    const val SOURCE_TYPE_INTELLIGENCE = "intelligence"
     const val SOURCE_TYPE_CLOUD = "cloud"
     const val SOURCE_TYPE_RADIO = "radio"
     const val SOURCE_TYPE_EXPLORE = "explore"

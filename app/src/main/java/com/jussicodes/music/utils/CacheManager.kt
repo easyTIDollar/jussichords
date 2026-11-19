@@ -141,6 +141,9 @@ object AudioCache {
     @Volatile
     private var cache: SimpleCache? = null
 
+    /** 仅返回已初始化的缓存，不等待初始化锁。 */
+    fun getIfInitialized(): SimpleCache? = cache
+
     fun get(context: Context): SimpleCache {
         cache?.let { return it }
 

@@ -25,7 +25,10 @@ object FavoriteSongIdsUtil {
         }
     }
 
+    // 空结果不清空本地：/likelist 在 cookie 未就绪或服务端瞬时异常时会返回空数组，
+    // 直接覆盖会抹掉用户全部红心。全量清空属极端场景，宁可保留本地。
     suspend fun updateSongIds(context: Context, songIds: List<Long>) {
+        if (songIds.isEmpty()) return
         context.favoriteSongIdsDatastore.updateData { currentData ->
             currentData.toBuilder().clearSongIds().addAllSongIds(songIds).build()
         }

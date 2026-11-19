@@ -519,6 +519,28 @@ internal fun resolveRoute(path: String, p: Map<String, Any>): Route {
             )
         )
         "/personal_fm" -> weapi("/api/v1/radio/get", emptyMap())
+        // 直连 NCM 时必须用原生字段名：id/pid/sid 是 api-enhanced 代理层的 query 名，
+        // 服务端在部分域名/风控组合下认不出，直接回 code 500（实测 interface 域名下必现）。
+        "/playmode/intelligence/list" -> eapi(
+            "/api/playmode/intelligence/list",
+            mapOf(
+                "songId" to req("id"),
+                "playlistId" to req("pid"),
+                "startMusicId" to req("sid"),
+                "type" to "fromPlayOne",
+                "count" to int("count", 20)
+            )
+        )
+        // 私人 FM「不喜欢」：把当前曲加进垃圾桶，之后 FM 不再推它。
+        // 对齐 NCM API 的 fm_trash：songId + alg=RT + time（已播秒数，缺省 25）。
+        "/fm/trash" -> weapi(
+            "/api/radio/trash/add",
+            mapOf(
+                "songId" to req("id"),
+                "alg" to "RT",
+                "time" to long("time", 25)
+            )
+        )
         "/personal/fm/mode" -> {
             val data = mutableMapOf<String, Any>(
                 "mode" to req("mode"),

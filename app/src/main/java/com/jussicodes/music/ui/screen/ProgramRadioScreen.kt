@@ -35,7 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.paging.compose.collectAsLazyPagingItems
-import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.MiniPlayerHeight
@@ -60,7 +60,6 @@ fun ProgramRadioScreen(
 
     val radioInfo by programRadioScreenViewModel.radioInfo.collectAsState()
     val radioList = programRadioScreenViewModel.radioList.collectAsLazyPagingItems()
-    val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
     val isPlaying = playerState?.isPlaying == true
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
@@ -111,13 +110,15 @@ fun ProgramRadioScreen(
                                 modifier = Modifier.size(48.dp),
                                 onClick = {
                                     radioList.itemSnapshotList.items.let {
-                                        mediaController?.setRadioPlaylist(
-                                            it,
-                                            sourceName = radioInfo?.data?.name ?: "电台",
-                                            sourceType = MediaSessionConstants.SOURCE_TYPE_RADIO,
-                                            navId = radioInfo?.data?.id ?: 0L
-                                        )
-                                        mediaController?.playMediaAt()
+                                        PlayerController.withController { mediaController ->
+                                            mediaController.setRadioPlaylist(
+                                                it,
+                                                sourceName = radioInfo?.data?.name ?: "电台",
+                                                sourceType = MediaSessionConstants.SOURCE_TYPE_RADIO,
+                                                navId = radioInfo?.data?.id ?: 0L
+                                            )
+                                            mediaController.playMediaAt()
+                                        }
                                     }
                                 },
                             ) {
@@ -172,13 +173,15 @@ fun ProgramRadioScreen(
                             isActive = currentMediaId == item.mainSong.id,
                             modifier = Modifier.clickable {
                                 radioList.itemSnapshotList.items.let {
-                                    mediaController?.setRadioPlaylist(
-                                        it,
-                                        sourceName = radioInfo?.data?.name ?: "电台",
-                                        sourceType = MediaSessionConstants.SOURCE_TYPE_RADIO,
-                                        navId = radioInfo?.data?.id ?: 0L
-                                    )
-                                    mediaController?.playMediaAtId(item.mainSong.id)
+                                    PlayerController.withController { mediaController ->
+                                        mediaController.setRadioPlaylist(
+                                            it,
+                                            sourceName = radioInfo?.data?.name ?: "电台",
+                                            sourceType = MediaSessionConstants.SOURCE_TYPE_RADIO,
+                                            navId = radioInfo?.data?.id ?: 0L
+                                        )
+                                        mediaController.playMediaAtId(item.mainSong.id)
+                                    }
                                 }
                             })
                     }

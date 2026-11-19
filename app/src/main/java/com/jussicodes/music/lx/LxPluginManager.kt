@@ -82,7 +82,8 @@ object LxPluginManager {
         val asset: String,
         val name: String,
         val enabled: Boolean,
-        val qualities: List<String>
+        val qualities: List<String>,
+        val sha256: String
     )
 
     /** 老版本内置脚本 id：条目沿用，只把默认状态改成不活动。 */
@@ -102,13 +103,22 @@ object LxPluginManager {
     private val MOLAN_QUALITIES = listOf("128k", "320k", "flac", "flac24bit", "hires", "atmos", "master")
 
     private val SEEDED = listOf(
-        SeededScript(MOLAN_ID, "lx/molan.js", "墨澜聚合音源（内置）", enabled = true, qualities = MOLAN_QUALITIES),
-        SeededScript(LEGACY_BUILTIN_ID, "lx/lx-builtin.js", "玉宁熙 Pro（内置）", enabled = false, qualities = DEFAULT_QUALITIES)
+        // 更新资产时同步更新摘要；命中已安装摘要时不再打开资产文件。
+        SeededScript(MOLAN_ID, "lx/molan.js", "墨澜聚合音源（内置）", enabled = true, qualities = MOLAN_QUALITIES,
+            sha256 = "cfe4092d8b6f7af5e339d6aa20cee8670f5fed4c907e4533a59670ea9f621007"),
+        SeededScript(LEGACY_BUILTIN_ID, "lx/lx-builtin.js", "玉宁熙 Pro（内置）", enabled = false, qualities = DEFAULT_QUALITIES,
+            sha256 = "9ddcc32f55ba1981166f16bf55c03c43165b098932208a5fb4c9c64192650f0c")
     )
 
     private suspend fun seedBuiltinScripts(context: Context) {
         val state = LxPluginStore.seedState()
+        val existingScripts = LxPluginStore.snapshot().associateBy { it.id }
         val scripts = SEEDED.mapNotNull { seed ->
+            val existing = existingScripts[seed.id]
+            if (existing == null && seed.id in state.removed) return@mapNotNull null
+            if (existing != null && existing.builtinScriptSha256 == seed.sha256) {
+                return@mapNotNull seed to existing.rawScript
+            }
             runCatching {
                 context.assets.open(seed.asset).bufferedReader().use { it.readText() }
             }.getOrNull()?.let { seed to it }
@@ -117,7 +127,9 @@ object LxPluginManager {
         val needsLegacyMigration = LEGACY_BUILTIN_ID !in state.migrated
         val needsMolanDedupe = DEDUPE_MOLAN_KEY !in state.migrated
         // 用户之前自己导入过墨澜时，内置这条才是默认音源；同名旧副本只留一份生效。
-        val molanName = scripts.firstOrNull { it.first.id == MOLAN_ID }?.let { parseHeader(it.second).name }
+        val molanName = if (needsMolanDedupe) {
+            scripts.firstOrNull { it.first.id == MOLAN_ID }?.let { parseHeader(it.second).name }
+        } else null
         LxPluginStore.update { list ->
             var next = list
             for ((seed, script) in scripts) {
@@ -134,7 +146,8 @@ object LxPluginManager {
                             description = info.description,
                             rawScript = script,
                             isEnabled = seed.enabled,
-                            wyQualities = seed.qualities
+                            wyQualities = seed.qualities,
+                            builtinScriptSha256 = seed.sha256
                         )
                         // 默认音源放最前面：解析按列表顺序轮插件，排最后等于「最后才用」
                         next = if (seed.enabled) listOf(item) + next else next + item
@@ -143,7 +156,8 @@ object LxPluginManager {
                     // 内置脚本随版本更新：正文变了就覆盖（启停沿用用户当前选择）
                     next = next.map {
                         if (it.id == seed.id) {
-                            it.copy(rawScript = script, name = seed.name, wyQualities = seed.qualities)
+                            it.copy(rawScript = script, name = seed.name, wyQualities = seed.qualities,
+                                builtinScriptSha256 = seed.sha256)
                         } else {
                             it
                         }
@@ -151,7 +165,11 @@ object LxPluginManager {
                 } else if (seed.id == LEGACY_BUILTIN_ID && needsLegacyMigration && existing.isEnabled) {
                     // 老内置脚本「默认启用」→「默认不活动」，只迁移一次
                     next = next.map {
-                        if (it.id == seed.id) it.copy(isEnabled = false) else it
+                        if (it.id == seed.id) it.copy(isEnabled = false, builtinScriptSha256 = seed.sha256) else it
+                    }
+                } else if (existing.builtinScriptSha256 != seed.sha256) {
+                    next = next.map {
+                        if (it.id == seed.id) it.copy(builtinScriptSha256 = seed.sha256) else it
                     }
                 }
             }

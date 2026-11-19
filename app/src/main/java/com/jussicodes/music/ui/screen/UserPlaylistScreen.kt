@@ -38,6 +38,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.constants.gridCoverSize
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.components.GridThumbnailImage
@@ -114,13 +115,15 @@ fun UserPlaylistScreen(
                                 ), thumbnailContent = {
                                 GridThumbnailImage(
                                     url = it.picUrl,
+                                    shape = SharedArtworkShape,
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .sharedElement(
                                             sharedTransitionScope.rememberSharedContentState(
                                                 key = it.id
                                             ),
-                                            animatedVisibilityScope = animatedContentScope
+                                            animatedVisibilityScope = animatedContentScope,
+                                            clipInOverlayDuringTransition = OverlayClip(SharedArtworkShape),
                                         )
                                 )
                             })
@@ -144,7 +147,7 @@ private fun PlaylistLoadingGridItem() {
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(SharedArtworkShape)
                 .background(placeholderColor)
         )
         Box(

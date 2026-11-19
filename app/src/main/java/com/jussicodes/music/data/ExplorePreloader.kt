@@ -37,12 +37,15 @@ import java.security.MessageDigest
  *  1. Disk cache (per-account, [DataStore]) — [loadCache] fills the shared
  *     flows as soon as the app boots, so the explore tab renders instantly
  *     even before any network round-trip completes.
- *  2. Live API fetch ([warmUp]) — runs when the cookie is applied, on app
- *     startup, or on manual refresh. On success it updates the flows and
- *     persists the cache; on failure the cached content is kept so the page
- *     never goes blank.
+ *  2. [warmUp] 在页面首次请求、手动刷新或页面已请求后的登录态变化时获取新数据；
+ *     成功后更新共享状态与缓存，失败保留缓存内容。
  */
 object ExplorePreloader {
+
+    /** 只有页面已经请求过数据，登录态监听才继续刷新，冷启动不主动联网预热。 */
+    @Volatile
+    var isRequested: Boolean = false
+        private set
 
     private const val GUEST_KEY = "guest"
 
@@ -131,6 +134,7 @@ object ExplorePreloader {
      * 瞬态，晚到的游客结果不能覆盖已登录账号的缓存/内容。
      */
     suspend fun warmUp(context: Context, force: Boolean = false) {
+        isRequested = true
         mutex.withLock {
             loadCache()
             val key = userKey()

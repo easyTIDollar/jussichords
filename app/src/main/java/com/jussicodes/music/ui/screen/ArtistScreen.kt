@@ -92,7 +92,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.paging.compose.collectAsLazyPagingItems
 import coil3.compose.AsyncImage
-import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.MiniPlayerHeight
@@ -154,7 +154,6 @@ fun ArtistScreen(
         artistAllSongs.refresh()
         artistAlbumList.refresh()
     }
-    val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
     val haptics = LocalHapticFeedback.current
     val isPlaying = playerState?.isPlaying == true
@@ -282,13 +281,15 @@ fun ArtistScreen(
                     ?: artistTopSongState?.songs
                     ?: artistAllSongs.itemSnapshotList.items
                 if (queue.isNotEmpty()) {
-                    mediaController?.setPlaylist(
-                        queue,
-                        sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
-                        sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
-                        navId = artistHeadInfoState?.data?.artist?.id ?: 0L
-                    )
-                    mediaController?.playMediaAtId(queue.first().id)
+                    PlayerController.withController { mediaController ->
+                        mediaController.setPlaylist(
+                            queue,
+                            sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                            sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                            navId = artistHeadInfoState?.data?.artist?.id ?: 0L
+                        )
+                        mediaController.playMediaAtId(queue.first().id)
+                    }
                 }
             },
             songMode = songMode,
@@ -310,13 +311,15 @@ fun ArtistScreen(
                 } else {
                     artistTopSongState?.songs.orEmpty()
                 }
-                mediaController?.setPlaylist(
-                    queue,
-                    sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
-                    sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
-                    navId = artistHeadInfoState?.data?.artist?.id ?: 0L
-                )
-                mediaController?.playMediaAtId(song.id)
+                PlayerController.withController { mediaController ->
+                    mediaController.setPlaylist(
+                        queue,
+                        sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                        sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                        navId = artistHeadInfoState?.data?.artist?.id ?: 0L
+                    )
+                    mediaController.playMediaAtId(song.id)
+                }
             },
             onSongMenu = { song ->
                 selectSong = song
@@ -571,13 +574,15 @@ fun ArtistScreen(
                                             modifier = Modifier
                                                 .animateItem(placementSpec = null)
                                                 .clickable {
-                                                    mediaController?.setPlaylist(
-                                                        filteredSongs,
-                                                        sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
-                                                        sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
-                                                        navId = artistHeadInfoState?.data?.artist?.id ?: 0L
-                                                    )
-                                                    mediaController?.playMediaAtId(song.id)
+                                                    PlayerController.withController { mediaController ->
+                                                        mediaController.setPlaylist(
+                                                            filteredSongs,
+                                                            sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                                                            sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                                                            navId = artistHeadInfoState?.data?.artist?.id ?: 0L
+                                                        )
+                                                        mediaController.playMediaAtId(song.id)
+                                                    }
                                                 },
                                             trailingContent = {
                                                 IconButton(onClick = {
@@ -674,13 +679,15 @@ fun ArtistScreen(
                                                 modifier = Modifier
                                                     .animateItem(placementSpec = null)
                                                     .clickable {
-                                                        mediaController?.setPlaylist(
-                                                            songs,
-                                                            sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
-                                                            sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
-                                                            navId = artistHeadInfoState?.data?.artist?.id ?: 0L
-                                                        )
-                                                        mediaController?.playMediaAtId(song.id)
+                                                        PlayerController.withController { mediaController ->
+                                                            mediaController.setPlaylist(
+                                                                songs,
+                                                                sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                                                                sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                                                                navId = artistHeadInfoState?.data?.artist?.id ?: 0L
+                                                            )
+                                                            mediaController.playMediaAtId(song.id)
+                                                        }
                                                     },
                                                 trailingContent = {
                                                     IconButton(onClick = {
@@ -713,13 +720,15 @@ fun ArtistScreen(
                                                 modifier = Modifier
                                                     .animateItem(placementSpec = null)
                                                     .clickable {
-                                                        mediaController?.setPlaylist(
-                                                            queueSongs,
-                                                            sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
-                                                            sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
-                                                            navId = artistHeadInfoState?.data?.artist?.id ?: 0L
-                                                        )
-                                                        mediaController?.playMediaAtId(song.id)
+                                                        PlayerController.withController { mediaController ->
+                                                            mediaController.setPlaylist(
+                                                                queueSongs,
+                                                                sourceName = artistHeadInfoState?.data?.artist?.name ?: "歌手",
+                                                                sourceType = MediaSessionConstants.SOURCE_TYPE_ARTIST,
+                                                                navId = artistHeadInfoState?.data?.artist?.id ?: 0L
+                                                            )
+                                                            mediaController.playMediaAtId(song.id)
+                                                        }
                                                     },
                                                 trailingContent = {
                                                     IconButton(onClick = {

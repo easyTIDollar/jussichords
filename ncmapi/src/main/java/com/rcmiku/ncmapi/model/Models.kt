@@ -3,6 +3,7 @@ package com.rcmiku.ncmapi.model
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 
 // ========== Core models ==========
 
@@ -479,6 +480,23 @@ data class DailySongsData(
 @Serializable
 data class PersonalFmResponse(
     val data: List<PersonalFmSong> = emptyList()
+)
+
+@Serializable
+data class IntelligenceSongsResponse(
+    // code 可能是数字（200/400），也可能是字符串 "500"（NCM 缺参数时的响应），统一用 JsonElement 接住，
+    // 避免整包反序列化失败把真实错误码吞成一句 JSON 解析异常。
+    val code: JsonElement = JsonPrimitive(0),
+    val message: String = "",
+    val data: List<IntelligenceItem> = emptyList()
+) {
+    val codeValue: Int get() = (code as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
+}
+
+@Serializable
+data class IntelligenceItem(
+    val id: Long = 0,
+    val songInfo: Song? = null
 )
 
 @Serializable

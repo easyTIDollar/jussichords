@@ -2,13 +2,11 @@ package com.jussicodes.music.ui.icons
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
-/** 调色盘（外观）。忠实誊自参考示意 glyph（含三个空心色点），stroke 版，渲染时靠 tint 上色。 */
+// Material Icons "palette"（outlined，24dp）官方矢量数据。
 val Palette: ImageVector
     get() {
         if (_Palette != null) {
@@ -21,33 +19,28 @@ val Palette: ImageVector
             viewportWidth = 24f,
             viewportHeight = 24f
         ).apply {
-            // 盘体轮廓（原路径 M12 3 a9 9 0 1 0 0 18 c1.5 0 2 -1 1.5 -2 s0 -2 1.5 -2 h2 a3 3 0 0 0 3 -3 c0 -6 -4 -11 -8 -11 z）
-            path(
-                stroke = SolidColor(Color(0xFF000000)),
-                strokeLineWidth = 1.8f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round
-            ) {
-                moveTo(12f, 3f)
-                arcToRelative(9f, 9f, 0f, isMoreThanHalf = true, isPositiveArc = false, 0f, 18f)
-                curveToRelative(1.5f, 0f, 2f, -1f, 1.5f, -2f)
-                reflectiveCurveToRelative(0f, -2f, 1.5f, -2f)
-                horizontalLineToRelative(2f)
-                arcToRelative(3f, 3f, 0f, isMoreThanHalf = false, isPositiveArc = false, 3f, -3f)
-                curveToRelative(0f, -6f, -4f, -11f, -8f, -11f)
+            path(fill = SolidColor(Color(0xFF000000))) {
+                moveTo(12f, 22f)
+                curveTo(6.49f, 22f, 2f, 17.51f, 2f, 12f)
+                curveTo(2f, 6.49f, 6.49f, 2f, 12f, 2f)
+                curveTo(17.51f, 2f, 22f, 6.04f, 22f, 11f)
+                curveTo(22f, 14.31f, 19.31f, 17f, 16f, 17f)
+                lineTo(14.23f, 17f)
+                curveTo(13.95f, 17f, 13.73f, 17.22f, 13.73f, 17.5f)
+                curveTo(13.73f, 17.62f, 13.78f, 17.73f, 13.86f, 17.83f)
+                curveTo(14.27f, 18.3f, 14.5f, 18.89f, 14.5f, 19.5f)
+                arcTo(2.5f, 2.5f, 0f, false, true, 12f, 22f)
                 close()
-                // 三个色点（空心小圆，r=1）
-                moveTo(9f, 11f)
-                arcToRelative(1f, 1f, 0f, isMoreThanHalf = false, isPositiveArc = true, -2f, 0f)
-                arcToRelative(1f, 1f, 0f, isMoreThanHalf = false, isPositiveArc = true, 2f, 0f)
-                close()
-                moveTo(13f, 7.5f)
-                arcToRelative(1f, 1f, 0f, isMoreThanHalf = false, isPositiveArc = true, -2f, 0f)
-                arcToRelative(1f, 1f, 0f, isMoreThanHalf = false, isPositiveArc = true, 2f, 0f)
-                close()
-                moveTo(17f, 11f)
-                arcToRelative(1f, 1f, 0f, isMoreThanHalf = false, isPositiveArc = true, -2f, 0f)
-                arcToRelative(1f, 1f, 0f, isMoreThanHalf = false, isPositiveArc = true, 2f, 0f)
+                moveTo(12f, 4f)
+                curveTo(7.59f, 4f, 4f, 7.59f, 4f, 12f)
+                curveTo(4f, 16.41f, 7.59f, 20f, 12f, 20f)
+                curveTo(12.28f, 20f, 12.5f, 19.78f, 12.5f, 19.5f)
+                arcTo(0.54f, 0.54f, 0f, false, false, 12.36f, 19.15f)
+                curveTo(11.95f, 18.69f, 11.73f, 18.1f, 11.73f, 17.5f)
+                arcTo(2.5f, 2.5f, 0f, false, true, 14.23f, 15f)
+                lineTo(16f, 15f)
+                curveTo(18.21f, 15f, 20f, 13.21f, 20f, 11f)
+                curveTo(20f, 7.14f, 16.41f, 4f, 12f, 4f)
                 close()
             }
         }.build()

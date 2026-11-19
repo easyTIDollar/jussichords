@@ -46,7 +46,6 @@ import com.jussicodes.music.playback.PlaybackService
 import com.jussicodes.music.utils.AppVisibilityTracker
 import com.jussicodes.music.utils.LrcLine
 import com.jussicodes.music.utils.dataStore
-import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.parseLrc
 import com.jussicodes.music.utils.parseYrc
 import com.rcmiku.ncmapi.api.player.PlayerApi
@@ -59,6 +58,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -95,6 +95,8 @@ class DesktopLyricService : Service() {
     private var progressJob: Job? = null
     private var preferenceJob: Job? = null
     private var visibilityJob: Job? = null
+    private var initialized = false
+    private var restoreJob: Job? = null
 
     private var currentMediaId: String? = null
     private var lyricLines: List<DesktopLyricLine> = emptyList()
@@ -153,12 +155,6 @@ class DesktopLyricService : Service() {
             stopSelf()
             return
         }
-        xFraction = applicationContext.dataStore.get(desktopLyricXFractionKey, DesktopLyricDefaultXFraction)
-        yFraction = applicationContext.dataStore.get(desktopLyricYFractionKey, DesktopLyricDefaultYFraction)
-        style = readStyle()
-        connectController()
-        observePreferences()
-        observeAppVisibility()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -166,13 +162,42 @@ class DesktopLyricService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (intent?.action == ACTION_RESET_POSITION) {
-            resetPosition()
+        val settings = intent?.getBundleExtra(EXTRA_SETTINGS)?.let { DesktopLyricSettings.fromBundle(it) }
+        if (settings != null) {
+            restoreJob?.cancel()
+            restoreSettings(settings, intent?.action == ACTION_RESET_POSITION)
+        } else {
+            // 系统以空 Intent 重启黏性服务时，异步读取一份完整快照再初始化。
+            restoreJob?.cancel()
+            restoreJob = serviceScope.launch {
+                val prefs = applicationContext.dataStore.data.first()
+                restoreSettings(
+                    DesktopLyricSettings.fromPreferences(prefs),
+                    intent?.action == ACTION_RESET_POSITION
+                )
+            }
         }
+        return START_STICKY
+    }
+
+    private fun restoreSettings(settings: DesktopLyricSettings, reset: Boolean) {
+        if (!settings.enabled) {
+            stopSelf()
+            return
+        }
+        if (!initialized) {
+            xFraction = settings.xFraction
+            yFraction = settings.yFraction
+            style = settings.style
+            initialized = true
+            connectController()
+            observePreferences()
+            observeAppVisibility()
+        }
+        if (reset) resetPosition()
         ensureProgressLoop()
         updatePlaybackButton()
         updateLyric()
-        return START_STICKY
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -187,6 +212,7 @@ class DesktopLyricService : Service() {
         progressJob?.cancel()
         preferenceJob?.cancel()
         visibilityJob?.cancel()
+        restoreJob?.cancel()
         controller?.removeListener(playerListener)
         controllerFuture?.let(MediaController::releaseFuture)
         controller = null
@@ -196,15 +222,6 @@ class DesktopLyricService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-
-    private fun readStyle(): DesktopLyricStyle = DesktopLyricStyle(
-        fontSizeSp = applicationContext.dataStore.get(desktopLyricFontSizeKey, DesktopLyricDefaultFontSizeSp),
-        textColor = applicationContext.dataStore.get(desktopLyricTextColorKey, Color.WHITE),
-        strokeColor = applicationContext.dataStore.get(desktopLyricStrokeColorKey, Color.BLACK),
-        strokeScale = applicationContext.dataStore.get(desktopLyricStrokeScaleKey, 1f),
-        locked = applicationContext.dataStore.get(desktopLyricLockedKey, false),
-        translationEnabled = applicationContext.dataStore.get(lyricTranslationEnabledKey, false),
-    )
 
     private fun connectController() {
         val token = SessionToken(this, ComponentName(this, PlaybackService::class.java))
@@ -1235,6 +1252,7 @@ class DesktopLyricService : Service() {
     }
 
     companion object {
+        const val EXTRA_SETTINGS = "desktop_lyric_settings"
         /** 设置页「重置位置」用：让运行中的 Service 回到默认位置并写回比例。 */
         const val ACTION_RESET_POSITION = "com.jussicodes.music.action.DESKTOP_LYRIC_RESET_POSITION"
     }

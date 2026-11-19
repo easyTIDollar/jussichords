@@ -48,6 +48,7 @@ import androidx.core.view.HapticFeedbackConstantsCompat
 import androidx.core.view.ViewCompat
 import androidx.media3.common.MediaMetadata
 import coil3.compose.AsyncImage
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.R
@@ -112,7 +113,7 @@ fun PlayerQueue(
                     contentScale = ContentScale.Crop,
                     modifier = imageModifier
                         .size(MediaItemHeight)
-                        .clip(MaterialTheme.shapes.small)
+                        .clip(SharedArtworkShape)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(

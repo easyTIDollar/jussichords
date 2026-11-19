@@ -2,13 +2,11 @@ package com.jussicodes.music.ui.icons
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
-/** 音符（音乐源 / 关于）。忠实誊自参考示意 glyph，stroke 版，渲染时靠 tint 上色。 */
+// Material Icons "music_note"（outlined，24dp）官方矢量数据。
 val MusicNote: ImageVector
     get() {
         if (_MusicNote != null) {
@@ -21,39 +19,22 @@ val MusicNote: ImageVector
             viewportWidth = 24f,
             viewportHeight = 24f
         ).apply {
-            // 谱线 + 两茎 (M9 18 V6 l11 -2 v12)
-            path(
-                stroke = SolidColor(Color(0xFF000000)),
-                strokeLineWidth = 1.8f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round
-            ) {
-                moveTo(9f, 18f)
-                verticalLineTo(6f)
-                lineToRelative(11f, -2f)
-                verticalLineToRelative(12f)
-            }
-            // 两个符头 (circle 6.5,18 r2.5 / 17.5,16 r2.5)
-            path(
-                stroke = SolidColor(Color(0xFF000000)),
-                strokeLineWidth = 1.8f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round
-            ) {
-                moveTo(9f, 18f)
-                arcToRelative(2.5f, 2.5f, 0f, isMoreThanHalf = false, isPositiveArc = true, -5f, 0f)
-                arcToRelative(2.5f, 2.5f, 0f, isMoreThanHalf = false, isPositiveArc = true, 5f, 0f)
+            path(fill = SolidColor(Color(0xFF000000))) {
+                moveTo(12f, 3f)
+                lineTo(12.01f, 13.55f)
+                curveTo(11.42f, 13.21f, 10.74f, 13f, 10.01f, 13f)
+                arcTo(4.001f, 4.001f, 0f, true, false, 10.01f, 21f)
+                curveTo(12.23f, 21f, 14f, 19.21f, 14f, 17f)
+                lineTo(14f, 7f)
+                lineTo(18f, 7f)
+                lineTo(18f, 3f)
+                lineTo(12f, 3f)
                 close()
-            }
-            path(
-                stroke = SolidColor(Color(0xFF000000)),
-                strokeLineWidth = 1.8f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round
-            ) {
-                moveTo(20f, 16f)
-                arcToRelative(2.5f, 2.5f, 0f, isMoreThanHalf = false, isPositiveArc = true, -5f, 0f)
-                arcToRelative(2.5f, 2.5f, 0f, isMoreThanHalf = false, isPositiveArc = true, 5f, 0f)
+                moveTo(10.01f, 19f)
+                curveTo(8.91f, 19f, 8.01f, 18.1f, 8.01f, 17f)
+                curveTo(8.01f, 15.9f, 8.91f, 15f, 10.01f, 15f)
+                curveTo(11.11f, 15f, 12.01f, 15.9f, 12.01f, 17f)
+                curveTo(12.01f, 18.1f, 11.11f, 19f, 10.01f, 19f)
                 close()
             }
         }.build()

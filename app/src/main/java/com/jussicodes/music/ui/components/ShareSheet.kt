@@ -222,6 +222,8 @@ private fun NcmMsgSendRow(
             sending = false
             val resp = result.getOrNull()
             if (resp != null && resp.code == 200) {
+                // 通知已打开的聊天页/消息列表：这条已经发出去了，静默重拉一次
+                MsgSessionCache.notifyMessageSent(other.userId)
                 Toast.makeText(context, "已发送给 ${other.nickname.ifBlank { "对方" }}", Toast.LENGTH_SHORT).show()
                 onClose()
             } else {

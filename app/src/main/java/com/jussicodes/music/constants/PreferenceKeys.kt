@@ -7,6 +7,8 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 
 val ncmCookieKey = stringPreferencesKey("ncmCookie")
+val savedAccountsKey = stringPreferencesKey("savedAccounts")
+val activeAccountIdKey = longPreferencesKey("activeAccountId")
 val use40DpIconKey = booleanPreferencesKey("use40DpIcon")
 val desktopLyricEnabledKey = booleanPreferencesKey("desktopLyricEnabled")
 // 桌面歌词外观与位置（Service 与设置页共用）。字号单位 sp；颜色是 ARGB Int。
@@ -24,6 +26,12 @@ val desktopLyricPreviewBgKey = stringPreferencesKey("desktopLyricPreviewBg")
 val currentPlayMediaIdKey = longPreferencesKey("currentPlayMediaId")
 val autoSkipNextOnErrorKey = booleanPreferencesKey("autoSkipNextOnError")
 val audioQualityKey = stringPreferencesKey("audioQuality")
+// 与其他音频同时播放：true（默认）= 不申请音频焦点，可与其它应用混音；false = 独占焦点。
+val playWithOthersKey = booleanPreferencesKey("playWithOthers")
+/** 私人 FM 上次选的模式（PersonalFmModeOption.key），重启后恢复。 */
+val personalFmModeKey = stringPreferencesKey("personalFmMode")
+/** 上次运行的 versionName：和当前不同即「刚覆盖安装」，用于更新后首启跳过更新检查。 */
+val lastRunVersionNameKey = stringPreferencesKey("lastRunVersionName")
 val audioEffectModeKey = stringPreferencesKey("audioEffectMode")
 val audioEffectEightDEnabledKey = booleanPreferencesKey("audioEffectEightDEnabled")
 val audioEffectReverbEnabledKey = booleanPreferencesKey("audioEffectReverbEnabled")

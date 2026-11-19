@@ -2,12 +2,11 @@ package com.jussicodes.music.ui.icons
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
+// Material Icons "toll"（outlined，24dp）官方矢量数据。
 val TablerCoin: ImageVector
     get() {
         if (_TablerCoin != null) {
@@ -20,32 +19,27 @@ val TablerCoin: ImageVector
             viewportWidth = 24f,
             viewportHeight = 24f
         ).apply {
-            path(
-                stroke = SolidColor(Color(0xFF000000)),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round
-            ) {
+            path(fill = SolidColor(Color(0xFF000000))) {
+                moveTo(15f, 4f)
+                curveTo(10.58f, 4f, 7f, 7.58f, 7f, 12f)
+                curveTo(7f, 16.42f, 10.58f, 20f, 15f, 20f)
+                curveTo(19.42f, 20f, 23f, 16.42f, 23f, 12f)
+                curveTo(23f, 7.58f, 19.42f, 4f, 15f, 4f)
+                close()
+                moveTo(15f, 18f)
+                curveTo(11.69f, 18f, 9f, 15.31f, 9f, 12f)
+                curveTo(9f, 8.69f, 11.69f, 6f, 15f, 6f)
+                curveTo(18.31f, 6f, 21f, 8.69f, 21f, 12f)
+                curveTo(21f, 15.31f, 18.31f, 18f, 15f, 18f)
+                close()
                 moveTo(3f, 12f)
-                arcToRelative(9f, 9f, 0f, isMoreThanHalf = true, isPositiveArc = false, 18f, 0f)
-                arcToRelative(9f, 9f, 0f, isMoreThanHalf = true, isPositiveArc = false, -18f, 0f)
-            }
-            path(
-                stroke = SolidColor(Color(0xFF000000)),
-                strokeLineWidth = 2f,
-                strokeLineCap = StrokeCap.Round,
-                strokeLineJoin = StrokeJoin.Round
-            ) {
-                moveTo(14.8f, 9f)
-                arcTo(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = false, 13f, 8f)
-                horizontalLineToRelative(-2f)
-                arcToRelative(2f, 2f, 0f, isMoreThanHalf = true, isPositiveArc = false, 0f, 4f)
-                horizontalLineToRelative(2f)
-                arcToRelative(2f, 2f, 0f, isMoreThanHalf = true, isPositiveArc = true, 0f, 4f)
-                horizontalLineToRelative(-2f)
-                arcToRelative(2f, 2f, 0f, isMoreThanHalf = false, isPositiveArc = true, -1.8f, -1f)
-                moveTo(12f, 7f)
-                verticalLineToRelative(10f)
+                arcTo(5.99f, 5.99f, 0f, false, true, 7f, 6.35f)
+                lineTo(7f, 4.26f)
+                curveTo(3.55f, 5.15f, 1f, 8.27f, 1f, 12f)
+                curveTo(1f, 15.73f, 3.55f, 18.85f, 7f, 19.74f)
+                lineTo(7f, 17.65f)
+                arcTo(5.99f, 5.99f, 0f, false, true, 3f, 12f)
+                close()
             }
         }.build()
 

@@ -26,21 +26,28 @@ import com.rcmiku.ncmapi.model.FavoriteSongResponse
 import com.rcmiku.ncmapi.model.Playlist
 import com.rcmiku.ncmapi.model.UserInfoBatch
 import com.rcmiku.ncmapi.model.UserDetailResponse
+import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.json
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import javax.inject.Inject
 
@@ -53,16 +60,20 @@ private const val LIKED_PLAYLIST_NAME_FRAGMENT = "\u559c\u6b22"
 class LibraryScreenViewModel @Inject constructor(
     @ApplicationContext private val context: Context
 ) : ViewModel() {
-    private val _userInfo = MutableStateFlow<UserInfoBatch?>(null)
-    val userInfo: StateFlow<UserInfoBatch?> = _userInfo.asStateFlow()
+    data class HomeState(
+        val userInfo: UserInfoBatch? = null,
+        val favoriteSong: FavoriteSongResponse? = null,
+        val userPlaylists: List<Playlist> = emptyList()
+    )
 
-    private val _favoriteSong = MutableStateFlow<FavoriteSongResponse?>(null)
-    val favoriteSong: StateFlow<FavoriteSongResponse?> = _favoriteSong.asStateFlow()
-
-    private val _userPlaylists = MutableStateFlow<List<Playlist>>(emptyList())
-    val userPlaylists: StateFlow<List<Playlist>> = _userPlaylists.asStateFlow()
+    private val _homeState = MutableStateFlow(HomeState())
+    val homeState: StateFlow<HomeState> = _homeState.asStateFlow()
+    private val _initialDataPublished = MutableStateFlow(false)
+    val initialDataPublished: StateFlow<Boolean> = _initialDataPublished.asStateFlow()
+    private var cacheLoadGeneration = 0
     private var baseUserPlaylists: List<Playlist> = emptyList()
 
+    private var userInfoJob: Job? = null
     private var lastUserInfoRefreshAt = 0L
     private var lastUserInfoCookieHash = 0
     private var lastUserDetailUid = 0L
@@ -90,27 +101,35 @@ class LibraryScreenViewModel @Inject constructor(
     }
 
     fun fetchUserInfo(cookie: String? = null, force: Boolean = false) {
+        if (!CookieProvider.isLoggedIn()) return
         val now = System.currentTimeMillis()
         val cookieHash = cookie?.hashCode() ?: 0
+        if (!force && userInfoJob?.isActive == true && lastUserInfoCookieHash == cookieHash) return
         val shouldUseCurrentInfo = !force &&
-            _userInfo.value != null &&
+            _homeState.value.userInfo != null &&
             lastUserInfoCookieHash == cookieHash &&
             now - lastUserInfoRefreshAt < USER_INFO_REFRESH_INTERVAL_MS
         if (shouldUseCurrentInfo) return
 
         lastUserInfoRefreshAt = now
         lastUserInfoCookieHash = cookieHash
-        viewModelScope.launch {
+        userInfoJob = viewModelScope.launch {
             refreshUserInfo()
         }
     }
 
     private suspend fun refreshUserInfo() {
-        AccountApi.accountInfo().getOrNull()?.let {
-            _userInfo.value = it
-            context.dataStore.edit { prefs ->
-                prefs[libraryUserInfoCacheKey] = json.encodeToString(it)
-                prefs[userIdKye] = it.account.profile.userId
+        if (!CookieProvider.isLoggedIn()) return
+        val info = withContext(Dispatchers.IO) {
+            AccountApi.accountInfo().getOrNull()
+        }
+        info?.let {
+            _homeState.update { state -> state.copy(userInfo = it) }
+            withContext(Dispatchers.IO) {
+                context.dataStore.edit { prefs ->
+                    prefs[libraryUserInfoCacheKey] = json.encodeToString(it)
+                    prefs[userIdKye] = it.account.profile.userId
+                }
             }
             HomeUserInfoStore.publishUserInfo(it)
             fetchUserDetail(it.account.profile.userId)
@@ -119,52 +138,64 @@ class LibraryScreenViewModel @Inject constructor(
 
     /** 关注/粉丝数：/user/account 不带，走 /user/detail；失败保持上值，UI 侧无数据时不显示数字。 */
     private fun fetchUserDetail(userId: Long) {
-        if (userId <= 0L || userId == lastUserDetailUid) return
+        if (!CookieProvider.isLoggedIn() || userId <= 0L || userId == lastUserDetailUid) return
         lastUserDetailUid = userId
         viewModelScope.launch {
-            val detail = ArtistApi.userDetail(userId).getOrNull()
+            val detail = withContext(Dispatchers.IO) {
+                ArtistApi.userDetail(userId).getOrNull()
+            }
             _userDetail.value = detail
             if (detail != null) HomeUserInfoStore.publishUserDetail(detail)
         }
     }
 
-    private fun fetchFavoriteSong(userId: Long, delayMs: Long = 0L) {
+    private fun fetchFavoriteSong(userId: Long) {
         viewModelScope.launch {
-            if (delayMs > 0L) delay(delayMs)
+            if (!CookieProvider.isLoggedIn() || userId <= 0L) return@launch
             val now = System.currentTimeMillis()
             if (userId == lastFavoriteSongFetchUid && now - lastFavoriteSongFetchAt < PLAYLIST_REFRESH_INTERVAL_MS) {
                 return@launch
             }
-            AccountApi.favoriteSong(userId).getOrNull()?.let {
+            val favoriteSong = withContext(Dispatchers.IO) {
+                AccountApi.favoriteSong(userId).getOrNull()
+            }
+            favoriteSong?.let {
                 lastFavoriteSongFetchUid = userId
                 lastFavoriteSongFetchAt = System.currentTimeMillis()
-                _favoriteSong.value = it
-                context.dataStore.edit { prefs ->
-                    prefs[libraryFavoriteSongCacheKey] = json.encodeToString(it)
+                _homeState.update { state -> state.copy(favoriteSong = it) }
+                withContext(Dispatchers.IO) {
+                    context.dataStore.edit { prefs ->
+                        prefs[libraryFavoriteSongCacheKey] = json.encodeToString(it)
+                    }
                 }
             }
         }
     }
 
-    private fun fetchUserPlaylists(userId: Long, delayMs: Long = 0L) {
+    private fun fetchUserPlaylists(userId: Long) {
         viewModelScope.launch {
-            if (delayMs > 0L) delay(delayMs)
+            if (!CookieProvider.isLoggedIn() || userId <= 0L) return@launch
             val now = System.currentTimeMillis()
             if (userId == lastPlaylistFetchUid && now - lastPlaylistFetchAt < PLAYLIST_REFRESH_INTERVAL_MS) {
                 return@launch
             }
-            val playlists = AccountApi.userPlaylists(userId)
-                .getOrNull()
-                ?.data
-                ?.playlist
-                ?.let(PlaylistCollectionSyncBus::mergeInto)
+            val playlists = withContext(Dispatchers.IO) {
+                AccountApi.userPlaylists(userId)
+                    .getOrNull()
+                    ?.data
+                    ?.playlist
+                    ?.let(PlaylistCollectionSyncBus::mergeInto)
+            }
             if (playlists != null) {
+                val merged = preparePlaylistState(playlists, userId, Dispatchers.IO)
                 lastPlaylistFetchUid = userId
                 lastPlaylistFetchAt = System.currentTimeMillis()
                 baseUserPlaylists = playlists
-                _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
-                context.dataStore.edit { prefs ->
-                    prefs[libraryUserPlaylistsCacheKey] = json.encodeToString(baseUserPlaylists)
+                _homeState.update { state -> state.copy(userPlaylists = merged) }
+                withContext(Dispatchers.IO) {
+                    context.dataStore.edit { prefs ->
+                        prefs[libraryUserPlaylistsCacheKey] = json.encodeToString(playlists)
+                    }
                 }
             }
         }
@@ -190,7 +221,7 @@ class LibraryScreenViewModel @Inject constructor(
         viewModelScope.launch {
             val previousPlaylists = baseUserPlaylists
             baseUserPlaylists = baseUserPlaylists.filterNot { it.id == playlist.id }
-            _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+            _homeState.update { state -> state.copy(userPlaylists = mergeFavoritePlaylistState(baseUserPlaylists)) }
             val success = PlaylistApi.deletePlaylist(playlist.id).isSuccess
             if (success) {
                 saveUserPlaylistsCache()
@@ -198,7 +229,7 @@ class LibraryScreenViewModel @Inject constructor(
                 refreshUserPlaylists()
             } else {
                 baseUserPlaylists = previousPlaylists
-                _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+                _homeState.update { state -> state.copy(userPlaylists = mergeFavoritePlaylistState(baseUserPlaylists)) }
             }
             onResult(success)
         }
@@ -212,7 +243,7 @@ class LibraryScreenViewModel @Inject constructor(
         viewModelScope.launch {
             val previousPlaylists = baseUserPlaylists
             baseUserPlaylists = baseUserPlaylists.filterNot { it.id == playlist.id }
-            _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+            _homeState.update { state -> state.copy(userPlaylists = mergeFavoritePlaylistState(baseUserPlaylists)) }
             val success = PlaylistApi.playlistSub(id = playlist.id, isSub = false).isSuccess
             if (success) {
                 PlaylistCollectionSyncBus.setCollected(playlist, false)
@@ -221,7 +252,7 @@ class LibraryScreenViewModel @Inject constructor(
                 refreshUserPlaylists()
             } else {
                 baseUserPlaylists = previousPlaylists
-                _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+                _homeState.update { state -> state.copy(userPlaylists = mergeFavoritePlaylistState(baseUserPlaylists)) }
             }
             onResult(success)
         }
@@ -244,7 +275,7 @@ class LibraryScreenViewModel @Inject constructor(
             baseUserPlaylists = baseUserPlaylists.map { item ->
                 if (item.id == playlist.id) updatedPlaylist else item
             }
-            _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+            _homeState.update { state -> state.copy(userPlaylists = mergeFavoritePlaylistState(baseUserPlaylists)) }
 
             val nameSuccess = if (playlist.name != trimmedName) {
                 PlaylistApi.updatePlaylistName(playlist.id, trimmedName).isSuccess
@@ -263,7 +294,7 @@ class LibraryScreenViewModel @Inject constructor(
                 refreshUserPlaylists()
             } else {
                 baseUserPlaylists = previousPlaylists
-                _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+                _homeState.update { state -> state.copy(userPlaylists = mergeFavoritePlaylistState(baseUserPlaylists)) }
             }
             onResult(success)
         }
@@ -287,20 +318,20 @@ class LibraryScreenViewModel @Inject constructor(
             val orderedIds = orderedCreatedPlaylists.map { it.id }
             val orderedById = orderedCreatedPlaylists.associateBy { it.id }
             val remainingCreated = baseUserPlaylists.filter { item ->
-                item.id !in orderedIds && item.creator?.userId == _userInfo.value?.account?.profile?.userId && !item.subscribed
+                item.id !in orderedIds && item.creator?.userId == _homeState.value.userInfo?.account?.profile?.userId && !item.subscribed
             }
             val others = baseUserPlaylists.filterNot { item ->
                 item.id in orderedIds || item in remainingCreated
             }
             baseUserPlaylists = others + orderedIds.mapNotNull(orderedById::get) + remainingCreated
-            _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+            _homeState.update { state -> state.copy(userPlaylists = mergeFavoritePlaylistState(baseUserPlaylists)) }
             val success = PlaylistApi.updatePlaylistOrder(orderedIds).isSuccess
             if (success) {
                 saveUserPlaylistsCache()
                 invalidateUserPlaylistCache()
             } else {
                 baseUserPlaylists = previousPlaylists
-                _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+                _homeState.update { state -> state.copy(userPlaylists = mergeFavoritePlaylistState(baseUserPlaylists)) }
             }
             onResult(success)
         }
@@ -313,16 +344,16 @@ class LibraryScreenViewModel @Inject constructor(
         val orderedById = orderedCollectedPlaylists.associateBy { it.id }
         val others = baseUserPlaylists.filterNot { it.id in orderedIds }
         baseUserPlaylists = others + orderedIds.mapNotNull(orderedById::get)
-        _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+        _homeState.update { state -> state.copy(userPlaylists = mergeFavoritePlaylistState(baseUserPlaylists)) }
         onResult(true)
     }
 
     private fun invalidateUserPlaylistCache() {
-        AccountApi.invalidateUserPlaylistCache(_userInfo.value?.account?.profile?.userId)
+        AccountApi.invalidateUserPlaylistCache(_homeState.value.userInfo?.account?.profile?.userId)
     }
 
     private fun refreshUserPlaylists() {
-        val userId = _userInfo.value?.account?.profile?.userId ?: return
+        val userId = _homeState.value.userInfo?.account?.profile?.userId ?: return
         lastPlaylistFetchAt = 0L
         fetchUserPlaylists(userId)
     }
@@ -369,8 +400,8 @@ class LibraryScreenViewModel @Inject constructor(
             onResult(false, "昵称不能为空")
             return
         }
-        val previous = _userInfo.value
-        // 只发起请求；成功刷新（refreshUserInfo 会重拉并更新 _userInfo），失败回滚到提交前快照。
+        val previous = _homeState.value.userInfo
+        // 只发起请求；成功刷新（refreshUserInfo 会重拉并更新首页状态），失败回滚到提交前快照。
         viewModelScope.launch {
             val resp: Result<ApiCodeResponse> =
                 apiGet<ApiCodeResponse>(
@@ -386,7 +417,7 @@ class LibraryScreenViewModel @Inject constructor(
                 refreshUserInfo()
                 onResult(true, null)
             } else {
-                if (previous != null) _userInfo.value = previous
+                if (previous != null) _homeState.update { it.copy(userInfo = previous) }
                 val msg = body?.message ?: body?.msg
                     ?: resp.exceptionOrNull()?.message ?: "更新失败"
                 onResult(false, msg)
@@ -402,7 +433,7 @@ class LibraryScreenViewModel @Inject constructor(
             current.filterNot { it.id == event.playlist.id }
         }
         baseUserPlaylists = updated
-        _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+        _homeState.update { state -> state.copy(userPlaylists = mergeFavoritePlaylistState(baseUserPlaylists)) }
         viewModelScope.launch {
             context.dataStore.edit { prefs ->
                 prefs[libraryUserPlaylistsCacheKey] = json.encodeToString(baseUserPlaylists)
@@ -411,7 +442,7 @@ class LibraryScreenViewModel @Inject constructor(
     }
 
     private fun applyFavoriteSongEvent(event: FavoriteSongSyncBus.Event) {
-        _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+        _homeState.update { state -> state.copy(userPlaylists = mergeFavoritePlaylistState(baseUserPlaylists)) }
     }
 
     private fun isFavoritePlaylist(playlist: Playlist, userId: Long): Boolean {
@@ -422,24 +453,41 @@ class LibraryScreenViewModel @Inject constructor(
             playlist.name.contains(LIKED_PLAYLIST_NAME_FRAGMENT))
     }
 
-    private fun mergeFavoritePlaylistState(playlists: List<Playlist>): List<Playlist> {
-        val userId = _userInfo.value?.account?.profile?.userId ?: 0L
+    private fun mergeFavoritePlaylistState(
+        playlists: List<Playlist>,
+        userId: Long = _homeState.value.userInfo?.account?.profile?.userId ?: 0L,
+        songCount: Int = favoriteSongCount
+    ): List<Playlist> {
         return playlists.map { playlist ->
             if (isFavoritePlaylist(playlist, userId)) {
-                FavoriteSongSyncBus.mergeIntoFavoritePlaylist(playlist, favoriteSongCount)
+                FavoriteSongSyncBus.mergeIntoFavoritePlaylist(playlist, songCount)
             } else {
                 playlist
             }
         }
     }
 
+    private suspend fun preparePlaylistState(
+        playlists: List<Playlist>,
+        userId: Long,
+        dispatcher: CoroutineDispatcher
+    ): List<Playlist> {
+        // 后台转换期间喜欢数量可能已回流，按最新数量重算后再发布。
+        while (true) {
+            val count = favoriteSongCount
+            val merged = withContext(dispatcher) {
+                mergeFavoritePlaylistState(playlists, userId, count)
+            }
+            if (count == favoriteSongCount) return merged
+        }
+    }
+
     fun clear() {
-        _userInfo.value = null
-        _favoriteSong.value = null
+        cacheLoadGeneration++
+        _homeState.value = HomeState()
         _userDetail.value = null
         lastUserDetailUid = 0L
         baseUserPlaylists = emptyList()
-        _userPlaylists.value = emptyList()
         lastUserInfoRefreshAt = 0L
         lastUserInfoCookieHash = 0
         viewModelScope.launch {
@@ -450,35 +498,46 @@ class LibraryScreenViewModel @Inject constructor(
     }
 
     private suspend fun loadCachedLibrary() {
-        val prefs = context.dataStore.data.first()
-        _userInfo.value = decodeCache(prefs[libraryUserInfoCacheKey])
-        _favoriteSong.value = decodeCache(prefs[libraryFavoriteSongCacheKey])
-        baseUserPlaylists = decodeCache<List<Playlist>>(prefs[libraryUserPlaylistsCacheKey]).orEmpty()
-        _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
-    }
-
-    private inline fun <reified T> decodeCache(cache: String?): T? {
-        return runCatching {
-            cache?.takeIf { it.isNotBlank() }?.let { json.decodeFromString<T>(it) }
-        }.getOrNull()
+        val generation = cacheLoadGeneration
+        val initialState = _homeState.value
+        val libraryCache = withContext(Dispatchers.Default) {
+            HomeUserInfoStore.awaitLibraryCache(context.dataStore.data.first())
+        }
+        val cached = HomeState(
+            userInfo = HomeUserInfoStore.userInfo.value,
+            favoriteSong = libraryCache.favoriteSong,
+            userPlaylists = libraryCache.userPlaylists
+        )
+        val merged = preparePlaylistState(
+            cached.userPlaylists,
+            cached.userInfo?.account?.profile?.userId ?: 0L,
+            Dispatchers.Default
+        )
+        // 避免后台解码晚到，覆盖退出登录或已经发布的网络结果。
+        if (generation == cacheLoadGeneration && _homeState.value == initialState) {
+            baseUserPlaylists = cached.userPlaylists
+            _homeState.value = cached.copy(userPlaylists = merged)
+        }
+        // 网络先返回或已退出登录时，当前状态也已经可供首屏展示。
+        _initialDataPublished.value = true
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun observeUserIdChanges() {
         viewModelScope.launch {
-            userInfo
-                .mapLatest { it?.account?.profile?.userId }
+            homeState
+                .mapLatest { it.userInfo?.account?.profile?.userId }
                 .distinctUntilChanged()
                 .collectLatest { userId ->
                     if (userId == null) {
-                        _favoriteSong.value = null
                         baseUserPlaylists = emptyList()
-                        _userPlaylists.value = emptyList()
+                        _homeState.update { it.copy(favoriteSong = null, userPlaylists = emptyList()) }
                     } else {
                         // 若本地已有缓存铺底，延迟 1800ms 错峰刷新，让出冷启动黄金渲染期；无缓存则立即可见
                         val staggerDelay = if (baseUserPlaylists.isNotEmpty()) 1800L else 0L
-                        fetchFavoriteSong(userId, staggerDelay)
-                        fetchUserPlaylists(userId, staggerDelay)
+                        delay(staggerDelay)
+                        fetchFavoriteSong(userId)
+                        fetchUserPlaylists(userId)
                     }
                 }
         }
@@ -489,8 +548,10 @@ class LibraryScreenViewModel @Inject constructor(
             context.dataStore.data
                 .map { it[libraryPlaylistRefreshTokenKey] }
                 .distinctUntilChanged()
+                // 首次值仅建立基线；启动刷新统一由用户 uid 入口调度。
+                .drop(1)
                 .collectLatest {
-                    val userId = _userInfo.value?.account?.profile?.userId ?: return@collectLatest
+                    val userId = _homeState.value.userInfo?.account?.profile?.userId ?: return@collectLatest
                     fetchUserPlaylists(userId)
                 }
         }
@@ -519,7 +580,7 @@ class LibraryScreenViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collectLatest { count ->
                     favoriteSongCount = count
-                    _userPlaylists.value = mergeFavoritePlaylistState(baseUserPlaylists)
+                    _homeState.update { state -> state.copy(userPlaylists = mergeFavoritePlaylistState(baseUserPlaylists)) }
                 }
         }
     }

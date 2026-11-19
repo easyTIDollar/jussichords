@@ -1,6 +1,7 @@
 ﻿package com.jussicodes.music.ui.components
 
 import android.content.Intent
+import android.os.Bundle
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -57,6 +58,13 @@ import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.R
 import com.jussicodes.music.constants.audioSourceKey
 import com.jussicodes.music.constants.directSourceKey
+import com.jussicodes.music.constants.MediaSessionConstants
+import com.jussicodes.music.constants.userIdKye
+import com.jussicodes.music.extensions.playMediaAt
+import com.jussicodes.music.extensions.setPlaylist
+import com.jussicodes.music.extensions.currentMediaItems
+import com.jussicodes.music.playback.IntelligenceQueueSnapshot
+import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.playback.ListenTogetherSession
 import com.jussicodes.music.playback.PlaybackPathOverlayService
 import com.jussicodes.music.lyric.DesktopLyricManager
@@ -71,8 +79,11 @@ import com.jussicodes.music.playback.audio.AudioEffectMode
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.jussicodes.music.ui.icons.MusicNote
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.Dns
+import com.jussicodes.music.ui.icons.Heartbeat
 import com.jussicodes.music.ui.icons.GraphicEq
 import com.jussicodes.music.ui.icons.Headphones
 import com.jussicodes.music.ui.icons.Timelapse
@@ -84,6 +95,8 @@ import com.jussicodes.music.ui.components.audioSourceOptions
 import com.jussicodes.music.lx.AudioSourceSwitcher
 import com.rcmiku.ncmapi.api.AudioSources
 import com.rcmiku.ncmapi.api.LocalSources
+import com.rcmiku.ncmapi.api.account.AccountApi
+import com.rcmiku.ncmapi.api.recommend.RecommendApi
 import com.rcmiku.ncmapi.model.Song
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
@@ -122,6 +135,95 @@ fun PlayerMenuBottomSheet(
     }
     val playerState = LocalPlayerState.current
     val mediaController = LocalPlayerController.current.controller
+    // 是否处于心动模式：以当前 media item 的来源标记为准（和顶部来源标签同源），
+    // 不用额外的持久化状态，重启恢复队列后依然能正确显示。
+    val intelligenceActive = playerState?.currentMediaItem?.mediaMetadata?.extras
+        ?.getString(MediaSessionConstants.EXTRA_SOURCE_TYPE) ==
+        MediaSessionConstants.SOURCE_TYPE_INTELLIGENCE
+    // 整行点击 = 开/关心动模式；右侧文本只做状态指示，不承载任何动作。
+    // 开启时暂存原队列并直接播推荐歌，关闭时还原原队列并播回原来那首歌。
+    val onIntelligenceClick: () -> Unit = {
+        onDismiss()
+        coroutineScope.launch {
+            if (intelligenceActive) {
+                // 关闭：优先还原进入前的队列；重启后没有快照就只摘掉来源标记。
+                try {
+                    val controller = mediaController ?: error("播放器尚未就绪")
+                    val snapshot = IntelligenceQueueSnapshot.take()
+                    if (snapshot != null) {
+                        val (items, index) = snapshot
+                        controller.setMediaItems(items, index.coerceIn(0, items.lastIndex), 0L)
+                        controller.prepare()
+                        controller.play()
+                    } else {
+                        val item = controller.currentMediaItem
+                        if (item != null) {
+                            val metadata = item.mediaMetadata
+                            val extras = metadata.extras?.let { Bundle(it) }?.apply {
+                                remove(MediaSessionConstants.EXTRA_SOURCE_TYPE)
+                                remove(MediaSessionConstants.EXTRA_SOURCE_NAME)
+                            }
+                            controller.replaceMediaItem(
+                                controller.currentMediaItemIndex,
+                                item.buildUpon()
+                                    .setMediaMetadata(metadata.buildUpon().setExtras(extras).build())
+                                    .build()
+                            )
+                        }
+                    }
+                    Toast.makeText(context, "已关闭心动模式", Toast.LENGTH_SHORT).show()
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    Toast.makeText(context, error.message ?: "关闭心动模式失败", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
+            try {
+                val controller = mediaController ?: error("播放器尚未就绪")
+                val song = currentSong
+                if (song == null) {
+                    Toast.makeText(context, "请先播放一首歌曲", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                val uid = context.dataStore.data.first()[userIdKye]?.takeIf { it > 0 }
+                if (uid == null) {
+                    Toast.makeText(context, "请先登录", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                val playlists = AccountApi.userPlaylists(uid).getOrThrow()
+                // 收藏别人的红心歌单时 specialType 同样是 5，因此优先校验 creator 是否为当前用户。
+                val playlistId = playlists.data.playlist
+                    .firstOrNull { it.creator?.userId == uid && it.specialType == 5 && it.id > 0 }?.id
+                    ?: playlists.data.playlist.firstOrNull { it.specialType == 5 && it.id > 0 }?.id
+                    ?: error("未找到「我喜欢的音乐」歌单")
+                val recommendations = RecommendApi.intelligenceSongs(song.id, playlistId)
+                    .getOrThrow().data.mapNotNull { it.songInfo }.filter { it.id > 0 }
+                if (recommendations.isEmpty()) {
+                    Toast.makeText(context, "心动模式推荐为空", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                // 换队列之前先把原队列存起来，菜单里再点一次才能退回去。
+                IntelligenceQueueSnapshot.save(
+                    controller.currentMediaItems,
+                    controller.currentMediaItemIndex
+                )
+                // 队列首位保留当前歌、推荐歌紧随其后：进入心动模式直接跳到推荐第一首，
+                // 也就是从当前歌「切到心动队列的下一首」；退出时按快照还原并播回原歌。
+                val queue = (listOf(song) + recommendations).distinctBy { it.id }
+                controller.setPlaylist(
+                    songs = queue,
+                    sourceName = "心动模式",
+                    sourceType = MediaSessionConstants.SOURCE_TYPE_INTELLIGENCE,
+                    navId = 0L
+                )
+                controller.playMediaAt(if (queue.size > 1) 1 else 0)
+                Toast.makeText(context, "已开启心动模式", Toast.LENGTH_SHORT).show()
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                Toast.makeText(context, error.message ?: "开启心动模式失败", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     val isSleepTimerSet = playerState?.isSleepTimerSet == true
     val shuffleMode = playerState?.shuffleModeEnabled == true
     val repeatMode = playerState?.repeatMode ?: 0
@@ -280,7 +382,9 @@ fun PlayerMenuBottomSheet(
                                 } else {
                                     timePicker = true
                                 }
-                            }
+                            },
+                            intelligenceActive = intelligenceActive,
+                            onIntelligenceClick = onIntelligenceClick
                         )
                         MenuSectionLabel("音频")
                         AudioMenuSection(
@@ -352,7 +456,9 @@ fun PlayerMenuBottomSheet(
                                     } else {
                                         timePicker = true
                                     }
-                                }
+                                },
+                                intelligenceActive = intelligenceActive,
+                                onIntelligenceClick = onIntelligenceClick
                             )
                         }
                     }
@@ -555,7 +661,7 @@ fun PlayerMenuBottomSheet(
 }
 
 /**
- * 「播放」分组：一起听 / 播放模式（随机+循环合并）/ 定时播放。
+ * 「播放」分组：一起听 / 播放模式（随机+循环合并）/ 心动模式 / 定时播放。
  *
  * 竖屏是纵向一栏，横屏是左栏的一半 —— 两种形态复用同一份行定义。
  */
@@ -570,6 +676,8 @@ private fun PlaybackMenuSection(
     isSleepTimerSet: Boolean,
     remainingTimeText: String?,
     onSleepTimerClick: () -> Unit,
+    intelligenceActive: Boolean,
+    onIntelligenceClick: () -> Unit,
 ) {
     MenuGroupContainer {
         MenuRow(
@@ -587,6 +695,14 @@ private fun PlaybackMenuSection(
             value = playbackModeText,
             iconAlpha = if (playbackModeActive) 1f else 0.4f,
             onClick = onPlaybackModeClick
+        )
+        MenuDivider()
+        MenuRow(
+            icon = Heartbeat,
+            title = "心动模式",
+            value = if (intelligenceActive) "已开启" else "已关闭",
+            iconAlpha = if (intelligenceActive) 1f else 0.4f,
+            onClick = onIntelligenceClick
         )
         MenuDivider()
         MenuRow(

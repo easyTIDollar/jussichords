@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
@@ -77,12 +76,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaMetadata
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
-import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.R
-import com.jussicodes.music.constants.ThumbnailCornerRadius
 import com.jussicodes.music.constants.isLandscapePhone
 import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.data.favoriteSongIdsDatastore
@@ -131,7 +130,6 @@ fun AlbumScreen(
     val listState = rememberLazyListState()
     val showAlbumTitle by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
     var playlistTitle by remember { mutableStateOf("") }
-    val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
     val isPlaying = playerState?.isPlaying == true
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
@@ -354,10 +352,11 @@ fun AlbumScreen(
                                 modifier = Modifier
                                     .sharedElement(
                                         sharedTransitionScope.rememberSharedContentState(key = album.id),
-                                        animatedVisibilityScope = animatedContentScope
+                                        animatedVisibilityScope = animatedContentScope,
+                                        clipInOverlayDuringTransition = OverlayClip(SharedArtworkShape),
                                     )
                                     .fillMaxSize()
-                                    .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                    .clip(SharedArtworkShape)
                                     .clickable {
                                         previewCoverUrl = album.picUrl.toCoverImageUrl(CoverImageSize.LARGE)
                                     }
@@ -398,26 +397,30 @@ fun AlbumScreen(
                     },
                     onShare = { sharePayload = SharePayload.AlbumShare(album) },
                     onPlayAll = {
-                        mediaController?.setPlaylist(
-                            detail.songs,
-                            sourceId = album.id,
-                            sourceName = album.name,
-                            sourceType = MediaSessionConstants.SOURCE_TYPE_ALBUM,
-                            navId = album.id
-                        )
-                        mediaController?.playMediaAt()
+                        PlayerController.withController { mediaController ->
+                            mediaController.setPlaylist(
+                                detail.songs,
+                                sourceId = album.id,
+                                sourceName = album.name,
+                                sourceType = MediaSessionConstants.SOURCE_TYPE_ALBUM,
+                                navId = album.id
+                            )
+                            mediaController.playMediaAt()
+                        }
                     },
                     onComments = { openAlbumComments = true },
                     onDownloadAll = { triggerDownloadAlbum(albumSongs) },
                     onSongClick = { song ->
-                        mediaController?.setPlaylist(
-                            detail.songs,
-                            sourceId = album.id,
-                            sourceName = album.name,
-                            sourceType = MediaSessionConstants.SOURCE_TYPE_ALBUM,
-                            navId = album.id
-                        )
-                        mediaController?.playMediaAtId(song.id)
+                        PlayerController.withController { mediaController ->
+                            mediaController.setPlaylist(
+                                detail.songs,
+                                sourceId = album.id,
+                                sourceName = album.name,
+                                sourceType = MediaSessionConstants.SOURCE_TYPE_ALBUM,
+                                navId = album.id
+                            )
+                            mediaController.playMediaAtId(song.id)
+                        }
                     },
                     onSongMenu = { song ->
                         selectSong = song
@@ -448,10 +451,11 @@ fun AlbumScreen(
                                     modifier = Modifier
                                         .sharedElement(
                                             sharedTransitionScope.rememberSharedContentState(key = detail.album.id),
-                                            animatedVisibilityScope = animatedContentScope
+                                            animatedVisibilityScope = animatedContentScope,
+                                            clipInOverlayDuringTransition = OverlayClip(SharedArtworkShape),
                                         )
                                         .size(200.dp)
-                                        .clip(RoundedCornerShape(ThumbnailCornerRadius))
+                                        .clip(SharedArtworkShape)
                                         .clickable {
                                             previewCoverUrl = detail.album.picUrl.toCoverImageUrl(
                                                 CoverImageSize.LARGE
@@ -523,14 +527,16 @@ fun AlbumScreen(
                                 }
                                 Button(
                                     onClick = {
-                                        mediaController?.setPlaylist(
-                                            detail.songs,
-                                            sourceId = detail.album.id,
-                                            sourceName = detail.album.name,
-                                            sourceType = MediaSessionConstants.SOURCE_TYPE_ALBUM,
-                                            navId = detail.album.id
-                                        )
-                                        mediaController?.playMediaAt()
+                                        PlayerController.withController { mediaController ->
+                                            mediaController.setPlaylist(
+                                                detail.songs,
+                                                sourceId = detail.album.id,
+                                                sourceName = detail.album.name,
+                                                sourceType = MediaSessionConstants.SOURCE_TYPE_ALBUM,
+                                                navId = detail.album.id
+                                            )
+                                            mediaController.playMediaAt()
+                                        }
                                     },
                                     contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
                                     modifier = Modifier.weight(1f)
@@ -565,14 +571,16 @@ fun AlbumScreen(
                         song = song,
                         albumIndex = albumIndexById[song.id],
                         modifier = Modifier.clickable {
-                            mediaController?.setPlaylist(
-                                detail.songs,
-                                sourceId = detail.album.id,
-                                sourceName = detail.album.name,
-                                sourceType = MediaSessionConstants.SOURCE_TYPE_ALBUM,
-                                navId = detail.album.id
-                            )
-                            mediaController?.playMediaAtId(song.id)
+                            PlayerController.withController { mediaController ->
+                                mediaController.setPlaylist(
+                                    detail.songs,
+                                    sourceId = detail.album.id,
+                                    sourceName = detail.album.name,
+                                    sourceType = MediaSessionConstants.SOURCE_TYPE_ALBUM,
+                                    navId = detail.album.id
+                                )
+                                mediaController.playMediaAtId(song.id)
+                            }
                         },
                         trailingContent = {
                             IconButton(onClick = {

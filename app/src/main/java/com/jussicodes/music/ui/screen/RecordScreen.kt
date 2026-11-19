@@ -27,7 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
-import com.jussicodes.music.LocalPlayerController
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.MiniPlayerHeight
@@ -53,7 +53,6 @@ fun RecordScreen(
 ) {
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { 2 })
     val songRecord by recordScreenViewModel.songRecord.collectAsState()
-    val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
     val isPlaying = playerState?.isPlaying == true
     val currentMediaId = playerState?.currentMediaItem?.mediaId?.toLongOrNull()
@@ -110,13 +109,15 @@ fun RecordScreen(
                         isActive = currentMediaId == item.song.id,
                         songIndex = index + 1,
                         modifier = Modifier.clickable {
-                            mediaController?.setPlaylist(
-                                data.map { it.song },
-                                sourceName = "听歌排行",
-                                sourceType = MediaSessionConstants.SOURCE_TYPE_RECORD,
-                                navId = recordScreenViewModel.navUid ?: 0L
-                            )
-                            mediaController?.playMediaAtId(item.song.id)
+                            PlayerController.withController { mediaController ->
+                                mediaController.setPlaylist(
+                                    data.map { it.song },
+                                    sourceName = "听歌排行",
+                                    sourceType = MediaSessionConstants.SOURCE_TYPE_RECORD,
+                                    navId = recordScreenViewModel.navUid ?: 0L
+                                )
+                                mediaController.playMediaAtId(item.song.id)
+                            }
                         },
                         trailingContent = {
                             Text(

@@ -55,6 +55,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.viewModel.UserFollowScreenViewModel
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
@@ -488,7 +489,7 @@ private fun UserPlaylistRow(
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 filterQuality = FilterQuality.High,
-                modifier = Modifier.clip(MaterialTheme.shapes.medium).size(52.dp)
+                modifier = Modifier.clip(SharedArtworkShape).size(52.dp)
             )
             Column(
                 modifier = Modifier.padding(start = 10.dp).weight(1f),

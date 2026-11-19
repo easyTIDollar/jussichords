@@ -83,6 +83,7 @@ import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import com.jussicodes.music.R
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.playback.PlayerController
 import com.jussicodes.music.constants.MediaSessionConstants
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.extensions.playMediaAt
@@ -96,7 +97,9 @@ import kotlinx.coroutines.launch
 import com.jussicodes.music.data.HomeBgTextStore
 import com.jussicodes.music.data.HomeTransparentCardStore
 import com.jussicodes.music.data.HomeUserInfoStore
+import com.jussicodes.music.MainActivity
 import com.jussicodes.music.data.NcmCookieStore
+import com.jussicodes.music.ui.components.findActivity
 import com.jussicodes.music.data.PinnedAlbumStore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -123,6 +126,8 @@ import com.jussicodes.music.ui.icons.PlaylistAdd
 import com.jussicodes.music.ui.icons.VipFill
 import com.jussicodes.music.ui.navigation.AlbumNav
 import com.jussicodes.music.ui.navigation.PlaylistNav
+import com.jussicodes.music.animation.SharedArtworkShape
+import com.jussicodes.music.animation.navSharedElementModifier
 import com.jussicodes.music.ui.navigation.RecordNav
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.navigation.UserFollowNav
@@ -132,6 +137,7 @@ import com.jussicodes.music.utils.PlaylistCoverSyncBus
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.utils.withAvatarCacheBuster
 import com.jussicodes.music.utils.withPlaylistCoverCacheBuster
+import com.jussicodes.music.utils.prefetchDetailCover
 import com.jussicodes.music.viewModel.LibraryScreenViewModel
 import com.rcmiku.ncmapi.model.Album
 import com.rcmiku.ncmapi.model.Playlist
@@ -150,7 +156,8 @@ private const val PLAYLIST_COVER_UPLOAD_SIZE = 300
 @Composable
 fun LibraryScreen(
     navController: NavHostController,
-    libraryScreenViewModel: LibraryScreenViewModel = hiltViewModel()
+    libraryScreenViewModel: LibraryScreenViewModel = hiltViewModel(),
+    sharedElementEnabled: Boolean = false
 ) {
     // cookie 读进程级 NcmCookieStore（Application watcher 从 DataStore 灌值）：
     // 本 Screen 每次"探索划回主页"都随路由切换整块重组，rememberNullablePreference
@@ -164,8 +171,8 @@ fun LibraryScreen(
     var isStartingRoam by remember { mutableStateOf(false) }
 
     fun launchPersonalFm() {
-        val player = playerState?.player ?: return
-        val currentSourceName = playerState.currentMediaItem?.mediaMetadata?.extras
+        val player = playerState?.player
+        val currentSourceName = playerState?.currentMediaItem?.mediaMetadata?.extras
             ?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME)
         val isPersonalFm = currentSourceName == PERSONAL_FM_SOURCE
         // 必须是「这一次前台会话里拉的这批」才算已经在放私人 FM。
@@ -174,7 +181,7 @@ fun LibraryScreen(
         val isPersonalFmThisSession = isPersonalFm &&
             PersonalFmQueueLoader.lastLoadSessionId == AppSessionClock.sessionId
 
-        if (isPersonalFmThisSession && player.currentMediaItem != null) {
+        if (isPersonalFmThisSession && player?.currentMediaItem != null) {
             PlayerExpandBus.expand()
             return
         }
@@ -182,6 +189,7 @@ fun LibraryScreen(
         isStartingRoam = true
         coroutineScope.launch {
             try {
+                val player = PlayerController.awaitController()
                 PersonalFmQueueLoader.load().onSuccess { songs ->
                     if (songs.isNotEmpty()) {
                         // 接口偶尔会重复吐当前队列里的歌：先剔除，全被剔掉才退回原批，
@@ -203,22 +211,36 @@ fun LibraryScreen(
                         PlayerExpandBus.expand()
                     }
                 }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Toast.makeText(
+                    com.jussicodes.music.JetMeloApp.context,
+                    "私人 FM 启动失败，请重试",
+                    Toast.LENGTH_SHORT
+                ).show()
             } finally {
                 isStartingRoam = false
             }
         }
     }
-    val userInfoBatchState by libraryScreenViewModel.userInfo.collectAsState()
+    val homeState by libraryScreenViewModel.homeState.collectAsState()
+    val userInfoBatchState = homeState.userInfo
     // 信息卡内容走进程级 store（PinnedAlbumStore 同款）：VM 的 collectAsState 首帧可能出 null
     // （userInfo 门控整卡 / userDetail 无缓存恒 null）→ 切 tab 重组闪一下；进程级首帧即真值。
     val homeUserInfo = HomeUserInfoStore.userInfo.collectAsState().value
     val homeUserDetail = HomeUserInfoStore.userDetail.collectAsState().value
-    val favoriteSongState by libraryScreenViewModel.favoriteSong.collectAsState()
-    val userPlaylists by libraryScreenViewModel.userPlaylists.collectAsState()
+    val userPlaylists = homeState.userPlaylists
     val isAvatarUploading by libraryScreenViewModel.isAvatarUploading.collectAsState()
     val avatarCacheVersion by libraryScreenViewModel.avatarCacheVersion.collectAsState()
     val playlistCoverVersions by PlaylistCoverSyncBus.versions.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val initialDataPublished by libraryScreenViewModel.initialDataPublished.collectAsState()
+    LaunchedEffect(initialDataPublished, ncmCookie) {
+        if (initialDataPublished && ncmCookie != null) {
+            (context.findActivity() as? MainActivity)?.reportHomeFullyDrawn()
+        }
+    }
     var showAvatarDialog by remember { mutableStateOf(false) }
     var selectedAvatarUri by remember { mutableStateOf<Uri?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
@@ -335,9 +357,10 @@ fun LibraryScreen(
         containerColor = androidx.compose.ui.graphics.Color.Transparent,
         topBar = { TopBar(navController = navController, titleRes = R.string.mine, transparent = true, contentColor = bgTextColor) }
     ) { padding ->
-        // 未登录（cookie 键不存在 / 空串）都显示「点击登录」卡片；
-        // 原先键不存在（全新安装/从未登录过）走空 Box，登录提示整页看不见。
-        if (ncmCookie == null || ncmCookie?.isEmpty() == true) {
+        // null 是恢复中；读到不存在的键或空串后才显示未登录提示。
+        if (ncmCookie == null) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding))
+        } else if (ncmCookie?.isEmpty() == true) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -449,6 +472,7 @@ fun LibraryScreen(
                         FavoritePlaylistCard(
                             playlist = playlist,
                             coverVersion = playlistCoverVersions[playlist.id] ?: 0L,
+                            sharedElementEnabled = sharedElementEnabled,
                             onCreatePlaylistClick = { showCreatePlaylistDialog = true },
                             onClick = {
                                 navController.navigate(
@@ -468,8 +492,10 @@ fun LibraryScreen(
                             title = stringResource(R.string.create_playlist),
                             playlists = createdPlaylists,
                             coverVersions = playlistCoverVersions,
+                            sharedElementEnabled = sharedElementEnabled,
                             showDividers = false,
                             onPlaylistClick = { playlist ->
+                                prefetchDetailCover(context, playlist.picUrl)
                                 navController.navigate(
                                     PlaylistNav(
                                         playlistId = playlist.id,
@@ -515,6 +541,7 @@ fun LibraryScreen(
                             title = stringResource(R.string.collect_playlist),
                             playlists = collectedPlaylists,
                             coverVersions = playlistCoverVersions,
+                            sharedElementEnabled = sharedElementEnabled,
                             showDividers = false,
                             reorderEnabled = true,
                             onPlaylistOrderChanged = { playlists ->
@@ -546,8 +573,12 @@ fun LibraryScreen(
                 item {
                     if (pinnedAlbumsHidden == false) {
                         PinnedAlbumsCard(
-                            onOpenAlbum = { album -> navController.navigate(AlbumNav(albumId = album.id)) },
-                            onAddClick = { showPinnedAlbumPickDialog = true }
+                            onOpenAlbum = { album ->
+                                prefetchDetailCover(context, album.picUrl)
+                                navController.navigate(AlbumNav(albumId = album.id))
+                            },
+                            onAddClick = { showPinnedAlbumPickDialog = true },
+                            sharedElementEnabled = sharedElementEnabled
                         )
                     }
                 }
@@ -687,7 +718,7 @@ fun LibraryScreen(
                         modifier = Modifier
                             .align(Alignment.CenterHorizontally)
                             .size(260.dp)
-                            .clip(MaterialTheme.shapes.large)
+                            .clip(SharedArtworkShape)
                             .background(MaterialTheme.colorScheme.surfaceVariant)
                             .pointerInput(uri) {
                                 detectTransformGestures { _, pan, zoom, _ ->
@@ -1307,12 +1338,13 @@ private fun Uri.copyToSquareImageCache(
 private fun FavoritePlaylistCard(
     playlist: Playlist,
     coverVersion: Long,
+    sharedElementEnabled: Boolean,
     onCreatePlaylistClick: () -> Unit,
     onClick: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = SharedArtworkShape,
         colors = CardDefaults.cardColors(
             containerColor = transparentCardColor(),
             contentColor = MaterialTheme.colorScheme.onSurface
@@ -1324,6 +1356,7 @@ private fun FavoritePlaylistCard(
                 subtitle = stringResource(R.string.track_count, playlist.trackCount),
                 coverUrl = playlist.picUrl,
                 coverVersion = coverVersion,
+                sharedKey = if (sharedElementEnabled) playlist.id else null,
                 trailingContent = {
                     IconButton(onClick = onCreatePlaylistClick) {
                         androidx.compose.material3.Icon(
@@ -1342,6 +1375,7 @@ private fun PlaylistGroupCard(
     title: String,
     playlists: List<Playlist>,
     coverVersions: Map<Long, Long>,
+    sharedElementEnabled: Boolean,
     showDividers: Boolean = true,
     onPlaylistClick: (Playlist) -> Unit,
     menuItems: List<PlaylistMenuItem>,
@@ -1388,6 +1422,7 @@ private fun PlaylistGroupCard(
                             LibraryPlaylistRow(
                                 playlist = playlist,
                                 coverVersion = coverVersions[playlist.id] ?: 0L,
+                                sharedElementEnabled = sharedElementEnabled,
                                 menuItems = menuItems,
                                 reorderEnabled = true,
                                 dragModifier = Modifier.longPressDraggableHandle(
@@ -1411,6 +1446,7 @@ private fun PlaylistGroupCard(
                         LibraryPlaylistRow(
                             playlist = playlist,
                             coverVersion = coverVersions[playlist.id] ?: 0L,
+                            sharedElementEnabled = sharedElementEnabled,
                             menuItems = menuItems,
                             reorderEnabled = false,
                             onClick = { onPlaylistClick(playlist) }
@@ -1433,6 +1469,7 @@ private fun PlaylistGroupCard(
 private fun LibraryPlaylistRow(
     playlist: Playlist,
     coverVersion: Long,
+    sharedElementEnabled: Boolean,
     menuItems: List<PlaylistMenuItem>,
     reorderEnabled: Boolean,
     dragModifier: Modifier = Modifier,
@@ -1451,7 +1488,7 @@ private fun LibraryPlaylistRow(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.large)
+            .clip(SharedArtworkShape)
             .then(if (reorderEnabled) dragModifier else Modifier)
             .clickable(onClick = onClick)
             .padding(vertical = 1.dp)
@@ -1461,6 +1498,7 @@ private fun LibraryPlaylistRow(
             subtitle = subtitle,
             coverUrl = playlist.picUrl,
             coverVersion = coverVersion,
+            sharedKey = if (sharedElementEnabled) playlist.id else null,
             trailingContent = {
                 Box {
                     IconButton(onClick = { menuExpanded = true }) {
@@ -1506,6 +1544,7 @@ private fun RowCardContent(
     subtitle: String,
     coverUrl: String,
     coverVersion: Long = 0L,
+    sharedKey: Any? = null,
     trailingContent: (@Composable () -> Unit)? = null
 ) {
     androidx.compose.foundation.layout.Row(modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1514,7 +1553,10 @@ private fun RowCardContent(
                 .withPlaylistCoverCacheBuster(coverVersion),
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.clip(MaterialTheme.shapes.medium).size(52.dp)
+            modifier = Modifier
+                .clip(SharedArtworkShape)
+                .size(52.dp)
+                .then(navSharedElementModifier(sharedKey))
         )
         Column(modifier = Modifier.padding(start = 10.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
