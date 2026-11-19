@@ -33,8 +33,8 @@ android {
         targetSdk = 34
         // canary 线独立发版：版本号必须高于公开仓库已发布的正式版（2.5.4 / 54），
         // 否则 App 内显示的版本号看起来比正式版还旧（Issue #3 报告者就是拿它对比的）。
-        versionCode = 55
-        versionName = "2.5.5"
+        versionCode = 56
+        versionName = "2.5.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
