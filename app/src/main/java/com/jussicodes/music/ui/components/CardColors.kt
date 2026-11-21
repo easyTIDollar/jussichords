@@ -1,12 +1,12 @@
 package com.jussicodes.music.ui.components
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import com.jussicodes.music.data.HomeTransparentCardStore
+import com.jussicodes.music.ui.theme.LocalAppDarkTheme
 
 /**
  * 卡片容器颜色：「主页透明卡片」开关开 = 全透明，关 = surfaceContainerLow（与改前一致）。
@@ -39,7 +39,7 @@ fun transparentCardColor(): Color {
 fun userCardGlassColor(): Color {
     val on = HomeTransparentCardStore.state.collectAsState().value
     if (!on) return MaterialTheme.colorScheme.surfaceContainerLow
-    val isDark = isSystemInDarkTheme()
+    val isDark = LocalAppDarkTheme.current
     val surface = MaterialTheme.colorScheme.surface
     val tint = MaterialTheme.colorScheme.primary
     return if (isDark) {

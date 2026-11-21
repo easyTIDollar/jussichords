@@ -120,17 +120,28 @@ class LibraryScreenViewModel @Inject constructor(
 
     private suspend fun refreshUserInfo() {
         if (!CookieProvider.isLoggedIn()) return
+        val cookieHash = CookieProvider.cookie.hashCode()
+        val generation = cacheLoadGeneration
         val info = withContext(Dispatchers.IO) {
             AccountApi.accountInfo().getOrNull()
         }
+        if (!CookieProvider.isLoggedIn() || CookieProvider.cookie.hashCode() != cookieHash ||
+            cacheLoadGeneration != generation
+        ) return
         info?.let {
             _homeState.update { state -> state.copy(userInfo = it) }
             withContext(Dispatchers.IO) {
                 context.dataStore.edit { prefs ->
+                    if (!CookieProvider.isLoggedIn() || CookieProvider.cookie.hashCode() != cookieHash ||
+                        cacheLoadGeneration != generation
+                    ) return@edit
                     prefs[libraryUserInfoCacheKey] = json.encodeToString(it)
                     prefs[userIdKye] = it.account.profile.userId
                 }
             }
+            if (!CookieProvider.isLoggedIn() || CookieProvider.cookie.hashCode() != cookieHash ||
+                cacheLoadGeneration != generation
+            ) return
             HomeUserInfoStore.publishUserInfo(it)
             fetchUserDetail(it.account.profile.userId)
         }
@@ -483,6 +494,7 @@ class LibraryScreenViewModel @Inject constructor(
     }
 
     fun clear() {
+        userInfoJob?.cancel()
         cacheLoadGeneration++
         _homeState.value = HomeState()
         _userDetail.value = null

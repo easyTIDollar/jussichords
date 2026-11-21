@@ -1,6 +1,9 @@
 package com.jussicodes.music.ui.screen
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
@@ -10,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
@@ -58,9 +62,12 @@ import com.rcmiku.ncmapi.model.Song
  * 右栏：曲目列表（搜索框在列表上方），直接复用 [SongListItem] ——
  * 正在播放的动态均衡器、VIP 角标、喜欢爱心、右侧操作菜单全部保留。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AlbumLandscapeBody(
     albumName: String,
+    isGreyAlbum: Boolean,
+    onUnmarkGreyAlbum: () -> Unit,
     artistName: String,
     publishTimeText: String,
     cover: @Composable () -> Unit,
@@ -145,6 +152,21 @@ fun AlbumLandscapeBody(
                 overflow = TextOverflow.Ellipsis,
                 maxLines = 2
             )
+            if (isGreyAlbum) {
+                Text(
+                    text = "官方无版权",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(top = 4.dp, end = 4.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = onUnmarkGreyAlbum
+                        )
+                )
+            }
             Spacer(Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(

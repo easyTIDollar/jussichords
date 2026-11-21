@@ -1,7 +1,10 @@
 package com.jussicodes.music.ui.components
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import com.jussicodes.music.animation.MotionSpring
@@ -107,6 +110,7 @@ import com.jussicodes.music.playback.ListenTogetherSession
 import com.rcmiku.ncmapi.api.recommend.RecommendApi
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.FavoriteSongAction
+import com.jussicodes.music.utils.GreySongRegistry
 import com.rcmiku.ncmapi.model.SongWikiData
 import com.jussicodes.music.utils.getItemShape
 import com.jussicodes.music.utils.makeTimeString
@@ -135,7 +139,7 @@ import kotlin.math.abs
  */
 private val PlayerCoverReservedHeight = 288.dp
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun Player(
     mediaMetadata: MediaMetadata,
@@ -183,6 +187,7 @@ fun Player(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val mediaId = playerState?.currentMediaItem?.mediaId
+    val greyIds by GreySongRegistry.ids.collectAsState()
     val songIdsFlow = remember(context) {
         context.favoriteSongIdsDatastore.data.map { it.songIdsList }
     }
@@ -511,12 +516,16 @@ fun Player(
                 onToggleFavorite = {
                     scope.launch {
                         mediaId?.toLongOrNull()?.let { songId ->
-                            FavoriteSongAction.toggle(
+                            val likedIds = songIds
+                            val synced = FavoriteSongAction.toggle(
                                 context = context,
                                 songId = songId,
-                                likedSongIds = songIds,
+                                likedSongIds = likedIds,
                                 song = currentSong
                             )
+                            if (!synced && songId !in likedIds) {
+                                Toast.makeText(context, FavoriteSongAction.LOCAL_LIKE_MESSAGE, Toast.LENGTH_SHORT).show()
+                            }
                         }
                     }
                 },
@@ -705,26 +714,51 @@ fun Player(
                                         }
                                 )
                             }
-                            mediaMetadata.artist?.let {
-                                Text(
-                                    text = it.toString(),
-                                    maxLines = 1,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier
-                                        .basicMarquee()
-                                        .clickable(enabled = metadataClickEnabled) {
-                                            // 只有一个音乐人直接跳转，多个才弹二级选项
-                                            val artists = currentSong?.ar.orEmpty()
-                                            when {
-                                                artists.size == 1 -> {
-                                                    navController.navigate(ArtistNav(artistId = artists.first().id))
-                                                    onAfterNavigate?.invoke() ?: onBackPressed()
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                mediaMetadata.artist?.let {
+                                    Text(
+                                        text = it.toString(),
+                                        maxLines = 1,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier
+                                            .weight(1f, fill = false)
+                                            .basicMarquee()
+                                            .clickable(enabled = metadataClickEnabled) {
+                                                // 只有一个音乐人直接跳转，多个才弹二级选项
+                                                val artists = currentSong?.ar.orEmpty()
+                                                when {
+                                                    artists.size == 1 -> {
+                                                        navController.navigate(ArtistNav(artistId = artists.first().id))
+                                                        onAfterNavigate?.invoke() ?: onBackPressed()
+                                                    }
+                                                    artists.size > 1 -> openArtistSheet = true
                                                 }
-                                                artists.size > 1 -> openArtistSheet = true
                                             }
-                                        }
-                                )
+                                    )
+                                }
+                                if (mediaId?.toLongOrNull() in greyIds) {
+                                    Text(
+                                        text = "官方无版权",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier
+                                            .padding(start = 4.dp, end = 4.dp)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                                            .combinedClickable(
+                                                onClick = {},
+                                                onLongClick = {
+                                                    val songId = mediaId?.toLongOrNull() ?: return@combinedClickable
+                                                    Toast.makeText(context, "已清除无版权标记，将重新判定", Toast.LENGTH_SHORT).show()
+                                                    scope.launch { GreySongRegistry.unmarkGrey(context, songId) }
+                                                }
+                                            )
+                                    )
+                                }
                             }
                         }
                         // 一起听房间标识：两个成员头像交叠、两侧各一只 AirPods 轮廓作陪衬。
@@ -756,12 +790,16 @@ fun Player(
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 mediaId?.toLongOrNull()?.let { songId ->
                                     scope.launch {
-                                        FavoriteSongAction.toggle(
+                                        val likedIds = songIds
+                                        val synced = FavoriteSongAction.toggle(
                                             context = context,
                                             songId = songId,
-                                            likedSongIds = songIds,
+                                            likedSongIds = likedIds,
                                             song = currentSong
                                         )
+                                        if (!synced && songId !in likedIds) {
+                                            Toast.makeText(context, FavoriteSongAction.LOCAL_LIKE_MESSAGE, Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 }
                             }

@@ -16,22 +16,61 @@ import com.rcmiku.ncmapi.model.LyricResponse
 import com.rcmiku.ncmapi.model.SongUrl
 import com.rcmiku.ncmapi.model.SongUrlResponse
 import com.rcmiku.ncmapi.utils.CookieProvider
+import com.rcmiku.ncmapi.utils.json
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.request
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpMethod
 import io.ktor.http.isSuccess
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
+
+enum class OfficialPlayState { PLAYABLE, NO_COPYRIGHT, MEMBERSHIP_ONLY, UNKNOWN }
 
 object PlayerApi {
+
+    /**
+     * 只用官方接口判断完整播放权限。请求失败、限流或响应格式异常时返回未知。
+     */
+    suspend fun officialPlayState(songId: String, fee: Int = 0): OfficialPlayState {
+        val raw = apiGet<JsonObject>(
+            "/song/url/v1",
+            songUrlParams(songId, SongLevel.STANDARD, unblock = false)
+        ).getOrNull() ?: return OfficialPlayState.UNKNOWN
+        val code = (raw["code"] as? JsonPrimitive)?.intOrNull
+        if (code != 200) return OfficialPlayState.UNKNOWN
+        val data = raw["data"] as? JsonArray ?: return OfficialPlayState.UNKNOWN
+        val first = data.firstOrNull() as? JsonObject ?: return OfficialPlayState.UNKNOWN
+        val urlValue = (first["url"] ?: JsonNull) as? JsonPrimitive ?: return OfficialPlayState.UNKNOWN
+        if (urlValue != JsonNull && !urlValue.isString) return OfficialPlayState.UNKNOWN
+        val url = urlValue.contentOrNull
+        val time = (first["time"] as? JsonPrimitive)?.longOrNull ?: 0L
+
+        return when {
+            !url.isNullOrBlank() && !url.contains("outer/url") && time != 30_040L -> OfficialPlayState.PLAYABLE
+            fee == 1 || fee == 4 -> OfficialPlayState.MEMBERSHIP_ONLY
+            else -> OfficialPlayState.NO_COPYRIGHT
+        }
+    }
 
     /**
      * 解析可播放直链。
@@ -85,16 +124,112 @@ object PlayerApi {
         // 客户端侧（LX / 内置直连）开启时不再走 API 解灰链；只有代理模式才用服务器解灰。
         val selected = AudioSourceSettings.SELECTED
         val clientSideSelected = selected == AudioSources.LX || selected == AudioSources.DIRECT
+        val qqTried = AtomicBoolean(false)
+        var officialResult: Result<SongUrlResponse>? = null
         if (clientSideSelected) {
             // 不单独播报「尝试客户端音源」：音源通道在面板头部已经写了，
             // 只有命中/未命中才是新信息。
             // 试听链（musicrep-ts）不能当命中：脚本降级到官方源时会给 30 秒片段，
             // 直接返回会让播放器「解析成功」然后播一半就断。
-            val clientUrl = when (selected) {
-                AudioSources.LX -> LxSourceBridge.resolver?.invoke(realId, songLevel.value, skipUrls, songJson)
+            suspend fun resolveClientUrl(racing: Boolean = false): String? = when {
+                selected == AudioSources.LX -> LxSourceBridge.resolver?.invoke(realId, songLevel.value, skipUrls, songJson)
+                racing -> runInterruptible(Dispatchers.IO) { tryDirectSourceUrl(realId, songLevel, skipUrls) }
                 else -> tryDirectSourceUrl(realId, songLevel, skipUrls)
             }?.takeIf { it.isNotBlank() && !it.contains("musicrep-ts", ignoreCase = true) }
                 ?.takeUnless { PlayUrlSkip.blocks(skipUrls, it) }
+
+            val qqId = realId.toLongOrNull()
+            val clientUrl = run {
+                data class SourceHit(
+                    val url: String,
+                    val qqElapsedMs: Long? = null,
+                    val br: Int = 0,
+                    val entryHost: String = "",
+                )
+
+                val winner = coroutineScope {
+                    val officialStartedAt = System.currentTimeMillis()
+                    val officialJob = async {
+                        apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
+                    }
+                    val lxJob = async {
+                        runCatching { resolveClientUrl(racing = true)?.let { SourceHit(it) } }
+                            .onFailure { currentCoroutineContext().ensureActive() }
+                            .getOrNull()
+                    }
+                    val official = officialJob.await()
+                    officialResult = official
+                    val officialUrl = official.getOrNull()?.data?.firstOrNull { it.isPlayableFullUrl() }?.url
+                    trace(
+                        if (officialUrl != null) "官方接口命中" else "官方接口未返回",
+                        if (officialUrl != null) {
+                            "${PlayUrlTrace.hostOf(officialUrl)} · ${System.currentTimeMillis() - officialStartedAt}ms"
+                        } else {
+                            "无版权或需会员 · 转入第三方音源"
+                        },
+                        listOf("网易云", songLevel.value)
+                    )
+                    val qqAllowed = QqSourceSettings.ENABLED && officialUrl == null && qqId != null
+                    val qqJob = if (qqAllowed) async {
+                        runCatching {
+                            val qqStartedAt = System.currentTimeMillis()
+                            val deadline = minOf(qqStartedAt + 8_000L, startedAt + 19_500L)
+                            if (deadline <= qqStartedAt) return@runCatching null
+
+                            val resolution = withTimeoutOrNull(deadline - qqStartedAt) {
+                                resolveQqUrl(realId, songJson, songLevel, skipUrls)
+                            }
+                            currentCoroutineContext().ensureActive()
+                            val qqFinishedAt = System.currentTimeMillis()
+                            val elapsedMs = qqFinishedAt - qqStartedAt
+                            if (resolution != null && qqFinishedAt < deadline) {
+                                qqTried.set(true)
+                                SourceHit(resolution.url, elapsedMs, resolution.br, resolution.entryHost)
+                            } else {
+                                val status = if (qqFinishedAt >= deadline) "预算耗尽" else "没有可播地址"
+                                trace("QQ 音源未命中", "$status · ${elapsedMs}ms", listOf("QQ", songLevel.value))
+                                null
+                            }
+                        }.onFailure { currentCoroutineContext().ensureActive() }.getOrNull()
+                    } else null
+
+                    val hit = if (qqJob == null) {
+                        lxJob.await()
+                    } else {
+                        var lxPending = true
+                        var qqPending = true
+                        var winner: SourceHit? = null
+                        while ((lxPending || qqPending) && winner == null) {
+                            val completed = select {
+                                if (lxPending) lxJob.onAwait { true to it }
+                                if (qqPending) qqJob.onAwait { false to it }
+                            }
+                            if (completed.first) lxPending = false else qqPending = false
+                            winner = completed.second
+                        }
+                        winner
+                    }
+                    // 已完成的任务取消为空操作；作用域会等另一条任务退出再返回。
+                    lxJob.cancel()
+                    qqJob?.cancel()
+                    hit
+                }
+                val qqElapsedMs = winner?.qqElapsedMs
+                if (winner != null && qqElapsedMs != null && qqId != null) {
+                    trace(
+                        "QQ 音源命中",
+                        qqHitDetail(winner.url, winner.entryHost, winner.br, qqElapsedMs),
+                        listOf("QQ", songLevel.value)
+                    )
+                    return Result.success(SongUrlResponse(data = listOf(
+                        SongUrl(
+                            id = qqId, url = winner.url,
+                            br = if (winner.br > 0) winner.br * 1000 else 0
+                        )
+                    )))
+                }
+                winner?.url
+            }
             if (!clientUrl.isNullOrBlank()) {
                 Log.d("PlayerApi", "Client source ($selected) resolved songId=$realId")
                 trace(
@@ -136,17 +271,97 @@ object PlayerApi {
             )
         }
 
-        // 最后兜底：官方直连。客户端音源开启时 VIP 歌在此回 30 秒试听占位（账号有会员则完整 url）；
+        // 网易云官方兜底。客户端音源开启时 VIP 歌在此回 30 秒试听占位（账号有会员则完整 url）；
         // 代理音源模式下解灰失败时也是走这条官方直连。
-        val fallback = apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
-        val fallbackUrl = fallback.getOrNull()?.data?.firstOrNull()?.url
-        trace(
-            if (fallbackUrl.isNullOrBlank()) "官方兜底未返回" else "官方兜底命中",
-            "${PlayUrlTrace.hostOf(fallbackUrl).ifBlank { "没有可播地址" }} · " +
-                "${System.currentTimeMillis() - startedAt}ms",
-            listOf("网易云", songLevel.value)
-        )
+        val fallback = officialResult
+            ?: apiGet<SongUrlResponse>("/song/url/v1", songUrlParams(realId, songLevel, unblock = false))
+                .also { result ->
+                    val fallbackUrl = result.getOrNull()?.data?.firstOrNull()?.url
+                    trace(
+                        if (fallbackUrl.isNullOrBlank()) "官方兜底未返回" else "官方兜底命中",
+                        "${PlayUrlTrace.hostOf(fallbackUrl).ifBlank { "没有可播地址" }} · " +
+                            "${System.currentTimeMillis() - startedAt}ms",
+                        listOf("网易云", songLevel.value)
+                    )
+                }
+        if (QqSourceSettings.ENABLED && !fallback.hasPlayableUrl() && !qqTried.get()) {
+            val qqStartedAt = System.currentTimeMillis()
+            // 详情查询、搜索和取流共用 QQ 预算，并扣掉此前解析已经花掉的时间。
+            val deadline = minOf(qqStartedAt + QqMusicSource.BUDGET_MS, startedAt + 19_500L)
+            val id = realId.toLongOrNull()
+            if (id != null && deadline > qqStartedAt) {
+                val qqResolution = withTimeoutOrNull(deadline - qqStartedAt) {
+                    resolveQqUrl(realId, songJson, songLevel, skipUrls)
+                }
+                val qqFinishedAt = System.currentTimeMillis()
+                if (qqResolution != null && qqFinishedAt < deadline) {
+                    trace(
+                        "QQ 音源命中",
+                        qqHitDetail(qqResolution.url, qqResolution.entryHost, qqResolution.br, qqFinishedAt - qqStartedAt),
+                        listOf("QQ", songLevel.value)
+                    )
+                    return Result.success(SongUrlResponse(data = listOf(
+                        SongUrl(
+                            id = id, url = qqResolution.url,
+                            br = if (qqResolution.br > 0) qqResolution.br * 1000 else 0
+                        )
+                    )))
+                }
+                val status = if (qqFinishedAt >= deadline) "预算耗尽" else "没有可播地址"
+                trace("QQ 音源未命中", "$status · ${qqFinishedAt - qqStartedAt}ms", listOf("QQ", songLevel.value))
+            }
+        }
         return fallback
+    }
+
+    private fun qqHitDetail(url: String, entryHost: String, br: Int, elapsedMs: Long): String {
+        val host = PlayUrlTrace.hostOf(url)
+        val route = if (entryHost.isNotEmpty() && entryHost != host) "$entryHost → $host" else host
+        val quality = if (br > 0) "${br}k" else "无损"
+        return "$route · $quality · ${elapsedMs}ms"
+    }
+
+    private suspend fun resolveQqUrl(
+        songId: String,
+        songJson: String?,
+        level: SongLevel,
+        skipUrls: Set<String>
+    ): QqResolution? {
+        fun JsonObject?.songName(): String? = (this?.get("name") as? JsonPrimitive)?.contentOrNull
+            ?.takeIf { it.isNotBlank() }
+        fun JsonObject?.songArtist(): String? = (this?.get("ar") as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonObject).songName() }
+            .joinToString(" / ").takeIf { it.isNotBlank() }
+        fun JsonObject?.songDuration(): Long? = (this?.get("dt") as? JsonPrimitive)?.longOrNull
+            ?.takeIf { it > 0 }
+        val cached = runCatching { songJson?.let { json.parseToJsonElement(it) as? JsonObject } }.getOrNull()
+        val name = cached.songName()
+        val artist = cached.songArtist()
+        val duration = cached.songDuration()
+        val detail = if (name == null || artist == null || duration == null) {
+            val detailStartedAt = System.currentTimeMillis()
+            val response = try {
+                apiGet<JsonElement>("/song/detail/batch", mapOf("c" to "[{\"id\":$songId}]")).getOrNull()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+            val song = ((response as? JsonObject)?.get("songs") as? JsonArray)?.firstOrNull() as? JsonObject
+            val status = if (song != null) "已获取" else "未获取"
+            PlayUrlTrace.emit(
+                songId, "QQ 音源 · 歌曲详情", "$status · ${System.currentTimeMillis() - detailStartedAt}ms",
+                listOf("QQ", level.value)
+            )
+            song ?: return null
+        } else {
+            null
+        }
+
+        return QqMusicSource.resolve(
+            songId, name ?: detail.songName() ?: return null, artist ?: detail.songArtist() ?: return null,
+            duration ?: detail.songDuration() ?: 0L, level, skipUrls
+        )
     }
 
     /** 音源代号的用户可读名：面板上不该出现 "lx" / "direct" 这种内部值。 */

@@ -113,6 +113,22 @@ fun prefetchDetailCover(context: Context, url: Any?) {
     runCatching { context.imageLoader.enqueue(request) }
 }
 
+/**
+ * 切歌时预取下一首的播放页背景封面。
+ *
+ * 播放页底板用的是 MediaMetadata.artworkUri（DETAIL 档），展示端与这里必须用
+ * 同一个 [coverMemoryKey]，否则预取只省了网络、首帧仍要重新解码。
+ */
+fun prefetchPlayerCover(context: Context, url: Any?) {
+    if (url == null) return
+    val key = coverMemoryKey(url, CoverImageSize.DETAIL) ?: return
+    val request = ImageRequest.Builder(context)
+        .data(url)
+        .memoryCacheKey(key)
+        .build()
+    runCatching { context.imageLoader.enqueue(request) }
+}
+
 /** 只剔除 NCM 的 `?param=NyN`，其余 query（头像/歌单版本号）保留，换图后才能立即失效。 */
 private fun stripSizeParam(raw: String): String {
     if (!raw.startsWith("http", ignoreCase = true)) return raw

@@ -1,4 +1,5 @@
 package com.jussicodes.music.ui.screen
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -574,12 +575,16 @@ fun RoamScreen(
                                 val song = playerState?.currentMediaItem?.mediaMetadata?.extras
                                     ?.getString("song")
                                     ?.let { runCatching { json.decodeFromString<Song>(it) }.getOrNull() }
-                                FavoriteSongAction.toggle(
+                                val likedIds = songIds
+                                val synced = FavoriteSongAction.toggle(
                                     context = context,
                                     songId = songId,
-                                    likedSongIds = songIds,
+                                    likedSongIds = likedIds,
                                     song = song
                                 )
+                                if (!synced && songId !in likedIds) {
+                                    Toast.makeText(context, FavoriteSongAction.LOCAL_LIKE_MESSAGE, Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
                     },

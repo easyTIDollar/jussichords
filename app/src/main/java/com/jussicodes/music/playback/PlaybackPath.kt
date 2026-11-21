@@ -25,6 +25,13 @@ object PlaybackPath {
 
     enum class Status { INFO, RUNNING, OK, FAIL }
 
+    enum class Phase(val label: String) {
+        CACHE_CHECK("检查缓存与本地文件"),
+        RESOLVE("解析音源"),
+        CACHE_WRITE("缓存直链"),
+        PLAY("正式播放"),
+    }
+
     data class Step(
         val name: String,
         val detail: String = "",
@@ -34,6 +41,7 @@ object PlaybackPath {
         /** 这一步自身耗时（批量尝试时才有意义）。 */
         val costMs: Long = 0L,
         val status: Status = Status.INFO,
+        val phase: Phase = Phase.RESOLVE,
     )
 
     data class Snapshot(
@@ -58,6 +66,7 @@ object PlaybackPath {
     /** 当前真正在播的曲目：预取下一首也会走解析入口，不能让它把当前链路冲掉。 */
     private var focusSongId = ""
     private val steps = mutableListOf<Step>()
+    private var roundMaxPhaseOrdinal = Phase.CACHE_CHECK.ordinal
 
     private val _state = MutableStateFlow(Snapshot())
     val state: StateFlow<Snapshot> = _state.asStateFlow()
@@ -72,6 +81,7 @@ object PlaybackPath {
             this.quality = quality.orEmpty()
             startedAt = SystemClock.elapsedRealtime()
             steps.clear()
+            roundMaxPhaseOrdinal = Phase.CACHE_CHECK.ordinal
             route = ""
             outcome = ""
             finished = false
@@ -99,6 +109,7 @@ object PlaybackPath {
             outcome = ""
             finished = false
             steps.clear()
+            roundMaxPhaseOrdinal = Phase.CACHE_CHECK.ordinal
         }
         publish()
     }
@@ -157,7 +168,22 @@ object PlaybackPath {
             atMs = SystemClock.elapsedRealtime() - startedAt,
             costMs = costMs,
             status = status,
+            phase = phaseOf(name, tags),
         )
+    }
+
+    private fun phaseOf(name: String, tags: List<String>): Phase {
+        val classified = when {
+            name.startsWith("音频数据已就绪") || name.startsWith("播放加载失败") ||
+                name.startsWith("缓冲") || "播放器" in tags -> Phase.PLAY
+            "直链已缓存" in name -> Phase.CACHE_WRITE
+            name == "重新解析当前音乐" || "缓存" in tags ||
+                "音频分片缓存" in name || "直链缓存" in name -> Phase.CACHE_CHECK
+            else -> Phase.RESOLVE
+        }
+        // 重试或补记可能在后段出现，同一轮内的阶段保持向前。
+        roundMaxPhaseOrdinal = maxOf(roundMaxPhaseOrdinal, classified.ordinal)
+        return Phase.entries[roundMaxPhaseOrdinal]
     }
 
     /** 链路走完：解析拿到结果、或确定失败。后续的播放器事件（就绪/报错）仍然追加到同一条链。 */
@@ -193,11 +219,13 @@ object PlaybackPath {
         outcome = result
         finished = status != Status.FAIL
         if (steps.size >= MAX_STEPS) steps.removeAt(0)
+        val name = if (status == Status.FAIL) "解析失败" else "已获取真实播放链接"
         steps += Step(
-            name = if (status == Status.FAIL) "解析失败" else "已获取真实播放链接",
+            name = name,
             detail = result,
             atMs = if (startedAt == 0L) 0 else SystemClock.elapsedRealtime() - startedAt,
             status = status,
+            phase = phaseOf(name, emptyList()),
         )
         publish()
     }
@@ -212,6 +240,7 @@ object PlaybackPath {
         // 清空但保留起点：紧跟其后的「重新解析当前音乐」打点仍算这一轮的开头。
         startedAt = if (songId.isBlank()) 0L else SystemClock.elapsedRealtime()
         steps.clear()
+        roundMaxPhaseOrdinal = Phase.CACHE_CHECK.ordinal
         publish()
     }
 

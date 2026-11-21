@@ -5,8 +5,11 @@ import com.jussicodes.music.data.favoriteSongIdsDatastore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 object FavoriteSongIdsUtil {
+    internal val localStateMutex = Mutex()
 
     suspend fun addSongId(context: Context, songId: Long) {
         context.favoriteSongIdsDatastore.updateData { currentData ->
@@ -29,8 +32,14 @@ object FavoriteSongIdsUtil {
     // 直接覆盖会抹掉用户全部红心。全量清空属极端场景，宁可保留本地。
     suspend fun updateSongIds(context: Context, songIds: List<Long>) {
         if (songIds.isEmpty()) return
-        context.favoriteSongIdsDatastore.updateData { currentData ->
-            currentData.toBuilder().clearSongIds().addAllSongIds(songIds).build()
+        GreySongRegistry.load(context)
+        localStateMutex.withLock {
+            // 命中过 QQ 的歌只有点过红心，才需要并回喜欢列表。
+            val localLikedIds = GreySongRegistry.likedSongs().map { it.id }.toSet()
+            val merged = (songIds + GreySongRegistry.greyIds().intersect(localLikedIds)).distinct()
+            context.favoriteSongIdsDatastore.updateData { currentData ->
+                currentData.toBuilder().clearSongIds().addAllSongIds(merged).build()
+            }
         }
     }
 

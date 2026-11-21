@@ -17,6 +17,7 @@ object WidgetDebug {
     private const val PREFS = "jussi_widget_debug"
     private const val K_ERROR = "last_error"
     private const val K_AT = "last_error_at"
+    private val composeSizes = linkedSetOf<String>()
 
     /** 只在这个时间窗内展示错误卡，历史异常不该长期污染组件。 */
     private const val SHOW_WINDOW_MS = 10 * 60 * 1000L
@@ -54,6 +55,12 @@ object WidgetDebug {
 
     fun log(message: String) {
         Log.d(TAG, message)
+        // 合成会反复重放。内存中只保留最近出现的不同尺寸，避免每次都写磁盘。
+        synchronized<Unit>(composeSizes) {
+            composeSizes.remove(message)
+            composeSizes.add(message)
+            if (composeSizes.size > MAX_LINES) composeSizes.remove(composeSizes.first())
+        }
     }
 
     fun error(message: String, throwable: Throwable? = null) {
@@ -83,6 +90,7 @@ object WidgetDebug {
     }
 
     fun clearLog(context: Context) {
+        synchronized(composeSizes) { composeSizes.clear() }
         runCatching {
             context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().remove(K_LOG).apply()
@@ -113,6 +121,9 @@ object WidgetDebug {
                 "title=${snapshot?.title.orEmpty().take(18)}"
         )
         appendLine("最近异常: ${recentError(app) ?: "无"}")
+        appendLine("--- 合成尺寸 ---")
+        val sizes = synchronized(composeSizes) { composeSizes.joinToString("\n") }
+        appendLine(sizes.ifBlank { "（空）" })
         appendLine("--- 日志 ---")
         val lines = runCatching {
             app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(K_LOG, "").orEmpty()

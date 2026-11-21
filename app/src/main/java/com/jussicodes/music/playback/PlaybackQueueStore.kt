@@ -42,9 +42,9 @@ class PlaybackQueueStore private constructor(context: Context) {
     @Volatile
     private var lastSignature = 0
 
-    /** 解析结果缓存，进程内复用。 */
+    /** 只缓存解析后的队列内容，进度每次从偏好设置读取。 */
     @Volatile
-    private var cached: SavedQueue? = null
+    private var cached: List<MediaItem>? = null
 
     fun save(items: List<MediaItem>, index: Int, positionMs: Long, playWhenReady: Boolean) {
         if (items.isEmpty()) return
@@ -83,20 +83,20 @@ class PlaybackQueueStore private constructor(context: Context) {
     fun readAsync(): ListenableFuture<SavedQueue?> = listeningIo.submit(Callable { read() })
 
     fun read(): SavedQueue? {
-        cached?.let { return it }
-        if (!queueFile.exists()) return null
-        val items = runCatching { decodeQueue(queueFile.readText()) }.getOrNull() ?: return null
-        if (items.isEmpty()) return null
-        val index = prefs.getInt(KEY_INDEX, 0).coerceIn(0, items.size - 1)
-        val result = SavedQueue(
+        val items = cached ?: run {
+            if (!queueFile.exists()) return null
+            val decoded = runCatching { decodeQueue(queueFile.readText()) }.getOrNull() ?: return null
+            if (decoded.isEmpty()) return null
+            cached = decoded
+            lastSignature = signatureOf(decoded)
+            decoded
+        }
+        return SavedQueue(
             mediaItems = items,
-            index = index,
+            index = prefs.getInt(KEY_INDEX, 0).coerceIn(0, items.size - 1),
             positionMs = prefs.getLong(KEY_POSITION, 0L).coerceAtLeast(0L),
             playWhenReady = prefs.getBoolean(KEY_PLAY, false),
         )
-        cached = result
-        lastSignature = signatureOf(items)
-        return result
     }
 
     private fun signatureOf(items: List<MediaItem>): Int {

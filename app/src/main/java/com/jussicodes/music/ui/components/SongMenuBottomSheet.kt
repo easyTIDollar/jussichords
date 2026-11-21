@@ -161,10 +161,19 @@ fun SongMenuBottomSheet(
                     scope.launch {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         onDismiss()
-                        FavoriteSongAction.setLiked(context, s.id, targetLiked, s)
+                        fun likeMessage(liked: Boolean, synced: Boolean): String = when {
+                            !synced && liked -> FavoriteSongAction.LOCAL_LIKE_MESSAGE
+                            !synced -> "已从本地喜欢移除 · 该歌曲无版权，不同步网易云"
+                            liked -> "已添加到喜欢的音乐"
+                            else -> "已取消喜欢"
+                        }
+                        val synced = FavoriteSongAction.setLiked(context, s.id, targetLiked, s)
                         MenuSnackbarBus.show(
-                            if (targetLiked) "已添加到喜欢的音乐" else "已取消喜欢",
-                            onUndo = { FavoriteSongAction.setLiked(context, s.id, !targetLiked, s) }
+                            likeMessage(targetLiked, synced),
+                            onUndo = {
+                                val undoSynced = FavoriteSongAction.setLiked(context, s.id, !targetLiked, s)
+                                MenuSnackbarBus.show(likeMessage(!targetLiked, undoSynced))
+                            }
                         )
                     }
                 },

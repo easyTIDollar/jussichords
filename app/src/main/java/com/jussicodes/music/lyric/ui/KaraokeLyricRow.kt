@@ -106,23 +106,21 @@ internal fun splitTimedWordAcrossLines(
 // 扫色分界处的羽化带总宽度：16.dp 约一个字宽，观感最平滑柔和
 private val KaraokeEdgeFeather: Dp = 16.dp
 
-// 每一视觉行的已播范围：clipRight 是实色裁剪右缘，featherCenterX 非空表示该行是正在演唱的行
-private data class PlayedSpan(
-    val clipRight: Float,
-    val featherCenterX: Float?
-)
-
-// 按播放进度推导每一视觉行的已播右缘与羽化中心。纯计算、无状态读取，可在绘制阶段每帧调用
+// 每视觉行的已播右缘与羽化中心。羽化中心用 Float.NaN 表示该行没有活跃字。
+// 两个数组由调用方 remember(info) 预分配，绘制时原地覆写，避免每帧分配。
 private fun computePlayedSpans(
     info: LyricLayoutInfo,
     relativeProgress: Long,
-    featherHalfPx: Float
-): List<PlayedSpan> {
-    return info.lineLayouts.mapIndexed { lineIndex, lineLayout ->
+    featherHalfPx: Float,
+    clipRightOut: FloatArray,
+    featherCenterOut: FloatArray
+) {
+    info.lineLayouts.forEachIndexed { lineIndex, lineLayout ->
         val lastWordOnLine = info.wordLayouts.lastOrNull { it.lineIndex == lineIndex }
         if (lastWordOnLine != null && relativeProgress >= lastWordOnLine.endMs) {
             // 整行已唱完，直接拉满高亮，不需要羽化
-            PlayedSpan(clipRight = lineLayout.right, featherCenterX = null)
+            clipRightOut[lineIndex] = lineLayout.right
+            featherCenterOut[lineIndex] = Float.NaN
         } else {
             var maxRight = lineLayout.left
             var hasActiveWord = false
@@ -142,12 +140,11 @@ private fun computePlayedSpans(
                 }
             }
             if (hasActiveWord) {
-                PlayedSpan(
-                    clipRight = (maxRight + featherHalfPx).coerceAtMost(lineLayout.right),
-                    featherCenterX = maxRight
-                )
+                clipRightOut[lineIndex] = (maxRight + featherHalfPx).coerceAtMost(lineLayout.right)
+                featherCenterOut[lineIndex] = maxRight
             } else {
-                PlayedSpan(clipRight = maxRight, featherCenterX = null)
+                clipRightOut[lineIndex] = maxRight
+                featherCenterOut[lineIndex] = Float.NaN
             }
         }
     }
@@ -264,6 +261,9 @@ fun KaraokeLyricRow(
             LyricLayoutInfo(wordLayouts, lineLayouts)
         }
     }
+    val lineCount = lyricLayoutInfo?.lineLayouts?.size ?: 0
+    val clipRights = remember(lyricLayoutInfo) { FloatArray(lineCount) }
+    val featherCenters = remember(lyricLayoutInfo) { FloatArray(lineCount) }
 
     Box(
         modifier = modifier.fillMaxWidth(),
@@ -303,16 +303,19 @@ fun KaraokeLyricRow(
                 }
                 .drawWithContent {
                     val info = lyricLayoutInfo
-                    if (info != null && isActive) {
+                    if (
+                        info != null && isActive && clipRights.size == info.lineLayouts.size &&
+                        featherCenters.size == info.lineLayouts.size
+                    ) {
                         @Suppress("UNUSED_VARIABLE")
                         val frameTickRead = frameTick
                         val featherHalfPx = if (advancedEffect) (featherWidth / 2).toPx() else 0f
                         val relativeProgress = currentPositionProviderState.value() - lineTimeMs
-                        val spans = computePlayedSpans(info, relativeProgress, featherHalfPx)
+                        computePlayedSpans(info, relativeProgress, featherHalfPx, clipRights, featherCenters)
                         val path = reusableClipPath
                         path.rewind()
                         info.lineLayouts.forEachIndexed { lineIndex, lineLayout ->
-                            val clipRight = spans[lineIndex].clipRight
+                            val clipRight = clipRights[lineIndex]
                             if (clipRight > lineLayout.left) {
                                 path.addRect(
                                     Rect(
@@ -327,10 +330,10 @@ fun KaraokeLyricRow(
                         clipPath(path) {
                             this@drawWithContent.drawContent()
                             if (featherHalfPx > 0f) {
-                                val featherIndex = spans.indexOfFirst { it.featherCenterX != null }
+                                val featherIndex = featherCenters.indexOfFirst { !it.isNaN() }
                                 if (featherIndex != -1) {
                                     val lineLayout = info.lineLayouts[featherIndex]
-                                    val centerX = spans[featherIndex].featherCenterX!!
+                                    val centerX = featherCenters[featherIndex]
                                     val left = (centerX - featherHalfPx).coerceAtLeast(lineLayout.left)
                                     val right = (centerX + featherHalfPx).coerceAtMost(lineLayout.right)
                                     if (right > left) {

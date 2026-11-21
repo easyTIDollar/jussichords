@@ -74,7 +74,9 @@ import coil3.compose.AsyncImage
 import com.jussicodes.music.animation.SharedArtworkShape
 import com.jussicodes.music.LocalPlayerController
 import com.jussicodes.music.LocalPlayerState
+import com.jussicodes.music.LocalUiScaleController
 import com.jussicodes.music.constants.MediaItemHeight
+import com.jussicodes.music.constants.lyricFontScaleKey
 import com.jussicodes.music.constants.lyricTranslationEnabledKey
 import com.jussicodes.music.constants.wordLyricEnabledKey
 import com.jussicodes.music.constants.lyricSourceKey
@@ -123,6 +125,13 @@ fun Lyric(
     var showTranslation by rememberPreference(lyricTranslationEnabledKey, false)
     var showWordLyric by rememberPreference(wordLyricEnabledKey, false)
     var lyricSource by rememberPreference(lyricSourceKey, "auto")
+    val lyricFontScale by rememberPreference(lyricFontScaleKey, 0f)
+    // 默认档保留现有行为；自定义档抵消应用字体倍率，只缩放歌词正文。
+    val lyricTextScale = if (lyricFontScale == 0f) 1f else {
+        lyricFontScale.coerceIn(0.8f, 1.4f) / LocalUiScaleController.current.fontScale.coerceIn(0.8f, 1.3f)
+    }
+    val lyricFontSize = ((if (landscape) 21f else 24f) * lyricTextScale).sp
+    val translationFontSize = ((if (landscape) 14f else 16f) * lyricTextScale).sp
     var showSourceDialog by remember { mutableStateOf(false) }
     var currentIndex by remember { mutableIntStateOf(-1) }
     var autoScrollEnabled by remember { mutableStateOf(true) }
@@ -453,8 +462,8 @@ fun Lyric(
                                         },
                                         activeColor = MaterialTheme.colorScheme.primary,
                                         inactiveColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.65f),
-                                        fontSize = if (landscape) 21.sp else 24.sp,
-                                        lineHeight = if (landscape) (21 * 1.35f).sp else (24 * 1.35f).sp,
+                                        fontSize = lyricFontSize,
+                                        lineHeight = lyricFontSize * 1.35f,
                                         fontWeight = FontWeight.SemiBold,
                                         isPlaying = mediaController?.isPlaying == true,
                                         isActive = true
@@ -464,7 +473,7 @@ fun Lyric(
                                         text = lrcLines[index].second,
                                         color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                                         fontWeight = FontWeight.SemiBold,
-                                        fontSize = if (landscape) 21.sp else 24.sp,
+                                        fontSize = lyricFontSize,
                                         lineHeight = 1.25.em,
                                     )
                                 }
@@ -473,7 +482,7 @@ fun Lyric(
                                         text = translation,
                                         color = if (isCurrent) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
-                                        fontSize = if (landscape) 14.sp else 16.sp,
+                                        fontSize = translationFontSize,
                                         lineHeight = 1.2.em,
                                         modifier = Modifier.padding(top = 4.dp)
                                     )

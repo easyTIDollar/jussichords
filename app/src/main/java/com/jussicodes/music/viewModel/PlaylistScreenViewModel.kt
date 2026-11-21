@@ -7,9 +7,12 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jussicodes.music.constants.libraryPlaylistRefreshTokenKey
+import com.jussicodes.music.constants.userIdKye
 import com.jussicodes.music.data.favoriteSongIdsDatastore
 import com.jussicodes.music.data.offline.PlaylistSnapshotStore
+import com.jussicodes.music.utils.FavoriteSongIdsUtil
 import com.jussicodes.music.utils.FavoriteSongSyncBus
+import com.jussicodes.music.utils.GreySongRegistry
 import com.jussicodes.music.utils.PlaylistCollectionSyncBus
 import com.jussicodes.music.utils.PlaylistCoverSyncBus
 import com.jussicodes.music.utils.dataStore
@@ -26,7 +29,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 
 private const val LIKED_PLAYLIST_SPECIAL_TYPE = 5
@@ -96,13 +101,17 @@ class PlaylistScreenViewModel @Inject constructor(
                 playlistId?.let { id ->
                     val remote = PlaylistApi.playlistV6Detail(id = id).getOrNull()
                     if (remote != null) {
-                        val merged = FavoriteSongSyncBus.mergeInto(remote, favoriteSongIds)
-                        _playlistDetail.value = merged
-                        PlaylistSnapshotStore.saveSnapshot(context, id, merged)
+                        val updated = if (isOwnLikedPlaylist(remote.playlist.specialType, remote.playlist.creator?.userId)) {
+                            FavoriteSongSyncBus.mergeInto(remote, favoriteSongIds)
+                        } else remote
+                        _playlistDetail.value = updated
+                        PlaylistSnapshotStore.saveSnapshot(context, id, updated)
                     } else {
                         // 离线/网络失败：利用本地快照合并当前已喜欢状态
                         _playlistDetail.value?.let { current ->
-                            _playlistDetail.value = FavoriteSongSyncBus.mergeInto(current, favoriteSongIds)
+                            if (isOwnLikedPlaylist(current.playlist.specialType, current.playlist.creator?.userId)) {
+                                _playlistDetail.compareAndSet(current, FavoriteSongSyncBus.mergeInto(current, favoriteSongIds))
+                            }
                         }
                     }
                 }
@@ -113,8 +122,10 @@ class PlaylistScreenViewModel @Inject constructor(
     private fun observeLocalFavoriteSongs() {
         viewModelScope.launch {
             FavoriteSongSyncBus.localSongs.collectLatest {
-                _playlistDetail.value = _playlistDetail.value?.let { response ->
-                    FavoriteSongSyncBus.mergeInto(response, favoriteSongIds)
+                _playlistDetail.value?.let { response ->
+                    if (isOwnLikedPlaylist(response.playlist.specialType, response.playlist.creator?.userId)) {
+                        _playlistDetail.compareAndSet(response, FavoriteSongSyncBus.mergeInto(response, favoriteSongIds))
+                    }
                 }
             }
         }
@@ -148,10 +159,11 @@ class PlaylistScreenViewModel @Inject constructor(
                             trackCount = detail.trackCount,
                             creator = detail.creator,
                             description = detail.description,
-                            subscribed = shouldSubscribe
+                            subscribed = shouldSubscribe,
+                            specialType = detail.specialType
                         )
                     }
-                if (playlist?.specialType == LIKED_PLAYLIST_SPECIAL_TYPE) {
+                if (isOwnLikedPlaylist(playlist?.specialType, playlist?.creator?.userId)) {
                     Toast.makeText(context, "喜欢歌曲列表不能收藏或取消收藏", Toast.LENGTH_SHORT).show()
                     return@launch
                 }
@@ -263,18 +275,36 @@ class PlaylistScreenViewModel @Inject constructor(
     fun removeSongsFromPlaylist(songIds: List<Long>, onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
             val playlist = _playlistDetail.value?.playlist
-            val isLikedSpecial = playlist?.specialType == LIKED_PLAYLIST_SPECIAL_TYPE
+            val isLikedSpecial = isOwnLikedPlaylist(playlist?.specialType, playlist?.creator?.userId)
             val success = if (isLikedSpecial) {
+                GreySongRegistry.load(context)
                 var allSuccess = true
                 for (id in songIds) {
+                    if (GreySongRegistry.isGrey(id)) continue
                     val res = com.rcmiku.ncmapi.api.account.AccountApi.songLike(like = false, songId = id)
                     if (!res.isSuccess) allSuccess = false
                 }
-                context.favoriteSongIdsDatastore.updateData { pref ->
-                    pref.toBuilder()
-                        .clearSongIds()
-                        .addAllSongIds(pref.songIdsList.filter { it !in songIds })
-                        .build()
+                FavoriteSongIdsUtil.localStateMutex.withLock {
+                    for (id in songIds) {
+                        GreySongRegistry.removeLiked(context, id)
+                    }
+                    val updatedIds = context.favoriteSongIdsDatastore.updateData { pref ->
+                        pref.toBuilder()
+                            .clearSongIds()
+                            .addAllSongIds(pref.songIdsList.filter { it !in songIds })
+                            .build()
+                    }.songIdsList
+                    favoriteSongIds = updatedIds
+                    _playlistDetail.value?.let { detail ->
+                        _playlistDetail.value = detail.copy(playlist = detail.playlist.copy(
+                            tracks = detail.playlist.tracks.filter { it.id !in songIds },
+                            songs = detail.playlist.songs.filter { it.id !in songIds },
+                            trackCount = updatedIds.size
+                        ))
+                    }
+                    for (id in songIds) {
+                        FavoriteSongSyncBus.localSongs.value[id]?.let { FavoriteSongSyncBus.setLiked(it, false) }
+                    }
                 }
                 allSuccess
             } else {
@@ -299,8 +329,11 @@ class PlaylistScreenViewModel @Inject constructor(
         viewModelScope.launch {
             playlistId?.let { id ->
                 PlaylistApi.playlistV6Detail(id).getOrNull()?.let { detail ->
-                    _playlistDetail.value = detail
-                    PlaylistSnapshotStore.saveSnapshot(context, id, detail)
+                    val updated = if (noCache && isOwnLikedPlaylist(detail.playlist.specialType, detail.playlist.creator?.userId)) {
+                        FavoriteSongSyncBus.mergeInto(detail, favoriteSongIds)
+                    } else detail
+                    _playlistDetail.value = updated
+                    PlaylistSnapshotStore.saveSnapshot(context, id, updated)
                 }
             }
         }
@@ -309,6 +342,12 @@ class PlaylistScreenViewModel @Inject constructor(
     /** 重新拉取歌单详情（用于「从歌单移除」成功后的即时刷新）。 */
     fun refresh() {
         refreshPlaylistDetail()
+    }
+
+    private suspend fun isOwnLikedPlaylist(specialType: Int?, creatorId: Long?): Boolean {
+        if (specialType != LIKED_PLAYLIST_SPECIAL_TYPE || creatorId == null) return false
+        val userId = context.dataStore.data.first()[userIdKye]?.takeIf { it > 0 } ?: return false
+        return creatorId == userId
     }
 
     private suspend fun refreshLibraryPlaylists() {

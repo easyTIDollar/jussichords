@@ -48,6 +48,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -69,6 +70,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
@@ -114,6 +116,7 @@ import com.jussicodes.music.extensions.toMediaItemList
 import com.jussicodes.music.utils.MenuSnackbarBus
 import com.jussicodes.music.utils.MiniPlayerHiddenBus
 import com.jussicodes.music.utils.PlayerExpandBus
+import com.jussicodes.music.utils.PersonalFmStartupState
 import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.utils.SettingsAppearanceBus
 import kotlinx.coroutines.delay
@@ -152,12 +155,29 @@ fun MainScreen() {
     val isPlaying = playerState?.isPlaying == true
     val lifecycleOwner = LocalLifecycleOwner.current
     val showMiniPlayer = (playerState?.player?.mediaItemCount ?: 0) != 0
+    val isPersonalFmLoading by PersonalFmStartupState.loading.collectAsState()
     val currentMediaId = playerState?.currentMediaItem?.mediaId
     var currentPlayMediaId by rememberPreference(currentPlayMediaIdKey, 0)
     var showPlayer by remember { mutableStateOf(false) }
     var miniPlayerDragProgress by remember { mutableFloatStateOf(0f) }
     var miniEnterPlayed by remember { mutableStateOf(false) }
     val bgBlurEffectCache = remember { BlurEffectCache() }
+    val density = LocalDensity.current.density
+    val playerBgBlurEffect = remember(density) {
+        derivedStateOf {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !playerBackgroundBlurEnabled) {
+                null
+            } else {
+                val p = miniPlayerDragProgress
+                if (p <= 0.01f) {
+                    null
+                } else {
+                    val radiusPx = ((p * 18f * density) / 2f).roundToInt() * 2f
+                    bgBlurEffectCache.get(radiusPx)
+                }
+            }
+        }
+    }
     var homePage by rememberSaveable { mutableIntStateOf(0) }
     // pager 连续进度：**故意不解包成局部 Float**。
     // 它每帧都在变，一旦在 MainScreen 函数体里 `by` 解包，Scaffold 的 content
@@ -510,12 +530,8 @@ fun MainScreen() {
                 Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && playerBackgroundBlurEnabled) {
-                            val progress = miniPlayerDragProgress
-                            val radiusPx = if (progress > 0.01f) {
-                                (progress * 18f * density).roundToInt().toFloat()
-                            } else 0f
-                            renderEffect = bgBlurEffectCache.get(radiusPx)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            renderEffect = playerBgBlurEffect.value
                         }
                     }
             ) {
@@ -651,6 +667,17 @@ fun MainScreen() {
                             showPlayer = progress >= 0.99f
                         }
                     )
+                }
+                if (!showMiniPlayer && isPersonalFmLoading) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(1.1f)
+                            .background(MaterialTheme.colorScheme.background),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("正在加载私人FM")
+                    }
                 }
             }
 

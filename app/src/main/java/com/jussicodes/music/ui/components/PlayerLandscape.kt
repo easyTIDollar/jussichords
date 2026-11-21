@@ -20,11 +20,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -68,6 +70,7 @@ import com.jussicodes.music.ui.icons.MoreVert
 import com.jussicodes.music.ui.icons.Timelapse
 import com.jussicodes.music.ui.icons.Timer
 import com.jussicodes.music.utils.makeTimeString
+import com.jussicodes.music.utils.GreySongRegistry
 import kotlin.math.abs
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
@@ -125,6 +128,7 @@ fun PlayerLandscape(
     modifier: Modifier = Modifier,
 ) {
     val playerState = LocalPlayerState.current
+    val greyIds by GreySongRegistry.ids.collectAsState()
     val mediaController = LocalPlayerController.current.controller
     val isPlaying = playerState?.isPlaying == true
     val shuffleOn = playerState?.shuffleModeEnabled == true
@@ -330,22 +334,39 @@ fun PlayerLandscape(
                                                 ),
                                         )
                                     }
-                                    mediaMetadata.artist?.let {
-                                        Text(
-                                            text = it.toString(),
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = dimColor,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null,
-                                                    onClick = onArtistClick
-                                                ),
-                                        )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        mediaMetadata.artist?.let {
+                                            Text(
+                                                text = it.toString(),
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = dimColor,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier
+                                                    .weight(1f, fill = false)
+                                                    .clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null,
+                                                        onClick = onArtistClick
+                                                    ),
+                                            )
+                                        }
+                                        if (playerState?.currentMediaItem?.mediaId?.toLongOrNull() in greyIds) {
+                                            Text(
+                                                text = "官方无版权",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier
+                                                    .padding(start = 4.dp, end = 4.dp)
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp))
+                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }

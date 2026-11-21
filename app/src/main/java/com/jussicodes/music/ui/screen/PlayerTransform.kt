@@ -106,6 +106,7 @@ fun PlayerTransform(
     val viewConfiguration = LocalViewConfiguration.current
 
     var isExpanded by remember { mutableStateOf(false) }
+    var dragInProgress by remember { mutableStateOf(false) }
     var fullPlayerSubView by remember { mutableIntStateOf(FULL_PLAYER) }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -235,9 +236,11 @@ fun PlayerTransform(
         // 就再也没有人来收尾 —— 表现就是小播放器半透明消失、底栏沉下去不回来、
         // 背景一直模糊（诊断里 p=0.344 ty=1323 卡死不动）。
         LaunchedEffect(Unit) {
-            snapshotFlow { sheetOffsetY.value }
-                .collectLatest {
+            snapshotFlow { sheetOffsetY.value to dragInProgress }
+                .collectLatest { (_, isDragging) ->
+                    if (isDragging) return@collectLatest
                     delay(250)
+                    if (dragInProgress) return@collectLatest
                     if (sheetOffsetY.isRunning) return@collectLatest
                     val target = currentCollapsedTargetY.value
                     if (target <= 0f) return@collectLatest
@@ -316,6 +319,7 @@ fun PlayerTransform(
         }
 
         fun onDragEnd(velocityY: Float, startedExpanded: Boolean) {
+            dragInProgress = false
             coroutineScope.launch {
                 // 最后几个事件的增量可能还在累加器里没落盘，先并入再判阈值，
                 // 否则松手瞬间会用上一帧的旧位移算距离。
@@ -631,9 +635,11 @@ fun PlayerTransform(
                             onClick = {
                                 expandSheet()
                             },
+                            onVerticalDragStart = { dragInProgress = true },
                             onVerticalDrag = { deltaY -> onDrag(deltaY) },
                             onVerticalDragEnd = { velocityY -> onDragEnd(velocityY, startedExpanded = false) },
                             dragProgress = progressState,
+                            sheetDragOffset = sheetOffsetState,
                             modifier = Modifier.fillMaxSize()
                         )
                     }

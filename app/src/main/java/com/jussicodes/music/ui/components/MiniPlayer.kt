@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
@@ -37,7 +38,10 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -65,7 +69,16 @@ import com.jussicodes.music.LocalPlayerState
 import com.jussicodes.music.constants.MiniPlayerHeight
 import com.jussicodes.music.ui.icons.PauseFill
 import com.jussicodes.music.ui.icons.SkipNextFill
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.abs
+import kotlin.math.exp
+
+private val MiniArtworkSize = 48.dp
+private const val MiniArtworkScaleIncrease = 0.12f
+private const val RecordPlaybackSpeed = 21f
+private const val RecordDegreesPerPixel = 1.3f
+private const val RecordDecayRate = 8f
 
 @Composable
 fun MiniPlayer(
@@ -82,13 +95,24 @@ fun MiniPlayer(
     /**
      * 播放页上滑展开的连续进度。收 [State] 而不是裸 Float：它每帧都在变，
      * 一旦在组合期解包，小播放器整棵子树（封面、标题、按钮）都会跟着每帧重组。
-     * 内部只在 draw 阶段读它。
+     * 内部在绘制和观察唱片是否该转动时读取。
      */
     dragProgress: State<Float> = remember { mutableFloatStateOf(0f) },
     isPillProgress: Boolean = false,
+    onVerticalDragStart: (() -> Unit)? = null,
+    sheetDragOffset: State<Float>? = null,
 ) {
     val mediaController = LocalPlayerController.current.controller
     val playerState = LocalPlayerState.current
+    val isPlaying = playerState?.isPlaying == true
+    val recordSpin = remember(playerState?.currentMediaItem?.mediaId, mediaMetadata.artworkUri) {
+        MiniRecordSpin()
+    }
+    val currentRecordSpin by rememberUpdatedState(recordSpin)
+    val currentIsPlaying by rememberUpdatedState(isPlaying)
+    val currentOnVerticalDragStart by rememberUpdatedState(onVerticalDragStart)
+    val currentOnVerticalDrag by rememberUpdatedState(onVerticalDrag)
+    val currentOnVerticalDragEnd by rememberUpdatedState(onVerticalDragEnd)
     val density = LocalDensity.current
     val swipeOpenThresholdPx = with(density) { 40.dp.toPx() }
     val swipeVelocityThresholdPx = with(density) { 360.dp.toPx() }
@@ -130,8 +154,6 @@ fun MiniPlayer(
     }
     val extraBackdropHeight = (-animatedPlayerDragOffsetY * 0.22f).coerceIn(0f, with(density) { 18.dp.toPx() })
     val backdropHeight = MiniPlayerHeight + with(density) { extraBackdropHeight.toDp() } + bottomExtendDp
-    val artworkLiftPx = animatedPlayerDragOffsetY * 0.72f
-    val artworkScale = 1f + openProgress * 0.28f
     val controlsAlpha = (1f - openProgress * 1.6f).coerceIn(0f, 1f)
     val horizontalProgress = (abs(animatedPlayerDragOffsetX) / horizontalPreviewLimitPx).coerceIn(0f, 1f)
     val previewProgress = ((horizontalProgress - 0.42f) / 0.58f).coerceIn(0f, 1f)
@@ -161,7 +183,21 @@ fun MiniPlayer(
         mediaMetadata.artworkUri != null ||
         (playerState?.player?.mediaItemCount ?: 0) != 0
 
-    if (showMiniPlayer)
+    if (showMiniPlayer) {
+        LaunchedEffect(recordSpin, isPlaying, dragProgress) {
+            snapshotFlow {
+                dragProgress.value <= 0.5f && recordSpin.shouldSpin(isPlaying)
+            }.collectLatest { spinning ->
+                if (!spinning) return@collectLatest
+                var lastFrameNanos = withFrameNanos { it }
+                while (recordSpin.shouldSpin(isPlaying)) {
+                    val frameNanos = withFrameNanos { it }
+                    if (!recordSpin.shouldSpin(isPlaying)) break
+                    recordSpin.advance((frameNanos - lastFrameNanos) / 1_000_000_000f, isPlaying)
+                    lastFrameNanos = frameNanos
+                }
+            }
+        }
         Box(
             modifier = modifier
                 .fillMaxWidth()
@@ -177,13 +213,40 @@ fun MiniPlayer(
                         var totalDragX = 0f
                         var totalDragY = 0f
                         var isHorizontalDrag: Boolean? = null
+                        var verticalDragStarted = false
                         val velocityTracker = VelocityTracker()
                         velocityTracker.addPosition(down.uptimeMillis, down.position)
 
+                        fun cancelVerticalDrag() {
+                            if (isHorizontalDrag != false) return
+                            currentRecordSpin.endDrag(0f, currentIsPlaying)
+                            if (verticalDragStarted) {
+                                currentOnVerticalDragEnd?.invoke(0f)
+                            } else {
+                                playerDragOffsetY = 0f
+                            }
+                        }
+
                         while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!change.pressed) break
+                            val event = try {
+                                awaitPointerEvent()
+                            } catch (cancellation: CancellationException) {
+                                cancelVerticalDrag()
+                                throw cancellation
+                            }
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                            if (isHorizontalDrag == false && (change == null || change.isConsumed)) {
+                                cancelVerticalDrag()
+                                return@awaitEachGesture
+                            }
+                            if (change == null) {
+                                cancelVerticalDrag()
+                                return@awaitEachGesture
+                            }
+                            if (!change.pressed) {
+                                velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                break
+                            }
 
                             velocityTracker.addPosition(change.uptimeMillis, change.position)
                             val positionChange = change.positionChange()
@@ -206,9 +269,15 @@ fun MiniPlayer(
                                 }
 
                                 false -> {
-                                    if (onVerticalDrag != null) {
+                                    currentRecordSpin.dragBy(positionChange.y)
+                                    val drag = currentOnVerticalDrag
+                                    if (drag != null) {
+                                        if (!verticalDragStarted) {
+                                            verticalDragStarted = true
+                                            currentOnVerticalDragStart?.invoke()
+                                        }
                                         change.consume()
-                                        onVerticalDrag(positionChange.y)
+                                        drag(positionChange.y)
                                     } else if (positionChange.y < 0f || playerDragOffsetY < 0f) {
                                         change.consume()
                                         // 渐进式阻尼：越向上拉阻力越大，手感柔韧不撞墙
@@ -245,10 +314,13 @@ fun MiniPlayer(
                             }
                             playerDragOffsetX = 0f
                         } else if (isHorizontalDrag == false) {
-                            if (onVerticalDragEnd != null) {
-                                onVerticalDragEnd(velocity.y)
+                            val velocityY = velocity.y
+                            currentRecordSpin.endDrag(velocityY, currentIsPlaying)
+                            val dragEnd = currentOnVerticalDragEnd
+                            if (dragEnd != null) {
+                                dragEnd(velocityY)
                             } else {
-                                val isFlingUp = velocity.y <= -swipeVelocityThresholdPx
+                                val isFlingUp = velocityY <= -swipeVelocityThresholdPx
                                 val isDragUp = -playerDragOffsetY >= swipeOpenThresholdPx
                                 if (isFlingUp || isDragUp) {
                                     isTransitioningToFull = true
@@ -354,9 +426,21 @@ fun MiniPlayer(
                             mediaMetadata = mediaMetadata,
                             modifier = Modifier.padding(horizontal = 6.dp),
                             imageModifier = imageModifier,
-                            artworkOffsetY = artworkLiftPx,
-                            artworkScale = artworkScale,
                             contentAlpha = controlsAlpha,
+                            recordArtwork = Modifier.graphicsLayer {
+                                val artworkDragOffsetY = sheetDragOffset?.let { -it.value }
+                                    ?: animatedPlayerDragOffsetY
+                                val artworkProgress = (-artworkDragOffsetY / swipePreviewLimitPx).coerceIn(0f, 1f)
+                                val artworkScale = 1f + artworkProgress * MiniArtworkScaleIncrease
+                                val shadowDragPx = -artworkDragOffsetY * 0.72f
+                                rotationZ = recordSpin.angle.floatValue
+                                scaleX = artworkScale
+                                scaleY = artworkScale
+                                shadowElevation = if (shadowDragPx > 2f) {
+                                    (shadowDragPx * 0.45f).coerceAtMost(14.dp.toPx())
+                                } else 0f
+                                shape = CircleShape
+                            },
                         )
                     }
 
@@ -393,6 +477,7 @@ fun MiniPlayer(
                 }
             }
         }
+    }
 }
 
 @Composable
@@ -403,6 +488,7 @@ fun MiniMediaInfo(
     artworkOffsetY: Float = 0f,
     artworkScale: Float = 1f,
     contentAlpha: Float = 1f,
+    recordArtwork: Modifier? = null,
 ) {
     val density = LocalDensity.current
     Row(
@@ -410,15 +496,20 @@ fun MiniMediaInfo(
         modifier = modifier
     ) {
         Box(
-            modifier = Modifier.graphicsLayer {
-                translationY = artworkOffsetY
-                scaleX = artworkScale
-                scaleY = artworkScale
-                if (artworkOffsetY < -2f) {
-                    shadowElevation = (abs(artworkOffsetY) * 0.45f).coerceIn(0f, with(density) { 14.dp.toPx() })
-                    shape = SharedArtworkShape
-                    clip = false
-                }
+            modifier = if (recordArtwork != null) {
+                // 外层保留共享转场边界，圆形封面放大时可以越过这层边界。
+                imageModifier.size(MiniArtworkSize)
+            } else {
+                Modifier.graphicsLayer {
+                    translationY = artworkOffsetY
+                    scaleX = artworkScale
+                    scaleY = artworkScale
+                    if (artworkOffsetY < -2f) {
+                        shadowElevation = (abs(artworkOffsetY) * 0.45f).coerceIn(0f, with(density) { 14.dp.toPx() })
+                        shape = SharedArtworkShape
+                        clip = false
+                    }
+                }.size(MiniArtworkSize)
             }
         ) {
             val context = androidx.compose.ui.platform.LocalContext.current
@@ -441,9 +532,11 @@ fun MiniMediaInfo(
                 model = effectiveArtwork,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = imageModifier
-                    .size(48.dp)
-                    .clip(SharedArtworkShape)
+                modifier = if (recordArtwork != null) {
+                    Modifier.fillMaxSize()
+                        .then(recordArtwork)
+                        .clip(CircleShape)
+                } else imageModifier.size(MiniArtworkSize).clip(SharedArtworkShape)
             )
         }
 
@@ -477,6 +570,56 @@ fun MiniMediaInfo(
                 )
             }
         }
+    }
+}
+
+private class MiniRecordSpin {
+    val angle = mutableFloatStateOf(0f)
+    private var accumulatedAngle = 0f
+    private var dragging by mutableStateOf(false)
+    private var releaseSpeed by mutableStateOf<Float?>(null)
+    private var releaseWeight = 0f
+    private var lastDragDeltaY = 0f
+
+    fun dragBy(deltaY: Float) {
+        if (!dragging) {
+            dragging = true
+            releaseSpeed = null
+        }
+        if (deltaY == 0f) return
+        lastDragDeltaY = deltaY
+        addAngle(-deltaY * RecordDegreesPerPixel)
+    }
+
+    fun endDrag(velocityY: Float, isPlaying: Boolean) {
+        if (!dragging) return
+        val speed = if (velocityY * lastDragDeltaY > 0f) -velocityY * RecordDegreesPerPixel else 0f
+        releaseSpeed = speed.takeIf { it != 0f || isPlaying }
+        releaseWeight = 1f
+        lastDragDeltaY = 0f
+        dragging = false
+    }
+
+    fun shouldSpin(isPlaying: Boolean) = !dragging && (isPlaying || releaseSpeed != null)
+
+    fun advance(seconds: Float, isPlaying: Boolean) {
+        val baseSpeed = if (isPlaying) RecordPlaybackSpeed else 0f
+        val speed = releaseSpeed
+        var delta = baseSpeed * seconds
+        if (speed != null) {
+            // 积分计算这一帧经过的角度，掉帧时也能按真实时间衰减。
+            val decay = exp((-RecordDecayRate * seconds).toDouble()).toFloat()
+            val extraSpeed = (speed - baseSpeed) * releaseWeight
+            delta += extraSpeed * (1f - decay) / RecordDecayRate
+            releaseWeight *= decay
+            if (abs(extraSpeed * decay) < 0.25f) releaseSpeed = null
+        }
+        addAngle(delta)
+    }
+
+    private fun addAngle(delta: Float) {
+        accumulatedAngle = (accumulatedAngle + delta) % 360f
+        angle.floatValue = accumulatedAngle
     }
 }
 

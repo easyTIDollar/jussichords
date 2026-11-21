@@ -33,9 +33,6 @@ import java.util.Collections
  * 桌面组件最大也就 2×3 格，按 dp 实际像素出图足够清晰，体积还小一个数量级。
  */
 enum class CoverStyle(val px: Int) {
-    /** 4×2 卡：左侧 1:1 大封面贴合卡片可用高度（最大 120dp），336px ≈ 112dp@3x 仍清晰。 */
-    THUMB(336),
-
     /** 方形 2×3：整格铺满封面，3x 屏约 330px。 */
     FULL(320),
 
@@ -198,7 +195,7 @@ object WidgetCoverLoader {
         val compressed = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: square
         val software = if (compressed.isMutable) compressed else compressed.copy(Bitmap.Config.ARGB_8888, true)
         return when (style) {
-            CoverStyle.SMALL, CoverStyle.THUMB, CoverStyle.FULL ->
+            CoverStyle.SMALL, CoverStyle.FULL ->
                 round(software, software.width * cornerRatio)
         }
     }

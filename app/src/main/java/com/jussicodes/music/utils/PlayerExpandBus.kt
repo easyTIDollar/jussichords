@@ -20,3 +20,12 @@ object PlayerExpandBus {
         _token.update { it + 1 }
     }
 }
+
+object PersonalFmStartupState {
+    private val _loading = MutableStateFlow(false)
+    val loading: StateFlow<Boolean> = _loading.asStateFlow()
+
+    fun setLoading(loading: Boolean) {
+        _loading.value = loading
+    }
+}

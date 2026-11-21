@@ -10,9 +10,11 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
@@ -20,35 +22,58 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.graphics.ColorUtils
 import com.jussicodes.music.constants.homeBgImageKey
 import com.jussicodes.music.constants.themeColorSourceKey
+import com.jussicodes.music.constants.themeModeKey
+import com.jussicodes.music.constants.themePrimaryColorKey
+import com.jussicodes.music.constants.themeSecondaryColorKey
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
 import com.jussicodes.music.widget.WidgetPaletteStore
 
+val LocalAppDarkTheme = staticCompositionLocalOf { false }
+
+@Composable
+fun rememberIsDarkTheme(): Boolean {
+    val mode by rememberPreference(themeModeKey, "system")
+    return when (mode) {
+        "light" -> false
+        "dark", "amoled" -> true
+        else -> isSystemInDarkTheme()
+    }
+}
+
 @Composable
 fun JetMeloTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = rememberIsDarkTheme(),
     artwork: Any? = null,
-    /** 为 true 时无论「取色来源」设置如何，都优先用封面 artwork 取色（用于局部面板跟随歌曲封面）。 */
+    /** 未自定义主色时，为 true 则忽略「取色来源」，用封面 artwork 取色。 */
     artworkForced: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
     val dynamicColorAvailable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val mode by rememberPreference(themeModeKey, "system")
+    val isAmoled = mode == "amoled"
+    val appDarkTheme = isAmoled || darkTheme
     val themeColorSource by rememberEnumPreference(
         themeColorSourceKey,
         defaultValue = ThemeColorSource.WALLPAPER,
     )
-    val useArtwork = artworkForced || themeColorSource == ThemeColorSource.ARTWORK
-    val useHomeBg = !artworkForced && themeColorSource == ThemeColorSource.HOME_BG
+    val themePrimaryColor by rememberPreference(themePrimaryColorKey, 0L)
+    val themeSecondaryColor by rememberPreference(themeSecondaryColorKey, 0L)
+    val primarySeed = if (themePrimaryColor != 0L) Color(themePrimaryColor.toInt()) else null
+    val secondarySeed = if (themeSecondaryColor != 0L) Color(themeSecondaryColor.toInt()) else null
+    val useArtwork = primarySeed == null && (artworkForced || themeColorSource == ThemeColorSource.ARTWORK)
+    val useHomeBg = primarySeed == null && !artworkForced && themeColorSource == ThemeColorSource.HOME_BG
     val homeBgPath by rememberPreference(homeBgImageKey, "")
     val artworkSeed = rememberArtworkSeed(
         artwork = artwork.takeIf { useArtwork },
     )
     // 仅 HOME_BG 来源时喂真实路径，其余传空串 → 种子 null，回落壁纸配色。
     val homeBgSeed = rememberHomeBgSeed(if (useHomeBg) homeBgPath else "")
-    // 浅色/深色两套都算出来：当前用哪套由 darkTheme 决定，另一套给桌面组件在
-    // 系统深浅色切换时直接取用（组件不在 App 组合树里，拿不到 MaterialTheme）。
+    // 同时生成浅色和深色色板，供 App 和切换深浅色的桌面组件取用。
     val schemes = remember(
+        primarySeed,
+        secondarySeed,
         artworkSeed,
         homeBgSeed,
         useArtwork,
@@ -59,6 +84,8 @@ fun JetMeloTheme(
         resolveScheme(
             dark = false,
             context = context,
+            primarySeed = primarySeed,
+            secondarySeed = secondarySeed,
             useArtwork = useArtwork,
             artworkSeed = artworkSeed,
             useHomeBg = useHomeBg,
@@ -67,6 +94,8 @@ fun JetMeloTheme(
         ) to resolveScheme(
             dark = true,
             context = context,
+            primarySeed = primarySeed,
+            secondarySeed = secondarySeed,
             useArtwork = useArtwork,
             artworkSeed = artworkSeed,
             useHomeBg = useHomeBg,
@@ -74,33 +103,46 @@ fun JetMeloTheme(
             dynamicColorAvailable = dynamicColorAvailable,
         )
     }
-    val colorScheme = if (darkTheme) schemes.second else schemes.first
-    // 桌面组件和 App 用同一套最终配色：把两套色板写进组件可同步读取的小表。
+    val colorScheme = remember(schemes, isAmoled, appDarkTheme) {
+        when {
+            isAmoled -> schemes.second.toAmoledScheme()
+            appDarkTheme -> schemes.second
+            else -> schemes.first
+        }
+    }
+    // 桌面组件继续使用普通浅色和深色色板。
     SideEffect {
         WidgetPaletteStore.publish(context.applicationContext, schemes.first, schemes.second)
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
+    CompositionLocalProvider(LocalAppDarkTheme provides appDarkTheme) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            content = content
+        )
+    }
 }
 
 /**
- * 主题色板解析：壁纸动态色 / 封面种子色 / 主页背景图种子色 / 默认种子色，四选一。
+ * 自定义主色优先决定基础色板，副色独立覆盖第二和第三强调色。
  * App 与桌面组件共用这一条路径，避免两边各算各的颜色。
  */
 private fun resolveScheme(
     dark: Boolean,
     context: Context,
+    primarySeed: Color?,
+    secondarySeed: Color?,
     useArtwork: Boolean,
     artworkSeed: Color?,
     useHomeBg: Boolean,
     homeBgSeed: Color?,
     dynamicColorAvailable: Boolean,
 ): ColorScheme {
-    val generated = when {
+    val base = when {
+        primarySeed != null ->
+            if (dark) createDarkScheme(primarySeed) else createLightScheme(primarySeed)
+
         useHomeBg && homeBgSeed != null ->
             if (dark) createDarkScheme(homeBgSeed) else createLightScheme(homeBgSeed)
 
@@ -112,9 +154,34 @@ private fun resolveScheme(
 
         dark -> createDarkScheme(DefaultThemeSeed)
         else -> createLightScheme(DefaultThemeSeed)
-    }
-    return generated.withNeutralTextColors()
+    }.withNeutralTextColors()
+    if (secondarySeed == null) return base
+
+    val secondary = (if (dark) createDarkScheme(secondarySeed) else createLightScheme(secondarySeed))
+        .withNeutralTextColors()
+    return base.copy(
+        secondary = secondary.secondary,
+        onSecondary = secondary.onSecondary,
+        secondaryContainer = secondary.secondaryContainer,
+        onSecondaryContainer = secondary.onSecondaryContainer,
+        tertiary = secondary.tertiary,
+        onTertiary = secondary.onTertiary,
+        tertiaryContainer = secondary.tertiaryContainer,
+        onTertiaryContainer = secondary.onTertiaryContainer,
+    )
 }
+
+private fun ColorScheme.toAmoledScheme(): ColorScheme = copy(
+    background = Color.Black,
+    surface = Color.Black,
+    surfaceContainerLowest = Color.Black,
+    surfaceContainerLow = Color(0xFF050505),
+    surfaceContainer = Color(0xFF0A0A0A),
+    surfaceContainerHigh = Color(0xFF0F0F0F),
+    surfaceContainerHighest = Color(0xFF141414),
+    surfaceVariant = Color(0xFF121212),
+    surfaceTint = primary,
+)
 
 /** 组件侧没有主题上下文时的回落：用同一个封面种子色生成 App 同款色板。 */
 internal fun artworkColorScheme(seed: Color, dark: Boolean): ColorScheme =

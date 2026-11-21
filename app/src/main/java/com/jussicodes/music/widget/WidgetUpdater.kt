@@ -499,12 +499,13 @@ object WidgetUpdater {
         ticker = scope.launch {
             while (isActive) {
                 delay(1000)
+                val targetVersion = version
                 val snapshot = current(context)
                 // 暂停/时长未知就停：不让错误进度污染组件。
                 if (!snapshot.isPlaying || snapshot.durationMs <= 0L) break
                 // 息屏时没人看进度线：跳过这一轮重绘，别在后台纯烧 CPU/Binder。
                 if (!screenOn(context)) continue
-                // App 在前台时同样没人看组件：每秒 3 次 Glance 全量重组 + RemoteViews
+                // App 在前台时同样没人看组件：每秒多次 Glance 全量重组 + RemoteViews
                 // 推送正好砸在用户的拖动/转场动画帧里（实测上滑播放页掉到个位数帧率）。
                 // 跳过写盘与重绘，回桌面的第一秒 tick 会立刻补上真实位置。
                 if (AppVisibilityTracker.isAppInForeground.value) continue
@@ -517,9 +518,11 @@ object WidgetUpdater {
                     positionMs = position.coerceIn(0L, snapshot.durationMs),
                     progressAt = now,
                 )
+                // 读取真实位置期间若收到新事件，丢弃旧帧并继续下一轮。
+                if (version != targetVersion) continue
                 live = next
                 WidgetStateStore.write(context, next)
-                // 只重绘画进度线的三个组件；不在 tick 里推的组件等真实事件来时再刷。
+                // 只重绘注册表中画进度线的组件；不在 tick 里推的组件等真实事件来时再刷。
                 runCatching { WidgetHub.updateAll(context, progressOnly = true) }
             }
         }

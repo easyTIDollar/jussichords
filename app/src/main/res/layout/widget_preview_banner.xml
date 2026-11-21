@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_card_round"
+    android:backgroundTint="#221E32"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:padding="8dp">
+
+    <ImageView
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_cover_placeholder"
+        android:tint="#49454F" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="@string/widget_preview_title"
+            android:textColor="#E8E1E9"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="@string/widget_preview_artist"
+            android:textColor="#CBC4CC"
+            android:textSize="10.5sp" />
+
+    </LinearLayout>
+
+    <ImageView
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/widget_circle"
+        android:backgroundTint="#49454F"
+        android:padding="4dp"
+        android:src="@drawable/ic_widget_prev"
+        android:tint="#E8E1E9" />
+
+    <ImageView
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/widget_circle"
+        android:backgroundTint="#8E7EBC"
+        android:padding="5dp"
+        android:src="@drawable/ic_widget_play"
+        android:tint="#F4EFF5" />
+
+    <ImageView
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/widget_circle"
+        android:backgroundTint="#49454F"
+        android:padding="4dp"
+        android:src="@drawable/ic_widget_next"
+        android:tint="#E8E1E9" />
+
+    <View
+        android:layout_width="1dp"
+        android:layout_height="20dp"
+        android:layout_marginStart="6dp"
+        android:background="#CBC4CC" />
+
+    <ImageView
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_marginStart="6dp"
+        android:contentDescription="@string/widget_action_fm"
+        android:src="@drawable/ic_widget_fm"
+        android:tint="#CBC4CC" />
+
+    <ImageView
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_marginStart="6dp"
+        android:contentDescription="@string/widget_action_like"
+        android:src="@drawable/ic_favorite_fill"
+        android:tint="#CBC4CC" />
+
+</LinearLayout>

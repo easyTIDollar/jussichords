@@ -16,7 +16,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,6 +54,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,6 +91,7 @@ import com.jussicodes.music.extensions.setPlaylist
 import com.jussicodes.music.ui.screen.PERSONAL_FM_SOURCE
 import com.jussicodes.music.ui.screen.PersonalFmQueueLoader
 import com.jussicodes.music.utils.PlayerExpandBus
+import com.jussicodes.music.utils.PersonalFmStartupState
 import com.jussicodes.music.utils.AppSessionClock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -131,6 +132,7 @@ import com.jussicodes.music.animation.navSharedElementModifier
 import com.jussicodes.music.ui.navigation.RecordNav
 import com.jussicodes.music.ui.navigation.Screen
 import com.jussicodes.music.ui.navigation.UserFollowNav
+import com.jussicodes.music.ui.theme.LocalAppDarkTheme
 import com.jussicodes.music.utils.CoverImageSize
 import com.jussicodes.music.utils.AvatarUploadLimiter
 import com.jussicodes.music.utils.PlaylistCoverSyncBus
@@ -187,6 +189,8 @@ fun LibraryScreen(
         }
         if (isStartingRoam) return
         isStartingRoam = true
+        PersonalFmStartupState.setLoading(true)
+        PlayerExpandBus.expand()
         coroutineScope.launch {
             try {
                 val player = PlayerController.awaitController()
@@ -208,7 +212,6 @@ fun LibraryScreen(
                             sourceType = MediaSessionConstants.SOURCE_TYPE_ROAM
                         )
                         player.playMediaAt(0)
-                        PlayerExpandBus.expand()
                     }
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -221,6 +224,7 @@ fun LibraryScreen(
                 ).show()
             } finally {
                 isStartingRoam = false
+                PersonalFmStartupState.setLoading(false)
             }
         }
     }
@@ -243,8 +247,8 @@ fun LibraryScreen(
     }
     var showAvatarDialog by remember { mutableStateOf(false) }
     var selectedAvatarUri by remember { mutableStateOf<Uri?>(null) }
-    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
-    var newPlaylistName by remember { mutableStateOf("") }
+    var showCreatePlaylistDialog by rememberSaveable { mutableStateOf(false) }
+    var newPlaylistName by rememberSaveable { mutableStateOf("") }
     var editingPlaylist by remember { mutableStateOf<Playlist?>(null) }
     var editingPlaylistName by remember { mutableStateOf("") }
     var editingPlaylistDescription by remember { mutableStateOf("") }
@@ -961,7 +965,7 @@ private fun LibraryUserCardWide(
             BorderStroke(
                 width = 1.dp,
                 color = androidx.compose.ui.graphics.Color.White.copy(
-                    alpha = if (isSystemInDarkTheme()) 0.14f else 0.35f
+                    alpha = if (LocalAppDarkTheme.current) 0.14f else 0.35f
                 )
             )
         } else {
@@ -1147,7 +1151,7 @@ private fun LibraryUserCard(
             BorderStroke(
                 width = 1.dp,
                 color = androidx.compose.ui.graphics.Color.White.copy(
-                    alpha = if (isSystemInDarkTheme()) 0.14f else 0.35f
+                    alpha = if (LocalAppDarkTheme.current) 0.14f else 0.35f
                 )
             )
         } else {

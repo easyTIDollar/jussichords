@@ -2,8 +2,6 @@ package com.jussicodes.music.ui.screen
 
 import android.os.Build
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -114,15 +112,10 @@ import com.jussicodes.music.constants.githubDownloadSourceKey
 import com.jussicodes.music.constants.resolveAllSongsKey
 import com.jussicodes.music.constants.ncmCookieKey
 import com.jussicodes.music.constants.pinnedAlbumsHiddenKey
-import com.jussicodes.music.constants.floatingNavBarEnabledKey
-import com.jussicodes.music.constants.playerBackgroundBlurEnabledKey
-import com.jussicodes.music.constants.homeBgBlurKey
-import com.jussicodes.music.constants.homeBgImageKey
-import com.jussicodes.music.constants.homeBgOffsetXKey
-import com.jussicodes.music.constants.homeBgOffsetYKey
-import com.jussicodes.music.constants.homeBgOpacityKey
-import com.jussicodes.music.constants.homeBgScaleKey
 import com.jussicodes.music.constants.themeColorSourceKey
+import com.jussicodes.music.constants.themePrimaryColorKey
+import com.jussicodes.music.constants.themeSecondaryColorKey
+import com.jussicodes.music.constants.homeBgImageKey
 import com.jussicodes.music.constants.unblockSourceKey
 import com.jussicodes.music.constants.updateLastErrorKey
 import com.jussicodes.music.lyric.DesktopLyricManager
@@ -130,9 +123,8 @@ import com.jussicodes.music.lyric.DesktopLyricDefaultFontSizeSp
 import com.jussicodes.music.ui.components.ScaledDialogContent
 import com.jussicodes.music.ui.components.PlayerGestureTutorialDialog
 import com.jussicodes.music.ui.components.Dialog
+import com.jussicodes.music.ui.components.ResponsiveAlertDialog
 import com.jussicodes.music.ui.components.SongQualityDialog
-import com.jussicodes.music.ui.components.ThemeColorSourceDialog
-import com.jussicodes.music.ui.components.HomeBackgroundConfig
 import com.jussicodes.music.ui.components.UnblockSourceDialog
 import com.jussicodes.music.ui.components.UpdateDialog
 import com.jussicodes.music.ui.components.unblockSourceOptions
@@ -166,6 +158,7 @@ import com.jussicodes.music.utils.downloadSources
 import com.jussicodes.music.utils.normalizedSourceId
 import com.jussicodes.music.utils.rememberEnumPreference
 import com.jussicodes.music.utils.rememberPreference
+import com.jussicodes.music.widget.WidgetDiagDialog
 import com.rcmiku.ncmapi.api.account.AccountApi
 import com.rcmiku.ncmapi.api.AudioSources
 import com.rcmiku.ncmapi.api.player.PlayerApi
@@ -181,7 +174,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.serialization.decodeFromString
 import kotlinx.coroutines.launch
 import java.io.File
-import com.jussicodes.music.ui.components.ResponsiveAlertDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -204,10 +196,11 @@ fun SettingsScreen(
         themeColorSourceKey,
         defaultValue = ThemeColorSource.WALLPAPER,
     )
+    val themePrimaryColor by rememberPreference(themePrimaryColorKey, 0L)
+    val themeSecondaryColor by rememberPreference(themeSecondaryColorKey, 0L)
+    var homeBgPath by rememberPreference(homeBgImageKey, "")
     var ncmCookie by rememberPreference(ncmCookieKey, "")
     var pinnedAlbumsHidden by rememberPreference(pinnedAlbumsHiddenKey, false)
-    var floatingNavBarEnabled by rememberPreference(floatingNavBarEnabledKey, true)
-    var playerBackgroundBlurEnabled by rememberPreference(playerBackgroundBlurEnabledKey, true)
     var apiBaseUrl by rememberPreference(apiBaseUrlKey, "")
     var unblockSource by rememberPreference(unblockSourceKey, "AUTO")
     // 音源选择（LX / 代理）。
@@ -246,101 +239,21 @@ fun SettingsScreen(
     // 检查更新的可见状态：只留失败原因（失败不再静默）。
     var updateLastError by rememberPreference(updateLastErrorKey, "")
     var showGestureTutorialDialog by rememberSaveable { mutableStateOf(false) }
+    var showWidgetDiagDialog by rememberSaveable { mutableStateOf(false) }
     val uiScaleController = LocalUiScaleController.current
     var githubDownloadSource by rememberPreference(
         githubDownloadSourceKey,
         downloadSources.first().id
     )
-    // 主页背景（"我的"/"探索"页）：本地图片路径 + 缩放/透明度/模糊度/平移。
-    var homeBgPath by rememberPreference(homeBgImageKey, "")
-    var homeBgScale by rememberPreference(homeBgScaleKey, 1f)
-    var homeBgOpacity by rememberPreference(homeBgOpacityKey, 1f)
-    var homeBgBlur by rememberPreference(homeBgBlurKey, 0f)
-    val homeTransparentCard = com.jussicodes.music.data.HomeTransparentCardStore.state.collectAsState().value
-    // 主页文字颜色（设置页「外观」选择）：进程级 store，auto/white/black。
-    val homeBgTextColor = com.jussicodes.music.data.HomeBgTextStore.state.collectAsState().value
-    val homeBgTextShadow = com.jussicodes.music.data.HomeBgTextStore.shadow.collectAsState().value
-    var homeBgOffsetX by rememberPreference(homeBgOffsetXKey, 0f)
-    var homeBgOffsetY by rememberPreference(homeBgOffsetYKey, 0f)
-    val homeBg = remember(
-        homeBgPath, homeBgScale, homeBgOpacity, homeBgBlur, homeBgOffsetX, homeBgOffsetY
-    ) {
-        HomeBackgroundConfig(
-            path = homeBgPath,
-            scale = homeBgScale,
-            opacity = homeBgOpacity,
-            blur = homeBgBlur,
-            offsetX = homeBgOffsetX,
-            offsetY = homeBgOffsetY,
-        )
-    }
-    // 选完图不留在设置页：建 draft（保留现有参数、换上图）→ 关闭弹窗 → 跳回主页进入编辑模式。
-    var showThemeColorSourceDialog by remember { mutableStateOf(false) }
-    // 主页背景编辑"放弃"后回来：自动打开「外观」弹窗（一次性消费，手动进设置页不会再弹）
+    // 主页背景编辑"放弃"后回来：自动进入外观页（一次性消费，手动进设置页不会重复导航）。
     LaunchedEffect(Unit) {
         SettingsAppearanceBus.requested.collectLatest { open ->
             if (open) {
-                showThemeColorSourceDialog = true
+                navController.navigate(Screen.AppearanceSettings.route) {
+                    launchSingleTop = true
+                }
                 SettingsAppearanceBus.consume()
             }
-        }
-    }
-    fun startHomeBgEdit(config: HomeBackgroundConfig, ownsFile: Boolean) {
-        com.jussicodes.music.data.HomeBgEditor.begin(config, ownsFile)
-        showThemeColorSourceDialog = false
-        onBackClick?.invoke()
-        // 立即返回主页进编辑模式：把设置页（含外观弹窗）整体弹出栈，
-        // 调参全部在主页编辑面板完成，保存后按返回也不会再冒出旧设置页。
-        navController.navigate(Screen.Library.route) {
-            popUpTo(Screen.Settings.route) { inclusive = true }
-            launchSingleTop = true
-        }
-    }
-    // 选图失败原因（完整可读，走弹窗）。声明须先于 homeBgPicker：
-    // launcher 回调（lambda）不能前向引用后声明的本地 remember 变量。
-    var bgSelectFailureReason by remember { mutableStateOf<String?>(null) }
-    val homeBgPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            coroutineScope.launch {
-                val result = com.jussicodes.music.data.HomeBgStore.select(context, uri)
-                when (result) {
-                    is com.jussicodes.music.data.HomeBgStore.HomeBgSelectResult.Success -> {
-                        // 成功：立即进主页编辑模式实时预览（startHomeBgEdit 内部 begin draft + 跳 Library）。
-                        startHomeBgEdit(
-                            HomeBackgroundConfig(
-                                path = result.path,
-                                scale = homeBgScale,
-                                opacity = homeBgOpacity,
-                                blur = homeBgBlur,
-                                offsetX = homeBgOffsetX,
-                                offsetY = homeBgOffsetY,
-                            ),
-                            ownsFile = true
-                        )
-                    }
-                    is com.jussicodes.music.data.HomeBgStore.HomeBgSelectResult.Failure -> {
-                        // 完整原因（含 URI/异常 message）走可滚动弹窗，避免 toast 截断读不全。
-                        bgSelectFailureReason = result.reason
-                    }
-                }
-            }
-        }
-    }
-    fun removeHomeBg() {
-        coroutineScope.launch {
-            // 隐藏bug修复：编辑进行中（选了新图还没保存）也能从底栏回到设置页点「移除」，
-            // 旧逻辑 clear() 会把编辑草稿引用的临时文件一并删掉，之后 commit 会把
-            // 一个已不存在的路径写进 DataStore → 背景静默变空。先丢弃草稿再清理。
-            com.jussicodes.music.data.HomeBgEditor.cancel(context)
-            com.jussicodes.music.data.HomeBgStore.clear(context)
-            homeBgPath = ""
-            homeBgScale = 1f
-            homeBgOpacity = 1f
-            homeBgBlur = 0f
-            homeBgOffsetX = 0f
-            homeBgOffsetY = 0f
         }
     }
     var showQualityDialog by remember { mutableStateOf(false) }
@@ -404,7 +317,7 @@ fun SettingsScreen(
         runCatching { json.decodeFromString<List<String>>(apiServerListJson) }
             .getOrElse { apiServers.toList() }
     }
-    var updating by rememberSaveable { mutableStateOf(false) }
+    var updating by remember { mutableStateOf(false) }
     var pendingUpdateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
     var downloadingUpdate by remember { mutableStateOf(false) }
     var updateDownloadProgress by remember { mutableFloatStateOf(0f) }
@@ -531,7 +444,7 @@ fun SettingsScreen(
     val lyricOn = desktopLyricEnabled && overlayPermissionGranted
 
     val appearanceTitle = "外观"
-    val appearanceSubtitle = when (themeColorSource) {
+    val appearanceSubtitle = if (themePrimaryColor != 0L || themeSecondaryColor != 0L) "正在使用自定义配色" else when (themeColorSource) {
         ThemeColorSource.WALLPAPER -> if (dynamicColorAvailable) {
             "根据壁纸动态取色"
         } else {
@@ -645,8 +558,8 @@ fun SettingsScreen(
             SettingItemData(
                 title = appearanceTitle,
                 subtitle = appearanceWithScale,
-                imageVector = Palette,
-                onClick = { showThemeColorSourceDialog = true }
+                imageVector = DeepSettingPage.APPEARANCE.imageVector,
+                onClick = { navController.navigate(Screen.AppearanceSettings.route) }
             ),
             SettingItemData(
                 title = "桌面歌词",
@@ -658,7 +571,7 @@ fun SettingsScreen(
                 } else {
                     "已关闭"
                 }) + " · 点击进入设置",
-                imageVector = DesktopLyrics,
+                imageVector = DeepSettingPage.DESKTOP_LYRICS.imageVector,
                 trailingContent = {
                     Switch(
                         checked = lyricOn,
@@ -754,7 +667,7 @@ fun SettingsScreen(
             SettingItemData(
                 title = "下载管理",
                 subtitle = downloadSubtitle,
-                imageVector = Icons.Outlined.FileDownload,
+                imageVector = DeepSettingPage.DOWNLOADS.imageVector,
                 onClick = { navController.navigate(Screen.DownloadManager.route) }
             )
         )
@@ -799,7 +712,7 @@ fun SettingsScreen(
             SettingItemData(
                 title = "LX 脚本管理",
                 subtitle = lxScriptSummary,
-                imageVector = Script,
+                imageVector = DeepSettingPage.LX_PLUGINS.imageVector,
                 onClick = { navController.navigate(Screen.LxPlugins.route) }
             ),
             SettingItemData(
@@ -880,6 +793,13 @@ fun SettingsScreen(
                 }
             )
             ))
+            add(
+                SettingItemData(
+                    title = "小组件诊断",
+                    imageVector = Script,
+                    onClick = { showWidgetDiagDialog = true },
+                )
+            )
         }
     )
 
@@ -899,6 +819,33 @@ fun SettingsScreen(
             )
         }
         .filter { it.items.isNotEmpty() }
+
+    val deepMatches = remember(query, navController) {
+        if (query.isEmpty()) {
+            emptyList()
+        } else {
+            deepSettingIndex.flatMap { (page, entries) ->
+                entries
+                    .filter { entry ->
+                        entry.title.lowercase().contains(query) ||
+                            entry.keywords.any { it.lowercase().contains(query) }
+                    }
+                    .map { entry ->
+                        SettingItemData(
+                            title = entry.title,
+                            subtitle = "${page.title} · 点按进入",
+                            imageVector = page.imageVector,
+                            onClick = { navController.navigate(page.route) }
+                        )
+                    }
+            }
+        }
+    }
+    val searchGroups = if (deepMatches.isEmpty()) {
+        visibleGroups
+    } else {
+        visibleGroups + SettingGroupData(name = "其它设置", items = deepMatches)
+    }
 
     Scaffold(
         topBar = {
@@ -950,7 +897,7 @@ fun SettingsScreen(
                 )
             }
 
-            items(visibleGroups) { group ->
+            items(searchGroups) { group ->
                 SettingGroupCard(group)
             }
         }
@@ -998,44 +945,6 @@ fun SettingsScreen(
         )
     }
 
-    if (showThemeColorSourceDialog) {
-        ThemeColorSourceDialog(
-            currentSource = themeColorSource,
-            currentUiScale = uiScaleController.scale,
-            currentFontScale = uiScaleController.fontScale,
-            wallpaperColorAvailable = dynamicColorAvailable,
-            onDismiss = { showThemeColorSourceDialog = false },
-            onSourceSelected = { themeColorSource = it },
-            onUiScaleSelected = uiScaleController.setScale,
-            onFontScaleSelected = uiScaleController.setFontScale,
-            floatingNavBarEnabled = floatingNavBarEnabled,
-            onFloatingNavBarEnabledChange = { floatingNavBarEnabled = it },
-            playerBackgroundBlurEnabled = playerBackgroundBlurEnabled,
-            onPlayerBackgroundBlurEnabledChange = { playerBackgroundBlurEnabled = it },
-            homeBg = homeBg,
-            onHomeBgPick = { homeBgPicker.launch("image/*") },
-            onHomeBgRemoved = { removeHomeBg() },
-            onHomeBgTune = { startHomeBgEdit(homeBg, ownsFile = false) },
-            homeBgTextColor = homeBgTextColor,
-            onHomeBgTextColorChanged = { v ->
-                coroutineScope.launch {
-                    com.jussicodes.music.data.HomeBgTextStore.set(context, v)
-                }
-            },
-            homeBgTextShadow = homeBgTextShadow,
-            onHomeBgTextShadowChanged = { v ->
-                coroutineScope.launch {
-                    com.jussicodes.music.data.HomeBgTextStore.setShadow(context, v)
-                }
-            },
-            homeTransparentCard = homeTransparentCard,
-            onHomeTransparentCardChange = {
-                coroutineScope.launch {
-                    com.jussicodes.music.data.HomeTransparentCardStore.set(context, it)
-                }
-            },
-        )
-    }
 
     if (showAccountSheet) {
         AccountSwitcherSheet(
@@ -1152,6 +1061,10 @@ fun SettingsScreen(
         )
     }
 
+    if (showWidgetDiagDialog) {
+        WidgetDiagDialog(onDismiss = { showWidgetDiagDialog = false })
+    }
+
     if (showCookieDialog) {
         CookieEditDialog(
             currentCookie = accountCookie,
@@ -1176,23 +1089,6 @@ fun SettingsScreen(
             currentSourceId = normalizedSourceId(githubDownloadSource),
             onDismiss = { showGithubSourceDialog = false },
             onSourceSelected = { githubDownloadSource = it }
-        )
-    }
-
-    if (bgSelectFailureReason != null) {
-        ResponsiveAlertDialog(
-            onDismissRequest = { bgSelectFailureReason = null },
-            title = { Text("选取图片失败") },
-            text = {
-                Text(
-                    text = "原因：${bgSelectFailureReason}\n\n多为该图片源不可用（文件被删/移动，或临时读授权失效），请重选一张。",
-                    modifier = Modifier
-                        .verticalScroll(rememberScrollState())
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { bgSelectFailureReason = null }) { Text("知道了") }
-            }
         )
     }
 
@@ -1403,6 +1299,113 @@ data class SettingGroupData(
     /** 卡片上方/下方的自定义内容（如音源三选一小卡片）。 */
     val header: (@Composable () -> Unit)? = null
 )
+
+private enum class DeepSettingPage(
+    val title: String,
+    val route: String,
+    private val icon: () -> ImageVector
+) {
+    APPEARANCE("外观", Screen.AppearanceSettings.route, { Palette }),
+    DESKTOP_LYRICS("桌面歌词", Screen.DesktopLyricSettings.route, { DesktopLyrics }),
+    LX_PLUGINS("LX 脚本音源", Screen.LxPlugins.route, { Script }),
+    DOWNLOADS("下载管理", Screen.DownloadManager.route, { Icons.Outlined.FileDownload });
+
+    val imageVector: ImageVector get() = icon()
+}
+
+private data class DeepSettingEntry(val title: String, val keywords: List<String>)
+
+private val deepSettingIndex by lazy {
+    mapOf(
+        DeepSettingPage.APPEARANCE to listOf(
+            DeepSettingEntry("显示模式", listOf("主题模式", "日间夜间", "亮暗切换")),
+            DeepSettingEntry("跟随系统", listOf("系统主题", "自动切换", "随系统")),
+            DeepSettingEntry("浅色", listOf("亮色", "白天", "日间模式")),
+            DeepSettingEntry("深色", listOf("暗色", "夜间", "暗黑模式")),
+            DeepSettingEntry("AMOLED 深色", listOf("夜间", "纯黑", "黑色主题", "OLED")),
+            DeepSettingEntry("主题颜色", listOf("主题配色", "界面颜色", "主题取色")),
+            DeepSettingEntry("根据壁纸动态取色", listOf("壁纸取色", "系统原色", "动态配色")),
+            DeepSettingEntry("跟随封面", listOf("从当前播放封面取色", "专辑配色", "歌曲封面")),
+            DeepSettingEntry("提取主页", listOf("从主页背景图取色", "背景配色", "主页取色")),
+            DeepSettingEntry("主色", listOf("主颜色", "主要配色", "primary")),
+            DeepSettingEntry("副色", listOf("次要颜色", "辅助配色", "secondary")),
+            // 外观页用色轮呈现调色盘，控件本身没有文字标签。
+            DeepSettingEntry("调色盘", listOf("色轮", "自定义配色", "选色器")),
+            DeepSettingEntry("明度", listOf("颜色亮度", "色彩深浅", "HSV")),
+            DeepSettingEntry("恢复取色", listOf("重置颜色", "取消自定义配色", "恢复默认配色")),
+            DeepSettingEntry("悬浮胶囊底栏", listOf("悬浮导航栏", "胶囊样式", "贴底通栏")),
+            DeepSettingEntry("上滑背景高斯模糊", listOf("背景虚化", "动态模糊", "景深遮罩")),
+            DeepSettingEntry("主页透明卡片", listOf("半透明卡片", "毛玻璃", "主页卡片透明度")),
+            DeepSettingEntry("界面缩放", listOf("界面大小", "显示比例", "界面与字体缩放")),
+            DeepSettingEntry("字体大小", listOf("字号", "字体缩放", "文字大小", "界面与字体缩放")),
+            DeepSettingEntry("跟随默认", listOf("默认歌词字号", "歌词字体还原", "原有歌词大小")),
+            DeepSettingEntry("歌词字号", listOf("歌词字体大小", "歌词缩放", "歌词大小")),
+            DeepSettingEntry("字体颜色", listOf("文字配色", "主页文字效果", "主页文字颜色")),
+            DeepSettingEntry("柔和轮廓", listOf("文字描边", "字体阴影", "主页文字效果")),
+            DeepSettingEntry("主页背景", listOf("主页壁纸", "背景图", "首页背景")),
+            DeepSettingEntry("选取图片", listOf("更换", "更换背景", "选择壁纸", "相册")),
+            DeepSettingEntry("在主页调整", listOf("调整壁纸", "背景位置", "背景缩放")),
+            DeepSettingEntry("移除", listOf("移除背景", "删除壁纸", "清除主页背景"))
+        ),
+        DeepSettingPage.DESKTOP_LYRICS to listOf(
+            DeepSettingEntry("点预览换背景图", listOf("歌词预览", "预览背景", "更换预览图")),
+            DeepSettingEntry("恢复默认", listOf("重置预览背景", "还原预览图", "移除预览图")),
+            DeepSettingEntry("启用桌面歌词", listOf("开启悬浮歌词", "歌词开关", "悬浮窗权限")),
+            DeepSettingEntry("锁定位置", listOf("固定歌词", "触摸穿透", "通知栏开锁")),
+            DeepSettingEntry("重置位置", listOf("还原位置", "默认位置", "歌词位置")),
+            DeepSettingEntry("歌词大小", listOf("桌面歌词字号", "桌面歌词字体大小", "歌词缩放")),
+            DeepSettingEntry("描边粗细", listOf("描边宽度", "歌词轮廓", "边框厚度")),
+            DeepSettingEntry("副行（翻译/下一句）随主行等比缩放", listOf("行数", "双行", "歌词翻译", "下一句")),
+            DeepSettingEntry("字体颜色", listOf("桌面歌词字体", "文字颜色", "歌词配色")),
+            DeepSettingEntry("描边颜色", listOf("歌词边框颜色", "轮廓配色", "描边色")),
+            DeepSettingEntry("自定义颜色", listOf("调色盘", "自选颜色", "色轮")),
+            DeepSettingEntry("亮度", listOf("明度", "色彩深浅", "颜色亮度"))
+        ),
+        DeepSettingPage.LX_PLUGINS to listOf(
+            DeepSettingEntry("导入文件", listOf("本地脚本", "导入音源", "JS 文件")),
+            DeepSettingEntry("通过链接导入", listOf("URL 导入", "脚本地址", "远程导入")),
+            DeepSettingEntry("在线音源列表", listOf("在线脚本", "音源仓库", "下载音源")),
+            DeepSettingEntry("长按卡片可拖动排序", listOf("音源优先级", "脚本顺序", "重新排序")),
+            DeepSettingEntry("选择", listOf("批量管理", "多选脚本", "全选")),
+            DeepSettingEntry("启用", listOf("开启脚本", "激活音源", "批量启用")),
+            DeepSettingEntry("停用", listOf("禁用脚本", "关闭音源", "批量停用")),
+            DeepSettingEntry("删除", listOf("移除脚本", "删除音源", "批量删除")),
+            DeepSettingEntry("测试解析", listOf("音源多档位解析测试", "测试直链", "音源测速")),
+            DeepSettingEntry(
+                "在独立 WebView 沙盒里运行 LX Music 社区脚本，按列表顺序依次尝试解析直链。",
+                listOf("LX 沙盒", "音源工作方式", "解析顺序")
+            ),
+            DeepSettingEntry(
+                "内置音源仅作参考，不保证可用，请自行导入所需音源。",
+                listOf("内置脚本", "音源说明", "第三方音源")
+            )
+        ),
+        DeepSettingPage.DOWNLOADS to listOf(
+            DeepSettingEntry("已下载", listOf("离线歌曲", "本地音乐", "下载完成")),
+            DeepSettingEntry("下载中", listOf("下载任务", "传输队列", "下载进度")),
+            DeepSettingEntry("搜索已下载歌曲", listOf("搜索本地歌曲", "查找离线音乐", "搜索下载")),
+            DeepSettingEntry("打开系统文件夹", listOf("文件管理器", "查看下载目录", "下载文件夹")),
+            DeepSettingEntry("下载偏好设置", listOf("下载选项", "下载配置", "下载设置")),
+            DeepSettingEntry("默认下载音质", listOf("默认音质", "下载品质", "下载档位")),
+            DeepSettingEntry("音源下载能力体检", listOf("音源体检", "检测下载音质", "测试下载")),
+            DeepSettingEntry("存储目录", listOf("保存路径", "下载位置", "存放目录")),
+            DeepSettingEntry("更改目录", listOf("修改下载路径", "选择下载文件夹", "更换存储位置")),
+            DeepSettingEntry("同时下载任务数", listOf("同时下载数", "并发下载", "并行任务")),
+            DeepSettingEntry("仅在 Wi-Fi 下下载", listOf("仅在 Wi-Fi 下载", "仅无线网下载", "移动数据限制")),
+            DeepSettingEntry("内嵌歌词到音频文件", listOf("LRC", "歌词标签", "写入歌词")),
+            DeepSettingEntry("下载歌词翻译", listOf("双语歌词", "下载译文", "歌词翻译")),
+            DeepSettingEntry("内嵌高清封面到音频文件", listOf("嵌入专辑封面", "写入封面", "封面标签")),
+            DeepSettingEntry("升级音质", listOf("重新下载", "提高下载音质", "批量升级")),
+            DeepSettingEntry("加入分组", listOf("移至分组", "归类歌曲", "移动下载文件")),
+            DeepSettingEntry("新建分组", listOf("创建分组", "本地文件夹", "下载分类")),
+            DeepSettingEntry("导入外部歌单", listOf("导入本地音乐", "扫描文件夹", "外部播放列表")),
+            DeepSettingEntry("批量删除已下载歌曲", listOf("删除选中项", "移除下载文件", "清理离线歌曲")),
+            DeepSettingEntry("全部暂停", listOf("暂停所有任务", "批量暂停", "暂停下载")),
+            DeepSettingEntry("全部开始", listOf("继续全部下载", "恢复下载", "批量开始")),
+            DeepSettingEntry("换档重试", listOf("重试下载", "切换音质", "重新下载失败任务"))
+        )
+    )
+}
 
 @Composable
 private fun GitHubDownloadSourceDialog(

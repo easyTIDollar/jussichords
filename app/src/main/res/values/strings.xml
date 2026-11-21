@@ -124,10 +124,11 @@
     <string name="msg_chat_mv_hint">点击观看 MV</string>
     <string name="msg_chat_general_hint">点击查看</string>
 
-    <!-- 桌面小组件 -->
-    <string name="widget_card_name">播放卡片 · 4×2</string>
-    <string name="widget_banner_name">播放横条 · 4×1</string>
-    <string name="widget_tile_name">播放方块 · 2×3</string>
+    <!-- 桌面小组件：尺寸由预览图和启动器自己的尺寸文本表达，避免重复。 -->
+    <string name="widget_banner_name">播放横条</string>
+    <string name="widget_tile_name">播放方块</string>
+    <string name="widget_preview_title">歌曲名</string>
+    <string name="widget_preview_artist">歌手名</string>
     <string name="widget_desc">当前歌曲、播放控件、红心与私人 FM</string>
     <string name="widget_empty_no_song">暂无播放歌曲</string>
     <string name="widget_empty_no_song_hint">点击打开 App 选一首歌</string>

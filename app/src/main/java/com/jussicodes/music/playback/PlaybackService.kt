@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
+import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.widget.Toast
@@ -18,7 +19,6 @@ import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.common.Player.REPEAT_MODE_ALL
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -64,6 +64,8 @@ import com.jussicodes.music.constants.audioQualityKey
 import com.jussicodes.music.constants.autoSkipNextOnErrorKey
 import com.jussicodes.music.constants.desktopLyricEnabledKey
 import com.jussicodes.music.constants.desktopLyricLockedKey
+import com.jussicodes.music.constants.playRepeatModeKey
+import com.jussicodes.music.constants.playShuffleEnabledKey
 import com.jussicodes.music.constants.playWithOthersKey
 import com.jussicodes.music.constants.use40DpIconKey
 import com.jussicodes.music.data.favoriteSongIdsDatastore
@@ -78,11 +80,13 @@ import com.jussicodes.music.playback.audio.AudioEffectMode
 import com.jussicodes.music.playback.audio.PlaybackAudioProcessors
 import com.jussicodes.music.utils.AudioCache
 import com.jussicodes.music.utils.FavoriteSongAction
+import com.jussicodes.music.utils.GreySongRegistry
 import com.jussicodes.music.utils.UserAgentUtil
 import com.jussicodes.music.utils.dataStore
 import com.jussicodes.music.utils.enumPreference
 import com.jussicodes.music.utils.get
 import com.jussicodes.music.utils.preference
+import com.jussicodes.music.utils.prefetchPlayerCover
 import com.jussicodes.music.utils.toEnum
 import com.jussicodes.music.widget.WidgetUpdater
 import com.jussicodes.music.BuildConfig
@@ -100,15 +104,18 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import com.rcmiku.ncmapi.utils.CookieProvider
 import com.rcmiku.ncmapi.utils.json
+import java.io.IOException
 
 @UnstableApi
 class PlaybackService : MediaSessionService() {
@@ -239,6 +246,20 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * 切歌后预取下一首的播放页背景封面，让下一次切歌的底板立即有图可糊。
+     * 只在切歌时触发一次，失败静默，不进播放热路径。
+     */
+    private val artworkPrefetchListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val player = mediaSession?.player ?: return
+            val nextIndex = player.nextMediaItemIndex
+            if (nextIndex == C.INDEX_UNSET) return
+            val next = player.getMediaItemAt(nextIndex)
+            prefetchPlayerCover(this@PlaybackService, next.mediaMetadata.artworkUri)
+        }
+    }
+
     /** 把当前队列、下标、播放位置写盘。必须在播放器线程（主线程）调用。 */
     private fun persistQueue() {
         if (isRestoringQueue) return
@@ -282,6 +303,11 @@ class PlaybackService : MediaSessionService() {
      */
     private val playbackHistoryListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            // 离开原曲时，旧换源任务不再保护后续曲目的播放历史。
+            val retry = retryingSource
+            if (retry != null && retry.mediaId != mediaItem?.mediaId) {
+                retryingSource = null
+            }
             // 离开旧曲：结算其会话。
             playbackHistorySession.onMediaItemTransition(
                 mediaId = mediaItem?.mediaId,
@@ -302,7 +328,7 @@ class PlaybackService : MediaSessionService() {
                 Player.STATE_IDLE ->
                     // 换源重放会主动 stop()（打回 IDLE）再 prepare，这一次 IDLE 不是「播完/中断」，
                     // 不结算也不上报，否则每首被换源的歌都会多出一条假的中断续播记录。
-                    if (!retryingSource) {
+                    if (retryingSource == null) {
                         playbackHistorySession
                             .finish(SystemClock.elapsedRealtime())
                             ?.let { reportDuration(it) }
@@ -341,6 +367,12 @@ class PlaybackService : MediaSessionService() {
         val reporter = playbackHistoryReporter ?: return
         if (!CookieProvider.isLoggedIn()) return
         val source = mediaItem.playbackHistorySourceContext() ?: return
+        val historySongId = source.songId.toString().substringBefore('?').toLongOrNull()
+        if (historySongId != null && GreySongRegistry.isGrey(historySongId)) {
+            // 无版权歌曲走第三方解析，不写进网易云的播放历史、排行与打卡。
+            android.util.Log.i(TAG, "无版权歌曲不上报播放历史 songId=$historySongId")
+            return
+        }
         val durationMs = mediaItem.mediaMetadata.extras
             ?.getLong(MediaSessionConstants.EXTRA_DURATION_MS, 0L)
             ?.coerceAtLeast(0L) ?: 0L
@@ -421,9 +453,8 @@ class PlaybackService : MediaSessionService() {
      * 开着时这个位置让给「锁定 / 解锁」（开关本身在设置页里）。
      */
     private fun currentCustomLayout(): ImmutableList<CommandButton> {
-        val liked = favoriteSongIds.contains(
-            mediaSession?.player?.currentMediaItem?.mediaId?.toLong()
-        )
+        val liked = mediaSession?.player?.currentMediaItem?.mediaId?.toLongOrNull()
+            ?.let { favoriteSongIds.contains(it) } ?: false
         val builder = ImmutableList.builder<CommandButton>()
             .add(if (liked) favoriteButtonOn else favoriteButton)
         if (desktopLyricEnabled) {
@@ -436,6 +467,40 @@ class PlaybackService : MediaSessionService() {
     }
 
     private val scope = CoroutineScope(Dispatchers.Main) + SupervisorJob()
+
+    private var lastRepeatMode = Player.REPEAT_MODE_OFF
+    private var lastShuffleEnabled = false
+    private var repeatModeChanged = false
+    private var shuffleModeChanged = false
+
+    // 挂原始播放器，界面未连接时的模式变化和一起听的远程修改也会落盘。
+    private val playbackModeListener = object : Player.Listener {
+        override fun onRepeatModeChanged(repeatMode: Int) {
+            if (lastRepeatMode == repeatMode) return
+            lastRepeatMode = repeatMode
+            repeatModeChanged = true
+            scope.launch {
+                try {
+                    dataStore.edit { it[playRepeatModeKey] = repeatMode }
+                } catch (error: IOException) {
+                    android.util.Log.w(TAG, "保存循环模式失败", error)
+                }
+            }
+        }
+
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+            if (lastShuffleEnabled == shuffleModeEnabled) return
+            lastShuffleEnabled = shuffleModeEnabled
+            shuffleModeChanged = true
+            scope.launch {
+                try {
+                    dataStore.edit { it[playShuffleEnabledKey] = shuffleModeEnabled }
+                } catch (error: IOException) {
+                    android.util.Log.w(TAG, "保存随机播放开关失败", error)
+                }
+            }
+        }
+    }
 
     // ——————————————— 私人 FM 续队列 ———————————————
     // 私人 FM 是无限流，但接口一次只返回几首（常见 3 首）。以前「快播完就补下一批」写在
@@ -454,21 +519,26 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private fun isPersonalFmQueue(player: Player): Boolean =
+        player.currentMediaItem?.mediaMetadata?.extras
+            ?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME) == MediaSessionConstants.SOURCE_PERSONAL_FM
+
     private fun maybeRefillPersonalFm() {
         val player = mediaSession?.player ?: return
-        val sourceName = player.currentMediaItem?.mediaMetadata?.extras
-            ?.getString(MediaSessionConstants.EXTRA_SOURCE_NAME)
-        if (sourceName != MediaSessionConstants.SOURCE_PERSONAL_FM) return
+        if (!isPersonalFmQueue(player)) return
         val count = player.mediaItemCount
         if (count <= 0) return
         // 剩两首时开始补（和原来 UI 侧的触发条件一致），播到 ENDED 也补一次兜底。
         val ended = player.playbackState == Player.STATE_ENDED
         if (!ended && player.currentMediaItemIndex < count - 2) return
         if (fmRefillJob?.isActive == true) return
+        val firstMediaId = player.getMediaItemAt(0).mediaId
         fmRefillJob = scope.launch {
             val songs = runCatching { PersonalFmQueueLoader.load().getOrThrow() }.getOrNull()
                 ?: return@launch
             val p = mediaSession?.player ?: return@launch
+            if (!isPersonalFmQueue(p)) return@launch
+            if (p.mediaItemCount < count || p.getMediaItemAt(0).mediaId != firstMediaId) return@launch
             val existingIds = (0 until p.mediaItemCount)
                 .mapTo(mutableSetOf()) { p.getMediaItemAt(it).mediaId }
             val fresh = songs.filter { it.id.toString() !in existingIds }
@@ -499,6 +569,10 @@ class PlaybackService : MediaSessionService() {
 
     /** 重试耗尽后置位：等网络回来的 onAvailable 来续播。 */
     private var pausedByNetworkError = false
+
+    /** 自动跳歌不清零，只有当前曲目真正就绪且无播放错误时才结束连续无源计数。 */
+    private var consecutiveNoSourceCount = 0
+    private val maxConsecutiveNoSource = 5
 
     /** 同曲重试的退避间隔；用完即停在当前曲提示用户。 */
     private val retryDelaysMs = listOf(1_000L, 3_000L, 8_000L)
@@ -812,6 +886,11 @@ class PlaybackService : MediaSessionService() {
 
     private val recoveryListener = object : Player.Listener {
         override fun onPlayerError(error: PlaybackException) {
+            val noSource = error.findNoPlayableSource()
+            if (noSource != null) {
+                handleNoPlayableSource(noSource.songId)
+                return
+            }
             // 音源本身坏了（404 / HTML 页 / 不是音频）：同一条链重试没意义 → 换源。
             // 这条要先判，不能被下面的网络错误分支拦走。
             if (isBadSourceError(error)) {
@@ -837,8 +916,9 @@ class PlaybackService : MediaSessionService() {
             recoveryJob = scope.launch {
                 delay(delayMs)
                 val p = mediaSession?.player ?: return@launch
-                // 期间用户切歌/手动操作了就别抢
+                // 期间用户切歌或暂停，就放弃这次重试。
                 if (p.currentMediaItem?.mediaId != item.mediaId) return@launch
+                if (!p.playWhenReady) return@launch
                 // prepare() 在非 IDLE 状态直接 return；重试必须先 stop() 打回 IDLE，
                 // 否则「退避重试」只是空转一轮，用户看到的就是一直转圈。
                 p.stop()
@@ -852,11 +932,19 @@ class PlaybackService : MediaSessionService() {
             // 真的开始缓冲/就绪了才算恢复成功
             if (playbackState == Player.STATE_READY) {
                 pausedByNetworkError = false
+                val player = mediaSession?.player ?: return
+                // 排除切歌或错误处理后到达的旧就绪回调；同曲重新解析成功也可清零。
+                if (player.playbackState == Player.STATE_READY && player.playerError == null) {
+                    consecutiveNoSourceCount = 0
+                }
             }
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             retryAttempt = 0
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
+                consecutiveNoSourceCount = 0
+            }
             errorMediaId = null
             pausedByNetworkError = false
             recoveryJob?.cancel()
@@ -867,9 +955,36 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /** 无源独立于弱网恢复与自动跳错设置；连续失败达到上限后暂停，避免循环歌单空转。 */
+    private fun handleNoPlayableSource(songId: String) {
+        val player = mediaSession?.player ?: return
+        val uri = player.currentMediaItem?.localConfiguration?.uri ?: return
+        // 异步错误可能晚于切歌到达，不能据此跳过当前另一首歌。
+        if (uri.toResolveKey() != songId) return
+        recoveryJob?.cancel()
+        pausedByNetworkError = false
+        retryAttempt = 0
+        errorMediaId = null
+        consecutiveNoSourceCount = (consecutiveNoSourceCount + 1).coerceAtMost(maxConsecutiveNoSource)
+        val shouldSkip = consecutiveNoSourceCount < maxConsecutiveNoSource && player.hasNextMediaItem()
+        val message = when {
+            consecutiveNoSourceCount >= maxConsecutiveNoSource -> "连续 ${maxConsecutiveNoSource} 首暂无可播源，已暂停"
+            !shouldSkip -> "这首暂无可播源"
+            consecutiveNoSourceCount == 1 -> "这首暂无可播源，已跳过"
+            else -> null
+        }
+        player.stop()
+        if (shouldSkip) {
+            player.seekToNext()
+            player.prepare()
+            player.play()
+        }
+        if (message != null) Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
     /**
      * 音源坏了（非网络原因）：拉黑这条直链，换下一个源重放；
-     * 已经没有更好的源了，就按「自动跳过错误歌曲」设置处理，别再退避重试同一条链。
+     * 已经没有更好的源了，就按无源策略处理，别再退避重试同一条链。
      */
     private fun onBadSourceError() {
         val player = mediaSession?.player ?: return
@@ -899,13 +1014,8 @@ class PlaybackService : MediaSessionService() {
         // 现在缓存层在解析层外面、命中就完全不解析，坏字节会比以前更「粘」——
         // 换源前先把这首歌的缓存条目删掉，否则重试读到的还是同一段坏数据。
         dropAudioCache(item.localConfiguration?.uri?.toString())
-        if (observation.trial || observation.alreadyRejected ||
-            !ResolveGuard.rejectAndShouldRetry(observation)
-        ) {
-            android.util.Log.w(
-                TAG,
-                "bad source with no more candidates songId=$songId retry=${observation.retries}"
-            )
+        // 试听片段不等于候选源已经耗尽，保留原有提示与跳错设置，不据此自动跳歌。
+        if (observation.trial) {
             if (ResolveGuard.shouldWarn(observation)) {
                 Toast.makeText(this, "这首暂无可用的完整音源", Toast.LENGTH_LONG).show()
             }
@@ -915,6 +1025,14 @@ class PlaybackService : MediaSessionService() {
                 player.prepare()
                 player.play()
             }
+            return
+        }
+        if (observation.alreadyRejected || !ResolveGuard.rejectAndShouldRetry(observation)) {
+            android.util.Log.w(
+                TAG,
+                "bad source with no more candidates songId=$songId retry=${observation.retries}"
+            )
+            item.localConfiguration?.uri?.toResolveKey()?.let(::handleNoPlayableSource)
             return
         }
         android.util.Log.w(TAG, "bad source, switching source songId=$songId url=${observation.url.take(100)}")
@@ -955,6 +1073,8 @@ class PlaybackService : MediaSessionService() {
     /** 元数据比实际长出这么多才算「被截成试听」，避免短歌被误判。 */
     private val TRIAL_MIN_GAP_MS = 60_000L
 
+    private class SourceRetry(val mediaId: String)
+
     /**
      * 正在「拉黑坏源并重放」的过程中。
      *
@@ -962,7 +1082,7 @@ class PlaybackService : MediaSessionService() {
      * 播放历史上报会把这次打断当成一次「播完/中断」结算并上报。这个标志让上报层跳过它。
      */
     @Volatile
-    private var retryingSource = false
+    private var retryingSource: SourceRetry? = null
 
     /** 时长校验允许的误差：至少 5s，长歌按 2% 放宽。 */
     private fun durationToleranceMs(expectedMs: Long): Long =
@@ -1123,7 +1243,8 @@ class PlaybackService : MediaSessionService() {
     ) {
         val player = mediaSession?.player ?: return
         if (player.currentMediaItem?.mediaId != songId) return
-        retryingSource = true
+        val retry = SourceRetry(songId)
+        retryingSource = retry
         verifiedUrl = null
         val rawUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
         PlaybackPath.stepFor(
@@ -1134,29 +1255,31 @@ class PlaybackService : MediaSessionService() {
             PlaybackPath.Status.RUNNING,
         )
         scope.launch {
-            // 必须先删分片缓存再 stop → prepare：顺序反过来，prepare 会立刻命中同一段
-            // 坏分片（31 秒试听 / 截断流），换源就是原地打转——以前这里只有一行文案，
-            // 真正的 removeResource 从来没被调用过。
-            if (rawUri != null) {
-                dropAudioCacheNow(rawUri)
-                if (dropUrlCache) {
+            try {
+                // 必须先删分片缓存再 stop → prepare，否则 prepare 会再次命中坏分片。
+                if (rawUri != null) dropAudioCacheNow(rawUri)
+                if (retryingSource !== retry || mediaSession?.player?.currentMediaItem?.mediaId != songId) {
+                    return@launch
+                }
+                if (rawUri != null && dropUrlCache) {
                     PlayUrlCache.invalidate(
                         rawUri,
                         audioQuality.value,
                         PlaybackReloadBus.sourceTag,
                     )
                 }
-            }
-            try {
                 player.stop()
                 player.seekTo(0)
                 player.prepare()
                 player.play()
             } finally {
-                // prepare() 是异步的；给内部播发线程一点时间再过掉「正在重放」标志，
+                // prepare() 是异步的；给内部播放线程一点时间再清掉「正在重放」标志，
                 // 让 stop() 引起的 IDLE 事件不会结算播放历史上报。
                 delay(1_500)
-                retryingSource = false
+                val currentMediaId = mediaSession?.player?.currentMediaItem?.mediaId
+                if (retryingSource === retry && (currentMediaId == null || currentMediaId == songId)) {
+                    retryingSource = null
+                }
             }
         }
     }
@@ -1228,14 +1351,16 @@ class PlaybackService : MediaSessionService() {
         val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return
         val callback = object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: android.net.Network) {
-                if (!pausedByNetworkError) return
-                recoveryJob?.cancel()
-                retryAttempt = 0
-                recoveryJob = scope.launch {
-                    val p = mediaSession?.player ?: return@launch
-                    if (p.playerError == null || p.currentMediaItem == null) return@launch
-                    p.prepare()
-                    p.play()
+                scope.launch {
+                    if (!pausedByNetworkError) return@launch
+                    recoveryJob?.cancel()
+                    retryAttempt = 0
+                    recoveryJob = launch resumePlayback@{
+                        val p = mediaSession?.player ?: return@resumePlayback
+                        if (p.playerError == null || p.currentMediaItem == null) return@resumePlayback
+                        p.prepare()
+                        p.play()
+                    }
                 }
             }
         }
@@ -1312,6 +1437,14 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         // 组件看「播放服务在不在」来决定这帧要不要显示播放态，越早知道越好。
         WidgetUpdater.markServiceRunning()
+        scope.launch {
+            try {
+                GreySongRegistry.load(applicationContext)
+            } catch (error: IOException) {
+                // 读取失败只影响灰歌判定，不能因此关掉全部播放历史上报。
+                android.util.Log.w(TAG, "读取无版权歌曲标记失败，按有版权处理", error)
+            }
+        }
         setMediaNotificationProvider(
             DefaultMediaNotificationProvider(
                 this,
@@ -1411,12 +1544,19 @@ class PlaybackService : MediaSessionService() {
                                 )
                             }
                             // 解析播放地址本身也是一次网络请求，弱网下不能无限期卡住加载线程
-                            withTimeout(resolveUrlTimeoutMs) {
-                                updateMediaItemUri(
+                            withTimeoutOrNull(resolveUrlTimeoutMs) {
+                                val resolved = updateMediaItemUri(
                                     rawUri,
                                     audioQuality,
                                     this@PlaybackService
                                 )
+                                // 外部导入文件缺失也返回空值，保留其原有错误路径。
+                                val isExternalFile = resolveKey.substringBefore("?")
+                                    .toLongOrNull()?.let { it < 0L } == true
+                                if (resolved == null && !isExternalFile) {
+                                    throw NoPlayableSourceException(resolveKey)
+                                }
+                                resolved
                             } ?: throw PlaybackException(
                                 null,
                                 null,
@@ -1509,7 +1649,58 @@ class PlaybackService : MediaSessionService() {
             }.build()
         // 下面整段沿用 player 这个名字；exoPlayer 是同一实例，留给设置项即时改焦点用。
         val player = exoPlayer
-        player.repeatMode = REPEAT_MODE_ALL
+        player.repeatMode = Player.REPEAT_MODE_ALL
+        lastRepeatMode = player.repeatMode
+        player.addListener(playbackModeListener)
+        scope.launch {
+            val preferences = try {
+                dataStore.data.first()
+            } catch (error: IOException) {
+                android.util.Log.w(TAG, "读取播放模式失败，保留当前模式（缺省列表循环）", error)
+                return@launch
+            }
+            // 读取期间若用户或一起听已改模式，不能再用旧值覆盖。
+            if (!repeatModeChanged) {
+                val mode = preferences[playRepeatModeKey]?.takeIf {
+                    it == Player.REPEAT_MODE_OFF ||
+                        it == Player.REPEAT_MODE_ONE || it == Player.REPEAT_MODE_ALL
+                } ?: Player.REPEAT_MODE_ALL
+                lastRepeatMode = mode
+                player.repeatMode = mode
+            }
+            if (!shuffleModeChanged) {
+                val shuffleEnabled = preferences[playShuffleEnabledKey] ?: false
+                val mediaIdBeforeRestore = player.currentMediaItem?.mediaId
+                val positionBeforeRestore = player.currentPosition
+                lastShuffleEnabled = shuffleEnabled
+                player.shuffleModeEnabled = shuffleEnabled
+                val mediaIdAfterRestore = player.currentMediaItem?.mediaId
+                val positionAfterRestore = player.currentPosition
+                val indexAfterRestore = player.currentMediaItemIndex
+                // 正常切换不改变当前曲；若发生重排，按媒体标识找回原曲与进度。
+                if (mediaIdBeforeRestore != null &&
+                    (mediaIdAfterRestore != mediaIdBeforeRestore ||
+                        indexAfterRestore !in 0 until player.mediaItemCount ||
+                        player.getMediaItemAt(indexAfterRestore).mediaId != mediaIdBeforeRestore)
+                ) {
+                    val restoredIndex = (0 until player.mediaItemCount).firstOrNull {
+                        player.getMediaItemAt(it).mediaId == mediaIdBeforeRestore
+                    }
+                    if (restoredIndex != null) {
+                        player.seekTo(restoredIndex, positionBeforeRestore)
+                    } else {
+                        player.shuffleModeEnabled = false
+                        android.util.Log.w(
+                            TAG,
+                            "恢复随机播放后找不到原曲，已关闭随机播放：" +
+                                "原曲=$mediaIdBeforeRestore，原进度=$positionBeforeRestore，" +
+                                "当前曲=$mediaIdAfterRestore，当前索引=$indexAfterRestore，" +
+                                "当前进度=$positionAfterRestore"
+                        )
+                    }
+                }
+            }
+        }
         // 播放历史上报（eapi weblog + NCBL 双通道）：MeiloX 式纯内存计时器 + 串行 IO 上报。
         playbackHistoryReporter = PlaybackHistoryReporter(
             ncblClient = NeteaseClientLogClient(),
@@ -1528,6 +1719,7 @@ class PlaybackService : MediaSessionService() {
         player.addListener(playbackHistoryListener)
         // 队列持久化：杀进程后组件/蓝牙/系统媒体面板点播放还能续播
         player.addListener(queuePersistListener)
+        player.addListener(artworkPrefetchListener)
         // 播放中每 15s 记一次位置：进程被强杀时最多丢 15s 进度
         scope.launch {
             while (isActive) {
@@ -1592,8 +1784,10 @@ class PlaybackService : MediaSessionService() {
         // 服务销毁前把队列落盘：下次冷启动/杀进程后还能接着放。
         persistQueue()
         mediaSession?.run {
+            player.removeListener(playbackModeListener)
             player.removeListener(playbackHistoryListener)
             player.removeListener(queuePersistListener)
+            player.removeListener(artworkPrefetchListener)
             player.removeListener(widgetStateListener)
             player.removeListener(recoveryListener)
             player.removeListener(durationVerifyListener)
@@ -1644,12 +1838,17 @@ class PlaybackService : MediaSessionService() {
             val song = mediaSession?.player?.currentMediaItem?.mediaMetadata?.extras
                 ?.getString("song")
                 ?.let { runCatching { json.decodeFromString<Song>(it) }.getOrNull() }
-            FavoriteSongAction.setLiked(
+            val synced = FavoriteSongAction.setLiked(
                 context = applicationContext,
                 songId = songId,
                 like = like,
                 song = song
             )
+            if (!synced && like) {
+                Handler(Looper.getMainLooper()).post {
+                    Toast.makeText(applicationContext, FavoriteSongAction.LOCAL_LIKE_MESSAGE, Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
@@ -1968,6 +2167,7 @@ private class CookieAwareHttpDataSourceFactory(
         }
         return DefaultHttpDataSource.Factory()
             .setUserAgent(UserAgentUtil.DEFAULT_USER_AGENT)
+            .setAllowCrossProtocolRedirects(true)
             // 弱网下别 8s 就判死，给足恢复窗口
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(30_000)

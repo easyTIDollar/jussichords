@@ -27,6 +27,7 @@ import com.rcmiku.ncmapi.model.SearchArtist
 import com.rcmiku.ncmapi.model.SimiArtistResponse
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +36,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -63,6 +65,8 @@ class ArtistScreenViewModel @Inject constructor(
 
     private val _allSongsForQueue = MutableStateFlow<List<Song>?>(null)
     val allSongsForQueue: StateFlow<List<Song>?> = _allSongsForQueue.asStateFlow()
+    private var allSongsForQueueJob: Job? = null
+    private var allSongsForQueueOrder: String? = null
 
     val artistAllSongs: Flow<PagingData<Song>> = _sortOrder.flatMapLatest { order ->
         artistId?.let { id ->
@@ -233,19 +237,25 @@ class ArtistScreenViewModel @Inject constructor(
     }
 
     private fun loadAllSongsForQueue() {
+        allSongsForQueueJob?.cancel()
         val id = artistId ?: return
         val order = _sortOrder.value
-        viewModelScope.launch {
+        allSongsForQueueOrder = order
+        allSongsForQueueJob = viewModelScope.launch {
             _allSongsForQueue.value = null
             val songs = mutableListOf<Song>()
             var offset = 0
             val page = 100
-            while (true) {
+            while (isActive) {
                 val resp = ArtistApi.artistSongs(id, order = order, limit = page, offset = offset).getOrNull()
-                    ?: break
+                    ?: return@launch
                 songs += resp.songs
                 if (!resp.more || resp.songs.isEmpty()) break
                 offset += page
+            }
+            // 只发布当前歌手、当前排序的完整队列，取消或失败的整轮结果直接丢弃。
+            if (!isActive || artistId != id || _sortOrder.value != order || allSongsForQueueOrder != order) {
+                return@launch
             }
             _allSongsForQueue.value = songs
             refreshLikedSongs(songs.map { it.id })

@@ -31,6 +31,8 @@ object PlayUrlCache {
     /** 单条直链在内存里最多复用多久；CDN 签名普遍比这更久，保守取值。 */
     private const val TTL_MS = 30 * 60_000L
 
+    private const val SHORT_TTL_MS = 10 * 60_000L
+
     /**
      * 磁盘层的复用窗口比内存更短：直链在进程存活期间通常仍有效，
      * 但落盘后可能跨几个小时才被读到，过期链会先 403 再触发换源重试。
@@ -82,6 +84,9 @@ object PlayUrlCache {
     private fun keyOf(uri: String, quality: String, sourceTag: String): String =
         "$uri|$quality|$sourceTag"
 
+    private fun ttlFor(url: String): Long =
+        if (url.contains("kuwo.cn", ignoreCase = true)) SHORT_TTL_MS else TTL_MS
+
     private fun diskMap(): LinkedHashMap<String, Entry> {
         disk?.let { return it }
         val loaded = LinkedHashMap<String, Entry>()
@@ -130,7 +135,7 @@ object PlayUrlCache {
         val key = keyOf(uri, quality, sourceTag)
         val now = System.currentTimeMillis()
         entries[key]?.let { entry ->
-            if (now - entry.at > TTL_MS) {
+            if (now - entry.at > ttlFor(entry.url)) {
                 entries.remove(key)
             } else {
                 return entry.url
@@ -138,7 +143,7 @@ object PlayUrlCache {
         }
         val map = diskMap()
         val fromDisk = map[key] ?: return null
-        if (now - fromDisk.at > DISK_TTL_MS) {
+        if (now - fromDisk.at > minOf(DISK_TTL_MS, ttlFor(fromDisk.url))) {
             map.remove(key)
             persist()
             return null

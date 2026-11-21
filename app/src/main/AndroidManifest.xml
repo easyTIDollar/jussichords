@@ -105,19 +105,7 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- 桌面小组件：三个固定尺寸条目（4×2 / 4×1 / 2×3），resizeMode=none，不可拉伸 -->
-        <receiver
-            android:name=".widget.CardWidgetReceiver"
-            android:exported="true"
-            android:label="@string/widget_card_name">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/widget_card_info" />
-        </receiver>
-
+        <!-- 桌面小组件：两个固定尺寸条目（4×1 横条 + 2×3 方块），resizeMode=none，不可拉伸 -->
         <receiver
             android:name=".widget.BannerWidgetReceiver"
             android:exported="true"

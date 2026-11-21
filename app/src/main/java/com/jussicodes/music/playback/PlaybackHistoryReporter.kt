@@ -179,8 +179,22 @@ internal class PlaybackHistoryReporter(
             source = playback.source,
             startedAtMs = playback.startedAtMs,
         )
-            .onSuccess { resp -> logWeblog("startplay", resp.code, resp.message ?: resp.msg) }
-            .onFailure { Log.w(TAG, "weblog startplay failed: ${it.message}") }
+            .onSuccess { resp ->
+                logWeblog(
+                    "startplay songId=${playback.songId} source=${playback.source} " +
+                        "sourceId=${playback.sourceId} startedAtMs=${playback.startedAtMs}",
+                    resp.code,
+                    resp.message ?: resp.msg
+                )
+            }
+            .onFailure {
+                Log.w(
+                    TAG,
+                    "weblog startplay failed songId=${playback.songId} source=${playback.source} " +
+                        "sourceId=${playback.sourceId} startedAtMs=${playback.startedAtMs}: ${it.message}",
+                    it
+                )
+            }
     }
 
     private suspend fun submitWeblogDuration(
@@ -188,8 +202,22 @@ internal class PlaybackHistoryReporter(
         timeSeconds: Long
     ) {
         AccountApi.recordPlaybackDuration(session)
-            .onSuccess { resp -> logWeblog("play(time=$timeSeconds)", resp.code, resp.message ?: resp.msg) }
-            .onFailure { Log.w(TAG, "weblog play failed: ${it.message}") }
+            .onSuccess { resp ->
+                logWeblog(
+                    "play(time=$timeSeconds) songId=${session.songId} source=${session.source} " +
+                        "sourceId=${session.sourceId} startedAtMs=${session.startedAtMs}",
+                    resp.code,
+                    resp.message ?: resp.msg
+                )
+            }
+            .onFailure {
+                Log.w(
+                    TAG,
+                    "weblog play failed songId=${session.songId} source=${session.source} " +
+                        "sourceId=${session.sourceId} startedAtMs=${session.startedAtMs}: ${it.message}",
+                    it
+                )
+            }
     }
 
     private fun logWeblog(action: String, code: Int?, message: String?) {

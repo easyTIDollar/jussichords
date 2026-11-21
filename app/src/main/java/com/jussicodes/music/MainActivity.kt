@@ -9,6 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +33,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.activity.result.contract.ActivityResultContracts
 import com.jussicodes.music.extensions.init
 import com.jussicodes.music.playback.PlayerController
@@ -42,6 +44,7 @@ import com.jussicodes.music.ui.components.UpdateDialog
 import com.jussicodes.music.ui.components.formatFileSize
 import com.jussicodes.music.ui.screen.MainScreen
 import com.jussicodes.music.ui.theme.JetMeloTheme
+import com.jussicodes.music.ui.theme.LocalAppDarkTheme
 import com.jussicodes.music.utils.AppUpdateManager
 import com.jussicodes.music.utils.AppLaunchFlags
 import com.jussicodes.music.utils.UpdateCheckCoordinator
@@ -232,6 +235,12 @@ class MainActivity : ComponentActivity() {
             }
             CompositionLocalProvider(LocalDensity provides scaledDensity) {
                 JetMeloTheme(artwork = playerState?.mediaMetadata?.artworkUri) {
+                    val darkTheme = LocalAppDarkTheme.current
+                    SideEffect {
+                        val controller = WindowCompat.getInsetsController(window, window.decorView)
+                        controller.isAppearanceLightStatusBars = !darkTheme
+                        controller.isAppearanceLightNavigationBars = !darkTheme
+                    }
                     CompositionLocalProvider(
                         LocalPlayerController provides playerController,
                         LocalPlayerState provides playerState,

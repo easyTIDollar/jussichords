@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -21,6 +22,7 @@ import java.io.File
 
 object DownloadStore {
 
+    private const val TAG = "DownloadStore"
     private val DOWNLOAD_TASKS_KEY = stringPreferencesKey("download_tasks_v1")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
@@ -130,20 +132,24 @@ object DownloadStore {
         downloadedBytes: Long,
         totalBytes: Long
     ) {
-        val current = _tasks.value.toMutableList()
-        val index = current.indexOfFirst { it.songId == songId }
-        if (index >= 0) {
+        _tasks.update { current ->
+            val index = current.indexOfFirst { it.songId == songId }
+            if (index < 0) return@update current
             val old = current[index]
-            current[index] = old.copy(
-                status = DownloadStatus.DOWNLOADING,
-                progress = progress,
-                speedText = speedText,
-                downloadedBytes = downloadedBytes,
-                totalBytes = totalBytes
-            )
-            _tasks.value = current
-            // 进度高频更新只更新内存，不写 DataStore，避免 IO 轰炸
+            if (old.status != DownloadStatus.PENDING && old.status != DownloadStatus.DOWNLOADING) {
+                return@update current
+            }
+            current.toMutableList().apply {
+                this[index] = old.copy(
+                    status = DownloadStatus.DOWNLOADING,
+                    progress = progress,
+                    speedText = speedText,
+                    downloadedBytes = downloadedBytes,
+                    totalBytes = totalBytes
+                )
+            }
         }
+        // 进度高频更新只更新内存，不写 DataStore，避免 IO 轰炸
     }
 
     suspend fun markStatus(
@@ -261,6 +267,9 @@ object DownloadStore {
             val index = current.indexOfFirst { it.songId == songId }
             if (index >= 0) {
                 val old = current[index]
+                // 调用方已取消并等待旧下载退出，先清理旧音质字节，再发布待下载状态。
+                val tempAudioFile = File(appContext.cacheDir, "dl_$songId.tmp")
+                if (tempAudioFile.exists() && !tempAudioFile.delete()) return@withLock null
                 val updated = old.copy(
                     quality = newQuality,
                     status = DownloadStatus.PENDING,
@@ -407,6 +416,8 @@ object DownloadStore {
             context.dataStore.edit { prefs ->
                 prefs[DOWNLOAD_TASKS_KEY] = raw
             }
+        }.onFailure { error ->
+            android.util.Log.e(TAG, "下载记录保存失败，记录条数=${list.size}，原因=${error.message}", error)
         }
     }
 }

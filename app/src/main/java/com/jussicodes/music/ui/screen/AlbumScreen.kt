@@ -7,7 +7,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
@@ -106,6 +110,7 @@ import com.jussicodes.music.ui.icons.Search
 import com.jussicodes.music.ui.navigation.ArtistNav
 import com.jussicodes.music.ui.navigation.UserNav
 import com.jussicodes.music.utils.CoverImageSize
+import com.jussicodes.music.utils.GreySongRegistry
 import com.jussicodes.music.utils.formatTimestamp
 import com.jussicodes.music.utils.toCoverImageUrl
 import com.jussicodes.music.viewModel.AlbumScreenViewModel
@@ -118,7 +123,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawBehind
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun AlbumScreen(
     navController: NavHostController,
@@ -168,6 +173,7 @@ fun AlbumScreen(
     }
     val topBarBgColor = MaterialTheme.colorScheme.background
     val pinnedAlbums by PinnedAlbumStore.albums.collectAsState()
+    val greyAlbumIds by GreySongRegistry.greyAlbumIds.collectAsState()
     // 必须 remember：否则每次重组新建 Flow，collectAsState 会反复取消/重启收集，
     // 进页面时 DataStore 被重复订阅，直接表现为掉帧
     val songIdsFlow = remember(context) {
@@ -340,6 +346,11 @@ fun AlbumScreen(
                 val album = detail.album
                 AlbumLandscapeBody(
                     albumName = album.name,
+                    isGreyAlbum = album.id in greyAlbumIds,
+                    onUnmarkGreyAlbum = {
+                        Toast.makeText(context, "已清除无版权标记，将重新判定", Toast.LENGTH_SHORT).show()
+                        coroutineScope.launch { GreySongRegistry.unmarkGreyAlbum(context, album.id) }
+                    },
                     artistName = album.artist.name,
                     publishTimeText = formatTimestamp(album.publishTime),
                     cover = {
@@ -447,7 +458,7 @@ fun AlbumScreen(
                                     model = detail.album.picUrl.toCoverImageUrl(CoverImageSize.DETAIL),
                                     contentDescription = detail.album.name,
                                     contentScale = ContentScale.Crop,
-                                    filterQuality = FilterQuality.High,
+                                    filterQuality = FilterQuality.Low,
                                     modifier = Modifier
                                         .sharedElement(
                                             sharedTransitionScope.rememberSharedContentState(key = detail.album.id),
@@ -476,6 +487,26 @@ fun AlbumScreen(
                                 maxLines = 2,
                                 modifier = Modifier.padding(horizontal = 10.dp)
                             )
+                            if (detail.album.id in greyAlbumIds) {
+                                Text(
+                                    text = "官方无版权",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .padding(top = 4.dp, end = 4.dp)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                        .combinedClickable(
+                                            onClick = {},
+                                            onLongClick = {
+                                                Toast.makeText(context, "已清除无版权标记，将重新判定", Toast.LENGTH_SHORT).show()
+                                                coroutineScope.launch {
+                                                    GreySongRegistry.unmarkGreyAlbum(context, detail.album.id)
+                                                }
+                                            }
+                                        )
+                                )
+                            }
                             Spacer(Modifier.height(4.dp))
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,

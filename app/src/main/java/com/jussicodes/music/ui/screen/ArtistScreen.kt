@@ -213,12 +213,23 @@ fun ArtistScreen(
         }
     }
 
+    var searchCollapseApplied by remember { mutableStateOf(false) }
     LaunchedEffect(searchActive, maxCollapsePx) {
-        if (searchActive) {
+        if (!searchActive) {
+            searchCollapseApplied = false
+        } else if (!searchCollapseApplied && maxCollapsePx > 0f) {
             headerOffsetPx = -maxCollapsePx
+            searchCollapseApplied = true
+        }
+    }
+
+    LaunchedEffect(searchActive) {
+        if (searchActive) {
             try {
                 searchFocusRequester.requestFocus()
-            } catch (_: Exception) {}
+            } catch (exception: Exception) {
+                android.util.Log.e("ArtistScreen", "搜索框自动聚焦失败", exception)
+            }
         }
     }
 

@@ -110,6 +110,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -193,7 +194,12 @@ fun DownloadScreen(
 
     // 多选模式状态
     var isSelectionMode by rememberSaveable { mutableStateOf(false) }
-    var selectedSongIds by remember { mutableStateOf(setOf<Long>()) }
+    var selectedSongIds by rememberSaveable(
+        stateSaver = Saver<Set<Long>, LongArray>(
+            save = { it.toLongArray() },
+            restore = { it.toSet() }
+        )
+    ) { mutableStateOf(setOf<Long>()) }
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
     var showMoveToGroupDialog by remember { mutableStateOf(false) }
     var showBatchUpgradeDialog by remember { mutableStateOf(false) }

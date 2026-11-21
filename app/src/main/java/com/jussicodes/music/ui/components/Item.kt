@@ -1,12 +1,15 @@
 package com.jussicodes.music.ui.components
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Icon
@@ -31,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +64,7 @@ import com.jussicodes.music.ui.icons.FavoriteFill
 import com.jussicodes.music.ui.icons.Payment
 import com.jussicodes.music.ui.icons.Vip
 import com.jussicodes.music.utils.CoverImageSize
+import com.jussicodes.music.utils.GreySongRegistry
 import com.jussicodes.music.utils.formatPlayCount
 import com.jussicodes.music.utils.formatTimestamp
 import com.jussicodes.music.utils.toCoverImageUrl
@@ -71,6 +77,7 @@ import com.rcmiku.ncmapi.model.SearchArtist
 import com.rcmiku.ncmapi.model.Song
 import com.rcmiku.ncmapi.model.SubAlbum
 import com.rcmiku.ncmapi.model.VoiceBaseInfo
+import kotlinx.coroutines.launch
 
 const val ActiveBoxAlpha = 0.6f
 
@@ -400,6 +407,7 @@ fun NewestAlbumItem(
     thumbnailContent = thumbnailContent
 )
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SongListItem(
     song: Song,
@@ -409,8 +417,29 @@ fun SongListItem(
     showLikedIcon: Boolean = false,
     isDownloaded: Boolean? = null,
     badges: @Composable RowScope.() -> Unit = {
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
         val downloadedSongIds by DownloadStore.downloadedSongIds.collectAsState()
         val downloaded = isDownloaded ?: downloadedSongIds.contains(song.id)
+        val greyIds by GreySongRegistry.ids.collectAsState()
+        if (song.id in greyIds) {
+            Text(
+                text = "官方无版权",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .padding(end = 4.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                    .combinedClickable(
+                        onClick = {},
+                        onLongClick = {
+                            Toast.makeText(context, "已清除无版权标记，将重新判定", Toast.LENGTH_SHORT).show()
+                            scope.launch { GreySongRegistry.unmarkGrey(context, song.id) }
+                        }
+                    )
+            )
+        }
         if (downloaded) {
             Icon(
                 imageVector = Icons.Filled.CheckCircle,

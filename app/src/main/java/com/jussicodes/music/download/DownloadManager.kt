@@ -7,6 +7,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Environment
+import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.documentfile.provider.DocumentFile
 import com.jussicodes.music.constants.downloadConcurrencyKey
@@ -20,14 +21,19 @@ import com.jussicodes.music.data.download.DownloadStore
 import com.jussicodes.music.data.download.DownloadTask
 import com.jussicodes.music.extensions.isTrialClip
 import com.jussicodes.music.utils.dataStore
+import com.jussicodes.music.utils.sanitizeFileName
 import com.rcmiku.ncmapi.api.player.PlayerApi
 import com.rcmiku.ncmapi.api.player.SongLevel
 import com.rcmiku.ncmapi.model.Song
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -62,6 +68,7 @@ object DownloadManager {
     private var concurrencySemaphore = Semaphore(2)
     private val activeCalls = ConcurrentHashMap<Long, Call>()
     private val activeJobs = ConcurrentHashMap<Long, Job>()
+    private val inFlight = ConcurrentHashMap.newKeySet<Long>()
 
     private suspend fun ensureConcurrency(context: Context) {
         val configured = context.dataStore.data.first()[downloadConcurrencyKey] ?: 2
@@ -105,9 +112,13 @@ object DownloadManager {
     ) {
         val appContext = context.applicationContext
         scope.launch {
-            // 过滤本地已存在的歌曲
+            // 过滤本地已存在、已排队或正在处理的歌曲。
+            val queuedSongIds = DownloadStore.getAllTasks()
+                .filter { it.status == DownloadStatus.PENDING || it.status == DownloadStatus.RESOLVING || it.status == DownloadStatus.DOWNLOADING }
+                .mapTo(mutableSetOf()) { it.songId }
             val newSongs = songs.filter { song ->
-                DownloadStore.getCompletedPlayableUri(appContext, song.id) == null
+                song.id !in inFlight && song.id !in queuedSongIds &&
+                    DownloadStore.getCompletedPlayableUri(appContext, song.id) == null
             }
             if (newSongs.isEmpty()) return@launch
 
@@ -237,8 +248,9 @@ object DownloadManager {
         val appContext = context.applicationContext
         scope.launch {
             activeCalls[songId]?.cancel()
-            activeJobs[songId]?.cancel()
+            activeJobs[songId]?.cancelAndJoin()
             DownloadStore.resetForRetry(appContext, songId, newQuality, preloadUrl, preloadSize)
+                ?: return@launch
             triggerLoop(appContext)
         }
     }
@@ -336,18 +348,40 @@ object DownloadManager {
 
                     for (task in pendingTasks) {
                         if (!isActive) break
-                        concurrencySemaphore.acquire()
-                        val job = scope.launch {
+                        val semaphore = concurrencySemaphore
+                        semaphore.acquire()
+                        if (!inFlight.add(task.songId)) {
+                            semaphore.release()
+                            continue
+                        }
+                        // 等待许可期间状态可能已变更，使用最新的待下载记录。
+                        val currentTask = DownloadStore.getAllTasks().firstOrNull { it.songId == task.songId }
+                        if (currentTask == null || currentTask.status != DownloadStatus.PENDING) {
+                            inFlight.remove(task.songId)
+                            semaphore.release()
+                            continue
+                        }
+                        val job = scope.launch(start = CoroutineStart.LAZY) {
                             try {
-                                processTask(appContext, task)
+                                processTask(appContext, currentTask)
                             } finally {
                                 activeCalls.remove(task.songId)
                                 activeJobs.remove(task.songId)
-                                concurrencySemaphore.release()
+                                inFlight.remove(task.songId)
+                                semaphore.release()
                                 _serviceEvents.tryEmit(Unit)
                             }
                         }
                         activeJobs[task.songId] = job
+                        // 启动前被取消时不会进入 finally，由完成回调归还认领和许可。
+                        job.invokeOnCompletion {
+                            if (activeJobs.remove(task.songId, job)) {
+                                inFlight.remove(task.songId)
+                                semaphore.release()
+                                _serviceEvents.tryEmit(Unit)
+                            }
+                        }
+                        job.start()
                     }
                     delay(500)
                 }
@@ -476,6 +510,15 @@ object DownloadManager {
 
                     val body = resp.body ?: throw IOException("响应体为空")
                     val isPartial = (code == 206)
+                    if (isPartial) {
+                        val rangeStart = resp.header("Content-Range")
+                            ?.let { Regex("^bytes\\s+(\\d+)-", RegexOption.IGNORE_CASE).find(it) }
+                            ?.groupValues?.get(1)?.toLongOrNull()
+                        if (rangeStart != existingBytes) {
+                            tempAudioFile.delete()
+                            throw IOException("下载响应 Content-Range 起点与本地进度不一致")
+                        }
+                    }
                     val appendMode = isPartial && existingBytes > 0L
                     var downloaded = if (appendMode) existingBytes else 0L
                     val bodyLength = body.contentLength()
@@ -551,6 +594,8 @@ object DownloadManager {
         }
 
         // 4. 分析真实音频格式与计算真实码率
+        var filePath: String? = null
+        var fileUri: String? = null
         runCatching {
             val header4 = ByteArray(4)
             FileInputStream(tempAudioFile).use { it.read(header4) }
@@ -642,25 +687,61 @@ object DownloadManager {
                 task.groupFolder ?: if (task.album.isNotBlank()) sanitizeFileName(if (task.artist.isNotBlank()) "${task.artist} - ${task.album}" else task.album) else null
             } else null
 
+            // 标签和封面可能改变临时文件大小，以写入目标前的文件长度为准。
+            val expectedBytes = tempAudioFile.length()
+            val coroutineContext = currentCoroutineContext()
+            coroutineContext.ensureActive()
             val target = prepareOutputStream(context, task.songId, cleanTitle, ext, mimeType, subDirName)
             if (target == null) {
+                coroutineContext.ensureActive()
                 tempAudioFile.delete()
                 DownloadStore.markStatus(context, task.songId, DownloadStatus.FAILED, errorMsg = "创建目标存储文件失败")
                 return
             }
 
-            val (outStream, filePath, fileUri) = target
-            outStream.use { dest ->
-                FileInputStream(tempAudioFile).use { src ->
-                    src.copyTo(dest)
+            filePath = target.filePath
+            fileUri = target.fileUri
+            val written = target.stream.use { dest ->
+                val copiedBytes = FileInputStream(tempAudioFile).use { src ->
+                    val buffer = ByteArray(8192)
+                    var copied = 0L
+                    while (true) {
+                        coroutineContext.ensureActive()
+                        val count = src.read(buffer)
+                        if (count == -1) break
+                        dest.write(buffer, 0, count)
+                        copied += count
+                    }
+                    copied
                 }
                 dest.flush()
+                copiedBytes
             }
+            coroutineContext.ensureActive()
+            if (written != expectedBytes) {
+                throw IOException("文件保存字节数不一致：预期 $expectedBytes 字节，写入 $written 字节")
+            }
+            val savedBytes = filePath?.let { File(it).length() } ?: fileUri?.let { uri ->
+                // SAF 未提供大小或仅有写权限时，仍可校验复制字节数。
+                runCatching {
+                    context.contentResolver.query(Uri.parse(uri), arrayOf(OpenableColumns.SIZE), null, null, null)
+                        ?.use { cursor ->
+                            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                            if (sizeIndex >= 0 && cursor.moveToFirst() && !cursor.isNull(sizeIndex)) {
+                                cursor.getLong(sizeIndex).takeIf { it >= 0L }
+                            } else null
+                        }
+                }.getOrNull()
+            }
+            if (savedBytes != null && savedBytes != expectedBytes) {
+                throw IOException("文件落盘大小不一致：预期 $expectedBytes 字节，实际 $savedBytes 字节")
+            }
+            coroutineContext.ensureActive()
             tempAudioFile.delete()
 
             // 刷新系统媒体库
-            if (filePath != null) {
-                MediaScannerConnection.scanFile(context, arrayOf(filePath), arrayOf(mimeType), null)
+            filePath?.let { path ->
+                MediaScannerConnection.scanFile(context, arrayOf(path), arrayOf(mimeType), null)
             }
 
             // 标记完成
@@ -675,6 +756,16 @@ object DownloadManager {
                 actualQualityText = actualQualityText
             )
         }.onFailure { err ->
+            // SAF 备用文件名可能命中其他歌曲的文件，暂只清理本地路径。
+            filePath?.let { path ->
+                runCatching {
+                    val shared = DownloadStore.tasks.value.any { other ->
+                        other.songId != task.songId &&
+                                (other.filePath == path || (fileUri != null && other.fileUri == fileUri))
+                    }
+                    if (!shared) File(path).delete()
+                }
+            }
             if (activeCalls[task.songId]?.isCanceled() == true || activeJobs[task.songId]?.isActive == false) {
                 android.util.Log.d(TAG, "Task cancelled/paused by user: ${task.songId}")
             } else {
@@ -820,10 +911,20 @@ object DownloadManager {
             if (!oldPath.isNullOrBlank()) {
                 val oldFile = File(oldPath)
                 if (oldFile.exists()) {
-                    val destFile = File(targetDir, oldFile.name)
+                    var destFile = File(targetDir, oldFile.name)
                     if (oldFile.absolutePath != destFile.absolutePath) {
+                        if (destFile.exists()) {
+                            val dotIndex = oldFile.name.lastIndexOf('.')
+                            val stem = if (dotIndex >= 0) oldFile.name.substring(0, dotIndex) else oldFile.name
+                            val extension = if (dotIndex >= 0) oldFile.name.substring(dotIndex) else ""
+                            destFile = File(targetDir, "${stem}_${task.songId}$extension")
+                            var sequence = 1
+                            while (destFile.exists()) {
+                                destFile = File(targetDir, "${stem}_${task.songId}_${sequence++}$extension")
+                            }
+                        }
                         val moved = oldFile.renameTo(destFile) || runCatching {
-                            oldFile.copyTo(destFile, overwrite = true)
+                            oldFile.copyTo(destFile, overwrite = false)
                             oldFile.delete()
                             true
                         }.getOrDefault(false)
@@ -1101,10 +1202,6 @@ object DownloadManager {
                 Toast.makeText(context, "未找到文件管理器，目录已复制：\n${defaultDir.absolutePath}", Toast.LENGTH_LONG).show()
             }
         }
-    }
-
-    private fun sanitizeFileName(name: String): String {
-        return name.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
     }
 
     private fun formatSpeed(bytesPerSec: Float): String {

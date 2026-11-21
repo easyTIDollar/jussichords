@@ -37,16 +37,16 @@ import com.rcmiku.ncmapi.api.player.SongLevel
  * 经常落在同一个色相上，色带就变成一条纯色块，看不出时间花在哪一段。
  */
 
-/** 真实起播链路的四段：缓存 → 解析 → 播放器 → 校验。 */
+/** 起播时间线的四个阶段，与 PlaybackPath.Phase 一一对应。 */
 internal enum class PathStage(val label: String) {
-    CACHE("缓存与直达"),
+    CACHE_CHECK("检查缓存与本地文件"),
     RESOLVE("解析音源"),
-    PLAYER("播放器就绪"),
-    VERIFY("校验与兜底"),
+    CACHE_WRITE("缓存直链"),
+    PLAY("正式播放"),
 }
 
 /**
- * 固定色板：灰（缓存）· 蓝（解析）· 绿（播放器）· 橙（校验兜底）。
+ * 固定色板：灰（检查缓存）· 蓝（解析）· 紫（缓存直链）· 绿（正式播放）。
  *
  * 不用主题色是因为主题从壁纸/封面取色，primary / secondary / tertiary 经常落在同一色相上，
  * 色带就变成一整块同色。这里存 ARGB，Compose 面板和原生置顶小窗共用同一份。
@@ -54,30 +54,25 @@ internal enum class PathStage(val label: String) {
 internal object PathPalette {
     val cache = 0xFF8A93A5.toInt()
     val resolve = 0xFF3D7DFF.toInt()
+    val cacheWrite = 0xFF9B5DE5.toInt()
     val player = 0xFF17B978.toInt()
-    val verify = 0xFFF5A623.toInt()
 
     fun of(stage: PathStage): Int = when (stage) {
-        PathStage.CACHE -> cache
+        PathStage.CACHE_CHECK -> cache
         PathStage.RESOLVE -> resolve
-        PathStage.PLAYER -> player
-        PathStage.VERIFY -> verify
+        PathStage.CACHE_WRITE -> cacheWrite
+        PathStage.PLAY -> player
     }
 }
 
 internal val PathStage.color: Color
     get() = Color(PathPalette.of(this))
 
-internal fun stageOf(step: PlaybackPath.Step): PathStage {
-    val tags = step.tags
-    if (tags.contains("缓存")) return PathStage.CACHE
-    if (tags.contains("校验") || tags.contains("预取") || tags.contains("手动")) return PathStage.VERIFY
-    if (tags.contains("播放器") || step.name.startsWith("音频数据已就绪") ||
-        step.name.startsWith("播放加载失败") || step.name.startsWith("缓冲")
-    ) {
-        return PathStage.PLAYER
-    }
-    return PathStage.RESOLVE
+internal fun stageOf(step: PlaybackPath.Step): PathStage = when (step.phase) {
+    PlaybackPath.Phase.CACHE_CHECK -> PathStage.CACHE_CHECK
+    PlaybackPath.Phase.RESOLVE -> PathStage.RESOLVE
+    PlaybackPath.Phase.CACHE_WRITE -> PathStage.CACHE_WRITE
+    PlaybackPath.Phase.PLAY -> PathStage.PLAY
 }
 
 internal sealed interface RowItem {

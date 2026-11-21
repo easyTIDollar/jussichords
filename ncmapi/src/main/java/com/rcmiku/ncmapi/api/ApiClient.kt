@@ -25,6 +25,8 @@ import io.ktor.http.isSuccess
 import io.ktor.http.encodeURLParameter
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -51,7 +53,12 @@ import okhttp3.MediaType.Companion.toMediaType
 var API_BASE_URL = ""
 var UNBLOCK_SOURCE = "AUTO"
 @PublishedApi
-internal val okHttpUploadClient = OkHttpClient()
+internal val okHttpUploadClient = OkHttpClient.Builder()
+    .connectTimeout(15, TimeUnit.SECONDS)
+    .readTimeout(30, TimeUnit.SECONDS)
+    .writeTimeout(30, TimeUnit.SECONDS)
+    .callTimeout(60, TimeUnit.SECONDS)
+    .build()
 
 // 匿名（未登录）时给 eapi header 用的稳定 deviceId（每进程一个 32-hex）。
 @PublishedApi
@@ -135,6 +142,8 @@ suspend inline fun <reified T> apiGet(path: String, params: Map<String, Any> = e
     return runCatching {
         val body = requestNetease(path, params)
         json.decodeFromString<T>(body)
+    }.onFailure {
+        if (it is CancellationException) throw it
     }
 }
 

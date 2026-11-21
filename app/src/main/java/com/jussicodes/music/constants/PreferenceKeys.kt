@@ -24,6 +24,10 @@ val desktopLyricYFractionKey = floatPreferencesKey("desktopLyricYFraction")
 // 设置页预览背景：用户自选图片的本地路径，空=用内置默认图。
 val desktopLyricPreviewBgKey = stringPreferencesKey("desktopLyricPreviewBg")
 val currentPlayMediaIdKey = longPreferencesKey("currentPlayMediaId")
+/** 播放循环模式，缺省为 Player.REPEAT_MODE_OFF（0）。 */
+val playRepeatModeKey = intPreferencesKey("playRepeatMode")
+/** 随机播放开关，缺省为 false。 */
+val playShuffleEnabledKey = booleanPreferencesKey("playShuffleEnabled")
 val autoSkipNextOnErrorKey = booleanPreferencesKey("autoSkipNextOnError")
 val audioQualityKey = stringPreferencesKey("audioQuality")
 // 与其他音频同时播放：true（默认）= 不申请音频焦点，可与其它应用混音；false = 独占焦点。
@@ -38,6 +42,9 @@ val audioEffectReverbEnabledKey = booleanPreferencesKey("audioEffectReverbEnable
 val audioEffectIntensityKey = floatPreferencesKey("audioEffectIntensity")
 val audioEffectSpeedKey = floatPreferencesKey("audioEffectSpeed")
 val themeColorSourceKey = stringPreferencesKey("themeColorSource")
+val themeModeKey = stringPreferencesKey("themeMode")
+val themePrimaryColorKey = longPreferencesKey("themePrimaryColor")
+val themeSecondaryColorKey = longPreferencesKey("themeSecondaryColor")
 val lyricTranslationEnabledKey = booleanPreferencesKey("lyricTranslationEnabled")
 val wordLyricEnabledKey = booleanPreferencesKey("wordLyricEnabled")
 val userIdKye = longPreferencesKey("userId")
@@ -83,6 +90,7 @@ val homeBgOffsetYKey = floatPreferencesKey("homeBgOffsetY")
 /** 主页（我的/探索）文字颜色："auto"（默认，跟随主题）/"white"/"black"。 */
 val homeBgTextColorKey = stringPreferencesKey("homeBgTextColor")
 val fontScaleKey = floatPreferencesKey("fontScale")
+val lyricFontScaleKey = floatPreferencesKey("lyricFontScale")
 val homeBgTextShadowKey = floatPreferencesKey("homeBgTextShadow")
 val lyricSourceKey = stringPreferencesKey("lyric_source")
 val githubDownloadSourceKey = stringPreferencesKey("githubDownloadSource")

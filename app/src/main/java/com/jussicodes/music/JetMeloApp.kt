@@ -38,6 +38,9 @@ import com.jussicodes.music.data.PinnedAlbumStore
 import com.jussicodes.music.utils.AppVisibilityTracker
 import com.jussicodes.music.utils.AppUpdateManager
 import com.jussicodes.music.utils.CacheManager
+import com.jussicodes.music.utils.FavoriteSongIdsUtil
+import com.jussicodes.music.utils.FavoriteSongSyncBus
+import com.jussicodes.music.utils.GreySongRegistry
 import com.jussicodes.music.utils.UserAgentUtil
 import com.jussicodes.music.utils.apiServers
 import com.jussicodes.music.utils.dataStore
@@ -64,6 +67,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 
 /** 音源相关设置的五元组（一起 collect，任一变化都重新同步到 ncmapi 全局变量）。 */
 private data class AudioSync(
@@ -146,7 +150,31 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory, Configuration.Pr
         // 统一汇进 PlaybackPath —— 播放页「可视化播放解析」面板就是这条链的回放。
         // 事件带 songId：预取下一首也会走解析，不能让它混进当前歌的时间线。
         com.rcmiku.ncmapi.api.PlayUrlTrace.sink = { songId, name, detail, tags ->
+            if (name.startsWith("QQ 音源命中")) {
+                val pureId = songId.substringBefore('?')
+                pureId.toLongOrNull()?.let { id ->
+                    // 会员/付费专辑歌曲走 QQ 兜底不代表无版权；拿不到元信息就不标，
+                    // 交给点红心时的三态探测（officialPlayState）去判。
+                    val cachedSong = com.jussicodes.music.lx.SongJsonCache.get(pureId)
+                        ?.let {
+                            runCatching {
+                                com.rcmiku.ncmapi.utils.json.decodeFromString<com.rcmiku.ncmapi.model.Song>(it)
+                            }.getOrNull()
+                        }
+                    if (cachedSong != null && cachedSong.fee != 1 && cachedSong.fee != 4) {
+                        GreySongRegistry.markGrey(applicationContext, id)
+                    }
+                }
+            }
             com.jussicodes.music.playback.PlaybackPath.stepFor(songId, name, detail, tags)
+        }
+        applicationScope.launch {
+            FavoriteSongIdsUtil.localStateMutex.withLock {
+                GreySongRegistry.load(applicationContext)
+                GreySongRegistry.likedSongs().forEach { song ->
+                    FavoriteSongSyncBus.setLiked(song, true)
+                }
+            }
         }
         // LX 沙盒仅在解析请求中按需创建；播放路径会等待页面和脚本就绪。
         // 首页必要快照先恢复并发布，再解码探索缓存和专辑墙。
@@ -255,6 +283,11 @@ class JetMeloApp : Application(), SingletonImageLoader.Factory, Configuration.Pr
                     // cacheKey 需要它：换源后旧直链缓存才会失效
                     PlaybackReloadBus.sourceTag = "$selected/$direct"
                 }
+        }
+        // 冷启动推一帧：Glance 只在收到 state 更新时才重组，否则桌面上会一直停在安装前的旧帧。
+        applicationScope.launch(Dispatchers.IO) {
+            delay(2_000)
+            runCatching { com.jussicodes.music.widget.WidgetHub.updateAll(this@JetMeloApp) }
         }
     }
 
